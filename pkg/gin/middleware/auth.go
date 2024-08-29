@@ -3,6 +3,8 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"time"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
@@ -69,9 +71,23 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 	o.apply(opts...)
 
 	return func(c *gin.Context) {
+		reqID := ""
+		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+			zap.String("method", c.Request.Method),
+			zap.String("url", c.Request.URL.String()),
+		}
+		if v, isExist := c.Get(ContextRequestIDKey); isExist {
+			if requestID, ok := v.(string); ok {
+				reqID = requestID
+				fields = append(fields, zap.String(ContextRequestIDKey, reqID))
+			}
+		}
+
 		authorization := c.GetHeader(HeaderAuthorizationKey)
 		if len(authorization) < 150 {
-			logger.Warn("authorization is illegal")
+			fields = append(fields, zap.String(HeaderAuthorizationKey, authorization))
+			logger.Warn("authorization is illegal", fields...)
 			responseUnauthorized(c, o.isSwitchHTTPCode)
 			c.Abort()
 			return
@@ -80,7 +96,8 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 		token := authorization[7:] // remove Bearer prefix
 		claims, err := jwt.ParseToken(token)
 		if err != nil {
-			logger.Warn("ParseToken error", logger.Err(err))
+			fields = append(fields, zap.String("token", token), zap.Error(err))
+			logger.Warn("ParseToken error", fields...)
 			responseUnauthorized(c, o.isSwitchHTTPCode)
 			c.Abort()
 			return
@@ -89,7 +106,8 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 		if o.verify != nil {
 			tokenTail10 := token[len(token)-10:]
 			if err = o.verify(claims, tokenTail10, c); err != nil {
-				logger.Warn("verify error", logger.Err(err), logger.String("uid", claims.UID), logger.String("name", claims.Name))
+				fields = append(fields, zap.Error(err), logger.String("uid", claims.UID), logger.String("name", claims.Name))
+				logger.Warn("verify error", fields...)
 				responseUnauthorized(c, o.isSwitchHTTPCode)
 				c.Abort()
 				return

@@ -16,6 +16,8 @@ var (
 
 	// HeaderXRequestIDKey header request id key
 	HeaderXRequestIDKey = "X-Request-Id"
+
+	RequestValue = krand.String(krand.R_NUM, 32)
 )
 
 // RequestIDOption set the request id  options.
@@ -24,12 +26,14 @@ type RequestIDOption func(*requestIDOptions)
 type requestIDOptions struct {
 	contextRequestIDKey string
 	headerXRequestIDKey string
+	requestValue        string
 }
 
 func defaultRequestIDOptions() *requestIDOptions {
 	return &requestIDOptions{
 		contextRequestIDKey: ContextRequestIDKey,
 		headerXRequestIDKey: HeaderXRequestIDKey,
+		requestValue:        RequestValue,
 	}
 }
 
@@ -68,6 +72,12 @@ func WithHeaderRequestIDKey(key string) RequestIDOption {
 	}
 }
 
+func WithRequestIDValue(value string) RequestIDOption {
+	return func(o *requestIDOptions) {
+		o.requestValue = value
+	}
+}
+
 // CtxKeyString for context.WithValue key type
 type CtxKeyString string
 
@@ -85,13 +95,15 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		// Check for incoming header, use it if exists
-		requestID := c.Request.Header.Get(HeaderXRequestIDKey)
+		//requestID := c.Request.Header.Get(HeaderXRequestIDKey)
+		//
+		//// Create request id
+		//if requestID == "" {
+		//	requestID = krand.String(krand.R_All, 10)
+		//	c.Request.Header.Set(HeaderXRequestIDKey, requestID)
+		//}
 
-		// Create request id
-		if requestID == "" {
-			requestID = krand.String(krand.R_All, 10)
-			c.Request.Header.Set(HeaderXRequestIDKey, requestID)
-		}
+		requestID := o.requestValue
 
 		// Expose it for use in the application
 		c.Set(ContextRequestIDKey, requestID)
