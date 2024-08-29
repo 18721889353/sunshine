@@ -3,13 +3,14 @@ package interceptor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 
-	zapLog "github.com/18721889353/sunshine/pkg/logger"
+	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ---------------------------------- client interceptor ----------------------------------
@@ -22,7 +23,7 @@ func UnaryClientLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryClientInter
 		logger, _ = zap.NewProduction()
 	}
 	if o.isReplaceGRPCLogger {
-		zapLog.ReplaceGRPCLoggerV2(logger)
+		pkgLogger.ReplaceGRPCLoggerV2(logger)
 	}
 
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
@@ -34,19 +35,34 @@ func UnaryClientLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryClientInter
 		} else {
 			reqIDField = zap.Skip()
 		}
+		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+			zap.String("type", "unary"),
+			zap.String("method", method),
+			pkgLogger.Any("request", req),
+			reqIDField,
+		}
+		fields = append(fields, zap.String("log_from", o.logFrom+" invoker request UnaryClientLog"))
+		pkgLogger.Info("invoker request", fields...)
 
 		err := invoker(ctx, method, req, reply, cc, opts...)
 
-		fields := []zap.Field{
+		fields = []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
-			zap.Error(err),
 			zap.String("type", "unary"),
 			zap.String("method", method),
-			zap.Int64("time_us", time.Since(startTime).Microseconds()),
+			pkgLogger.Any("reply", reply),
+
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
 			reqIDField,
 		}
+		if err != nil {
+			fields = append(fields, zap.String("err", err.Error()))
+		}
 
-		logger.Info("invoker result", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+" invoker result UnaryClientLog"))
+		pkgLogger.Info("invoker result", fields...)
 		return err
 	}
 }
@@ -59,7 +75,7 @@ func StreamClientLog(logger *zap.Logger, opts ...LogOption) grpc.StreamClientInt
 		logger, _ = zap.NewProduction()
 	}
 	if o.isReplaceGRPCLogger {
-		zapLog.ReplaceGRPCLoggerV2(logger)
+		pkgLogger.ReplaceGRPCLoggerV2(logger)
 	}
 
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string,
@@ -76,15 +92,22 @@ func StreamClientLog(logger *zap.Logger, opts ...LogOption) grpc.StreamClientInt
 		clientStream, err := streamer(ctx, desc, cc, method, opts...)
 
 		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
-			zap.Error(err),
 			zap.String("type", "stream"),
 			zap.String("method", method),
-			zap.Int64("time_us", time.Since(startTime).Microseconds()),
+
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
+
 			reqIDField,
 		}
+		if err != nil {
+			fields = append(fields, zap.String("err", err.Error()))
+		}
 
+		fields = append(fields, zap.String("log_from", "gw StreamClientLog"))
 		logger.Info("invoker result", fields...)
+
 		return clientStream, err
 	}
 }
@@ -100,18 +123,35 @@ type logOptions struct {
 	fields              map[string]interface{}
 	ignoreMethods       map[string]struct{}
 	isReplaceGRPCLogger bool
+	maxLength           int
+	logFrom             string
 }
 
 func defaultLogOptions() *logOptions {
 	return &logOptions{
 		fields:        make(map[string]interface{}),
 		ignoreMethods: make(map[string]struct{}),
+		maxLength:     300,
+		logFrom:       "",
 	}
 }
 
 func (o *logOptions) apply(opts ...LogOption) {
 	for _, opt := range opts {
 		opt(o)
+	}
+}
+
+func WithMaxLen(maxLen int) LogOption {
+	return func(o *logOptions) {
+		o.maxLength = maxLen
+	}
+}
+
+// WithLogFrom logger logFrom
+func WithLogFrom(logFrom string) LogOption {
+	return func(o *logOptions) {
+		o.logFrom = logFrom
 	}
 }
 
@@ -153,7 +193,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 		logger, _ = zap.NewProduction()
 	}
 	if o.isReplaceGRPCLogger {
-		zapLog.ReplaceGRPCLoggerV2(logger)
+		pkgLogger.ReplaceGRPCLoggerV2(logger)
 	}
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -166,6 +206,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 		requestID := ServerCtxRequestID(ctx)
 
 		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
 			zap.Any("request", req),
@@ -173,26 +214,30 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
+		fields = append(fields, zap.String("log_from", o.logFrom+" request UnaryServerLog"))
 		logger.Info("<<<<", fields...)
 
 		resp, err := handler(ctx, req)
 
 		data, _ := json.Marshal(resp)
-		if len(data) > 300 {
-			data = append(data[:300], []byte("......")...)
+		if len(data) > o.maxLength {
+			data = append(data[:o.maxLength], []byte("......")...)
 		}
-
 		fields = []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
-			zap.Error(err),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
 			zap.String("response", string(data)),
-			zap.Int64("time_us", time.Since(startTime).Microseconds()),
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
+		}
+		if err != nil {
+			fields = append(fields, zap.String("err", err.Error()))
 		}
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
+		fields = append(fields, zap.String("log_from", o.logFrom+" response UnaryServerLog"))
 		logger.Info(">>>>", fields...)
 
 		return resp, err
@@ -209,7 +254,7 @@ func UnaryServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServe
 		logger, _ = zap.NewProduction()
 	}
 	if o.isReplaceGRPCLogger {
-		zapLog.ReplaceGRPCLoggerV2(logger)
+		pkgLogger.ReplaceGRPCLoggerV2(logger)
 	}
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
@@ -224,15 +269,20 @@ func UnaryServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServe
 		resp, err := handler(ctx, req)
 
 		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
-			zap.Error(err),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
-			zap.Int64("time_us", time.Since(startTime).Microseconds()),
+
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
+		}
+		if err != nil {
+			fields = append(fields, zap.String("err", err.Error()))
 		}
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
+		fields = append(fields, zap.String("log_from", o.logFrom+"[GRPC] UnaryServerSimpleLog"))
 		logger.Info("[GRPC]", fields...)
 
 		return resp, err
@@ -249,7 +299,7 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		logger, _ = zap.NewProduction()
 	}
 	if o.isReplaceGRPCLogger {
-		zapLog.ReplaceGRPCLoggerV2(logger)
+		pkgLogger.ReplaceGRPCLoggerV2(logger)
 	}
 
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -262,25 +312,31 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		requestID := ServerCtxRequestID(stream.Context())
 
 		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("type", "stream"),
 			zap.String("method", info.FullMethod),
 		}
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
+		fields = append(fields, zap.String("log_from", "gw StreamServerLog"))
+
 		logger.Info("<<<<", fields...)
 
 		err := handler(srv, stream)
 
 		fields = []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "stream"),
 			zap.String("method", info.FullMethod),
-			zap.Int64("time_us", time.Since(startTime).Microseconds()),
+
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
 		}
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
+		fields = append(fields, zap.String("log_from", o.logFrom+" >>>> StreamServerLog"))
 		logger.Info(">>>>", fields...)
 
 		return err
@@ -297,7 +353,7 @@ func StreamServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.StreamSer
 		logger, _ = zap.NewProduction()
 	}
 	if o.isReplaceGRPCLogger {
-		zapLog.ReplaceGRPCLoggerV2(logger)
+		pkgLogger.ReplaceGRPCLoggerV2(logger)
 	}
 
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -312,16 +368,19 @@ func StreamServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.StreamSer
 		err := handler(srv, stream)
 
 		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "stream"),
 			zap.String("method", info.FullMethod),
-			zap.Int64("time_us", time.Since(startTime).Microseconds()),
+
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
 		}
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		logger.Info("[GRPC]", fields...)
 
+		fields = append(fields, zap.String("log_from", o.logFrom+"[GRPC] StreamServerSimpleLog"))
+		logger.Info("[GRPC]", fields...)
 		return err
 	}
 }
