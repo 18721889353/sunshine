@@ -11,12 +11,12 @@
 
 ### Windows环境
 
-> 因为sponge依赖一些linux命令，因此在windows环境中需要安装git bash、make来支持linux命令环境。
+> 因为sunshine依赖一些linux命令，因此在windows环境中需要安装git bash、make来支持linux命令环境。
 
-为了安装方便，已经把sponge及其依赖的程序打包在一起，下载地址(选择一个下载即可)：
+为了安装方便，已经把sunshine及其依赖的程序打包在一起，下载地址(选择一个下载即可)：
 
-- 百度云：[**sponge-install.zip**](https://pan.baidu.com/s/1fiTiMROkiIIzAdj2bk93CA?pwd=prys)。
-- 蓝奏云：[**sponge安装文件**](https://wwm.lanzoue.com/b049fldpi) 密码:5rq9，共下载4个文件，安装前先看`安装说明.txt`文件。
+- 百度云：[**sunshine-install.zip**](https://pan.baidu.com/s/1fiTiMROkiIIzAdj2bk93CA?pwd=prys)。
+- 蓝奏云：[**sunshine安装文件**](https://wwm.lanzoue.com/b049fldpi) 密码:5rq9，共下载4个文件，安装前先看`安装说明.txt`文件。
 
 下载文件后：
 
@@ -25,19 +25,19 @@
 (2) 在任意文件夹下右键(显示更多选项)，选择【Open Git Bash here】打开git bash终端：
 
 ```bash
-# 初始化sponge，自动安装sponge依赖插件
-sponge init
+# 初始化sunshine，自动安装sunshine依赖插件
+sunshine init
 
-# 查看sponge版本
-sponge -v
+# 查看sunshine版本
+sunshine -v
 ```
 
 注意：
 
-- 使用sponge开发项目时，请使用git bash终端，不要使用系统默认的cmd，否则会出现找不到命令的错误。
-- 不要在`GOBIN`目录(sponge可执行文件所在的目录)下打开终端来执行命令`sponge run`。
+- 使用sunshine开发项目时，请使用git bash终端，不要使用系统默认的cmd，否则会出现找不到命令的错误。
+- 不要在`GOBIN`目录(sunshine可执行文件所在的目录)下打开终端来执行命令`sunshine run`。
 
-在windows除了上面安装sponge方式，还提供了原生安装，点击查看【安装 sponge】 --> 【windows环境】[安装文档](https://go-sponge.com/zh-cn/quick-start?id=%e5%ae%89%e8%a3%85-sponge)。
+在windows除了上面安装sunshine方式，还提供了原生安装，点击查看【安装 sunshine】 --> 【windows环境】[安装文档](https://go-sunshine.com/zh-cn/quick-start?id=%e5%ae%89%e8%a3%85-sunshine)。
 
 <br>
 
@@ -68,7 +68,7 @@ go env GOBIN
 
 <br>
 
-(2) 把sponge及其依赖的插件安装到 `GOBIN` 目录。
+(2) 把sunshine及其依赖的插件安装到 `GOBIN` 目录。
 
 **✅ 安装 protoc**
 
@@ -77,20 +77,20 @@ go env GOBIN
 根据系统类型下载对应的 **protoc** 可执行文件，把 **protoc** 可执行文件移动到`GOBIN`目录下。
 
 ```bash
-# 安装sponge
-go install github.com/18721889353/sunshine/cmd/sponge@latest
+# 安装sunshine
+go install github.com/18721889353/sunshine/cmd/sunshine@latest
 
-# 初始化sponge，自动安装sponge依赖插件
-sponge init
+# 初始化sunshine，自动安装sunshine依赖插件
+sunshine init
 
-# 查看插件是否都安装成功，如果发现有插件没有安装成功，执行命令重试 sponge plugins --install
-sponge plugins
+# 查看插件是否都安装成功，如果发现有插件没有安装成功，执行命令重试 sunshine plugins --install
+sunshine plugins
 
-# 查看sponge版本
-sponge -v
+# 查看sunshine版本
+sunshine -v
 ```
 
-> 注：不要在`GOBIN`目录下打开终端来执行命令`sponge run`。
+> 注：不要在`GOBIN`目录下打开终端来执行命令`sunshine run`。
 
 <br>
 
@@ -100,12 +100,12 @@ sponge -v
 
 ### Docker环境
 
-> ⚠ 使用docker启动的sponge UI服务，只支持在界面操作来生成代码功能，如果需要在生成的服务代码基础上进行开发，还是需要根据上面的安装说明，在本地安装sponge和依赖插件。
+> ⚠ 使用docker启动的sunshine UI服务，只支持在界面操作来生成代码功能，如果需要在生成的服务代码基础上进行开发，还是需要根据上面的安装说明，在本地安装sunshine和依赖插件。
 
 **方式一：Docker启动**
 
 ```bash
-docker run -d --name sponge -p 24631:24631 zhufuyi/sponge:latest -a http://你的宿主机ip:24631
+docker run -d --name sunshine -p 24631:24631 18721889353/sunshine:latest -a http://你的宿主机ip:24631
 ```
 
 <br>
@@ -118,9 +118,9 @@ docker-compose.yaml 文件内容如下：
 version: "3.7"
 
 services:
-  sponge:
-    image: zhufuyi/sponge:latest
-    container_name: sponge
+  sunshine:
+    image: 18721889353/sunshine:latest
+    container_name: sunshine
     restart: always
     command: ["-a","http://你的宿主机ip:24631"]
     ports:

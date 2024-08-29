@@ -12,7 +12,7 @@ func GRPCServiceCode() *cobra.Command {
 		Long: `merge the generated grpc related code into the template file.
 
 Examples:
-  sponge merge rpc-pb
+  sunshine merge rpc-pb
 `,
 		SilenceErrors: true,
 		SilenceUsage:  true,

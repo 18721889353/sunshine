@@ -31,7 +31,7 @@ If applicable, add screenshots to help explain your problem.
 **Environments (please complete the following information):**
 
 - OS: [e.g. Linux]
-- sponge version [e.g. 1.1.1]
+- sunshine version [e.g. 1.1.1]
 
 **More description**
 Add any other context about the problem here.

@@ -1,5 +1,5 @@
 definitions:
-  github_com_zhufuyi_sponge_internal_types.Column:
+  github_com_18721889353_sunshine_internal_types.Column:
     properties:
       exp:
         description: expressions, which default to = when the value is null, have
@@ -15,12 +15,12 @@ definitions:
       value:
         description: column value
     type: object
-  github_com_zhufuyi_sponge_internal_types.Params:
+  github_com_18721889353_sunshine_internal_types.Params:
     properties:
       columns:
         description: query conditions
         items:
-          $ref: '#/definitions/github_com_zhufuyi_sponge_internal_types.Column'
+          $ref: '#/definitions/github_com_18721889353_sunshine_internal_types.Column'
         type: array
       limit:
         description: lines per page
@@ -315,7 +315,7 @@ paths:
         name: data
         required: true
         schema:
-          $ref: '#/definitions/github_com_zhufuyi_sponge_internal_types.Params'
+          $ref: '#/definitions/github_com_18721889353_sunshine_internal_types.Params'
       produces:
       - application/json
       responses:

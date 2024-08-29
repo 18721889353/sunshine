@@ -12,7 +12,7 @@ func GinServiceCode() *cobra.Command {
 		Long: `merge the generated grpc gateway related code into the template file.
 
 Examples:
-  sponge merge rpc-gw-pb
+  sunshine merge rpc-gw-pb
 `,
 		SilenceErrors: true,
 		SilenceUsage:  true,

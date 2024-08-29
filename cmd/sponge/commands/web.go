@@ -3,7 +3,7 @@ package commands
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/18721889353/sunshine/cmd/sponge/commands/generate"
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
 )
 
 // GenWebCommand generate web server code

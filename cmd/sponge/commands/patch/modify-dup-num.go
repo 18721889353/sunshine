@@ -34,7 +34,7 @@ func ModifyDuplicateNumCommand() *cobra.Command {
 
 Examples:
   # modify duplicate numbers
-  sponge patch modify-dup-num --dir=internal/ecode
+  sunshine patch modify-dup-num --dir=internal/ecode
 
 `,
 		SilenceErrors: true,

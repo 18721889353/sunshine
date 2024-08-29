@@ -28,10 +28,10 @@ func ModifyProtoPackageCommand() *cobra.Command {
 
 Examples:
   # modify the package and go_package names of all proto files in the api directory.
-  sponge patch modify-proto-package --dir=api --module-name=foo
+  sunshine patch modify-proto-package --dir=api --module-name=foo
 
   # modify the package and go_package names of all proto files in the api directory, get module name from docs/gen.
-  sponge patch modify-proto-package --dir=api --server-dir=server
+  sunshine patch modify-proto-package --dir=api --server-dir=server
 
 `,
 		SilenceErrors: true,

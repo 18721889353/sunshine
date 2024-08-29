@@ -90,8 +90,8 @@ if [ -d "${testServerDir}" ]; then
   echo "service ${testServerDir} already exists"
 else
   echo "create service ${testServerDir}"
-  echo -e "${colorCyan}sponge micro rpc-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcpbdemo --protobuf-file=./files/user2.proto --out=./${testServerDir} ${markEnd}"
-  sponge micro rpc-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcpbdemo --protobuf-file=./files/user2.proto --out=./${testServerDir}
+  echo -e "${colorCyan}sunshine micro rpc-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcpbdemo --protobuf-file=./files/user2.proto --out=./${testServerDir} ${markEnd}"
+  sunshine micro rpc-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcpbdemo --protobuf-file=./files/user2.proto --out=./${testServerDir}
   checkResult $?
 fi
 
@@ -104,7 +104,7 @@ checkResult $?
 
 #cp -r ../pkg .
 #checkResult $?
-#sed -i "s/github.com\/zhufuyi\/sponge\/pkg\/grpc\/benchmark/${testServerName}\/pkg\/grpc\/benchmark/g" internal/service/${mysqlTable}_client_test.go
+#sed -i "s/github.com\/18721889353\/sunshine\/pkg\/grpc\/benchmark/${testServerName}\/pkg\/grpc\/benchmark/g" internal/service/${mysqlTable}_client_test.go
 #checkResult $?
 
 echo "replace the sample template code"

@@ -16,4 +16,4 @@ Generic grpc client.
 	)
 ```
 
-Examples of practical use https://github.com/zhufuyi/grpc_examples/blob/main/usage/client/main.go
+Examples of practical use https://github.com/18721889353/grpc_examples/blob/main/usage/client/main.go

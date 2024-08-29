@@ -1,4 +1,4 @@
-// Package server is a sponge UI service that contains the front-end pages.
+// Package server is a sunshine UI service that contains the front-end pages.
 package server
 
 import (
@@ -28,7 +28,7 @@ var frontendDir = "frontend"
 var ConfigJsFile = "static/appConfig.js"
 
 // NewRouter create a router
-func NewRouter(spongeAddr string, isLog bool) *gin.Engine {
+func NewRouter(sunshineAddr string, isLog bool) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -44,7 +44,7 @@ func NewRouter(spongeAddr string, isLog bool) *gin.Engine {
 	// determine whether you need to use Embed.FS static resources based on the default configured address,
 	// if it is not the default address, copy the read-only Embed.FS static resources locally and then modify the default
 	// configured address, so dynamically configure the service address based on the parameter.
-	if checkIsUseEmbedFS(frontendDir, spongeAddr) {
+	if checkIsUseEmbedFS(frontendDir, sunshineAddr) {
 		r.GET("/static/*filepath", func(c *gin.Context) {
 			staticServer := http.FileServer(http.FS(staticFS))
 			staticServer.ServeHTTP(c.Writer, c.Request)
@@ -68,10 +68,10 @@ func NewRouter(spongeAddr string, isLog bool) *gin.Engine {
 }
 
 // RunHTTPServer run http server
-func RunHTTPServer(spongeAddr string, port int, isLog bool) {
+func RunHTTPServer(sunshineAddr string, port int, isLog bool) {
 	initRecord()
 
-	router := NewRouter(spongeAddr, isLog)
+	router := NewRouter(sunshineAddr, isLog)
 	server := &http.Server{
 		Addr:           fmt.Sprintf(":%d", port),
 		Handler:        router,
@@ -83,18 +83,18 @@ func RunHTTPServer(spongeAddr string, port int, isLog bool) {
 	}
 }
 
-func checkIsUseEmbedFS(targetDir string, spongeAddr string) bool {
-	if spongeAddr == defaultAddr {
+func checkIsUseEmbedFS(targetDir string, sunshineAddr string) bool {
+	if sunshineAddr == defaultAddr {
 		return true
 	}
-	err := saveFSToLocal(targetDir, spongeAddr)
+	err := saveFSToLocal(targetDir, sunshineAddr)
 	if err != nil {
 		panic(err)
 	}
 	return false
 }
 
-func saveFSToLocal(targetDir string, spongeAddr string) error {
+func saveFSToLocal(targetDir string, sunshineAddr string) error {
 	_ = os.RemoveAll(filepath.Join(targetDir, "static"))
 	time.Sleep(time.Millisecond * 10)
 
@@ -120,7 +120,7 @@ func saveFSToLocal(targetDir string, spongeAddr string) error {
 
 			// replace config address
 			if path == ConfigJsFile {
-				content = bytes.ReplaceAll(content, []byte(defaultAddr), []byte(spongeAddr))
+				content = bytes.ReplaceAll(content, []byte(defaultAddr), []byte(sunshineAddr))
 			}
 
 			// Save the content to the local file

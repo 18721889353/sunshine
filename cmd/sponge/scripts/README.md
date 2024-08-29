@@ -1,16 +1,16 @@
 ## Build and Push Image
 
 ```bash
-# build sponge image
-./build-sponge-image.sh v1.8.3
+# build sunshine image
+./build-sunshine-image.sh v1.8.3
 
 # copy tag
-docker tag zhufuyi/sponge:v1.8.3 zhufuyi/sponge:latest
+docker tag 18721889353/sunshine:v1.8.3 18721889353/sunshine:latest
 
 # login docker
-docker login -u zhufuyi -p
+docker login -u 18721889353 -p
 
 # push image
-docker push zhufuyi/sponge:v1.8.3
-docker push zhufuyi/sponge:latest
+docker push 18721889353/sunshine:v1.8.3
+docker push 18721889353/sunshine:latest
 ```

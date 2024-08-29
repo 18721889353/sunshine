@@ -113,7 +113,7 @@ deploy-k8s:
 .PHONY: update-config
 # Update internal/config code base on yaml file
 update-config:
-	@sponge config --server-dir=.
+	@sunshine config --server-dir=.
 
 
 .PHONY: clean

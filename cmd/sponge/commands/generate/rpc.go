@@ -42,19 +42,19 @@ func RPCCommand() *cobra.Command {
 
 Examples:
   # generate grpc service code.
-  sponge micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+  sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
   # generate grpc service code with multiple table names.
-  sponge micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
+  sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
   # generate grpc service code with extended api.
-  sponge micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
+  sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
   # generate grpc service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
+  sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
   # generate grpc service code and specify the docker image repository address.
-  sponge micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+  sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
   # if you want the generated code to suited to mono-repo, you need to specify the parameter --suited-mono-repo=true
 `),
@@ -156,7 +156,7 @@ using help:
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
 	_ = cmd.MarkFlagRequired("project-name")
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sponge_sqlite.db") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
 	_ = cmd.MarkFlagRequired("db-table")
@@ -188,23 +188,23 @@ type rpcGenerator struct {
 
 func (g *rpcGenerator) generateCode() (string, error) {
 	subTplName := "rpc"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
 
 	// specify the subdirectory and files
 	subDirs := []string{
-		"cmd/serverNameExample_grpcExample", "sponge/configs",
-		"sponge/deployments", "sponge/scripts", "sponge/third_party",
+		"cmd/serverNameExample_grpcExample", "sunshine/configs",
+		"sunshine/deployments", "sunshine/scripts", "sunshine/third_party",
 	}
 	subFiles := []string{
-		"sponge/.gitignore", "sponge/.golangci.yml", "sponge/go.mod", "sponge/go.sum",
-		"sponge/Jenkinsfile", "sponge/Makefile", "sponge/README.md",
+		"sunshine/.gitignore", "sunshine/.golangci.yml", "sunshine/go.mod", "sunshine/go.sum",
+		"sunshine/Jenkinsfile", "sunshine/Makefile", "sunshine/README.md",
 	}
 
 	if g.suitedMonoRepo {
-		subFiles = removeElements(subFiles, "sponge/go.mod", "sponge/go.sum")
+		subFiles = removeElements(subFiles, "sunshine/go.mod", "sunshine/go.sum")
 	}
 
 	selectFiles := map[string][]string{
@@ -277,7 +277,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	subFiles = append(subFiles, getSubFiles(selectFiles, replaceFiles)...)
 
 	// ignore some directories and files
-	ignoreDirs := []string{"cmd/sponge"}
+	ignoreDirs := []string{"cmd/sunshine"}
 	ignoreFiles := []string{"scripts/swag-docs.sh"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
@@ -395,7 +395,7 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: k8sServiceFileMark,
 			New: k8sServiceFileGrpcCode,
 		},
-		{ // replace github.com/18721889353/sunshine/templates/sponge
+		{ // replace github.com/18721889353/sunshine/templates/sunshine
 			Old: selfPackageName + "/" + r.GetSourcePath(),
 			New: g.moduleName,
 		},
@@ -412,9 +412,9 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: g.moduleName + pkgPathSuffix,
 			New: "github.com/18721889353/sunshine/pkg",
 		},
-		{ // replace the sponge version of the go.mod file
-			Old: spongeTemplateVersionMark,
-			New: getLocalSpongeTemplateVersion(),
+		{ // replace the sunshine version of the go.mod file
+			Old: sunshineTemplateVersionMark,
+			New: getLocalSunshineTemplateVersion(),
 		},
 		{
 			Old: "api/userExample/v1",
@@ -425,7 +425,7 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: fmt.Sprintf("api.%s.v1", g.serverName), // protobuf package no "-" signs allowed
 		},
 		{
-			Old: "sponge api docs",
+			Old: "sunshine api docs",
 			New: g.serverName + apiDocsSuffix,
 		},
 		{
@@ -483,7 +483,7 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: g.dbDSN,
 		},
 		{
-			Old: "test/sql/sqlite/sponge.db",
+			Old: "test/sql/sqlite/sunshine.db",
 			New: sqliteDSNAdaptation(g.dbDriver, g.dbDSN),
 		},
 		{

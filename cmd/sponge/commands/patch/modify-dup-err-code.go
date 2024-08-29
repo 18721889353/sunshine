@@ -24,7 +24,7 @@ func ModifyDuplicateErrCodeCommand() *cobra.Command {
 
 Examples:
   # modify duplicate error codes
-  sponge patch modify-dup-err-code --dir=internal/ecode
+  sunshine patch modify-dup-err-code --dir=internal/ecode
 
 `,
 		SilenceErrors: true,

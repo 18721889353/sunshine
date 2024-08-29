@@ -27,8 +27,8 @@ import (
 )
 
 var (
-	recordDirName = "sponge_record"
-	saveDir       = fmt.Sprintf("%s/.%s", getSpongeDir(), recordDirName)
+	recordDirName = "sunshine_record"
+	saveDir       = fmt.Sprintf("%s/.%s", getSunshineDir(), recordDirName)
 )
 
 type dbInfoForm struct {
@@ -149,11 +149,11 @@ func handleGenerateCode(c *gin.Context, outPath string, arg string) {
 		out += "-mono-repo"
 	}
 
-	out = os.TempDir() + gofile.GetPathDelimiter() + "sponge-generate-code" + gofile.GetPathDelimiter() + out
+	out = os.TempDir() + gofile.GetPathDelimiter() + "sunshine-generate-code" + gofile.GetPathDelimiter() + out
 	args = append(args, fmt.Sprintf("--out=%s", out))
 
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute*2) // nolint
-	result := gobash.Run(ctx, "sponge", args...)
+	result := gobash.Run(ctx, "sunshine", args...)
 	for v := range result.StdOut {
 		_ = v
 	}
@@ -251,9 +251,9 @@ func UploadFiles(c *gin.Context) {
 		return
 	}
 
-	//spongeArg, err := getFormValue(form.Value, "spongeArg")
+	//sunshineArg, err := getFormValue(form.Value, "sunshineArg")
 	//if err != nil {
-	//	response.Error(c, errcode.InvalidParams.WithDetails("the field 'spongeArg' cannot be empty"))
+	//	response.Error(c, errcode.InvalidParams.WithDetails("the field 'sunshineArg' cannot be empty"))
 	//	return
 	//}
 
@@ -393,7 +393,7 @@ func compress(file *os.File, prefix string, zw *zip.Writer) error {
 	return nil
 }
 
-func getSpongeDir() string {
+func getSunshineDir() string {
 	dir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Println("can't get home directory'")

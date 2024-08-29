@@ -20,36 +20,36 @@ function importPkg() {
 }
 
 function generateTypesPbCode() {
-    sponge patch gen-types-pb --out=./
+    sunshine patch gen-types-pb --out=./
     checkResult $?
 }
 
 function generateInitMysqlCode() {
-    sponge patch gen-db-init --db-driver=mysql --out=./
+    sunshine patch gen-db-init --db-driver=mysql --out=./
     checkResult $?
     importPkg
 }
 
 function generateInitMongodbCode() {
-    sponge patch gen-db-init --db-driver=mongodb --out=./
+    sunshine patch gen-db-init --db-driver=mongodb --out=./
     checkResult $?
     importPkg
 }
 
 function generateInitTidbCode() {
-    sponge patch gen-db-init --db-driver=tidb --out=./
+    sunshine patch gen-db-init --db-driver=tidb --out=./
     checkResult $?
     importPkg
 }
 
 function generateInitPostgresqlCode() {
-    sponge patch gen-db-init --db-driver=postgresql --out=./
+    sunshine patch gen-db-init --db-driver=postgresql --out=./
     checkResult $?
     importPkg
 }
 
 function generateInitSqliteCode() {
-    sponge patch gen-db-init --db-driver=sqlite --out=./
+    sunshine patch gen-db-init --db-driver=sqlite --out=./
     checkResult $?
     importPkg
 }

@@ -22,8 +22,8 @@ swag init -g cmd/serverNameExample_mixExample/main.go
 checkResult $?
 
 # modify duplicate numbers and error codes
-sponge patch modify-dup-num --dir=internal/ecode
-sponge patch modify-dup-err-code --dir=internal/ecode
+sunshine patch modify-dup-num --dir=internal/ecode
+sunshine patch modify-dup-err-code --dir=internal/ecode
 
 colorCyan='\033[1;36m'
 highBright='\033[1m'

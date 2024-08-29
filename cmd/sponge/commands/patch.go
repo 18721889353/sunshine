@@ -3,7 +3,7 @@ package commands
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/18721889353/sunshine/cmd/sponge/commands/patch"
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/patch"
 )
 
 // PatchCommand patch server code

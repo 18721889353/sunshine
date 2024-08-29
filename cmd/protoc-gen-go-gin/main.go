@@ -42,9 +42,9 @@ protoc --proto_path=. --proto_path=./third_party --go-gin_out=. --go-gin_opt=pat
 # if you want the generated code to suited to mono-repo, you need to specify the parameter --go-gin_opt=suitedMonoRepo=true
 
 Tip:
-    If you want to merge the code, after generating the code, execute the command "sponge merge http-pb" or
-    "sponge merge rpc-gw-pb", you don't worry about it affecting the logic code you have already written,
-    in case of accidents, you can find the pre-merge code in the directory /tmp/sponge_merge_backup_code.
+    If you want to merge the code, after generating the code, execute the command "sunshine merge http-pb" or
+    "sunshine merge rpc-gw-pb", you don't worry about it affecting the logic code you have already written,
+    in case of accidents, you can find the pre-merge code in the directory /tmp/sunshine_merge_backup_code.
 `
 
 	optErrFormat = `--go-gin_opt error, '%s' cannot be empty.

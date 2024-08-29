@@ -59,18 +59,18 @@ func PluginsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "plugins",
-		Short: "Managing sponge dependency plugins",
-		Long: color.HiBlackString(`managing sponge dependency plugins.
+		Short: "Managing sunshine dependency plugins",
+		Long: color.HiBlackString(`managing sunshine dependency plugins.
 
 Examples:
   # show all dependency plugins.
-  sponge plugins
+  sunshine plugins
 
   # install all dependency plugins.
-  sponge plugins --install
+  sunshine plugins --install
 
   # skip installing dependency plugins, multiple plugin names separated by commas
-  sponge plugins --install --skip=go-callvis
+  sunshine plugins --install --skip=go-callvis
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -127,7 +127,7 @@ func showDependencyPlugins(installedNames []string, lackNames []string) {
 		for _, name := range lackNames {
 			content += "    " + lackSymbol + " " + name + "\n"
 		}
-		content += "\nInstalling dependency plugins using the command: sponge plugins --install\n"
+		content += "\nInstalling dependency plugins using the command: sunshine plugins --install\n"
 	} else {
 		content += "\nAll dependency plugins installed.\n"
 	}

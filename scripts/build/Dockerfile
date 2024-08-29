@@ -1,5 +1,5 @@
 FROM alpine:latest
-MAINTAINER zhufuyi "g.zhufuyi@gmail.com"
+MAINTAINER 18721889353 "g.18721889353@gmail.com"
 
 # set the time zone to Shanghai
 RUN apk add tzdata  \

@@ -20,7 +20,7 @@
 
 在服务中开启系统信号通知采集profile[代码示例](https://github.com/18721889353/sunshine/blob/main/pkg/prof/README.md#sampling-profile-by-system-notification-signal)。
 
-使用`http接口`方式，程序后台一直定时记录profile相关信息等，绝大多数时间都不会去读取这些profile，可以改进一下，只有需要的时候再开始采集profile，采集完后自动关闭，sponge生成的服务支持监听系统信号来开启和停止采集profile，默认使用了 **SIGTRAP**(5) 系统信号(linux环境建议改为SIGUSR1，windows环境不支持SIGUSR1)，发送信号给服务：
+使用`http接口`方式，程序后台一直定时记录profile相关信息等，绝大多数时间都不会去读取这些profile，可以改进一下，只有需要的时候再开始采集profile，采集完后自动关闭，sunshine生成的服务支持监听系统信号来开启和停止采集profile，默认使用了 **SIGTRAP**(5) 系统信号(linux环境建议改为SIGUSR1，windows环境不支持SIGUSR1)，发送信号给服务：
 
 ```bash
 # 通过名称查看服务pid(第二列)
@@ -60,7 +60,7 @@ go tool pprof -http=[host]:[port] [options] source
 
 > [!note] 要能够使用系统信号来通知采集profile，需要在configs目录下yaml文件设置 `enableStat: true`
 
-在线上运行的服务，没有出问题时基本不会去手动采集profile，但是又想在服务发出告警同时采集profile文件。为了解决这个问题，sponge创建的web或grpc务默认支持自适应采集profile功能，是把`系统信号通知采集profile`与`资源统计的告警功能`结合起来实现的，告警条件：
+在线上运行的服务，没有出问题时基本不会去手动采集profile，但是又想在服务发出告警同时采集profile文件。为了解决这个问题，sunshine创建的web或grpc务默认支持自适应采集profile功能，是把`系统信号通知采集profile`与`资源统计的告警功能`结合起来实现的，告警条件：
 
 - 记录程序的cpu使用率连续3次(默认每分钟一次)，3次平均使用率超过80%时触发告警。
 - 记录程序的物理内存使用率3次(默认每分钟一次)，3次平均占用系统内存超过80%时触发告警。

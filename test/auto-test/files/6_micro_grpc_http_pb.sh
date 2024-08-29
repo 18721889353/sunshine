@@ -96,8 +96,8 @@ if [ -d "${testServerDir}" ]; then
   echo "service ${testServerDir} already exists"
 else
   echo "create service ${testServerDir}"
-  echo -e "${colorCyan}sponge micro grpc-http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpchttppbdemo --protobuf-file=./files/user.proto --out=./${testServerDir} ${markEnd}"
-  sponge micro grpc-http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpchttppbdemo --protobuf-file=./files/user.proto --out=./${testServerDir}
+  echo -e "${colorCyan}sunshine micro grpc-http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpchttppbdemo --protobuf-file=./files/user.proto --out=./${testServerDir} ${markEnd}"
+  sunshine micro grpc-http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpchttppbdemo --protobuf-file=./files/user.proto --out=./${testServerDir}
   checkResult $?
 fi
 

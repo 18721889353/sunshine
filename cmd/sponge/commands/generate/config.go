@@ -34,10 +34,10 @@ func ConfigCommand() *cobra.Command {
 
 Examples:
   # generate config code in server directory, the yaml configuration file must be in <yourServerDir>/configs directory.
-  sponge config --server-dir=/yourServerDir
+  sunshine config --server-dir=/yourServerDir
 
   # generate config code from yaml file.
-  sponge config --yaml-file=yourConfig.yml
+  sunshine config --yaml-file=yourConfig.yml
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,

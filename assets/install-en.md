@@ -9,11 +9,11 @@ Recommended to use go version 1.20 or above, [https://go.dev/doc/install](https:
 
 ### Windows Environment
 
-> Because sponge depends on some linux commands, git bash and make need to be installed in windows to support the linux command environment.
+> Because sunshine depends on some linux commands, git bash and make need to be installed in windows to support the linux command environment.
 
 <br>
 
-For installation convenience, sponge and its dependent programs have been packaged together, download address: [sponge-install.zip](https://drive.google.com/drive/folders/1T55lLXDBIQCnL5IQ-i1hWJovgLI2l0k1?usp=sharing)
+For installation convenience, sunshine and its dependent programs have been packaged together, download address: [sunshine-install.zip](https://drive.google.com/drive/folders/1T55lLXDBIQCnL5IQ-i1hWJovgLI2l0k1?usp=sharing)
 
 After downloading the file:
 
@@ -22,19 +22,19 @@ After downloading the file:
 2. Right-click any folder (Show more options) and select **Open Git Bash here** to open the git bash terminal:
 
 ```bash
-# Initialize sponge, automatically install sponge's dependency plugins
-sponge init
+# Initialize sunshine, automatically install sunshine's dependency plugins
+sunshine init
 
-# Check sponge version
-sponge -v
+# Check sunshine version
+sunshine -v
 ```
 
 Note: 
 
-- When using sponge development, please use git bash terminal, do not use the system default cmd, otherwise there will be an error that cannot find the command.
-- Do not open a terminal in the `GOBIN` directory (the directory where the sponge executable is located) to execute the command `sponge run`.
+- When using sunshine development, please use git bash terminal, do not use the system default cmd, otherwise there will be an error that cannot find the command.
+- Do not open a terminal in the `GOBIN` directory (the directory where the sunshine executable is located) to execute the command `sunshine run`.
 
-In addition to the above installation of sponge in windows, it also provides native installation, click to view **Installing Sponge** --> **Windows Environment** [installation documentation](https://go-sponge.com/quick-start?id=installing-sponge).
+In addition to the above installation of sunshine in windows, it also provides native installation, click to view **Installing Sunshine** --> **Windows Environment** [installation documentation](https://go-sunshine.com/quick-start?id=installing-sunshine).
 
 <br>
 
@@ -65,7 +65,7 @@ go env GOBIN
 
 <br>
 
-2. Install sponge and its dependent plugins into the `GOBIN` directory.
+2. Install sunshine and its dependent plugins into the `GOBIN` directory.
 
 **✅ Install protoc**
 
@@ -74,20 +74,20 @@ Download protoc from: [https://github.com/protocolbuffers/protobuf/releases/tag/
 Download the corresponding **protoc** executable file according to the system type, and move the **protoc** executable file to the same directory as the **go** executable file.
 
 ```bash
-# Install Sponge
-go install github.com/18721889353/sunshine/cmd/sponge@latest
+# Install Sunshine
+go install github.com/18721889353/sunshine/cmd/sunshine@latest
 
-# Initialize Sponge, automatically install Sponge's dependency plugins
-sponge init
+# Initialize Sunshine, automatically install Sunshine's dependency plugins
+sunshine init
 
-# Check if all plugins have been successfully installed. If any plugins fail to install, retry with the command: sponge plugins --install
-sponge plugins
+# Check if all plugins have been successfully installed. If any plugins fail to install, retry with the command: sunshine plugins --install
+sunshine plugins
 
-# Check Sponge version
-sponge -v
+# Check Sunshine version
+sunshine -v
 ```
 
-> Note: Do not open the terminal in the `GOBIN` directory to execute the command `sponge run`.
+> Note: Do not open the terminal in the `GOBIN` directory to execute the command `sunshine run`.
 
 <br>
 
@@ -97,12 +97,12 @@ sponge -v
 
 ### Docker Environment
 
-> ⚠ Sponge UI service started by docker only supports code generation function. If you need to develop based on the generated service code, you also need to install Sponge and the required plugins locally according to the installation instructions above.
+> ⚠ Sunshine UI service started by docker only supports code generation function. If you need to develop based on the generated service code, you also need to install Sunshine and the required plugins locally according to the installation instructions above.
 
 **Docker Run**
 
 ```bash
-docker run -d --name sponge -p 24631:24631 zhufuyi/sponge:latest -a http://your_host_ip:24631
+docker run -d --name sunshine -p 24631:24631 18721889353/sunshine:latest -a http://your_host_ip:24631
 ```
 
 <br>
@@ -115,9 +115,9 @@ The content of the `docker-compose.yaml` file is as follows:
 version: "3.7"
 
 services:
-  sponge:
-    image: zhufuyi/sponge:latest
-    container_name: sponge
+  sunshine:
+    image: 18721889353/sunshine:latest
+    container_name: sunshine
     restart: always
     command: ["-a","http://your_host_ip:24631"]
     ports:

@@ -1,7 +1,7 @@
 version: "3.7"
 services:
   jenkins-go:
-    image: zhufuyi/jenkins-go:2.37
+    image: 18721889353/jenkins-go:2.37
     restart: always
     container_name: "jenkins-go"
     ports:

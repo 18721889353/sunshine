@@ -2,13 +2,13 @@ before:
   hooks:
     - go mod tidy
 builds:
-  - id: sponge
+  - id: sunshine
     env:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-    main: cmd/sponge/main.go
-    binary: sponge
+    main: cmd/sunshine/main.go
+    binary: sunshine
     goos:
       - linux
       - windows

@@ -38,16 +38,16 @@ func HandlerCommand() *cobra.Command {
 
 Examples:
   # generate handler code.
-  sponge web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+  sunshine web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
   # generate handler code with multiple table names.
-  sponge web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
+  sunshine web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
   # generate handler code with extended api.
-  sponge web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
+  sunshine web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
   # generate handler code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge web handler --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
+  sunshine web handler --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
   # if you want the generated code to suited to mono-repo, you need to specify the parameter --suited-mono-repo=true --serverName=yourServerName
 `),
@@ -60,11 +60,11 @@ Examples:
 				serverName = srvName
 				suitedMonoRepo = smr
 			} else if moduleName == "" {
-				return errors.New(`required flag(s) "module-name" not set, use "sponge web handler -h" for help`)
+				return errors.New(`required flag(s) "module-name" not set, use "sunshine web handler -h" for help`)
 			}
 			if suitedMonoRepo {
 				if serverName == "" {
-					return errors.New(`required flag(s) "server-name" not set, use "sponge web handler -h" for help`)
+					return errors.New(`required flag(s) "server-name" not set, use "sunshine web handler -h" for help`)
 				}
 				serverName = convertServerName(serverName)
 				outPath = changeOutPath(outPath, serverName)
@@ -119,7 +119,7 @@ using help:
 	//_ = cmd.MarkFlagRequired("module-name")
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sponge_sqlite.db") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
 	_ = cmd.MarkFlagRequired("db-table")
@@ -147,7 +147,7 @@ type handlerGenerator struct {
 
 func (g *handlerGenerator) generateCode() (string, error) {
 	subTplName := "handler"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}

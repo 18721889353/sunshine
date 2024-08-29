@@ -12,50 +12,50 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/18721889353/sunshine/cmd/sponge/server"
+	"github.com/18721889353/sunshine/cmd/sunshine/server"
 )
 
-// OpenUICommand run the sponge ui service
+// OpenUICommand run the sunshine ui service
 func OpenUICommand() *cobra.Command {
 	var (
-		port       int
-		spongeAddr string
-		isLog      bool
+		port         int
+		sunshineAddr string
+		isLog        bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run the sponge UI service",
-		Long: color.HiBlackString(`run the sponge UI service.
+		Short: "Run the sunshine UI service",
+		Long: color.HiBlackString(`run the sunshine UI service.
 
 Examples:
   # running ui service, local browser access only.
-  sponge run
+  sunshine run
 
   # running ui service, can be accessed from other host browsers.
-  sponge run -a http://your-host-ip:24631
+  sunshine run -a http://your-host-ip:24631
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if spongeAddr == "" {
-				spongeAddr = fmt.Sprintf("http://localhost:%d", port)
+			if sunshineAddr == "" {
+				sunshineAddr = fmt.Sprintf("http://localhost:%d", port)
 			} else {
-				if err := checkSpongeAddr(spongeAddr, port); err != nil {
+				if err := checkSunshineAddr(sunshineAddr, port); err != nil {
 					return err
 				}
 			}
-			fmt.Printf("sponge command ui service is running, port = %d, verson = %s, visit %s in your browser.\n\n", port, getVersion(), spongeAddr)
+			fmt.Printf("sunshine command ui service is running, port = %d, verson = %s, visit %s in your browser.\n\n", port, getVersion(), sunshineAddr)
 			go func() {
-				_ = open(spongeAddr)
+				_ = open(sunshineAddr)
 			}()
-			server.RunHTTPServer(spongeAddr, port, isLog)
+			server.RunHTTPServer(sunshineAddr, port, isLog)
 			return nil
 		},
 	}
-	cmd.Flags().IntVarP(&port, "port", "p", 24631, "port on which the sponge service listens")
-	cmd.Flags().StringVarP(&spongeAddr, "addr", "a", "", "address of the front-end page requesting the sponge service, e.g. http://192.168.1.10:24631 or https://your-domain.com")
+	cmd.Flags().IntVarP(&port, "port", "p", 24631, "port on which the sunshine service listens")
+	cmd.Flags().StringVarP(&sunshineAddr, "addr", "a", "", "address of the front-end page requesting the sunshine service, e.g. http://192.168.1.10:24631 or https://your-domain.com")
 	cmd.Flags().BoolVarP(&isLog, "log", "l", false, "enable service logging")
 	return cmd
 }
@@ -78,9 +78,9 @@ func open(visitURL string) error {
 	return exec.Command(cmd, args...).Start()
 }
 
-func checkSpongeAddr(spongeAddr string, port int) error {
-	paramErr := errors.New("the addr parameter is invalid,  e.g. sponge run --addr=http://192.168.1.10:24631")
-	u, err := url.Parse(spongeAddr)
+func checkSunshineAddr(sunshineAddr string, port int) error {
+	paramErr := errors.New("the addr parameter is invalid,  e.g. sunshine run --addr=http://192.168.1.10:24631")
+	u, err := url.Parse(sunshineAddr)
 	if err != nil {
 		return paramErr
 	}
@@ -92,7 +92,7 @@ func checkSpongeAddr(spongeAddr string, port int) error {
 	ip := net.ParseIP(u.Hostname())
 	if ip != nil {
 		if u.Port() != strconv.Itoa(port) {
-			return errors.New("the port parameter is invalid, e.g. sponge run --port=8080 --addr=http://192.168.1.10:8080")
+			return errors.New("the port parameter is invalid, e.g. sunshine run --port=8080 --addr=http://192.168.1.10:8080")
 		}
 	}
 

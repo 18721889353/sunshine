@@ -33,10 +33,10 @@ func CacheCommand(parentName string) *cobra.Command {
 
 Examples:
   # generate kv cache code
-  sponge %s cache --module-name=yourModuleName --cache-name=userToken --prefix-key=user:token: --key-name=id --key-type=uint64 --value-name=token --value-type=string
+  sunshine %s cache --module-name=yourModuleName --cache-name=userToken --prefix-key=user:token: --key-name=id --key-type=uint64 --value-name=token --value-type=string
 
   # generate kv cache code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge %s cache --module-name=yourModuleName --cache-name=token --prefix-key=user:token: --key-name=id --key-type=uint64 --value-name=token --value-type=string --out=./yourServerDir
+  sunshine %s cache --module-name=yourModuleName --cache-name=token --prefix-key=user:token: --key-name=id --key-type=uint64 --value-name=token --value-type=string --out=./yourServerDir
 
   # if you want the generated code to suited to mono-repo, you need to specify the parameter --suited-mono-repo=true --serverName=yourServerName
 `, parentName, parentName)),
@@ -49,11 +49,11 @@ Examples:
 				serverName = srvName
 				suitedMonoRepo = smr
 			} else if moduleName == "" {
-				return errors.New(`required flag(s) "module-name" not set, use "sponge micro cache -h" for help`)
+				return errors.New(`required flag(s) "module-name" not set, use "sunshine micro cache -h" for help`)
 			}
 			if suitedMonoRepo {
 				if serverName == "" {
-					return fmt.Errorf(`required flag(s) "server-name" not set, use "sponge %s cache -h" for help`, parentName)
+					return fmt.Errorf(`required flag(s) "server-name" not set, use "sunshine %s cache -h" for help`, parentName)
 				}
 				serverName = convertServerName(serverName)
 				outPath = changeOutPath(outPath, serverName)
@@ -123,7 +123,7 @@ type stringCacheGenerator struct {
 
 func (g *stringCacheGenerator) generateCode() (string, error) {
 	subTplName := "cache"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
