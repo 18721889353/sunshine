@@ -1,0 +1,8 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: server-name-example-config
+  namespace: project-name-example
+data:
+  serverNameExample.yml: |-
+# todo generate server configuration code here

@@ -1,0 +1,53 @@
+# Need to package the code first `tar zcf serverNameExample.tar.gz $(ls)` and move it to the same directory as Dokerfile
+
+# Compile the go code, you can specify the golang version
+FROM golang:1.21-alpine as build
+COPY . /go/src/serverNameExample
+WORKDIR /go/src/serverNameExample
+RUN tar zxf serverNameExample.tar.gz
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /serverNameExample cmd/serverNameExample/main.go
+
+# todo generate dockerfile_build code for http or grpc here
+# delete the templates code start
+
+# install grpc-health-probe, for health check of grpc service
+RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.12
+RUN cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
+    && go mod download \
+    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w" -o /grpc_health_probe
+
+# compressing binary files
+#cd /
+#upx -9 serverNameExample
+#upx -9 grpc_health_probe
+
+
+# building images with binary
+FROM alpine:latest
+MAINTAINER zhufuyi "g.zhufuyi@gmail.com"
+
+# set the time zone to Shanghai
+RUN apk add tzdata  \
+    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone \
+    && apk del tzdata
+
+# add curl, used in the http service check, if deployed in k8s, can be installed without
+RUN apk add curl
+# add grpc_health_probe for health check of grpc service
+COPY --from=build /grpc_health_probe /bin/grpc_health_probe
+COPY --from=build /serverNameExample /app/serverNameExample
+COPY --from=build /go/src/serverNameExample/configs/serverNameExample.yml /app/configs/serverNameExample.yml
+
+# http port, grpc service can be ignored
+EXPOSE 8080
+
+# delete the templates code end
+
+WORKDIR /app
+
+CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml"]
+# if you use the Configuration Center, serverNameExample.yml is changed to the Configuration Center configuration.
+#CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml", "-enable-cc"]

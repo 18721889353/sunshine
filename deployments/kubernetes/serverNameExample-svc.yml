@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-name-example-svc
+  namespace: project-name-example
+spec:
+  selector:
+    app: server-name-example
+  type: ClusterIP
+# todo generate k8s-svc.yml code for http or grpc here
+# delete the templates code start
+  ports:
+    - name: server-name-example-svc-http-port
+      port: 8080
+      targetPort: 8080
+    - name: server-name-example-svc-grpc-port
+      port: 8282
+      targetPort: 8282
+    - name: server-name-example-svc-grpc-metrics-port
+      port: 8283
+      targetPort: 8283
+# delete the templates code end
