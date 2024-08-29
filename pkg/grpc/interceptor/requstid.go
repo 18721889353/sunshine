@@ -56,7 +56,7 @@ func UnaryClientRequestID() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		requestID := ClientCtxRequestID(ctx)
 		if requestID == "" {
-			requestID = krand.String(krand.R_All, 10)
+			requestID = krand.String(krand.R_NUM, 32)
 			ctx = metadata.AppendToOutgoingContext(ctx, ContextRequestIDKey, requestID)
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
@@ -69,7 +69,7 @@ func StreamClientRequestID() grpc.StreamClientInterceptor {
 		streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		requestID := ClientCtxRequestID(ctx)
 		if requestID == "" {
-			requestID = krand.String(krand.R_All, 10)
+			requestID = krand.String(krand.R_NUM, 32)
 			ctx = metadata.AppendToOutgoingContext(ctx, ContextRequestIDKey, requestID)
 		}
 
@@ -109,7 +109,7 @@ func UnaryServerRequestID() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		requestID := ServerCtxRequestID(ctx)
 		if requestID == "" {
-			requestID = krand.String(krand.R_All, 10)
+			requestID = krand.String(krand.R_NUM, 32)
 			ctx = metautils.ExtractIncoming(ctx).Add(ContextRequestIDKey, requestID).ToIncoming(ctx)
 		}
 
@@ -124,7 +124,7 @@ func StreamServerRequestID() grpc.StreamServerInterceptor {
 		//ctx := stream.Context()
 		//requestID := ServerCtxRequestID(ctx)
 		//if requestID == "" {
-		//	requestID = krand.String(krand.R_All, 10)
+		//	requestID = krand.String(krand.R_NUM, 32)
 		//	ctx = metautils.ExtractIncoming(ctx).Add(ContextRequestIDKey, requestID).ToIncoming(ctx)
 		//}
 		return handler(srv, stream)
