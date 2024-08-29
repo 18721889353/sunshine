@@ -22,7 +22,6 @@ func init() {
 	}
 
 	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
-	//rand.Seed(time.Now().UnixNano()) //nolint
 }
 
 var (
