@@ -5,6 +5,9 @@ package api.greeter.v1;
 import "google/api/annotations.proto";
 import "google/api/http.proto";
 
+//https://toolin.cn/json2proto
+//https://github.com/bufbuild/protoc-gen-validate
+
 option go_package = "yourModuleName222/api/v1";
 
 service GreeterService {

@@ -21,7 +21,8 @@ func init() {
 		panic(err)
 	}
 
-	rand.Seed(time.Now().UnixNano()) //nolint
+	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
+	//rand.Seed(time.Now().UnixNano()) //nolint
 }
 
 var (
@@ -66,12 +67,12 @@ func (c *{{.LowerServiceName}}Client) {{.MethodName}}(ctx context.Context, req *
 	//	    {{if .IsIgnoreShouldBind}}gc, ctx := middleware.AdaptCtx(ctx)
 	//	    if err = gc.ShouldBindJSON(req); err != nil {
 	//	    	logger.Warn("ShouldBindJSON error", logger.Error(err), middleware.CtxRequestIDField(ctx))
-	//	    	return nil, ecode.StatusInvalidParams.Err()
+	//	    	return nil, ecode.StatusInvalidParams.Err(ecode.Any("error", err))
 	//	    }{{else}}{{if .IsPassGinContext}}gc, ctx := middleware.AdaptCtx(ctx){{end}}{{end}}
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.CtxRequestIDField(ctx))
-	//		    return nil, ecode.StatusInvalidParams.Err()
+	//		    return nil, ecode.StatusInvalidParams.Err(ecode.Any("error", err))
 	//	    }
 	//
 	//     reply, err := c.{{.LowerServiceName}}Cli.{{.MethodName}}(ctx, &{{.RequestImportPkgName}}.{{.Request}}{
