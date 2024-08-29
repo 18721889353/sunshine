@@ -6,6 +6,9 @@ import "google/api/annotations.proto";
 
 option go_package = "yourModuleName333/api/v1";
 
+//https://toolin.cn/json2proto
+//https://github.com/bufbuild/protoc-gen-validate
+
 service mixed {
   // create a record
   rpc Create(CreateMixedRequest) returns (CreateMixedReply) {
