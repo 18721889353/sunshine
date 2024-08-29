@@ -25,9 +25,9 @@ protoc --proto_path=. --proto_path=./third_party --go-rpc-tmpl_out=. --go-rpc-tm
 # if you want the generated code to suited to mono-repo, you need to specify the parameter --go-gin_opt=suitedMonoRepo=true
 
 Tip:
-    If you want to merge the code, after generating the code, execute the command "sponge merge rpc-pb",
+    If you want to merge the code, after generating the code, execute the command "sunshine merge rpc-pb",
     you don't worry about it affecting the logic code you have already written, in case of accidents,
-    you can find the pre-merge code in the directory /tmp/sponge_merge_backup_code.
+    you can find the pre-merge code in the directory /tmp/sunshine_merge_backup_code.
 `
 
 	optErrFormat = `--go-rpc-tmpl_opt error, '%s' cannot be empty.

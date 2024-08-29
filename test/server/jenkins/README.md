@@ -2,7 +2,7 @@
 
 Build image:
 
-> docker build -t zhufuyi/jenkins-go:2.37 .
+> docker build -t 18721889353/jenkins-go:2.37 .
 
 Push to image repository.
 
@@ -10,7 +10,7 @@ Push to image repository.
 # login to the image repository, if it is a private image repository, specify the address
 docker login -u username
 
-docker push zhufuyi/jenkins-go:2.37
+docker push 18721889353/jenkins-go:2.37
 ```
 
 <br>
@@ -89,25 +89,25 @@ A relatively simple way to configure Jenkins tasks: import existing templates wh
 
 **(1) Create a new jenkins job**
 
-![create job](https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/createJob.jpg)
+![create job](https://raw.githubusercontent.com/18721889353/sunshine/main/assets/createJob.jpg)
 
 <br>
 
 **(2)  Set up a parametric build with the parameter name `GIT_PARAMETER`**, as shown below.
 
-![parametric construction](https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/paramSetting.jpg)
+![parametric construction](https://raw.githubusercontent.com/18721889353/sunshine/main/assets/paramSetting.jpg)
 
 <br>
 
 **(3) Set up pipeline information**, as shown below.
 
-![flow line](https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/pipelineSetting.jpg)
+![flow line](https://raw.githubusercontent.com/18721889353/sunshine/main/assets/pipelineSetting.jpg)
 
 <br>
 
 **(4) Build the project**, click Build with Parameters on the left menu bar, and select the corresponding parameters to build, as shown in the following figure.
 
-![runJob-dev](https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/building.jpg)
+![runJob-dev](https://raw.githubusercontent.com/18721889353/sunshine/main/assets/building.jpg)
 
 Note: Before building, modify the pinned or email notification target to facilitate viewing the build deployment results, open the Jenkinsfile file under the code repository, find the field tel_num, and fill in the cell phone number.
 

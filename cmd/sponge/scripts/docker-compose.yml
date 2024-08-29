@@ -1,11 +1,11 @@
 version: "3.7"
 
 services:
-  sponge:
-    image: zhufuyi/sponge:latest
-    container_name: sponge
+  sunshine:
+    image: 18721889353/sunshine:latest
+    container_name: sunshine
     restart: always
-    # address of the front-end page requesting the sponge service
+    # address of the front-end page requesting the sunshine service
     command: ["-l","-a","http://192.168.3.37:24631"]
     ports:
       - "24631:24631"

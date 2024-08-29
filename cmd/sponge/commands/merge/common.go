@@ -1,6 +1,6 @@
 // Package merge is merge the generated code into the template file, you don't worry about it affecting
 // the logic code you have already written, in case of accidents, you can find the
-// pre-merge code in the directory /tmp/sponge_merge_backup_code
+// pre-merge code in the directory /tmp/sunshine_merge_backup_code
 package merge
 
 import (
@@ -48,7 +48,7 @@ func newMergeParam(dir string, mark string, isLineCode bool, parseCode func(data
 		isLineCode:    isLineCode,
 		parseCode:     parseCode,
 		dt:            time.Now().Format("20060102T150405"),
-		backupDir:     os.TempDir() + gofile.GetPathDelimiter() + "sponge_merge_backup_code",
+		backupDir:     os.TempDir() + gofile.GetPathDelimiter() + "sunshine_merge_backup_code",
 	}
 }
 

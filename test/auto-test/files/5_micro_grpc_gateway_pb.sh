@@ -102,8 +102,8 @@ function runGRPCService() {
     echo "service ${grpcDir} already exists"
   else
     echo "create service ${grpcDir}"
-    echo -e "${colorCyan}sponge micro rpc --module-name=${grpcServiceName} --server-name=${grpcServiceName} --project-name=grpcdemo --db-dsn=$mysqlDSN --db-table=$mysqlTable --out=./${grpcDir} ${markEnd}"
-    sponge micro rpc --module-name=${grpcServiceName} --server-name=${grpcServiceName} --project-name=grpcdemo --db-dsn=$mysqlDSN --db-table=$mysqlTable --out=./${grpcDir}
+    echo -e "${colorCyan}sunshine micro rpc --module-name=${grpcServiceName} --server-name=${grpcServiceName} --project-name=grpcdemo --db-dsn=$mysqlDSN --db-table=$mysqlTable --out=./${grpcDir} ${markEnd}"
+    sunshine micro rpc --module-name=${grpcServiceName} --server-name=${grpcServiceName} --project-name=grpcdemo --db-dsn=$mysqlDSN --db-table=$mysqlTable --out=./${grpcDir}
     checkResult $?
   fi
 
@@ -128,12 +128,12 @@ if [ -d "${testServerDir}" ]; then
   echo "service ${testServerDir} already exists"
 else
   echo "create service ${testServerDir}"
-  echo -e "${colorCyan}sponge micro rpc-gw-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcgwdemo --protobuf-file=./files/user_gw.proto --out=./${testServerDir} ${markEnd}"
-  sponge micro rpc-gw-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcgwdemo --protobuf-file=./files/user_gw.proto --out=./${testServerDir}
+  echo -e "${colorCyan}sunshine micro rpc-gw-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcgwdemo --protobuf-file=./files/user_gw.proto --out=./${testServerDir} ${markEnd}"
+  sunshine micro rpc-gw-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=grpcgwdemo --protobuf-file=./files/user_gw.proto --out=./${testServerDir}
   checkResult $?
 
-  echo -e "${colorCyan}sponge micro rpc-conn --rpc-server-name=${grpcServiceName} --out=./${testServerDir} ${markEnd}"
-  sponge micro rpc-conn --rpc-server-name=${grpcServiceName} --out=./${testServerDir}
+  echo -e "${colorCyan}sunshine micro rpc-conn --rpc-server-name=${grpcServiceName} --out=./${testServerDir} ${markEnd}"
+  sunshine micro rpc-conn --rpc-server-name=${grpcServiceName} --out=./${testServerDir}
   checkResult $?
 
   echo "modify grpcClient field of configuration file"

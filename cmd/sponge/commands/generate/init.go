@@ -35,7 +35,7 @@ func Init(name string, filepath string) error {
 		if isShowCommand() {
 			return nil
 		}
-		return fmt.Errorf("%s not yet initialized, run the command \"sponge init\"", warnSymbol)
+		return fmt.Errorf("%s not yet initialized, run the command \"sunshine init\"", warnSymbol)
 	}
 
 	var err error
@@ -65,12 +65,12 @@ func InitFS(name string, filepath string, fs embed.FS) {
 func isShowCommand() bool {
 	l := len(os.Args)
 
-	// sponge
+	// sunshine
 	if l == 1 {
 		return true
 	}
 
-	// sponge init or sponge -h
+	// sunshine init or sunshine -h
 	if l == 2 {
 		if os.Args[1] == "init" || os.Args[1] == "-h" {
 			return true

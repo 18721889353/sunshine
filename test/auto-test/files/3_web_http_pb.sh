@@ -93,8 +93,8 @@ if [ -d "${testServerDir}" ]; then
   echo "service ${testServerDir} already exists"
 else
   echo "create service ${testServerDir}"
-  echo -e "${colorCyan}sponge web http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=ginpbdemo --protobuf-file=./files/user.proto --out=./${testServerDir} ${markEnd}"
-  sponge web http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=ginpbdemo --protobuf-file=./files/user.proto --out=./${testServerDir}
+  echo -e "${colorCyan}sunshine web http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=ginpbdemo --protobuf-file=./files/user.proto --out=./${testServerDir} ${markEnd}"
+  sunshine web http-pb --module-name=${testServerName} --server-name=${testServerName} --project-name=ginpbdemo --protobuf-file=./files/user.proto --out=./${testServerDir}
   checkResult $?
 fi
 

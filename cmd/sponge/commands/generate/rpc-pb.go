@@ -31,13 +31,13 @@ func RPCPbCommand() *cobra.Command {
 
 Examples:
   # generate grpc service code.
-  sponge micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto
+  sunshine micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto
 
   # generate grpc service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto --out=./yourServerDir
+  sunshine micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto --out=./yourServerDir
 
   # generate grpc service code and specify the docker image repository address.
-  sponge micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --protobuf-file=./demo.proto
+  sunshine micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --protobuf-file=./demo.proto
 
   # if you want the generated code to suited to mono-repo, you need to specify the parameter --suited-mono-repo=true
 `),
@@ -108,23 +108,23 @@ func (g *rpcPbGenerator) generateCode() error {
 	}
 
 	subTplName := "rpc-pb"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return errors.New("replacer is nil")
 	}
 
 	// specify the subdirectory and files
 	subDirs := []string{
-		"cmd/serverNameExample_grpcPbExample", "sponge/configs",
-		"sponge/deployments", "sponge/scripts", "sponge/third_party",
+		"cmd/serverNameExample_grpcPbExample", "sunshine/configs",
+		"sunshine/deployments", "sunshine/scripts", "sunshine/third_party",
 	}
 	subFiles := []string{
-		"sponge/.gitignore", "sponge/.golangci.yml", "sponge/go.mod", "sponge/go.sum",
-		"sponge/Jenkinsfile", "sponge/Makefile", "sponge/README.md",
+		"sunshine/.gitignore", "sunshine/.golangci.yml", "sunshine/go.mod", "sunshine/go.sum",
+		"sunshine/Jenkinsfile", "sunshine/Makefile", "sunshine/README.md",
 	}
 
 	if g.suitedMonoRepo {
-		subFiles = removeElements(subFiles, "sponge/go.mod", "sponge/go.sum")
+		subFiles = removeElements(subFiles, "sunshine/go.mod", "sunshine/go.sum")
 	}
 	if isImportTypes {
 		subFiles = append(subFiles, "api/types/types.proto")
@@ -148,7 +148,7 @@ func (g *rpcPbGenerator) generateCode() error {
 	subFiles = append(subFiles, getSubFiles(selectFiles, replaceFiles)...)
 
 	// ignore some directories and files
-	ignoreDirs := []string{"cmd/sponge"}
+	ignoreDirs := []string{"cmd/sunshine"}
 	ignoreFiles := []string{"scripts/swag-docs.sh"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
@@ -255,12 +255,12 @@ func (g *rpcPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: g.moduleName + pkgPathSuffix,
 			New: "github.com/18721889353/sunshine/pkg",
 		},
-		{ // replace the sponge version of the go.mod file
-			Old: spongeTemplateVersionMark,
-			New: getLocalSpongeTemplateVersion(),
+		{ // replace the sunshine version of the go.mod file
+			Old: sunshineTemplateVersionMark,
+			New: getLocalSunshineTemplateVersion(),
 		},
 		{
-			Old: "sponge api docs",
+			Old: "sunshine api docs",
 			New: g.serverName + apiDocsSuffix,
 		},
 		{

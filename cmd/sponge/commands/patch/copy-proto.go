@@ -34,17 +34,17 @@ func CopyProtoCommand() *cobra.Command {
 		Short: "Copy proto file from the grpc service directory",
 		Long: `copy proto file from the grpc service, if the proto file exists, it will be forced to overwrite it,
 don't worry about losing the proto file after overwriting it, before copying proto it will be backed up to 
-the directory /tmp/sponge_copy_backup_proto_files.
+the directory /tmp/sunshine_copy_backup_proto_files.
 
 Examples:
   # copy all proto files from a grpc service directory
-  sponge patch copy-proto --server-dir=../grpc-server
+  sunshine patch copy-proto --server-dir=../grpc-server
 
   # copy all proto files from multiple grpc services directory
-  sponge patch copy-proto --server-dir=../grpc-server1,../rpc-server2
+  sunshine patch copy-proto --server-dir=../grpc-server1,../rpc-server2
 
   # copy the specified proto files in the grpc service directory
-  sponge patch copy-proto --server-dir=../grpc-server --proto-file=name1.proto,name2.proto
+  sunshine patch copy-proto --server-dir=../grpc-server --proto-file=name1.proto,name2.proto
 `,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -294,7 +294,7 @@ func backupProtoFiles(outPath string) error {
 	}
 
 	pfs, _ := gofile.ListFiles(outPath, gofile.WithSuffix(".proto"))
-	backupDir := os.TempDir() + gofile.GetPathDelimiter() + "sponge_copy_backup_proto_files" +
+	backupDir := os.TempDir() + gofile.GetPathDelimiter() + "sunshine_copy_backup_proto_files" +
 		gofile.GetPathDelimiter() + time.Now().Format("20060102T150405")
 	for _, srcProtoFile := range pfs {
 		suffixPath := strings.ReplaceAll(srcProtoFile, prefixPath, "")

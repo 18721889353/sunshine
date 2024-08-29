@@ -29,7 +29,7 @@ EXPOSE 8282 8283`
 
 # building images with binary
 FROM alpine:latest
-MAINTAINER zhufuyi "g.zhufuyi@gmail.com"
+MAINTAINER 18721889353 "g.18721889353@gmail.com"
 
 # set the time zone to Shanghai
 RUN apk add tzdata  \
@@ -60,7 +60,7 @@ RUN cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
 
 # building images with binary
 FROM alpine:latest
-MAINTAINER zhufuyi "g.zhufuyi@gmail.com"
+MAINTAINER 18721889353 "g.18721889353@gmail.com"
 
 # set the time zone to Shanghai
 RUN apk add tzdata  \
@@ -264,7 +264,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge merge rpc-pb
+  sunshine merge rpc-pb
   checkResult $?
 
   colorCyan='\033[1;36m'
@@ -284,7 +284,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge web swagger --file=docs/apis.swagger.json
+  sunshine web swagger --file=docs/apis.swagger.json
   checkResult $?
 
   moduleName=$(cat docs/gen.info | head -1 | cut -d , -f 1)
@@ -298,7 +298,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge merge http-pb
+  sunshine merge http-pb
   checkResult $?
 
   colorCyan='\033[1;36m'
@@ -318,7 +318,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge micro swagger --file=docs/apis.swagger.json
+  sunshine micro swagger --file=docs/apis.swagger.json
   checkResult $?
 
   moduleName=$(cat docs/gen.info | head -1 | cut -d , -f 1)
@@ -332,7 +332,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge merge rpc-gw-pb
+  sunshine merge rpc-gw-pb
   checkResult $?
 
   colorCyan='\033[1;36m'
@@ -352,7 +352,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge web swagger --file=docs/apis.swagger.json
+  sunshine web swagger --file=docs/apis.swagger.json
   checkResult $?
 
   moduleName=$(cat docs/gen.info | head -1 | cut -d , -f 1)
@@ -366,7 +366,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge merge rpc-pb
+  sunshine merge rpc-pb
   checkResult $?
 
   protoc --proto_path=. --proto_path=./third_party \
@@ -376,7 +376,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   checkResult $?
 
-  sponge merge http-pb
+  sunshine merge http-pb
   checkResult $?
 
   colorCyan='\033[1;36m'
@@ -539,7 +539,7 @@ database:
   driver: "sqlite"      # database driver
   # sqlite settings
   sqlite:
-    dbFile: "test/sql/sqlite/sponge.db"
+    dbFile: "test/sql/sqlite/sunshine.db"
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
     maxOpenConns: 100       # set the maximum number of open database connections

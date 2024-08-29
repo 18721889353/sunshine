@@ -2,24 +2,24 @@
 
 <br>
 
-[sponge](https://github.com/18721889353/sunshine) 是一个集成了 `自动生成代码`、`Gin和GRPC` 的强大的开发框架。sponge拥有丰富的生成代码命令，生成不同的功能代码可以组合成完整的服务(类似人为打散的海绵细胞可以自动重组成一个新的海绵)。sponge提供了一站式项目开发(生成代码、开发、测试、api文档、部署)，大幅提高了开发效率和降低了开发难度，以"低代码方式"开发高质量项目。
+[sunshine](https://github.com/18721889353/sunshine) 是一个集成了 `自动生成代码`、`Gin和GRPC` 的强大的开发框架。sunshine拥有丰富的生成代码命令，生成不同的功能代码可以组合成完整的服务(类似人为打散的海绵细胞可以自动重组成一个新的海绵)。sunshine提供了一站式项目开发(生成代码、开发、测试、api文档、部署)，大幅提高了开发效率和降低了开发难度，以"低代码方式"开发高质量项目。
 
 <br>
 
 如果开发只有CRUD api的web或gRPC服务，不需要编写任何go代码就可以编译并部署到linux服务器、docker、k8s上，只需要连接到数据库(mysql、mongodb、postgresql、tidb、sqlite)就可以一键自动生成完整的后端服务go代码。
 
-如果开发通用的web或gRPC务，只需聚焦`在数据库定义表`、`在proto文件定义api描述信息`、`在生成的模板文件填写业务逻辑代码`三个核心部分，其他go代码都由sponge自动生成。
+如果开发通用的web或gRPC务，只需聚焦`在数据库定义表`、`在proto文件定义api描述信息`、`在生成的模板文件填写业务逻辑代码`三个核心部分，其他go代码都由sunshine自动生成。
 
 <br>
 
 ### 生成代码框架
 
-sponge主要基于`SQL`和`Protobuf`两种方式生成代码，每种方式生成不同用途的代码。其中`SQL`支持数据库**mysql**、**mongodb**、**postgresql**、**tidb**、**sqlite**。
+sunshine主要基于`SQL`和`Protobuf`两种方式生成代码，每种方式生成不同用途的代码。其中`SQL`支持数据库**mysql**、**mongodb**、**postgresql**、**tidb**、**sqlite**。
 
 #### 生成代码的框架图
 
 <p align="center">
-<img width="1500px" src="https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/sponge-framework.png">
+<img width="1500px" src="https://raw.githubusercontent.com/18721889353/sunshine/main/assets/sunshine-framework.png">
 </p>
 
 <br>
@@ -27,34 +27,34 @@ sponge主要基于`SQL`和`Protobuf`两种方式生成代码，每种方式生�
 #### 生成代码框架对应的UI界面
 
 <p align="center">
-<img width="1500px" src="https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/sponge-ui.png">
+<img width="1500px" src="https://raw.githubusercontent.com/18721889353/sunshine/main/assets/sunshine-ui.png">
 </p>
 
 <br>
 
 ### 微服务框架
 
-sponge也是一个微服务框架，框架图如下图所示，这是典型的微服务分层结构，具有高性能，高扩展性，包含了常用的服务治理功能，可以很方便替换或添加自己的服务治理功能。
+sunshine也是一个微服务框架，框架图如下图所示，这是典型的微服务分层结构，具有高性能，高扩展性，包含了常用的服务治理功能，可以很方便替换或添加自己的服务治理功能。
 
 <p align="center">
-<img width="1000px" src="https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/microservices-framework.png">
+<img width="1000px" src="https://raw.githubusercontent.com/18721889353/sunshine/main/assets/microservices-framework.png">
 </p>
 
 <br>
 
 创建的http和grpc服务代码的性能测试： 50个并发，总共100万个请求。
 
-![http-server](https://raw.githubusercontent.com/zhufuyi/microservices_framework_benchmark/main/test/assets/http-server.png)
+![http-server](https://raw.githubusercontent.com/18721889353/microservices_framework_benchmark/main/test/assets/http-server.png)
 
-![grpc-server](https://raw.githubusercontent.com/zhufuyi/microservices_framework_benchmark/main/test/assets/grpc-server.png)
+![grpc-server](https://raw.githubusercontent.com/18721889353/microservices_framework_benchmark/main/test/assets/grpc-server.png)
 
-点击查看[**测试代码**](https://github.com/zhufuyi/microservices_framework_benchmark)。
+点击查看[**测试代码**](https://github.com/18721889353/microservices_framework_benchmark)。
 
 <br>
 
 ### 主要功能
 
-sponge包含丰富的组件(按需使用)：
+sunshine包含丰富的组件(按需使用)：
 
 - Web 框架 [gin](https://github.com/gin-gonic/gin)
 - RPC 框架 [grpc](https://github.com/grpc/grpc-go)
@@ -115,33 +115,33 @@ sponge包含丰富的组件(按需使用)：
 
 ### 快速开始
 
-#### 安装sponge
+#### 安装sunshine
 
-支持在windows、mac、linux环境下安装sponge，点击查看[安装sponge说明](https://github.com/18721889353/sunshine/blob/main/assets/install-cn.md)。
+支持在windows、mac、linux环境下安装sunshine，点击查看[安装sunshine说明](https://github.com/18721889353/sunshine/blob/main/assets/install-cn.md)。
 
 #### 启动UI服务
 
-安装完成后，启动sponge UI服务：
+安装完成后，启动sunshine UI服务：
 
 ```bash
-sponge run
+sunshine run
 ```
 
 在本地浏览器访问 `http://localhost:24631`，在UI页面上操作生成代码。
 
-> 如果想要在跨主机的浏览器上访问，启动UI时需要指定宿主机ip或域名，示例 `sponge run -a http://your_host_ip:24631`。 也可以在docker上启动UI服务来支持跨主机访问，点击查看[docker启动sponge UI服务说明](https://github.com/18721889353/sunshine/blob/main/assets/install-cn.md#Docker%E7%8E%AF%E5%A2%83)。
+> 如果想要在跨主机的浏览器上访问，启动UI时需要指定宿主机ip或域名，示例 `sunshine run -a http://your_host_ip:24631`。 也可以在docker上启动UI服务来支持跨主机访问，点击查看[docker启动sunshine UI服务说明](https://github.com/18721889353/sunshine/blob/main/assets/install-cn.md#Docker%E7%8E%AF%E5%A2%83)。
 
 <br>
 
-### sponge开发文档
+### sunshine开发文档
 
-使用sponge开发项目的详细的操作、配置、部署说明，点击查看[sponge开发文档](https://go-sponge.com/zh-cn/)。
+使用sunshine开发项目的详细的操作、配置、部署说明，点击查看[sunshine开发文档](https://go-sunshine.com/zh-cn/)。
 
 <br>
 
 ### 使用示例
 
-#### 使用sponge创建服务示例
+#### 使用sunshine创建服务示例
 
 - [基于sql创建web服务(包括CRUD)](https://github.com/18721889353/sunshine_examples/tree/main/1_web-gin-CRUD)
 - [基于sql创建grpc服务(包括CRUD)](https://github.com/18721889353/sunshine_examples/tree/main/2_micro-grpc-CRUD)
@@ -150,7 +150,7 @@ sponge run
 - [基于protobuf创建grpc网关服务](https://github.com/18721889353/sunshine_examples/tree/main/5_micro-gin-rpc-gateway)
 - [基于protobuf创建grpc+http服务](https://github.com/18721889353/sunshine_examples/tree/main/a_micro-grpc-http-protobuf)
 
-#### 使用sponge开发完整项目示例
+#### 使用sunshine开发完整项目示例
 
 - [简单的社区web后端服务](https://github.com/18721889353/sunshine_examples/tree/main/7_community-single)
 - [简单的社区web后端服务拆分为微服务](https://github.com/18721889353/sunshine_examples/tree/main/8_community-cluster)
@@ -163,10 +163,10 @@ sponge run
 
 ### 视频介绍
 
-> 视频演示使用sponge v1.3.12版本，而新版本的生成代码页面略有不同，建议结合[文档教程](https://go-sponge.com/zh-cn/)使用。
+> 视频演示使用sunshine v1.3.12版本，而新版本的生成代码页面略有不同，建议结合[文档教程](https://go-sunshine.com/zh-cn/)使用。
 
-- [01 sponge的形成过程](https://www.bilibili.com/video/BV1s14y1F7Fz/)
-- [02 sponge的框架介绍](https://www.bilibili.com/video/BV13u4y1F7EU/)
+- [01 sunshine的形成过程](https://www.bilibili.com/video/BV1s14y1F7Fz/)
+- [02 sunshine的框架介绍](https://www.bilibili.com/video/BV13u4y1F7EU/)
 - [03 一键生成完整的web服务代码](https://www.bilibili.com/video/BV1RY411k7SE/)
 - [04 批量生成CRUD api代码到web服务](https://www.bilibili.com/video/BV1AY411C7J7/)
 - [05 一键生成通用的web服务代码](https://www.bilibili.com/video/BV1CX4y1D7xj/)
@@ -182,6 +182,6 @@ sponge run
 <br>
 <br>
 
-如果对您有帮助给个star⭐，欢迎加入**go sponge微信群交流**，加微信(备注`sponge`)进群。
+如果对您有帮助给个star⭐，欢迎加入**go sunshine微信群交流**，加微信(备注`sunshine`)进群。
 
-<img width="300px" src="https://raw.githubusercontent.com/zhufuyi/sponge/main/assets/wechat-group.jpg">
+<img width="300px" src="https://raw.githubusercontent.com/18721889353/sunshine/main/assets/wechat-group.jpg">

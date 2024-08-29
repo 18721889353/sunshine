@@ -38,16 +38,16 @@ func DaoCommand(parentName string) *cobra.Command {
 
 Examples:
   # generate dao code.
-  sponge %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+  sunshine %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
   # generate dao code with multiple table names.
-  sponge %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
+  sunshine %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
   # generate dao code with extened api.
-  sponge %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
+  sunshine %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
   # generate dao code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge %s dao --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
+  sunshine %s dao --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
   # if you want the generated code to suited to mono-repo, you need to specify the parameter --suited-mono-repo=true --serverName=yourServerName
 `, parentName, parentName, parentName, parentName)),
@@ -60,11 +60,11 @@ Examples:
 				serverName = srvName
 				suitedMonoRepo = smr
 			} else if moduleName == "" {
-				return fmt.Errorf(`required flag(s) "module-name" not set, use "sponge %s dao -h" for help`, parentName)
+				return fmt.Errorf(`required flag(s) "module-name" not set, use "sunshine %s dao -h" for help`, parentName)
 			}
 			if suitedMonoRepo {
 				if serverName == "" {
-					return fmt.Errorf(`required flag(s) "server-name" not set, use "sponge %s dao -h" for help`, parentName)
+					return fmt.Errorf(`required flag(s) "server-name" not set, use "sunshine %s dao -h" for help`, parentName)
 				}
 				serverName = convertServerName(serverName)
 				outPath = changeOutPath(outPath, serverName)
@@ -122,7 +122,7 @@ using help:
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
 	//_ = cmd.MarkFlagRequired("module-name")
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sponge_sqlite.db") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
 	_ = cmd.MarkFlagRequired("db-table")
@@ -153,7 +153,7 @@ type daoGenerator struct {
 
 func (g *daoGenerator) generateCode() (string, error) {
 	subTplName := "dao"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("r is nil")
 	}

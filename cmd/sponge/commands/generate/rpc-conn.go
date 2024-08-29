@@ -29,13 +29,13 @@ func GRPCConnectionCommand() *cobra.Command {
 
 Examples:
   # generate grpc connection code
-  sponge micro rpc-conn --module-name=yourModuleName --rpc-server-name=yourGrpcName
+  sunshine micro rpc-conn --module-name=yourModuleName --rpc-server-name=yourGrpcName
 
   # generate grpc connection code with multiple names.
-  sponge micro rpc-conn --module-name=yourModuleName --rpc-server-name=name1,name2
+  sunshine micro rpc-conn --module-name=yourModuleName --rpc-server-name=name1,name2
 
   # generate grpc connection code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge micro rpc-conn --rpc-server-name=user --out=./yourServerDir
+  sunshine micro rpc-conn --rpc-server-name=user --out=./yourServerDir
 
   # if you want the generated code to suited to mono-repo, you need to specify the parameter --suited-mono-repo=true --serverName=yourServerName
 `),
@@ -48,11 +48,11 @@ Examples:
 				serverName = srvName
 				suitedMonoRepo = smr
 			} else if moduleName == "" {
-				return errors.New(`required flag(s) "module-name" not set, use "sponge micro rpc-conn -h" for help`)
+				return errors.New(`required flag(s) "module-name" not set, use "sunshine micro rpc-conn -h" for help`)
 			}
 			if suitedMonoRepo {
 				if serverName == "" {
-					return errors.New(`required flag(s) "server-name" not set, use "sponge micro rpc-conn -h" for help`)
+					return errors.New(`required flag(s) "server-name" not set, use "sunshine micro rpc-conn -h" for help`)
 				}
 				serverName = convertServerName(serverName)
 				outPath = changeOutPath(outPath, serverName)
@@ -110,7 +110,7 @@ type grpcConnectionGenerator struct {
 
 func (g *grpcConnectionGenerator) generateCode() (string, error) {
 	subTplName := "rpc-conn"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}

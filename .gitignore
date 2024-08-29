@@ -32,5 +32,5 @@ cmd/serverNameExample_httpExample/serverNameExample_httpExample
 cmd/serverNameExample_grpcGwPbExample/serverNameExample_grpcGwPbExample
 cmd/serverNameExample_httpPbExample/serverNameExample_httpPbExample
 cmd/serverNameExample_mixExample/serverNameExample_mixExample
-cmd/sponge/sponge
+cmd/sunshine/sunshine
 # delete the templates code end

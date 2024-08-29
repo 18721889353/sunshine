@@ -16,25 +16,25 @@ import (
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
-// UpgradeCommand upgrade sponge binaries
+// UpgradeCommand upgrade sunshine binaries
 func UpgradeCommand() *cobra.Command {
 	var targetVersion string
 
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade sponge version",
-		Long: color.HiBlackString(`upgrade sponge version.
+		Short: "Upgrade sunshine version",
+		Long: color.HiBlackString(`upgrade sunshine version.
 
 Examples:
   # upgrade to latest version
-  sponge upgrade
+  sunshine upgrade
   # upgrade to specified version
-  sponge upgrade --version=v1.5.6
+  sunshine upgrade --version=v1.5.6
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("upgrading sponge, please wait a moment ......")
+			fmt.Println("upgrading sunshine, please wait a moment ......")
 			if targetVersion == "" {
 				targetVersion = latestVersion
 			}
@@ -47,24 +47,24 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVarP(&targetVersion, "version", "v", latestVersion, "upgrade sponge version")
+	cmd.Flags().StringVarP(&targetVersion, "version", "v", latestVersion, "upgrade sunshine version")
 	return cmd
 }
 
 func runUpgrade(targetVersion string) (string, error) {
 	err := runUpgradeCommand(targetVersion)
 	if err != nil {
-		fmt.Println(lackSymbol + "upgrade sponge binary.")
+		fmt.Println(lackSymbol + "upgrade sunshine binary.")
 		return "", err
 	}
-	fmt.Println(installedSymbol + "upgraded sponge binary.")
+	fmt.Println(installedSymbol + "upgraded sunshine binary.")
 	ver, err := copyToTempDir(targetVersion)
 	if err != nil {
 		fmt.Println(lackSymbol + "upgrade template code.")
 		return "", err
 	}
 	fmt.Println(installedSymbol + "upgraded template code.")
-	err = updateSpongeInternalPlugin(ver)
+	err = updateSunshineInternalPlugin(ver)
 	if err != nil {
 		fmt.Println(lackSymbol + "upgrade protoc plugins.")
 		return "", err
@@ -75,7 +75,7 @@ func runUpgrade(targetVersion string) (string, error) {
 
 func runUpgradeCommand(targetVersion string) error {
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute*3) //nolint
-	result := gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/sponge@"+targetVersion)
+	result := gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/sunshine@"+targetVersion)
 	for v := range result.StdOut {
 		_ = v
 	}
@@ -96,26 +96,26 @@ func copyToTempDir(targetVersion string) (string, error) {
 		return "", fmt.Errorf("$GOPATH is empty, you need set $GOPATH in your $PATH")
 	}
 
-	spongeDirName := ""
+	sunshineDirName := ""
 	if targetVersion == latestVersion {
-		// find the new version of the sponge code directory
-		arg := fmt.Sprintf("%s/pkg/mod/github.com/zhufuyi", gopath)
+		// find the new version of the sunshine code directory
+		arg := fmt.Sprintf("%s/pkg/mod/github.com/18721889353", gopath)
 		result, err = gobash.Exec("ls", adaptPathDelimiter(arg))
 		if err != nil {
 			return "", fmt.Errorf("execute command failed, %v", err)
 		}
 
-		spongeDirName = getLatestVersion(string(result))
-		if spongeDirName == "" {
-			return "", fmt.Errorf("not found sponge directory in '$GOPATH/pkg/mod/github.com/zhufuyi'")
+		sunshineDirName = getLatestVersion(string(result))
+		if sunshineDirName == "" {
+			return "", fmt.Errorf("not found sunshine directory in '$GOPATH/pkg/mod/github.com/18721889353'")
 		}
 	} else {
-		spongeDirName = "sponge@" + targetVersion
+		sunshineDirName = "sunshine@" + targetVersion
 	}
 
-	srcDir := adaptPathDelimiter(fmt.Sprintf("%s/pkg/mod/github.com/zhufuyi/%s", gopath, spongeDirName))
-	destDir := adaptPathDelimiter(GetSpongeDir() + "/")
-	targetDir := adaptPathDelimiter(destDir + ".sponge")
+	srcDir := adaptPathDelimiter(fmt.Sprintf("%s/pkg/mod/github.com/18721889353/%s", gopath, sunshineDirName))
+	destDir := adaptPathDelimiter(GetSunshineDir() + "/")
+	targetDir := adaptPathDelimiter(destDir + ".sunshine")
 
 	err = executeCommand("rm", "-rf", targetDir)
 	if err != nil {
@@ -129,12 +129,12 @@ func copyToTempDir(targetVersion string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_ = executeCommand("rm", "-rf", targetDir+"/cmd/sponge")
+	_ = executeCommand("rm", "-rf", targetDir+"/cmd/sunshine")
 	_ = executeCommand("rm", "-rf", targetDir+"/pkg")
 	_ = executeCommand("rm", "-rf", targetDir+"/test")
 	_ = executeCommand("rm", "-rf", targetDir+"/assets")
 
-	versionNum := strings.Replace(spongeDirName, "sponge@", "", 1)
+	versionNum := strings.Replace(sunshineDirName, "sunshine@", "", 1)
 	err = os.WriteFile(versionFile, []byte(versionNum), 0644)
 	if err != nil {
 		return "", err
@@ -168,8 +168,8 @@ func getLatestVersion(s string) string {
 
 	dirs := strings.Split(s, "\n")
 	for _, dirName := range dirs {
-		if strings.Contains(dirName, "sponge@") {
-			tmp := strings.ReplaceAll(dirName, "sponge@", "")
+		if strings.Contains(dirName, "sunshine@") {
+			tmp := strings.ReplaceAll(dirName, "sunshine@", "")
 			ss := strings.Split(tmp, ".")
 			if len(ss) != 3 {
 				continue
@@ -190,7 +190,7 @@ func getLatestVersion(s string) string {
 	return dirNames[nums[len(nums)-1]]
 }
 
-func updateSpongeInternalPlugin(targetVersion string) error {
+func updateSunshineInternalPlugin(targetVersion string) error {
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute) //nolint
 	result := gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/protoc-gen-go-gin@"+targetVersion)
 	for v := range result.StdOut {

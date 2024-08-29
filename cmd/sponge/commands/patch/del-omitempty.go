@@ -24,10 +24,10 @@ func DeleteJSONOmitemptyCommand() *cobra.Command {
 
 Examples:
   # delete all files that include the omitempty character
-  sponge patch del-omitempty --dir=./api
+  sunshine patch del-omitempty --dir=./api
 
   # delete the specified suffix file including the omitempty character
-  sponge patch del-omitempty --dir=./api --suffix-name=pb.go
+  sunshine patch del-omitempty --dir=./api --suffix-name=pb.go
 
 `,
 		SilenceErrors: true,

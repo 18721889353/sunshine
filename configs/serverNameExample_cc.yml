@@ -1,4 +1,4 @@
-# Generate the go struct command: sponge config --server-dir=./serverDir
+# Generate the go struct command: sunshine config --server-dir=./serverDir
 # App config from nacos
 
 # nacos settings

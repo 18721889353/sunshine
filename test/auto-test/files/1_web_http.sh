@@ -102,8 +102,8 @@ if [ -d "${testServerDir}" ]; then
   echo "service ${testServerDir} already exists"
 else
   echo "create service ${testServerDir}"
-  echo -e "${colorCyan}sponge web http --module-name=${testServerName} --server-name=${testServerName} --project-name=webdemo --extended-api=true --db-dsn=${mysqlDSN} --db-table=${mysqlTable} --out=./${testServerDir} ${markEnd}"
-  sponge web http --module-name=${testServerName} --server-name=${testServerName} --project-name=webdemo --extended-api=true --db-dsn=${mysqlDSN} --db-table=${mysqlTable} --out=./${testServerDir}
+  echo -e "${colorCyan}sunshine web http --module-name=${testServerName} --server-name=${testServerName} --project-name=webdemo --extended-api=true --db-dsn=${mysqlDSN} --db-table=${mysqlTable} --out=./${testServerDir} ${markEnd}"
+  sunshine web http --module-name=${testServerName} --server-name=${testServerName} --project-name=webdemo --extended-api=true --db-dsn=${mysqlDSN} --db-table=${mysqlTable} --out=./${testServerDir}
   checkResult $?
 fi
 

@@ -1,4 +1,4 @@
-// Package commands are subcommands of the sponge command.
+// Package commands are subcommands of the sunshine command.
 package commands
 
 import (
@@ -7,21 +7,21 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/18721889353/sunshine/cmd/sponge/commands/generate"
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
 )
 
 var (
 	version     = "v0.0.0"
-	versionFile = GetSpongeDir() + "/.sponge/.github/version"
+	versionFile = GetSunshineDir() + "/.sunshine/.github/version"
 )
 
 // NewRootCMD command entry
 func NewRootCMD() *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "sponge",
-		Long: `Sponge is a powerful Go development framework, it's easy to develop web and microservice projects.
+		Use: "sunshine",
+		Long: `Sunshine is a powerful Go development framework, it's easy to develop web and microservice projects.
 repo: https://github.com/18721889353/sunshine
-docs: https://go-sponge.com`,
+docs: https://go-sunshine.com`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Version:       getVersion(),
@@ -49,11 +49,11 @@ func getVersion() string {
 	if v != "" {
 		return v
 	}
-	return "unknown, execute command \"sponge init\" to get version"
+	return "unknown, execute command \"sunshine init\" to get version"
 }
 
-// GetSpongeDir get sponge home directory
-func GetSpongeDir() string {
+// GetSunshineDir get sunshine home directory
+func GetSunshineDir() string {
 	dir, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Println("can't get home directory'")

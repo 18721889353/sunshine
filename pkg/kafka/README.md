@@ -16,7 +16,7 @@ package main
 import (
 	"fmt"
 	"github.com/IBM/sarama"
-	"github.com/zhufuyi/pkg/kafka"
+	"github.com/18721889353/pkg/kafka"
 )
 
 func main() {
@@ -62,7 +62,7 @@ import (
 	"fmt"
 	"time"
 	"github.com/IBM/sarama"
-	"github.com/zhufuyi/pkg/kafka"
+	"github.com/18721889353/pkg/kafka"
 )
 
 func main() {
@@ -113,7 +113,7 @@ import (
 	"fmt"
 	"time"
 	"github.com/IBM/sarama"
-	"github.com/zhufuyi/pkg/kafka"
+	"github.com/18721889353/pkg/kafka"
 )
 
 func main() {
@@ -151,7 +151,7 @@ package main
 import (
 	"fmt"
 	"github.com/IBM/sarama"
-	"github.com/zhufuyi/pkg/kafka"
+	"github.com/18721889353/pkg/kafka"
 	"time"
 )
 
@@ -187,7 +187,7 @@ package main
 
 import (    
 	"fmt"
-	"github.com/zhufuyi/pkg/kafka"    
+	"github.com/18721889353/pkg/kafka"    
 )
 
 func main() {

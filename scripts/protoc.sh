@@ -165,7 +165,7 @@ function generateBySpecifiedProto(){
   checkResult $?
 
   # convert 64-bit fields type string to integer
-  sponge web swagger --file=docs/apis.swagger.json > /dev/null
+  sunshine web swagger --file=docs/apis.swagger.json > /dev/null
   checkResult $?
 
   # A total of four files are generated: the registration route file *_router.pb.go (saved in the same directory as the protobuf file),
@@ -177,7 +177,7 @@ function generateBySpecifiedProto(){
     --go-gin_opt=moduleName=github.com/18721889353/sunshine --go-gin_opt=serverName=serverNameExample \
     $specifiedProtoFiles
 
-  sponge merge rpc-gw-pb
+  sunshine merge rpc-gw-pb
   checkResult $?
 
   colorCyan='\033[1;36m'
@@ -190,7 +190,7 @@ function generateBySpecifiedProto(){
   # delete the templates code end
 
   if [ "$suitedMonoRepo" == "true" ]; then
-    sponge patch adapt-mono-repo
+    sunshine patch adapt-mono-repo
   fi
 }
 
@@ -204,11 +204,11 @@ generateBySpecifiedProto
 handlePbGoFiles $protoBasePath
 
 # delete json tag omitempty
-sponge patch del-omitempty --dir=$protoBasePath --suffix-name=pb.go > /dev/null
+sunshine patch del-omitempty --dir=$protoBasePath --suffix-name=pb.go > /dev/null
 
 # modify duplicate numbers and error codes
-sponge patch modify-dup-num --dir=internal/ecode
-sponge patch modify-dup-err-code --dir=internal/ecode
+sunshine patch modify-dup-num --dir=internal/ecode
+sunshine patch modify-dup-err-code --dir=internal/ecode
 
 echo "generated code successfully."
 echo ""

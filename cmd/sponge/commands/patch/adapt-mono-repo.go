@@ -26,7 +26,7 @@ func AdaptMonoRepoCommand() *cobra.Command {
 
 Examples:
   # adapt to mono-repo code
-  sponge patch adapt-mono-repo
+  sunshine patch adapt-mono-repo
 
 `,
 		SilenceErrors: true,

@@ -1,4 +1,4 @@
-# Generate the go struct command: sponge config --server-dir=./serverDir
+# Generate the go struct command: sunshine config --server-dir=./serverDir
 
 # app settings
 app:
@@ -109,7 +109,7 @@ database:
 
   # sqlite settings
   sqlite:
-    dbFile: "test/sql/sqlite/sponge.db"   # if you are in a windows environment, the path separator is \\
+    dbFile: "test/sql/sqlite/sunshine.db"   # if you are in a windows environment, the path separator is \\
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
     maxOpenConns: 100       # set the maximum number of open database connections

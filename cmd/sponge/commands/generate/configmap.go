@@ -27,10 +27,10 @@ func ConfigmapCommand() *cobra.Command {
 
 Examples:
   # generate k8s configmap
-  sponge configmap --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml
+  sunshine configmap --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml
 
   # generate grpc connection code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge configmap --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml --out=./yourServerDir
+  sunshine configmap --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml --out=./yourServerDir
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -73,7 +73,7 @@ type copyConfigGenerator struct {
 
 func (g *copyConfigGenerator) generateCode() (string, error) {
 	subTplName := "configmap"
-	r := Replacers[TplNameSponge]
+	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}

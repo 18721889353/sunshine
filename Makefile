@@ -82,17 +82,17 @@ build:
 
 # delete the templates code start
 
-.PHONY: build-sponge
-# Build sponge for linux amd64 binary
-build-sponge:
-	@echo "building 'sponge', linux binary file will output to 'cmd/sponge'"
-	@cd cmd/sponge && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w"
+.PHONY: build-sunshine
+# Build sunshine for linux amd64 binary
+build-sunshine:
+	@echo "building 'sunshine', linux binary file will output to 'cmd/sunshine'"
+	@cd cmd/sunshine && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w"
 
-.PHONY: image-build-sponge
-# Build a sponge docker image, e.g. make image-build-sponge TAG=v1.5.8
-image-build-sponge:
-	@echo "build a sponge docker image'"
-	@cd cmd/sponge/scripts && bash build-sponge-image.sh  $(TAG)
+.PHONY: image-build-sunshine
+# Build a sunshine docker image, e.g. make image-build-sunshine TAG=v1.5.8
+image-build-sunshine:
+	@echo "build a sunshine docker image'"
+	@cd cmd/sunshine/scripts && bash build-sunshine-image.sh  $(TAG)
 
 # delete the templates code end
 
@@ -171,19 +171,19 @@ patch:
 .PHONY: copy-proto
 # Copy proto file from the grpc server directory, multiple directories or proto files separated by commas. default is to copy all proto files, e.g. make copy-proto SERVER=yourServerDir, copy specified proto files, e.g. make copy-proto SERVER=yourServerDir PROTO_FILE=yourProtoFile1,yourProtoFile2
 copy-proto:
-	@sponge patch copy-proto --server-dir=$(SERVER) --proto-file=$(PROTO_FILE)
+	@sunshine patch copy-proto --server-dir=$(SERVER) --proto-file=$(PROTO_FILE)
 
 
 .PHONY: modify-proto-pkg-name
 # Modify the 'package' and 'go_package' names of all proto files in the 'api' directory
 modify-proto-pkg-name:
-	@sponge patch modify-proto-package --dir=api --server-dir=.
+	@sunshine patch modify-proto-package --dir=api --server-dir=.
 
 
 .PHONY: update-config
 # Update internal/config code base on yaml file
 update-config:
-	@sponge config --server-dir=.
+	@sunshine config --server-dir=.
 
 
 .PHONY: clean

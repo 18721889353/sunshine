@@ -28,13 +28,13 @@ func ConvertSwagJSONCommand(parentName string) *cobra.Command {
 
 Examples:
   # convent file docs/apis.swagger.json.
-  sponge %s swagger
+  sunshine %s swagger
 
   # convent file test/swagger.json
-  sponge %s swagger --file=test/swagger.json
+  sunshine %s swagger --file=test/swagger.json
 
   # convent file docs/apis.swagger.json and sort json key.
-  sponge %s swagger --is-sort
+  sunshine %s swagger --is-sort
 `, parentName, parentName, parentName)),
 		SilenceErrors: true,
 		SilenceUsage:  true,

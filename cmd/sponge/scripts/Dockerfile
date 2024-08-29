@@ -1,5 +1,5 @@
 FROM alpine:latest
-MAINTAINER zhufuyi "g.zhufuyi@gmail.com"
+MAINTAINER 18721889353 "g.18721889353@gmail.com"
 
 USER root
 
@@ -9,12 +9,12 @@ USER root
 #    && echo "Asia/Shanghai" > /etc/timezone \
 #    && apk del tzdata
 
-COPY .sponge /root/.sponge
-COPY sponge /usr/local/bin/sponge
-RUN chmod +x /usr/local/bin/sponge
+COPY .sunshine /root/.sunshine
+COPY sunshine /usr/local/bin/sunshine
+RUN chmod +x /usr/local/bin/sunshine
 
 EXPOSE 24631
 
 WORKDIR /app
 
-ENTRYPOINT ["sponge", "run"]
+ENTRYPOINT ["sunshine", "run"]

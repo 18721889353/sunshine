@@ -1,5 +1,5 @@
 FROM jenkins/jenkins:2.370
-LABEL maintainer="zhufuyi g.zhufuyi@gmail.com"
+LABEL maintainer="18721889353 g.18721889353@gmail.com"
 USER root
 
 RUN apt-get update -y && apt-get dist-upgrade -y && apt-get install -y apt-utils make

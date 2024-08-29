@@ -12,7 +12,7 @@ func GinHandlerCode() *cobra.Command {
 		Long: `merge the generated http related code into the template file.
 
 Examples:
-  sponge merge http-pb
+  sunshine merge http-pb
 `,
 		SilenceErrors: true,
 		SilenceUsage:  true,
