@@ -2,6 +2,7 @@ package routers
 
 import (
 	"context"
+	"github.com/18721889353/sunshine/internal/model"
 	"google.golang.org/grpc/metadata"
 	"net/http"
 	"strings"
@@ -17,7 +18,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/prof"
 	"github.com/18721889353/sunshine/pkg/gin/swagger"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
-	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/docs"
@@ -45,22 +45,20 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		r.Use(middleware.Timeout(time.Second * time.Duration(config.Get().HTTP.Timeout)))
 	}
 
+	// access path /apis/swagger/index.html
+	swagger.CustomRouter(r, "apis", docs.ApiDocs)
+
 	// request id middleware
-	r.Use(middleware.RequestID())
+	r.Use(middleware.RequestID(middleware.WithContextRequestIDKey(model.GetSnowId().String())))
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
 		middleware.WithLog(logger.Get()),
+		middleware.WithMaxLen(config.Get().Logger.MaxLen),
 		middleware.WithRequestIDFromContext(),
+		middleware.WithLogFrom(config.Get().App.Name),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
-
-	// init jwt middleware
-	jwt.Init(
-	//jwt.WithExpire(time.Hour*24),
-	//jwt.WithSigningKey("123456"),
-	//jwt.WithSigningMethod(jwt.HS384),
-	)
 
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
@@ -101,9 +99,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
 	r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
-
-	// access path /apis/swagger/index.html
-	swagger.CustomRouter(r, "apis", docs.ApiDocs)
 
 	c := newMiddlewareConfig()
 

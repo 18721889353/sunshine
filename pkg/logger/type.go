@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -68,10 +69,28 @@ func Duration(key string, val time.Duration) Field {
 
 // Err type
 func Err(err error) Field {
-	return zap.Error(err)
+	return zap.String("err", err.Error())
+	//return zap.Error(err)
 }
 
 // Any type, if it is a composite type such as object, slice, map, etc., use Any
 func Any(key string, val interface{}) Field {
-	return zap.Any(key, val)
+
+	anyToJSON := zapAnyToJSON(key, val)
+	return zap.String(key, anyToJSON)
+	//return zap.Any(key, val)
+}
+
+func zapAnyToJSON(key string, val interface{}) string {
+	// 创建一个空的 map 用于存储键值对
+	data := make(map[string]interface{})
+	// 将 zap.Any 的键值对添加到 map 中
+	data[key] = val
+	// 将 map 转换为 JSON 格式的字节数组
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		return err.Error()
+	}
+	// 将字节数组转换为字符串并返回
+	return string(jsonBytes)
 }

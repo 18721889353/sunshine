@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -9,11 +10,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+
+	zapLog "github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (
 	// Print body max length
 	defaultMaxLength = 300
+	defaultLogFrom   = ""
 
 	// default zap log
 	defaultLogger, _ = zap.NewProduction()
@@ -35,6 +39,7 @@ func defaultOptions() *options {
 		log:           defaultLogger,
 		ignoreRoutes:  defaultIgnoreRoutes,
 		requestIDFrom: 0,
+		logFrom:       defaultLogFrom,
 	}
 }
 
@@ -43,6 +48,7 @@ type options struct {
 	log           *zap.Logger
 	ignoreRoutes  map[string]struct{}
 	requestIDFrom int // 0: ignore, 1: from context, 2: from header
+	logFrom       string
 }
 
 func (o *options) apply(opts ...Option) {
@@ -55,6 +61,11 @@ func (o *options) apply(opts ...Option) {
 func WithMaxLen(maxLen int) Option {
 	return func(o *options) {
 		o.maxLength = maxLen
+	}
+}
+func WithLogFrom(logFrom string) Option {
+	return func(o *options) {
+		o.logFrom = logFrom
 	}
 }
 
@@ -134,6 +145,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		_, _ = buf.ReadFrom(c.Request.Body)
 
 		fields := []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("method", c.Request.Method),
 			zap.String("url", c.Request.URL.String()),
 		}
@@ -156,7 +168,9 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			reqID = c.Request.Header.Get(HeaderXRequestIDKey)
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		o.log.Info("<<<<", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+" <<<<"))
+
+		zapLog.Info("<<<<", fields...)
 
 		c.Request.Body = io.NopCloser(&buf)
 
@@ -169,17 +183,19 @@ func Logging(opts ...Option) gin.HandlerFunc {
 
 		// print return message after processing
 		fields = []zap.Field{
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.Int("code", c.Writer.Status()),
 			zap.String("method", c.Request.Method),
 			zap.String("url", c.Request.URL.Path),
-			zap.Int64("time_us", time.Since(start).Microseconds()),
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
 			zap.Int("size", newWriter.body.Len()),
 			zap.String("response", strings.TrimRight(getBodyData(newWriter.body, o.maxLength), "\n")),
 		}
 		if reqID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		o.log.Info(">>>>", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+" >>>>"))
+		zapLog.Info(">>>>", fields...)
 	}
 }
 

@@ -72,6 +72,7 @@ logger:
   level: "info"             # output log levels debug, info, warn, error, default is debug
   format: "console"         # output format, console or json, default is console
   isSave: false             # false:output to terminal, true:output to file, default is false
+  maxLen: 102400            # Maximum size of a single log
   logFileConfig:           # Effective when isSave=true
     filename: "out.log"    # File name (default is out.log)
     maxSize: 20            # Maximum file size (MB, default is 10MB)
