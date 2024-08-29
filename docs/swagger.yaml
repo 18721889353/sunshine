@@ -1,0 +1,388 @@
+definitions:
+  github_com_zhufuyi_sponge_internal_types.Column:
+    properties:
+      exp:
+        description: expressions, which default to = when the value is null, have
+          =, !=, >, >=, <, <=, like
+        type: string
+      logic:
+        description: logical type, defaults to and when value is null, only &(and),
+          ||(or)
+        type: string
+      name:
+        description: column name
+        type: string
+      value:
+        description: column value
+    type: object
+  github_com_zhufuyi_sponge_internal_types.Params:
+    properties:
+      columns:
+        description: query conditions
+        items:
+          $ref: '#/definitions/github_com_zhufuyi_sponge_internal_types.Column'
+        type: array
+      limit:
+        description: lines per page
+        type: integer
+      page:
+        description: page number, starting from page 0
+        type: integer
+      sort:
+        description: sorted fields, multi-column sorting separated by commas
+        type: string
+    type: object
+  handlerfunc.CheckHealthReply:
+    properties:
+      hostname:
+        type: string
+      status:
+        type: string
+    type: object
+  types.CreateUserExampleReply:
+    properties:
+      code:
+        description: return code
+        type: integer
+      data:
+        description: return data
+        properties:
+          id:
+            description: id
+            type: integer
+        type: object
+      msg:
+        description: return information description
+        type: string
+    type: object
+  types.CreateUserExampleRequest:
+    properties:
+      age:
+        description: age
+        type: integer
+      avatar:
+        description: avatar
+        minLength: 5
+        type: string
+      email:
+        description: email
+        type: string
+      gender:
+        description: gender, 1:Male, 2:Female, other values:unknown
+        maximum: 2
+        minimum: 0
+        type: integer
+      name:
+        description: username
+        minLength: 2
+        type: string
+      password:
+        description: password
+        type: string
+      phone:
+        description: phone number, e164 rules, e.g. +8612345678901
+        type: string
+    type: object
+  types.DeleteUserExampleByIDReply:
+    properties:
+      code:
+        description: return code
+        type: integer
+      data:
+        description: return data
+      msg:
+        description: return information description
+        type: string
+    type: object
+  types.GetUserExampleByIDReply:
+    properties:
+      code:
+        description: return code
+        type: integer
+      data:
+        description: return data
+        properties:
+          userExample:
+            $ref: '#/definitions/types.UserExampleObjDetail'
+        type: object
+      msg:
+        description: return information description
+        type: string
+    type: object
+  types.ListUserExamplesReply:
+    properties:
+      code:
+        description: return code
+        type: integer
+      data:
+        description: return data
+        properties:
+          userExamples:
+            items:
+              $ref: '#/definitions/types.UserExampleObjDetail'
+            type: array
+        type: object
+      msg:
+        description: return information description
+        type: string
+    type: object
+  types.UpdateUserExampleByIDReply:
+    properties:
+      code:
+        description: return code
+        type: integer
+      data:
+        description: return data
+      msg:
+        description: return information description
+        type: string
+    type: object
+  types.UpdateUserExampleByIDRequest:
+    properties:
+      age:
+        description: age
+        type: integer
+      avatar:
+        description: avatar
+        type: string
+      email:
+        description: email
+        type: string
+      gender:
+        description: gender, 1:Male, 2:Female, other values:unknown
+        type: integer
+      id:
+        description: id
+        type: integer
+      name:
+        description: username
+        type: string
+      password:
+        description: password
+        type: string
+      phone:
+        description: phone number
+        type: string
+    type: object
+  types.UserExampleObjDetail:
+    properties:
+      age:
+        description: age
+        type: integer
+      avatar:
+        description: avatar
+        type: string
+      createdAt:
+        description: create time
+        type: string
+      email:
+        description: email
+        type: string
+      gender:
+        description: gender, 1:Male, 2:Female, other values:unknown
+        type: integer
+      id:
+        description: id
+        type: integer
+      loginAt:
+        description: login timestamp
+        type: integer
+      name:
+        description: username
+        type: string
+      phone:
+        description: phone number
+        type: string
+      status:
+        description: account status, 1:inactive, 2:activated, 3:blocked
+        type: integer
+      updatedAt:
+        description: update time
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: http server api docs
+  title: serverNameExample api docs
+  version: "2.0"
+paths:
+  /api/v1/userExample:
+    post:
+      consumes:
+      - application/json
+      description: submit information to create userExample
+      parameters:
+      - description: userExample information
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/types.CreateUserExampleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.CreateUserExampleReply'
+      security:
+      - BearerAuth: []
+      summary: create userExample
+      tags:
+      - userExample
+  /api/v1/userExample/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: delete userExample by id
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.DeleteUserExampleByIDReply'
+      security:
+      - BearerAuth: []
+      summary: delete userExample
+      tags:
+      - userExample
+    get:
+      consumes:
+      - application/json
+      description: get userExample detail by id
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.GetUserExampleByIDReply'
+      security:
+      - BearerAuth: []
+      summary: get userExample detail
+      tags:
+      - userExample
+    put:
+      consumes:
+      - application/json
+      description: update userExample information by id
+      parameters:
+      - description: id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: userExample information
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/types.UpdateUserExampleByIDRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.UpdateUserExampleByIDReply'
+      security:
+      - BearerAuth: []
+      summary: update userExample
+      tags:
+      - userExample
+  /api/v1/userExample/list:
+    post:
+      consumes:
+      - application/json
+      description: list of userExamples by paging and conditions
+      parameters:
+      - description: query parameters
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_zhufuyi_sponge_internal_types.Params'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/types.ListUserExamplesReply'
+      security:
+      - BearerAuth: []
+      summary: list of userExamples by query parameters
+      tags:
+      - userExample
+  /codes:
+    get:
+      consumes:
+      - application/json
+      description: list error codes info
+      produces:
+      - application/json
+      responses: {}
+      summary: list error codes info
+      tags:
+      - system
+  /config:
+    get:
+      consumes:
+      - application/json
+      description: show config info
+      produces:
+      - application/json
+      responses: {}
+      summary: show config info
+      tags:
+      - system
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: check health
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlerfunc.CheckHealthReply'
+      summary: check health
+      tags:
+      - system
+  /ping:
+    get:
+      consumes:
+      - application/json
+      description: ping
+      produces:
+      - application/json
+      responses: {}
+      summary: ping
+      tags:
+      - system
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: Type Bearer your-jwt-token to Value
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

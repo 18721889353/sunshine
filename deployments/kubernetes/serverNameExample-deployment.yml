@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-name-example-dm
+  namespace: project-name-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server-name-example
+  template:
+    metadata:
+      name: server-name-example-pod
+      labels:
+        app: server-name-example
+    spec:
+      containers:
+        - name: server-name-example
+          image: repo-addr-example/project-name-example/server-name-example:latest
+          # If using a local image, use Never, default is Always
+          #imagePullPolicy: Never
+          command: ["./serverNameExample", "-c", "/app/configs/serverNameExample.yml"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 10Mi
+            limits:
+              cpu: 1000m
+              memory: 1000Mi
+          volumeMounts:
+            - name: server-name-example-vl
+              mountPath: /app/configs/
+              readOnly: true
+# todo generate k8s-deployment.yml code for http or grpc here
+# delete the templates code start
+          ports:
+            - name: http-port
+              containerPort: 8080
+            - name: grpc-port
+              containerPort: 8282
+            - name: metrics-port
+              containerPort: 8283
+          # select health check according to service type (http or grpc)
+          # emotional Detection
+          readinessProbe:
+            httpGet:
+              port: http-port
+              path: /health
+            #exec:
+            #  command: ["/bin/grpc_health_probe", "-addr=:8282"]
+            initialDelaySeconds: 10
+            timeoutSeconds: 2
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          # container Survival Detection
+          livenessProbe:
+            httpGet:
+              port: http-port
+              path: /health
+            #exec:
+            #  command: ["/bin/grpc_health_probe", "-addr=:8282"]
+# delete the templates code end
+            initialDelaySeconds: 10
+            timeoutSeconds: 2
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+      # todo for private repositories, you need to create a secret (here docker-auth-secret) to store the account and password to log into docker
+      imagePullSecrets:
+        - name: docker-auth-secret
+      volumes:
+        - name: server-name-example-vl
+          configMap:
+            name: server-name-example-config

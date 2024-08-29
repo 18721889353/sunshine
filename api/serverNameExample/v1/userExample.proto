@@ -1,0 +1,219 @@
+// todo generate the protobuf code here
+// delete the templates code start
+
+syntax = "proto3";
+
+package api.serverNameExample.v1;
+
+import "validate/validate.proto";
+import "api/types/types.proto";
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+import "tagger/tagger.proto";
+
+option go_package = "github.com/18721889353/sunshine/api/serverNameExample/v1;v1";
+
+// Default settings for generating *.swagger.json documents
+// NOTE: because json does not support 64 bits, the int64 and uint64 types under *.swagger.json are automatically converted to string types
+// Reference https://github.com/grpc-ecosystem/grpc-gateway/blob/db7fbefff7c04877cdb32e16d4a248a024428207/examples/internal/proto/examplepb/a_bit_of_everything.proto
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  host: "localhost:8080"
+  base_path: ""
+  info: {
+    title: "serverNameExample api docs";
+    version: "2.0";
+  }
+  schemes: HTTP;
+  schemes: HTTPS;
+  consumes: "application/json";
+  produces: "application/json";
+  security_definitions: {
+    security: {
+      key: "BearerAuth";
+      value: {
+        type: TYPE_API_KEY;
+        in: IN_HEADER;
+        name: "Authorization";
+        description: "Type Bearer your-jwt-token to Value";
+      }
+    }
+  }
+};
+
+service userExample {
+  // create userExample
+  rpc Create(CreateUserExampleRequest) returns (CreateUserExampleReply) {
+    option (google.api.http) = {
+      post: "/api/v1/userExample"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "create userExample",
+      description: "submit information to create userExample",
+    };
+  }
+
+  // delete userExample by id
+  rpc DeleteByID(DeleteUserExampleByIDRequest) returns (DeleteUserExampleByIDReply) {
+    option (google.api.http) = {
+      delete: "/api/v1/userExample/{id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "delete userExample",
+      description: "delete userExample by id",
+      //security: {
+      //  security_requirement: {
+      //    key: "BearerAuth";
+      //    value: {}
+      //  }
+      //}
+    };
+  }
+
+  // update userExample by id
+  rpc UpdateByID(UpdateUserExampleByIDRequest) returns (UpdateUserExampleByIDReply) {
+    option (google.api.http) = {
+      put: "/api/v1/userExample/{id}"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "update userExample",
+      description: "update userExample by id",
+      //security: {
+      //  security_requirement: {
+      //    key: "BearerAuth";
+      //    value: {}
+      //  }
+      //}
+    };
+  }
+
+  // get userExample by id
+  rpc GetByID(GetUserExampleByIDRequest) returns (GetUserExampleByIDReply) {
+    option (google.api.http) = {
+      get: "/api/v1/userExample/{id}"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "get userExample detail",
+      description: "get userExample detail by id",
+      //security: {
+      //  security_requirement: {
+      //    key: "BearerAuth";
+      //    value: {}
+      //  }
+      //}
+    };
+  }
+
+  // list of userExample by query parameters
+  rpc List(ListUserExampleRequest) returns (ListUserExampleReply) {
+    option (google.api.http) = {
+      post: "/api/v1/userExample/list"
+      body: "*"
+    };
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "list of userExamples by query parameters",
+      description: "list of userExamples by paging and conditions",
+      //security: {
+      //  security_requirement: {
+      //    key: "BearerAuth";
+      //    value: {}
+      //  }
+      //}
+    };
+  }
+}
+
+
+// Some notes on defining fields under message:
+// (1) Fill in the validate rules https://github.com/envoyproxy/protoc-gen-validate#constraint-rules
+// (2) Suggest using camel hump naming for message field names, and for names ending in 'id',
+//      use xxxID naming format, such as userID, orderID, etc.
+// (3) When using the protoc-gen-openapiv2 plugin, if the defined fields are snake case,
+//      you must add annotations for snake case names, such as string fieldName = 1 [json_name = "field_name"],
+//      to ensure that the front end and back end JSON naming is consistent.
+// (4) If the route contains the path parameter, such as /api/v1/userExample/{id}, the defined
+//      message  must contain the name of the path parameter and the name should be
+//      added with a new tag, such as int64 id = 1 [(tagger.tags) = "uri:\"id\""];
+// (5) If the request url is followed by a query parameter, such as /api/v1/getUserExample?name=Tom,
+//      a form tag must be added when defining the query parameter in the message,
+//      such as string name = 1 [(tagger.tags) = "form:\"name\""].
+
+
+enum GenderType {
+  UNKNOWN = 0;
+  MALE = 1;
+  FEMALE = 2;
+};
+
+message CreateUserExampleRequest {
+  string name = 1 [(validate.rules).string.min_len  = 2];         // name
+  string email = 2 [(validate.rules).string.email = true];          // email
+  string password = 3 [(validate.rules).string.min_len = 10];   // password
+  string phone = 4 [(validate.rules).string = {pattern: "^1[3456789]\\d{9}$"}];    // phone number
+  string avatar = 5 [(validate.rules).string.uri = true];       // avatar
+  int32  age = 6 [(validate.rules).int32  = {gte:0, lte: 120}];    // age
+  GenderType  gender = 7 [(validate.rules).enum.defined_only = true];  // gender, 1:Male, 2:Female, other values:unknown
+}
+
+message CreateUserExampleReply {
+  uint64   id = 1;
+}
+
+message DeleteUserExampleByIDRequest {
+  uint64   id = 1 [(validate.rules).uint64.gte  = 1, (tagger.tags) = "uri:\"id\"" ];
+}
+
+message DeleteUserExampleByIDReply {
+
+}
+
+message UpdateUserExampleByIDRequest {
+  uint64   id = 1 [(validate.rules).uint64.gte  = 1 , (tagger.tags) = "uri:\"id\"" ];
+  string name = 2;         // name
+  string email = 3;         // email
+  string password = 4;   // password
+  string phone = 5;          // phone number
+  string avatar = 6;         // avatar
+  int32  age = 7;             // age
+  GenderType  gender = 8;        // gender, 1:Male, 2:Female, other values:unknown
+  int32  status = 9;         // account status
+  int64  loginAt = 10;     // login timestamp
+}
+
+message UpdateUserExampleByIDReply {
+
+}
+
+message UserExample {
+  uint64   id = 1;
+  string name = 2;          // name
+  string email = 3;          // email
+  string phone = 4;           // phone number
+  string avatar = 5;           // avatar
+  int32  age = 6;               // age
+  GenderType  gender = 7; // gender, 1:Male, 2:Female, other values:unknown
+  int32  status = 8;           // account status
+  int64  loginAt = 9;        // login timestamp
+  string createdAt = 10;   // creation time
+  string updatedAt = 11;  // update time
+}
+
+message GetUserExampleByIDRequest {
+  uint64   id = 1 [(validate.rules).uint64.gte  = 1, (tagger.tags) = "uri:\"id\"" ];
+}
+
+message GetUserExampleByIDReply {
+  UserExample userExample = 1;
+}
+
+message ListUserExampleRequest {
+  api.types.Params params = 1 [(validate.rules).message.required = true];
+}
+
+message ListUserExampleReply {
+  int64 total = 1;
+  repeated UserExample userExamples = 2;
+}
+
+// delete the templates code end
