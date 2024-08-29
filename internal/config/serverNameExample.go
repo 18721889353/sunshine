@@ -179,6 +179,7 @@ type Logger struct {
 	IsSave        bool          `yaml:"isSave" json:"isSave"`
 	Level         string        `yaml:"level" json:"level"`
 	LogFileConfig LogFileConfig `yaml:"logFileConfig" json:"logFileConfig"`
+	MaxLen        int           `yaml:"maxLen" json:"maxLen"`
 }
 
 type NacosRd struct {

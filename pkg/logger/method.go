@@ -1,6 +1,9 @@
 package logger
 
 import (
+	"encoding/json"
+	"fmt"
+	"go.uber.org/zap/zapcore"
 	"strings"
 
 	"go.uber.org/zap"
@@ -13,27 +16,38 @@ func Debug(msg string, fields ...Field) {
 
 // Info level information
 func Info(msg string, fields ...Field) {
-	getLogger().Info(msg, fields...)
+	//getLogger().Info(msg, fields...)
+	fields = append(fields, zap.String("log_msg", msg))
+	getLogger().Info(toJSON(fields))
 }
 
 // Warn level information
 func Warn(msg string, fields ...Field) {
-	getLogger().Warn(msg, fields...)
+	//getLogger().Warn(msg, fields...)
+	fields = append(fields, zap.String("log_msg", msg))
+	getLogger().Warn(toJSON(fields))
 }
 
 // Error level information
 func Error(msg string, fields ...Field) {
-	getLogger().Error(msg, fields...)
+	//getLogger().Error(msg, fields...)
+	fields = append(fields, zap.String("log_msg", msg))
+	getLogger().Error(toJSON(fields))
+
 }
 
 // Panic level information
 func Panic(msg string, fields ...Field) {
-	getLogger().Panic(msg, fields...)
+	//getLogger().Panic(msg, fields...)
+	fields = append(fields, zap.String("log_msg", msg))
+	getLogger().Panic(toJSON(fields))
 }
 
 // Fatal level information
 func Fatal(msg string, fields ...Field) {
-	getLogger().Fatal(msg, fields...)
+	//getLogger().Fatal(msg, fields...)
+	fields = append(fields, zap.String("log_msg", msg))
+	getLogger().Fatal(toJSON(fields))
 }
 
 // Debugf format level information
@@ -74,4 +88,28 @@ func Sync() error {
 // WithFields carrying field information
 func WithFields(fields ...Field) *zap.Logger {
 	return GetWithSkip(0).With(fields...)
+}
+
+func toJSON(fields []zap.Field) string {
+	// 创建一个空的 map 用于存储键值对
+	keyValuePairs := make(map[string]interface{})
+	// 遍历 Zap 字段，将键值对添加到 map 中
+	for _, f := range fields {
+		key := f.Key
+		// 根据字段的类型获取相应的值
+		switch f.Type {
+		case zapcore.StringType:
+			keyValuePairs[key] = f.String
+		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type, zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
+			keyValuePairs[key] = f.Integer
+		default:
+			continue
+		}
+	}
+	// 将 map 转换为 JSON 格式的字符串
+	jsonBytes, err := json.Marshal(keyValuePairs)
+	if err != nil {
+		return fmt.Sprintf(`{"error": "%s"}`, err)
+	}
+	return string(jsonBytes)
 }
