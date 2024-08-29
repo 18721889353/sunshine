@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+
 	"google.golang.org/grpc"
 
 	"github.com/18721889353/sunshine/pkg/consulcli"
@@ -44,8 +46,16 @@ func NewServerNameExampleRPCConn() {
 	}
 
 	var cliOptions = []grpccli.Option{
-		grpccli.WithEnableRequestID(),
-		grpccli.WithEnableLog(logger.Get()),
+		//grpccli.WithEnableRequestID(),
+		//grpccli.WithEnableLog(logger.Get()),
+		grpccli.WithUnaryInterceptors(
+			interceptor.UnaryClientLog(
+				logger.Get(),
+				interceptor.WithMaxLen(config.Get().Logger.MaxLen),
+				interceptor.WithReplaceGRPCLogger(),
+			),
+			interceptor.UnaryClientRequestID(),
+		),
 	}
 
 	if grpcClientCfg.Timeout > 0 {
