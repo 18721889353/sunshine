@@ -2,6 +2,7 @@
 package model
 
 import (
+	"github.com/bwmarrin/snowflake"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,9 @@ var (
 
 	cacheType *CacheType
 	once3     sync.Once
+
+	snowNode *snowflake.Node
+	once4    sync.Once
 )
 
 // CacheType cache type
@@ -234,4 +238,30 @@ func GetDB() *gorm.DB {
 // CloseDB close db
 func CloseDB() error {
 	return ggorm.CloseDB(db)
+}
+
+//--------------------------------------------------------------------------------------------
+
+// GetSnowNode get db
+func GetSnowNode() *snowflake.Node {
+	if snowNode == nil {
+		once4.Do(func() {
+			InitSnowNode()
+		})
+	}
+	return snowNode
+}
+
+// InitSnowNode connect redis
+func InitSnowNode() {
+	node, err := snowflake.NewNode(1)
+	if err != nil {
+		logger.Error("snowflake.NewNode err", logger.Err(err))
+		panic("snowflake.NewNode error: " + err.Error())
+	}
+	snowNode = node
+}
+
+func GetSnowId() snowflake.ID {
+	return snowNode.Generate()
 }

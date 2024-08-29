@@ -10,6 +10,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.33.0
 	github.com/blastrain/vitess-sqlparser v0.0.0-20201030050434-a139afbb1aba
 	github.com/bojand/ghz v0.117.0
+	github.com/bwmarrin/snowflake v0.3.0
 	github.com/dgraph-io/ristretto v0.1.1
 	github.com/fatih/color v1.13.0
 	github.com/felixge/fgprof v0.9.3

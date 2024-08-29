@@ -37,9 +37,11 @@ type Config struct {
 	GrpcClient []GrpcClient `yaml:"grpcClient" json:"grpcClient"`
 	HTTP       HTTP         `yaml:"http" json:"http"`
 	Jaeger     Jaeger       `yaml:"jaeger" json:"jaeger"`
+	Jwt        Jwt          `yaml:"jwt" json:"jwt"`
 	Logger     Logger       `yaml:"logger" json:"logger"`
 	NacosRd    NacosRd      `yaml:"nacosRd" json:"nacosRd"`
 	Redis      Redis        `yaml:"redis" json:"redis"`
+	Sign       Sign         `yaml:"sign" json:"sign"`
 }
 
 type Consul struct {
@@ -86,8 +88,10 @@ type App struct {
 	EnableTrace           bool    `yaml:"enableTrace" json:"enableTrace"`
 	Env                   string  `yaml:"env" json:"env"`
 	Host                  string  `yaml:"host" json:"host"`
+	Jwt                   bool    `yaml:"jwt" json:"jwt"`
 	Name                  string  `yaml:"name" json:"name"`
 	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
+	Sign                  bool    `yaml:"sign" json:"sign"`
 	TracingSamplingRate   float64 `yaml:"tracingSamplingRate" json:"tracingSamplingRate"`
 	Version               string  `yaml:"version" json:"version"`
 }
@@ -137,11 +141,11 @@ type Redis struct {
 }
 
 type Database struct {
-	Driver     string  `yaml:"driver" json:"driver"`
-	Mongodb    Mongodb `yaml:"mongodb" json:"mongodb"`
-	Mysql      Mysql   `yaml:"mysql" json:"mysql"`
-	Postgresql Mysql   `yaml:"postgresql" json:"postgresql"`
-	Sqlite     Sqlite  `yaml:"sqlite" json:"sqlite"`
+	Driver     string     `yaml:"driver" json:"driver"`
+	Mongodb    Mongodb    `yaml:"mongodb" json:"mongodb"`
+	Mysql      Mysql      `yaml:"mysql" json:"mysql"`
+	Postgresql Postgresql `yaml:"postgresql" json:"postgresql"`
+	Sqlite     Sqlite     `yaml:"sqlite" json:"sqlite"`
 }
 
 type Mongodb struct {
@@ -155,10 +159,26 @@ type Grpc struct {
 	ServerSecure ServerSecure `yaml:"serverSecure" json:"serverSecure"`
 }
 
+type Jwt struct {
+	Expire        int    `yaml:"expire" json:"expire"`
+	Issuer        string `yaml:"issuer" json:"issuer"`
+	SigningKey    string `yaml:"signingKey" json:"signingKey"`
+	SigningMethod string `yaml:"signingMethod" json:"signingMethod"`
+}
+
+type LogFileConfig struct {
+	Filename      string `yaml:"filename" json:"filename"`
+	IsCompression bool   `yaml:"isCompression" json:"isCompression"`
+	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
+	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
+	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
+}
+
 type Logger struct {
-	Format string `yaml:"format" json:"format"`
-	IsSave bool   `yaml:"isSave" json:"isSave"`
-	Level  string `yaml:"level" json:"level"`
+	Format        string        `yaml:"format" json:"format"`
+	IsSave        bool          `yaml:"isSave" json:"isSave"`
+	Level         string        `yaml:"level" json:"level"`
+	LogFileConfig LogFileConfig `yaml:"logFileConfig" json:"logFileConfig"`
 }
 
 type NacosRd struct {
@@ -170,4 +190,8 @@ type NacosRd struct {
 type HTTP struct {
 	Port    int `yaml:"port" json:"port"`
 	Timeout int `yaml:"timeout" json:"timeout"`
+}
+
+type Sign struct {
+	SignKey string `yaml:"signKey" json:"signKey"`
 }
