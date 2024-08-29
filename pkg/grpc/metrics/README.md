@@ -40,7 +40,7 @@ func getServerOptions() []grpc.ServerOption {
 }
 
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
 
 	addr := ":8282"
 	fmt.Println("start rpc server", addr)

@@ -15,7 +15,7 @@ import (
 const warnSymbol = "⚠ "
 
 func init() {
-	rand.Seed(time.Now().UnixNano()) //nolint
+	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
 }
 
 // Replacers replacer name

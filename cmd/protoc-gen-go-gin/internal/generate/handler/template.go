@@ -30,7 +30,7 @@ func init() {
 		panic(err)
 	}
 
-	rand.Seed(time.Now().UnixNano()) //nolint
+	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
 }
 
 var (
