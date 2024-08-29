@@ -1,6 +1,8 @@
 package routers
 
 import (
+	"context"
+	"google.golang.org/grpc/metadata"
 	"net/http"
 	"strings"
 	"time"
@@ -164,4 +166,27 @@ func (c *middlewareConfig) setSinglePath(method string, singlePath string, handl
 
 func getSinglePathKey(method string, singlePath string) string { //nolint
 	return strings.ToUpper(method) + "->" + singlePath
+}
+
+// 自定义ctx，主要是从gin中获取需要的信息，通过ctx传递
+
+func MyCtx(c *gin.Context) context.Context {
+	// 在这里获取client ip
+	clientIP := c.ClientIP()
+	ctx := middleware.WrapCtx(c)
+	//创建一个新的传出上下文
+	md := metadata.New(map[string]string{
+		"clientIP": clientIP,
+		// set metadata to be passed from http to rpc
+		middleware.ContextRequestIDKey:    middleware.GCtxRequestID(c),                    // request_id
+		middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey), // authorization
+	})
+	return metadata.NewOutgoingContext(ctx, md)
+	//ctx = metadata.NewIncomingContext(ctx, md)
+	////return ctx
+	//ctx = context.WithValue(ctx, "clientIP", clientIP)
+	//ctx = context.WithValue(ctx, middleware.ContextRequestIDKey, c.GetString(middleware.ContextRequestIDKey))
+	//dump.P(metautils.ExtractOutgoing(ctx).Get(middleware.HeaderAuthorizationKey), ctx.Value("clientIP"), ctx.Value(middleware.ContextRequestIDKey), ctx.Value(middleware.HeaderAuthorizationKey))
+	//// 赋值到ctx
+	//return context.WithValue(ctx, middleware.HeaderAuthorizationKey, c.GetHeader(middleware.HeaderAuthorizationKey))
 }
