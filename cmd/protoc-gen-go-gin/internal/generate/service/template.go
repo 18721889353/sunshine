@@ -141,8 +141,9 @@ func {{.LowerName}}Router(
 	ctxFn := func(c *gin.Context) context.Context {
 		md := metadata.New(map[string]string{
 			// set metadata to be passed from http to rpc
+			"clientIP":                        c.ClientIP(), //在这里获取client ip
 			middleware.ContextRequestIDKey: middleware.GCtxRequestID(c), // request_id
-			//middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey),  // authorization
+			middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey),  // authorization
 		})
 		return metadata.NewOutgoingContext(c.Request.Context(), md)
 	}

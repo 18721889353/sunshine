@@ -9,11 +9,10 @@ import (
 	"github.com/18721889353/sunshine/internal/model"
 	"github.com/18721889353/sunshine/pkg/jwt"
 	v5 "github.com/golang-jwt/jwt/v5"
+	"github.com/jinzhu/copier"
 	"go.uber.org/zap/zapcore"
 	"strconv"
 	"time"
-
-	"github.com/jinzhu/copier"
 
 	"github.com/18721889353/sunshine/pkg/conf"
 	"github.com/18721889353/sunshine/pkg/logger"
