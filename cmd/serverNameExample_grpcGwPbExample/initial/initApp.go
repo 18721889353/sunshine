@@ -78,11 +78,11 @@ func InitApp() {
 	logger.Debug(config.Show())
 	logger.Info("init logger succeeded")
 
-	model.GetDB()
-	logger.Infof("[%s] was initialized", cfg.Database.Driver)
-
-	model.InitCache(cfg.App.CacheType)
-	logger.Info("init " + cfg.App.CacheType + " succeeded")
+	//model.GetDB()
+	//logger.Infof("[%s] was initialized", cfg.Database.Driver)
+	//
+	//model.InitCache(cfg.App.CacheType)
+	//logger.Info("init " + cfg.App.CacheType + " succeeded")
 
 	model.GetSnowNode()
 	logger.Info("init SnowNode  succeeded")
