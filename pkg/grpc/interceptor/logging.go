@@ -215,7 +215,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" request UnaryServerLog"))
-		pkgLogger.Info("<<<<", fields...)
+		pkgLogger.Info(`<<<<`, fields...)
 
 		resp, err := handler(ctx, req)
 
@@ -238,7 +238,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" response UnaryServerLog"))
-		pkgLogger.Info(">>>>", fields...)
+		pkgLogger.Info(`>>>>`, fields...)
 
 		return resp, err
 	}
@@ -282,8 +282,8 @@ func UnaryServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServe
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+"[GRPC] UnaryServerSimpleLog"))
-		pkgLogger.Info("[GRPC]", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+` [GRPC] UnaryServerSimpleLog`))
+		pkgLogger.Info(`[GRPC]`, fields...)
 
 		return resp, err
 	}
@@ -321,7 +321,7 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		}
 		fields = append(fields, zap.String("log_from", "gw StreamServerLog"))
 
-		pkgLogger.Info("<<<<", fields...)
+		pkgLogger.Info(`<<<<`, fields...)
 
 		err := handler(srv, stream)
 
@@ -336,8 +336,8 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+" >>>> StreamServerLog"))
-		pkgLogger.Info(">>>>", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+` >>>> StreamServerLog`))
+		pkgLogger.Info(`>>>>`, fields...)
 
 		return err
 	}
@@ -379,8 +379,8 @@ func StreamServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.StreamSer
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 
-		fields = append(fields, zap.String("log_from", o.logFrom+"[GRPC] StreamServerSimpleLog"))
-		pkgLogger.Info("[GRPC]", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+` [GRPC] StreamServerSimpleLog`))
+		pkgLogger.Info(`[GRPC]`, fields...)
 		return err
 	}
 }

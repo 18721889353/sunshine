@@ -168,9 +168,9 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			reqID = c.Request.Header.Get(HeaderXRequestIDKey)
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+" <<<<"))
+		fields = append(fields, zap.String("log_from", o.logFrom+` <<<<`))
 
-		zapLog.Info("<<<<", fields...)
+		zapLog.Info(`<<<<`, fields...)
 
 		c.Request.Body = io.NopCloser(&buf)
 
@@ -194,8 +194,8 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		if reqID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+" >>>>"))
-		zapLog.Info(">>>>", fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+` >>>>`))
+		zapLog.Info(`>>>>`, fields...)
 	}
 }
 
