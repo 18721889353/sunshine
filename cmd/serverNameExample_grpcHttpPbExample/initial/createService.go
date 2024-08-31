@@ -21,13 +21,15 @@ func CreateServices() []app.IServer {
 	var servers []app.IServer
 
 	// creating http service
-	httpAddr := ":" + strconv.Itoa(cfg.HTTP.Port)
-	httpRegistry, httpInstance := registerService("http", cfg.App.Host, cfg.HTTP.Port)
-	httpServer := server.NewHTTPServer(httpAddr,
-		server.WithHTTPRegistry(httpRegistry, httpInstance),
-		server.WithHTTPIsProd(cfg.App.Env == "prod"),
-	)
-	servers = append(servers, httpServer)
+	if cfg.HTTP.Open {
+		httpAddr := ":" + strconv.Itoa(cfg.HTTP.Port)
+		httpRegistry, httpInstance := registerService("http", cfg.App.Host, cfg.HTTP.Port)
+		httpServer := server.NewHTTPServer(httpAddr,
+			server.WithHTTPRegistry(httpRegistry, httpInstance),
+			server.WithHTTPIsProd(cfg.App.Env == "prod"),
+		)
+		servers = append(servers, httpServer)
+	}
 
 	// creating grpc service
 	grpcAddr := ":" + strconv.Itoa(cfg.Grpc.Port)
