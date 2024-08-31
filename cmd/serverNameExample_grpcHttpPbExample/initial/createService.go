@@ -21,7 +21,7 @@ func CreateServices() []app.IServer {
 	var servers []app.IServer
 
 	// creating http service
-	if cfg.HTTP.Open {
+	if cfg.App.OpenHTTP == true {
 		httpAddr := ":" + strconv.Itoa(cfg.HTTP.Port)
 		httpRegistry, httpInstance := registerService("http", cfg.App.Host, cfg.HTTP.Port)
 		httpServer := server.NewHTTPServer(httpAddr,

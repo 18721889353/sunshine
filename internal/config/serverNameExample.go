@@ -90,6 +90,7 @@ type App struct {
 	Host                  string  `yaml:"host" json:"host"`
 	Jwt                   bool    `yaml:"jwt" json:"jwt"`
 	Name                  string  `yaml:"name" json:"name"`
+	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
 	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
 	Sign                  bool    `yaml:"sign" json:"sign"`
 	TracingSamplingRate   float64 `yaml:"tracingSamplingRate" json:"tracingSamplingRate"`
@@ -189,9 +190,8 @@ type NacosRd struct {
 }
 
 type HTTP struct {
-	Open    bool `yaml:"open" json:"open"`
-	Port    int  `yaml:"port" json:"port"`
-	Timeout int  `yaml:"timeout" json:"timeout"`
+	Port    int `yaml:"port" json:"port"`
+	Timeout int `yaml:"timeout" json:"timeout"`
 }
 
 type Sign struct {
