@@ -6,9 +6,9 @@ app:
   env: "dev"                     # runtime environment, dev: development environment, prod: production environment, test: test environment
   version: "v0.0.0"
   host: "127.0.0.1"              # domain or ip, for service registration
-  enableStat: true               # whether to turn on printing statistics, true:enable, false:disable
-  enableMetrics: true            # whether to turn on indicator collection, true:enable, false:disable
-  enableHTTPProfile: false       # whether to turn on performance analysis, true:enable, false:disable
+  enableStat: false               # whether to turn on printing statistics, true:enable, false:disable
+  enableMetrics: false            # whether to turn on indicator collection, true:enable, false:disable
+  enableHTTPProfile: true       # whether to turn on performance analysis, true:enable, false:disable
   enableLimit: false             # whether to turn on rate limiting (adaptive), true:on, false:off
   enableCircuitBreaker: false    # whether to turn on circuit breaker(adaptive), true:on, false:off
   enableTrace: false             # whether to turn on trace, true:enable, false:disable, if true jaeger configuration must be set
@@ -22,6 +22,7 @@ app:
 # delete the templates code start
 # http server settings
 http:
+  open: true
   port: 8080                # listen port
   timeout: 0                 # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, if enableHTTPProfile is true, it needs to set 0 or greater than 60s
 
@@ -73,7 +74,7 @@ logger:
   format: "console"         # output format, console or json, default is console
   isSave: false             # false:output to terminal, true:output to file, default is false
   maxLen: 102400            # Maximum size of a single log
-  logFileConfig:           # Effective when isSave=true
+  logFileConfig: # Effective when isSave=true
     filename: "out.log"    # File name (default is out.log)
     maxSize: 20            # Maximum file size (MB, default is 10MB)
     maxBackups: 50         # Maximum number of old files to retain (default is 100)
@@ -94,9 +95,9 @@ database:
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
     maxOpenConns: 100       # set the maximum number of open database connections
     connMaxLifetime: 10     # sets the maximum time for which the connection can be reused, in minutes
-    slavesDsn:             # sets slaves mysql dsn, array type
+    slavesDsn: # sets slaves mysql dsn, array type
       - "your slave dsn 1"
-    mastersDsn:            # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
+    mastersDsn: # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
       - "your master dsn"
 
   # postgresql settings
@@ -147,7 +148,7 @@ consul:
 
 # etcd settings
 etcd:
-  addrs: ["192.168.3.37:2379"]
+  addrs: [ "192.168.3.37:2379" ]
 
 
 # nacos settings, used in service registration discovery

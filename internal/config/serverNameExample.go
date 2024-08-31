@@ -189,8 +189,9 @@ type NacosRd struct {
 }
 
 type HTTP struct {
-	Port    int `yaml:"port" json:"port"`
-	Timeout int `yaml:"timeout" json:"timeout"`
+	Open    bool `yaml:"open" json:"open"`
+	Port    int  `yaml:"port" json:"port"`
+	Timeout int  `yaml:"timeout" json:"timeout"`
 }
 
 type Sign struct {
