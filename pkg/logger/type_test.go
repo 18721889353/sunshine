@@ -38,6 +38,10 @@ func TestInt(t *testing.T) {
 	assert.NotNil(t, field)
 }
 
+func TestInt32(t *testing.T) {
+	field := Int32("key", 1)
+	assert.NotNil(t, field)
+}
 func TestInt64(t *testing.T) {
 	field := Int64("key", 1)
 	assert.NotNil(t, field)
@@ -63,6 +67,10 @@ func TestUint(t *testing.T) {
 	assert.NotNil(t, field)
 }
 
+func TestUint32(t *testing.T) {
+	field := Uint32("key", 1)
+	assert.NotNil(t, field)
+}
 func TestUint64(t *testing.T) {
 	field := Uint64("key", 1)
 	assert.NotNil(t, field)
