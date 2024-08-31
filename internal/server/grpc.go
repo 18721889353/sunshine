@@ -154,6 +154,8 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	// logger interceptor, to print simple messages, replace interceptor.UnaryServerLog with interceptor.UnaryServerSimpleLog
 	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerLog(
 		logger.Get(),
+		interceptor.WithMaxLen(config.Get().Logger.MaxLen),
+		interceptor.WithLogFrom(config.Get().App.Name),
 		interceptor.WithReplaceGRPCLogger(),
 	))
 

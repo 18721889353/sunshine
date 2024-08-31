@@ -215,7 +215,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" request UnaryServerLog"))
-		logger.Info("<<<<", fields...)
+		pkgLogger.Info("<<<<", fields...)
 
 		resp, err := handler(ctx, req)
 
@@ -238,7 +238,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" response UnaryServerLog"))
-		logger.Info(">>>>", fields...)
+		pkgLogger.Info(">>>>", fields...)
 
 		return resp, err
 	}
@@ -283,7 +283,7 @@ func UnaryServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServe
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+"[GRPC] UnaryServerSimpleLog"))
-		logger.Info("[GRPC]", fields...)
+		pkgLogger.Info("[GRPC]", fields...)
 
 		return resp, err
 	}
@@ -321,7 +321,7 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		}
 		fields = append(fields, zap.String("log_from", "gw StreamServerLog"))
 
-		logger.Info("<<<<", fields...)
+		pkgLogger.Info("<<<<", fields...)
 
 		err := handler(srv, stream)
 
@@ -337,7 +337,7 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" >>>> StreamServerLog"))
-		logger.Info(">>>>", fields...)
+		pkgLogger.Info(">>>>", fields...)
 
 		return err
 	}
@@ -380,7 +380,7 @@ func StreamServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.StreamSer
 		}
 
 		fields = append(fields, zap.String("log_from", o.logFrom+"[GRPC] StreamServerSimpleLog"))
-		logger.Info("[GRPC]", fields...)
+		pkgLogger.Info("[GRPC]", fields...)
 		return err
 	}
 }
