@@ -2,6 +2,7 @@ package ggorm
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -82,34 +83,40 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 
 	if err != nil {
 		l.gLog.Warn("Gorm msg",
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.Error(err),
 			zap.String("sql", sql),
 			rowsField,
-			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
+			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
+			zap.String("log_from", "Gorm msg Trace"),
 		)
 		return
 	}
 
 	if l.logLevel >= logger.Info {
 		l.gLog.Info("Gorm msg",
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("sql", sql),
 			rowsField,
-			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
+			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
+			zap.String("log_from", "Gorm msg Trace"),
 		)
 		return
 	}
 
 	if l.logLevel >= logger.Warn {
 		l.gLog.Warn("Gorm msg",
+			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("sql", sql),
 			rowsField,
-			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
+			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
+			zap.String("log_from", "Gorm msg Trace"),
 		)
 	}
 }
