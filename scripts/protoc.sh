@@ -209,6 +209,6 @@ sunshine patch del-omitempty --dir=$protoBasePath --suffix-name=pb.go > /dev/nul
 # modify duplicate numbers and error codes
 sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
-
+sunshine patch gen-db-init --db-driver=mysql --out=./
 echo "generated code successfully."
 echo ""
