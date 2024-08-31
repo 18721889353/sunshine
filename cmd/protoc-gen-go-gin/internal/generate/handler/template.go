@@ -78,12 +78,12 @@ func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req 
 	//	    {{if .IsIgnoreShouldBind}}c, ctx := middleware.AdaptCtx(ctx)
 	//	    if err = c.ShouldBindJSON(req); err != nil {
 	//	    	logger.Warn("ShouldBindJSON error", logger.Error(err), middleware.CtxRequestIDField(ctx))
-	//	    	return nil, ecode.InvalidParams.Err(ecode.Any("error", err))
+	//	    	return nil, ecode.InvalidParams.Err(err.Error())
 	//	    }{{else}}{{if .IsPassGinContext}}c, ctx := middleware.AdaptCtx(ctx){{end}}{{end}}
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
-	//		    return nil, ecode.InvalidParams.Err(ecode.Any("error", err))
+	//		    return nil, ecode.InvalidParams.Err(err.Error())
 	//	    }
 	//
 	// 	reply, err := h.{{.LowerServiceName}}Dao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
@@ -93,7 +93,7 @@ func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req 
 	//     })
 	// 	if err != nil {
 	//			logger.Warn("{{.MethodName}} error", logger.Err(err), middleware.CtxRequestIDField(ctx))
-	//			return nil, ecode.InternalServerError.Err(ecode.Any("error", err))
+	//			return nil, ecode.InternalServerError.Err(err.Error())
 	//		}
 	//
 	//     return &{{.ReplyImportPkgName}}.{{.Reply}}{
