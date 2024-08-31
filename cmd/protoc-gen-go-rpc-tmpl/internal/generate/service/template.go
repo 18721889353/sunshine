@@ -100,7 +100,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//	        err = req.Validate()
 	//	        if err != nil {
 	//		        logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		        return ecode.StatusInvalidParams.Err(ecode.Any("error", err))
+	//		        return ecode.StatusInvalidParams.Err(err.Error())
 	//	        }
 	//
 	// 	    reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
@@ -110,7 +110,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//         })
 	// 	    if err != nil {
 	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(ecode.Any("error", err))
+	//			    return ecode.StatusInternalServerError.Err(err.Error())
 	//		    }
 	//	    }
 }
@@ -125,7 +125,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		    return ecode.StatusInvalidParams.Err(ecode.Any("error", err))
+	//		    return ecode.StatusInvalidParams.Err(err.Error())
 	//	    }
 	//
 	//	    for i := 0; i < 3; i++ {
@@ -136,7 +136,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 	//         })
 	// 	    if err != nil {
 	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(ecode.Any("error", err))
+	//			    return ecode.StatusInternalServerError.Err(err.Error())
 	//		    }
 	//
 	//	        err = stream.Send(&{{.ReplyImportPkgName}}.{{.Reply}}{
@@ -171,7 +171,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//	        err = req.Validate()
 	//	        if err != nil {
 	//		        logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		        return ecode.StatusInvalidParams.Err(ecode.Any("error", err))
+	//		        return ecode.StatusInvalidParams.Err(err.Error())
 	//	        }
 	//
 	// 	    reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
@@ -181,7 +181,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//         })
 	// 	    if err != nil {
 	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(ecode.Any("error", err))
+	//			    return ecode.StatusInternalServerError.Err(err.Error())
 	//		    }
 	//
 	//	    	err = stream.Send(&{{.ReplyImportPkgName}}.{{.Reply}}{
@@ -191,7 +191,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//	    	})
 	// 	    if err != nil {
 	//			    logger.Warn("stream.Send error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(ecode.Any("error", err))
+	//			    return ecode.StatusInternalServerError.Err(err.Error())
 	//		    }
 	//	    }
 }
@@ -205,7 +205,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		    return nil, ecode.StatusInvalidParams.Err(ecode.Any("error", err))
+	//		    return nil, ecode.StatusInvalidParams.Err(err.Error())
 	//	    }
     // 	ctx = interceptor.WrapServerCtx(ctx)
     //
@@ -216,7 +216,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//     })
 	// 	if err != nil {
 	//			logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			return nil, ecode.StatusInternalServerError.Err(ecode.Any("error", err))
+	//			return nil, ecode.StatusInternalServerError.Err(err.Error())
 	//		}
 	//
 	//     return &{{.ReplyImportPkgName}}.{{.Reply}}{
