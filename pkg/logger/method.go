@@ -1,12 +1,10 @@
 package logger
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
-
 	"go.uber.org/zap/zapcore"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -113,14 +111,5 @@ func toJSON(fields []zap.Field) string {
 	if err != nil {
 		return fmt.Sprintf(`{"error": "%s"}`, err)
 	}
-
-	bf := bytes.NewBuffer([]byte{})
-	jsonEncoder := json.NewEncoder(bf)
-	jsonEncoder.SetEscapeHTML(false)
-	err = jsonEncoder.Encode(jsonBytes)
-	if err != nil {
-		return fmt.Sprintf(`{"error": "%s"}`, err)
-	}
-
-	return bf.String()
+	return string(jsonBytes)
 }
