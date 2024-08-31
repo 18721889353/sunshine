@@ -135,9 +135,9 @@ func NewServerNameExampleRPCConn() {
 		cliOptions = append(cliOptions, grpccli.WithEnableMetrics())
 	}
 
-	msg := "dialing grpc server"
+	msg := "dial grpc server"
 	if isUseDiscover {
-		msg += " with discovery from " + grpcClientCfg.RegistryDiscoveryType
+		msg += " with service discovery from " + grpcClientCfg.RegistryDiscoveryType
 	}
 	logger.Info(msg, logger.String("name", serverName), logger.String("endpoint", endpoint))
 
@@ -146,7 +146,6 @@ func NewServerNameExampleRPCConn() {
 	if err != nil {
 		panic(fmt.Sprintf("dial rpc server failed: %v, name: %s, endpoint: %s", err, serverName, endpoint))
 	}
-	logger.Infof("dialed grpc server (%s) successfully", serverName+", "+endpoint)
 }
 
 // GetServerNameExampleRPCConn get client conn
