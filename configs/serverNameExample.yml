@@ -23,14 +23,14 @@ app:
 # delete the templates code start
 # http server settings
 http:
-  port: 8080                # listen port
+  port: 8001                # listen port
   timeout: 0                 # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, if enableHTTPProfile is true, it needs to set 0 or greater than 60s
 
 
 # grpc server settings
 grpc:
-  port: 8282                # listen port
-  httpPort: 8283            # profile and metrics ports
+  port: 7001                # listen port
+  httpPort: 6001            # profile and metrics ports
   enableToken: false        # whether to enable server-side token authentication, default appID=grpc, appKey=123456
   # serverSecure parameter setting
   # if type="", it means no secure connection, no need to fill in any parameters
