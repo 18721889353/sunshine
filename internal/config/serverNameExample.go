@@ -88,12 +88,12 @@ type App struct {
 	EnableTrace           bool    `yaml:"enableTrace" json:"enableTrace"`
 	Env                   string  `yaml:"env" json:"env"`
 	Host                  string  `yaml:"host" json:"host"`
-	Jwt                   bool    `yaml:"jwt" json:"jwt"`
 	Name                  string  `yaml:"name" json:"name"`
 	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
+	OpenJwt               bool    `yaml:"openJwt" json:"openJwt"`
+	OpenSign              bool    `yaml:"openSign" json:"openSign"`
 	OpenXSS               bool    `yaml:"openXSS" json:"openXSS"`
 	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
-	Sign                  bool    `yaml:"sign" json:"sign"`
 	TracingSamplingRate   float64 `yaml:"tracingSamplingRate" json:"tracingSamplingRate"`
 	Version               string  `yaml:"version" json:"version"`
 }
@@ -162,10 +162,11 @@ type Grpc struct {
 }
 
 type Jwt struct {
-	Expire        int    `yaml:"expire" json:"expire"`
-	Issuer        string `yaml:"issuer" json:"issuer"`
-	SigningKey    string `yaml:"signingKey" json:"signingKey"`
-	SigningMethod string `yaml:"signingMethod" json:"signingMethod"`
+	Expire        int      `yaml:"expire" json:"expire"`
+	IgnoreMethods []string `yaml:"ignoreMethods" json:"ignoreMethods"`
+	Issuer        string   `yaml:"issuer" json:"issuer"`
+	SigningKey    string   `yaml:"signingKey" json:"signingKey"`
+	SigningMethod string   `yaml:"signingMethod" json:"signingMethod"`
 }
 
 type LogFileConfig struct {

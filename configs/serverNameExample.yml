@@ -17,8 +17,8 @@ app:
   cacheType: ""                  # cache type, if empty, the cache is not used, support for "memory" and "redis", if set to redis, must set redis configuration
   openHttp: true
   openXSS: true
-  jwt: true
-  sign: true
+  openJwt: true
+  openSign: true
 
 # todo generate http or rpc server configuration here
 # delete the templates code start
@@ -166,3 +166,6 @@ jwt:
   signingKey: "sunshine"
   signingMethod: "HS256"
   issuer: "sunshine"
+  ignoreMethods:
+    - "/api.adminLoginService.v1.adminLoginService/Login"
+    - "/api.adminLoginService.v1.adminLoginService/VerifyCode"

@@ -171,11 +171,13 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerToken(checkToken))
 	}
 
-	// jwt token interceptor
-	//unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
-	//	// set ignore rpc methods(full path) for jwt token
-	//	interceptor.WithAuthIgnoreMethods("/api.user.v1.User/Register", "/api.user.v1.User/Login"),
-	//))
+	if config.Get().App.OpenJwt {
+		// jwt token interceptor
+		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
+			// set ignore rpc methods(full path) for jwt token
+			interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods...),
+		))
+	}
 
 	// metrics interceptor
 	if config.Get().App.EnableMetrics {
