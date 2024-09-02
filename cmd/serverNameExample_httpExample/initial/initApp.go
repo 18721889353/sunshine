@@ -86,7 +86,7 @@ func InitApp() {
 	model.GetSnowNode()
 	logger.Info("init SnowNode  succeeded")
 
-	if cfg.App.Jwt {
+	if cfg.App.OpenJwt {
 		var sm *v5.SigningMethodHMAC
 		if config.Get().Jwt.SigningMethod == "HS256" {
 			sm = jwt.HS256
