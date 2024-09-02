@@ -16,6 +16,7 @@ app:
   registryDiscoveryType: ""      # registry and discovery types: consul, etcd, nacos, if empty, registration and discovery are not used
   cacheType: ""                  # cache type, if empty, the cache is not used, support for "memory" and "redis", if set to redis, must set redis configuration
   openHttp: true
+  openXSS: true
   jwt: true
   sign: true
 
