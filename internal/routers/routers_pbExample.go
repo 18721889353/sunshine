@@ -49,7 +49,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	swagger.CustomRouter(r, "apis", docs.ApiDocs)
 
 	// request id middleware
-	r.Use(middleware.RequestID(middleware.WithContextRequestIDKey(model.GetSnowId().String())))
+	r.Use(middleware.RequestID(middleware.WithRequestIDValue(model.GetSnowId().String())))
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
