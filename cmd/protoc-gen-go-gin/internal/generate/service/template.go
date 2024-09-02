@@ -51,7 +51,7 @@ type {{.LowerName}}Client struct {
 func New{{.Name}}Client() {{.ProtoPkgName}}.{{.Name}}Logicer {
 	return &{{.LowerName}}Client{
 		// example:
-		//	    {{.LowerName}}Cli: {{.ProtoPkgName}}.New{{.Name}}Client(rpcclient.Get{{.CutServiceName}}RPCConn()),
+		//	    {{.LowerName}}Cli: {{.ProtoPkgName}}.New{{.Name}}Client(rpcclient.Get{{.Name}}RPCConn()),
 	}
 }
 
