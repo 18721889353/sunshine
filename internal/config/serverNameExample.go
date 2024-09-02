@@ -91,6 +91,7 @@ type App struct {
 	Jwt                   bool    `yaml:"jwt" json:"jwt"`
 	Name                  string  `yaml:"name" json:"name"`
 	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
+	OpenXSS               bool    `yaml:"openXSS" json:"openXSS"`
 	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
 	Sign                  bool    `yaml:"sign" json:"sign"`
 	TracingSamplingRate   float64 `yaml:"tracingSamplingRate" json:"tracingSamplingRate"`

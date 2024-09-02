@@ -59,6 +59,14 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		middleware.WithLogFrom(config.Get().App.Name),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
+	// 将签名添加为全局中间件
+	if config.Get().App.Sign {
+		r.Use(middleware.VerifySignatureMiddleware(config.Get().Sign.SignKey))
+	}
+	// 将XSSMiddleware添加为全局中间件
+	if config.Get().App.OpenXSS {
+		r.Use(middleware.XSSCrossMiddleware())
+	}
 
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
