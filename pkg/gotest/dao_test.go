@@ -123,6 +123,8 @@ func (d *userDao) GetByColumns(ctx context.Context, params *query.Params) ([]*Us
 		if total == 0 {
 			return nil, total, nil
 		}
+	} else {
+		params.Sort = "id"
 	}
 
 	records := []*User{}

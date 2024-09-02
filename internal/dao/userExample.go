@@ -223,6 +223,8 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 		if total == 0 {
 			return nil, total, nil
 		}
+	} else {
+		params.Sort = "id"
 	}
 
 	records := []*model.UserExample{}
