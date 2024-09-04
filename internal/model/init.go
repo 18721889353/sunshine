@@ -2,10 +2,11 @@
 package model
 
 import (
-	"github.com/bwmarrin/snowflake"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bwmarrin/snowflake"
 
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -254,7 +255,7 @@ func GetSnowNode() *snowflake.Node {
 
 // InitSnowNode connect redis
 func InitSnowNode() {
-	node, err := snowflake.NewNode(1)
+	node, err := snowflake.NewNode(int64(config.Get().App.MachineID))
 	if err != nil {
 		logger.Error("snowflake.NewNode err", logger.Err(err))
 		panic("snowflake.NewNode error: " + err.Error())

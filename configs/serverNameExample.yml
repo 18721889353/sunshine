@@ -3,6 +3,7 @@
 # app settings
 app:
   name: "serverNameExample"      # server name
+  machineId: 1
   env: "dev"                     # runtime environment, dev: development environment, prod: production environment, test: test environment
   version: "v0.0.0"
   host: "127.0.0.1"              # domain or ip, for service registration

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/bwmarrin/snowflake"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
@@ -16,8 +18,6 @@ var (
 
 	// HeaderXRequestIDKey header request id key
 	HeaderXRequestIDKey = "X-Request-Id"
-
-	RequestValue = krand.String(krand.R_NUM, 32)
 )
 
 // RequestIDOption set the request id  options.
@@ -26,14 +26,13 @@ type RequestIDOption func(*requestIDOptions)
 type requestIDOptions struct {
 	contextRequestIDKey string
 	headerXRequestIDKey string
-	requestValue        string
+	snow                *snowflake.Node
 }
 
 func defaultRequestIDOptions() *requestIDOptions {
 	return &requestIDOptions{
 		contextRequestIDKey: ContextRequestIDKey,
 		headerXRequestIDKey: HeaderXRequestIDKey,
-		requestValue:        RequestValue,
 	}
 }
 
@@ -72,9 +71,9 @@ func WithHeaderRequestIDKey(key string) RequestIDOption {
 	}
 }
 
-func WithRequestIDValue(value string) RequestIDOption {
+func WithSnow(snow *snowflake.Node) RequestIDOption {
 	return func(o *requestIDOptions) {
-		o.requestValue = value
+		o.snow = snow
 	}
 }
 
@@ -103,7 +102,12 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 		//	c.Request.Header.Set(HeaderXRequestIDKey, requestID)
 		//}
 
-		requestID := o.requestValue
+		requestID := ""
+		if o.snow != nil {
+			requestID = o.snow.Generate().String()
+		} else {
+			requestID = krand.String(krand.R_All, 32)
+		}
 
 		// Expose it for use in the application
 		c.Set(ContextRequestIDKey, requestID)
