@@ -209,7 +209,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
-			zap.Any("request", req),
+			pkgLogger.Any("request", req),
 		}
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
