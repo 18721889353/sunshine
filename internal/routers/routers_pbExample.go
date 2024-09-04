@@ -2,11 +2,12 @@ package routers
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/internal/model"
-	"google.golang.org/grpc/metadata"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/18721889353/sunshine/internal/model"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -49,7 +50,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	swagger.CustomRouter(r, "apis", docs.ApiDocs)
 
 	// request id middleware
-	r.Use(middleware.RequestID(middleware.WithRequestIDValue(model.GetSnowId().String())))
+	r.Use(middleware.RequestID(middleware.WithSnow(model.GetSnowNode())))
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(

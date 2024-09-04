@@ -88,6 +88,7 @@ type App struct {
 	EnableTrace           bool    `yaml:"enableTrace" json:"enableTrace"`
 	Env                   string  `yaml:"env" json:"env"`
 	Host                  string  `yaml:"host" json:"host"`
+	MachineID             int     `yaml:"machineId" json:"machineId"`
 	Name                  string  `yaml:"name" json:"name"`
 	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
 	OpenJwt               bool    `yaml:"openJwt" json:"openJwt"`
