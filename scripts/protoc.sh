@@ -211,5 +211,6 @@ sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
 sunshine patch gen-db-init --db-driver=mysql --out=./
 sunshine patch gen-types-pb --out=./
+sunshine config --server-dir=.
 echo "generated code successfully."
 echo ""
