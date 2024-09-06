@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
+	"go.uber.org/zap"
 	"reflect"
 	"strings"
 	"time"
@@ -37,13 +39,24 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 
 // Set one value
 func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expiration time.Duration) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg Set"),
+	}
 	buf, err := encoding.Marshal(c.encoding, val)
+
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("encoding.Marshal error: %v, key=%s, val=%+v ", err, key, val)
 	}
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
 	//if expiration == 0 {
@@ -51,15 +64,29 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 	//}
 	err = c.client.Set(ctx, cacheKey, buf, expiration).Err()
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.Set error: %v, cacheKey=%s", err, cacheKey)
 	}
+
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+
 	return nil
 }
 
 // Get one value
 func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg Get"),
+	}
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
 
@@ -67,6 +94,8 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	// NOTE: don't handle the case where redis value is nil
 	// but leave it to the upstream for processing
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return err
 	}
 
@@ -79,14 +108,24 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	}
 	err = encoding.Unmarshal(c.encoding, bytes, val)
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("encoding.Unmarshal error: %v, key=%s, cacheKey=%s, type=%v, json=%+v ",
 			err, key, cacheKey, reflect.TypeOf(val), string(bytes))
 	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
 	return nil
 }
 
 // MultiSet set multiple values
 func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expiration time.Duration) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg MultiSet"),
+	}
 	if len(valueMap) == 0 {
 		return nil
 	}
@@ -113,6 +152,8 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	pipeline := c.client.Pipeline()
 	err := pipeline.MSet(ctx, paris...).Err()
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("pipeline.MSet error: %v", err)
 	}
 	for i := 0; i < len(paris); i = i + 2 {
@@ -125,13 +166,23 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	}
 	_, err = pipeline.Exec(ctx)
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("pipeline.Exec error: %v", err)
 	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
 	return nil
 }
 
 // MultiGet get multiple values
 func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interface{}) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg MultiGet"),
+	}
 	if len(keys) == 0 {
 		return nil
 	}
@@ -145,6 +196,8 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	}
 	values, err := c.client.MGet(ctx, cacheKeys...).Result()
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.MGet error: %v, keys=%+v", err, cacheKeys)
 	}
 
@@ -157,16 +210,26 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 		object := c.newObject()
 		err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object)
 		if err != nil {
+			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+			pkgLogger.Warn("Cache msg", fields...)
 			fmt.Printf("unmarshal data error: %+v, key=%s, cacheKey=%s type=%v\n", err, keys[i], cacheKeys[i], reflect.TypeOf(value))
 			continue
 		}
 		valueMap.SetMapIndex(reflect.ValueOf(cacheKeys[i]), reflect.ValueOf(object))
 	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
 	return nil
 }
 
 // Del delete multiple values
 func (c *redisCache) Del(ctx context.Context, keys ...string) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg Del"),
+	}
 	if len(keys) == 0 {
 		return nil
 	}
@@ -175,21 +238,35 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 	for index, key := range keys {
 		cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 		if err != nil {
+			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+			pkgLogger.Warn("Cache msg", fields...)
 			continue
 		}
 		cacheKeys[index] = cacheKey
 	}
 	err := c.client.Del(ctx, cacheKeys...).Err()
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, cacheKeys)
 	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
 	return nil
 }
 
 // SetCacheWithNotFound set value for notfound
 func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg SetCacheWithNotFound"),
+	}
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
 
