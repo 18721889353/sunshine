@@ -2,8 +2,6 @@ package logger
 
 import (
 	"encoding/json"
-	"fmt"
-	"go.uber.org/zap/zapcore"
 	"strings"
 
 	"go.uber.org/zap"
@@ -91,25 +89,27 @@ func WithFields(fields ...Field) *zap.Logger {
 }
 
 func toJSON(fields []zap.Field) string {
-	// 创建一个空的 map 用于存储键值对
-	keyValuePairs := make(map[string]interface{})
-	// 遍历 Zap 字段，将键值对添加到 map 中
-	for _, f := range fields {
-		key := f.Key
-		// 根据字段的类型获取相应的值
-		switch f.Type {
-		case zapcore.StringType:
-			keyValuePairs[key] = f.String
-		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type, zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
-			keyValuePairs[key] = f.Integer
-		default:
-			continue
-		}
-	}
-	// 将 map 转换为 JSON 格式的字符串
-	jsonBytes, err := json.Marshal(keyValuePairs)
+
+	//// 创建一个空的 map 用于存储键值对
+	//keyValuePairs := make(map[string]interface{})
+	//// 遍历 Zap 字段，将键值对添加到 map 中
+	//for _, f := range fields {
+	//	key := f.Key
+	//	// 根据字段的类型获取相应的值
+	//	switch f.Type {
+	//	case zapcore.StringType:
+	//		keyValuePairs[key] = f.String
+	//	case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type, zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
+	//		keyValuePairs[key] = f.Integer
+	//	default:
+	//		continue
+	//	}
+	//}
+	// 将 []zap.Field 序列化为 JSON 字符串
+	jsonData, err := json.Marshal(fields)
 	if err != nil {
-		return fmt.Sprintf(`{"error": "%s"}`, err)
+		return ""
 	}
-	return string(jsonBytes)
+	jsonString := string(jsonData)
+	return jsonString
 }
