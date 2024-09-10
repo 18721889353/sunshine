@@ -174,6 +174,9 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	if config.Get().App.OpenJwt {
 		// jwt token interceptor
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
+			// choose a verification method as needed
+			//interceptor.WithStandardVerify(standardVerifyFn), // standard verify (default), you can set standardVerifyFn to nil if you don't need it
+			//interceptor.WithCustomVerify(customVerifyFn), // custom verify
 			// set ignore rpc methods(full path) for jwt token
 			interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods...),
 		))
@@ -234,6 +237,9 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 
 	// jwt token interceptor
 	//streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerJwtAuth(
+	// choose a verification method as needed
+	//	interceptor.WithStandardVerify(standardVerifyFn), // standard verify (default), you can set standardVerifyFn to nil if you don't need it
+	//	interceptor.WithCustomVerify(customVerifyFn), // custom verify
 	//	// set ignore rpc methods(full path) for jwt token
 	//	interceptor.WithAuthIgnoreMethods("/api.user.v1.User/Register", "/api.user.v1.User/Login"),
 	//))
