@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +27,9 @@ var (
 		"/pong":   {},
 		"/health": {},
 	}
+
+	emptyBody   = []byte("")
+	contentMark = []byte(" ...... ")
 )
 
 // Option set the gin logger options.
@@ -60,6 +62,9 @@ func (o *options) apply(opts ...Option) {
 // WithMaxLen logger content max length
 func WithMaxLen(maxLen int) Option {
 	return func(o *options) {
+		if maxLen < len(contentMark) {
+			panic("maxLen should be greater than or equal to 8")
+		}
 		o.maxLength = maxLen
 	}
 }
@@ -113,17 +118,37 @@ func (w bodyLogWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-func getBodyData(buf *bytes.Buffer, maxLen int) string {
-	var body string
-
-	if buf.Len() > maxLen {
-		body = string(buf.Bytes()[:maxLen]) + " ...... "
-		// If there is sensitive data that needs to be filtered out, such as plaintext passwords
-	} else {
-		body = buf.String()
+// If there is sensitive information in the body, you can use WithIgnoreRoutes set the route to ignore logging
+func getResponseBody(buf *bytes.Buffer, maxLen int) []byte {
+	l := buf.Len()
+	if l == 0 {
+		return []byte("")
+	} else if l > maxLen {
+		l = maxLen
 	}
 
-	return body
+	body := make([]byte, l)
+	n, _ := buf.Read(body)
+	if n == 0 {
+		return emptyBody
+	} else if n < maxLen {
+		return body[:n-1]
+	}
+	return append(body[:maxLen-len(contentMark)], contentMark...)
+}
+
+// If there is sensitive information in the body, you can use WithIgnoreRoutes set the route to ignore logging
+func getRequestBody(buf *bytes.Buffer, maxLen int) []byte {
+	l := buf.Len()
+	if l == 0 {
+		return []byte("")
+	} else if l < maxLen {
+		return buf.Bytes()
+	}
+
+	body := make([]byte, maxLen)
+	copy(body, buf.Bytes())
+	return append(body[:maxLen-len(contentMark)], contentMark...)
 }
 
 // Logging print request and response info
@@ -152,7 +177,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch || c.Request.Method == http.MethodDelete {
 			fields = append(fields,
 				zap.Int("size", buf.Len()),
-				zap.String("body", getBodyData(&buf, o.maxLength)),
+				zap.ByteString("body", getRequestBody(&buf, o.maxLength)),
 			)
 		}
 
@@ -189,7 +214,8 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			zap.String("url", c.Request.URL.Path),
 			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
 			zap.Int("size", newWriter.body.Len()),
-			zap.String("response", strings.TrimRight(getBodyData(newWriter.body, o.maxLength), "\n")),
+			zap.ByteString("response", getResponseBody(newWriter.body, o.maxLength)),
+			//zap.String("response", strings.TrimRight(getBodyData(newWriter.body, o.maxLength), "\n")),
 		}
 		if reqID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
@@ -238,6 +264,6 @@ func SimpleLog(opts ...Option) gin.HandlerFunc {
 		if reqID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		o.log.Info("[GIN]", fields...)
+		o.log.Info("[GIN] message", fields...)
 	}
 }

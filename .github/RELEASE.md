@@ -20,4 +20,6 @@ example:
     ecode.StatusInvalidParams.ErrToHTTP("custom error message")
 ```
 
-2. Adjust some code.
+2. Adjust some code. 
+3. Fix logging bug
+4. snake case style
