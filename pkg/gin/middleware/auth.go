@@ -62,7 +62,7 @@ func responseUnauthorized(c *gin.Context, isSwitchHTTPCode bool) {
 
 // -------------------------------------------------------------------------------------------
 
-// VerifyFn verify function, tokenTail10 is a string that intercepts the last 10 characters of the token.
+// VerifyFn verify function, tokenTail10 is the last 10 characters of the token.
 type VerifyFn func(claims *jwt.Claims, tokenTail10 string, c *gin.Context) error
 
 // Auth authorization
@@ -123,7 +123,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 
 // -------------------------------------------------------------------------------------------
 
-// VerifyCustomFn verify custom function, tokenTail10 is a string that intercepts the last 10 characters of the token.
+// VerifyCustomFn verify custom function, tokenTail10 is the last 10 characters of the token.
 type VerifyCustomFn func(claims *jwt.CustomClaims, tokenTail10 string, c *gin.Context) error
 
 // AuthCustom custom authentication
