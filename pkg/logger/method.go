@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go.uber.org/zap/zapcore"
+	"strconv"
 	"strings"
 	"time"
 
@@ -90,24 +91,25 @@ func Sync() error {
 func WithFields(fields ...Field) *zap.Logger {
 	return GetWithSkip(0).With(fields...)
 }
-
 func toJSON(fields []zap.Field) string {
 	// 创建一个空的 map 用于存储键值对
 	keyValuePairs := make(map[string]interface{})
-	//遍历 Zap 字段，将键值对添加到 map 中
+
+	// 遍历 Zap 字段，将键值对添加到 map 中
 	for _, f := range fields {
 		key := f.Key
-		//	// 根据字段的类型获取相应的值
+
+		// 根据字段的类型获取相应的值
 		switch f.Type {
 		case zapcore.StringType:
 			keyValuePairs[key] = f.String
 		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type, zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
-			keyValuePairs[key] = f.Integer
+			keyValuePairs[key] = strconv.FormatInt(f.Integer, 10)
 		case zapcore.Float64Type, zapcore.Float32Type:
 			if floatVal, ok := f.Interface.(float64); ok {
-				keyValuePairs[key] = floatVal
+				keyValuePairs[key] = strconv.FormatFloat(floatVal, 'f', -1, 64)
 			} else if floatVal, ok := f.Interface.(float32); ok {
-				keyValuePairs[key] = floatVal
+				keyValuePairs[key] = strconv.FormatFloat(float64(floatVal), 'f', -1, 64)
 			}
 		case zapcore.BoolType:
 			if b, ok := f.Interface.(bool); ok {
@@ -115,24 +117,22 @@ func toJSON(fields []zap.Field) string {
 			}
 		case zapcore.ByteStringType:
 			if bs, ok := f.Interface.([]byte); ok {
-				keyValuePairs[key] = bs
-			}
-		case zapcore.DurationType:
-			if dur, ok := f.Interface.(time.Duration); ok {
-				keyValuePairs[key] = dur
+				keyValuePairs[key] = string(bs)
 			}
 		case zapcore.ErrorType:
 			if err, ok := f.Interface.(error); ok {
 				keyValuePairs[key] = err.Error()
 			}
+		case zapcore.DurationType:
+			if dur, ok := f.Interface.(time.Duration); ok {
+				keyValuePairs[key] = dur.String()
+			}
 		default:
-			// 对于其他类型，直接使用 Interface 方法获取值
-			keyValuePairs[key] = f.Interface
+			// 对于其他类型，尝试将其转换为字符串
+			keyValuePairs[key] = fmt.Sprintf("%v", f.Interface)
 		}
 	}
-	for _, field := range fields {
-		keyValuePairs[field.Key] = field.Interface
-	}
+
 	// 将 map 转换为 JSON 格式的字符串
 	jsonBytes, err := json.Marshal(keyValuePairs)
 	if err != nil {
