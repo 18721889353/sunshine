@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"net/http"
 	"time"
 
@@ -31,6 +32,21 @@ func (s *httpServer) Start() error {
 		if err := s.iRegistry.Register(ctx, s.instance); err != nil {
 			return err
 		}
+		go func() {
+			ticker := time.NewTicker(15 * time.Second) // 每15秒检查一次
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
+					if err := s.iRegistry.Register(ctx, s.instance); err != nil {
+						logger.Warnf("s.iRegistry.Register error:", err.Error())
+					} else {
+						logger.Info("s.iRegistry.Register")
+					}
+				}
+			}
+		}()
 	}
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
