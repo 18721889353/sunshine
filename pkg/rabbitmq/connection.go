@@ -222,3 +222,12 @@ func (c *Connection) closeConn() error {
 
 	return nil
 }
+
+func (c *Connection) GetConn() *amqp.Connection {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.conn != nil {
+		return c.conn
+	}
+	return nil
+}

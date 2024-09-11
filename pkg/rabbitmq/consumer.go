@@ -2,8 +2,11 @@ package rabbitmq
 
 import (
 	"context"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -80,7 +83,7 @@ func WithConsumerConsumeOptions(opts ...ConsumeOption) ConsumerOption {
 	}
 }
 
-// WithConsumerAutoAck set consumer auto ack option, if false, manual ACK required.
+// WithConsumerAutoAck set consumer auto ack option.
 func WithConsumerAutoAck(enable bool) ConsumerOption {
 	return func(o *consumerOptions) {
 		o.isAutoAck = enable
@@ -234,8 +237,8 @@ type Consumer struct {
 	isAutoAck    bool // auto ack or not
 
 	zapLog *zap.Logger
-
-	count int64 // consumer success message number
+	count  int64 // consumer success message number
+	mu     sync.Mutex
 }
 
 // Handler message
@@ -270,6 +273,8 @@ func NewConsumer(exchange *Exchange, queueName string, connection *Connection, o
 
 // initialize a consumer session
 func (c *Consumer) initialize() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.connection.mutex.Lock()
 	// crate a new channel
 	ch, err := c.connection.conn.Channel()
@@ -290,14 +295,15 @@ func (c *Consumer) initialize() error {
 		}
 	}
 	// declare the exchange type
+	// 声明交换机
 	err = ch.ExchangeDeclare(
-		c.Exchange.name,
-		c.Exchange.eType,
-		c.isPersistent,
-		c.exchangeDeclareOption.autoDelete,
-		c.exchangeDeclareOption.internal,
-		c.exchangeDeclareOption.noWait,
-		c.exchangeDeclareOption.args,
+		c.Exchange.name,                    // 交换机名称
+		c.Exchange.eType,                   // 交换机类型
+		c.isPersistent,                     // 是否持久化
+		c.exchangeDeclareOption.autoDelete, // 是否自动删除
+		c.exchangeDeclareOption.internal,   // 是否内部交换机
+		c.exchangeDeclareOption.noWait,     // 是否等待服务器响应
+		c.exchangeDeclareOption.args,       // 额外的参数
 	)
 	if err != nil {
 		_ = ch.Close()
@@ -305,13 +311,14 @@ func (c *Consumer) initialize() error {
 	}
 
 	// declare a queue and create it automatically if it doesn't exist, or skip creation if it does.
+	// 声明队列
 	queue, err := ch.QueueDeclare(
-		c.QueueName,
-		c.isPersistent,
-		c.queueDeclareOption.autoDelete,
-		c.queueDeclareOption.exclusive,
-		c.queueDeclareOption.noWait,
-		c.queueDeclareOption.args,
+		c.QueueName,                     // 队列名称
+		c.isPersistent,                  // 是否持久化
+		c.queueDeclareOption.autoDelete, // 是否自动删除
+		c.queueDeclareOption.exclusive,  // 是否是独占的
+		c.queueDeclareOption.noWait,     // 是否等待服务器响应
+		c.queueDeclareOption.args,       // 额外的参数
 	)
 	if err != nil {
 		_ = ch.Close()
@@ -434,6 +441,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					break
 				}
 			}
+			c.Close()
 		}
 	}()
 }
@@ -448,4 +456,95 @@ func (c *Consumer) Close() {
 // Count consumer success message number
 func (c *Consumer) Count() int64 {
 	return atomic.LoadInt64(&c.count)
+}
+
+// DeadConsume messages for loop in goroutine
+func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
+	go func() {
+		ticker := time.NewTicker(time.Second * 2)
+		isFirst := true
+		for {
+
+			if isFirst {
+				isFirst = false
+				ticker.Reset(time.Millisecond * 10)
+			} else {
+				ticker.Reset(time.Second * 2)
+			}
+
+			// check connection for loop
+			select {
+			case <-ticker.C:
+				if !c.connection.CheckConnected() {
+					continue
+				}
+			case <-c.connection.exit:
+				c.Close()
+				return
+			}
+			ticker.Stop()
+
+			err := c.initialize()
+			if err != nil {
+				c.zapLog.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				continue
+			}
+
+			delivery, err := c.consumeWithContext(ctx)
+			if err != nil {
+				c.zapLog.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				continue
+			}
+			c.zapLog.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
+			tracer := otel.Tracer("rabbitmq-DeadConsume")
+
+			isContinueConsume := false
+			for {
+				select {
+				case <-c.connection.exit:
+					c.Close()
+					return
+				case d, ok := <-delivery:
+					if !ok {
+						c.zapLog.Warn("[rabbitmq consumer] exit consume message, queue=" + c.QueueName)
+						isContinueConsume = true
+						break
+					}
+
+					// 开始一个新的 span
+					ctx, span := tracer.Start(ctx, "consume message")
+					span.SetAttributes(attribute.String("message.body", string(d.Body)))
+
+					tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
+					err = handler(ctx, d.Body, tagID)
+					if err != nil {
+						span.RecordError(err)
+						c.zapLog.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						if err = d.Reject(false); err != nil {
+							span.RecordError(err)
+							c.zapLog.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							continue
+						}
+						c.zapLog.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
+						continue
+					}
+					if !c.isAutoAck {
+						if err = d.Ack(false); err != nil {
+							span.RecordError(err)
+							c.zapLog.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							continue
+						}
+						c.zapLog.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
+					}
+					// 结束 span
+					span.End()
+				}
+
+				if isContinueConsume {
+					break
+				}
+			}
+			c.Close()
+		}
+	}()
 }
