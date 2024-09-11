@@ -4,15 +4,12 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/server"
 	"github.com/18721889353/sunshine/pkg/app"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
-	"github.com/18721889353/sunshine/pkg/servicerd/registry/consul"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
-	"github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
-
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/internal/server"
 )
 
 // CreateServices create grpc or http service
@@ -57,17 +54,17 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 
 	switch cfg.App.RegistryDiscoveryType {
 	// registering service with consul
-	case "consul":
-		iRegistry, instance, err = consul.NewRegistry(
-			cfg.Consul.Addr,
-			id,
-			cfg.App.Name,
-			[]string{instanceEndpoint},
-		)
-		if err != nil {
-			panic(err)
-		}
-		logField = logger.Any("consulAddress", cfg.Consul.Addr)
+	//case "consul":
+	//	iRegistry, instance, err = consul.NewRegistry(
+	//		cfg.Consul.Addr,
+	//		id,
+	//		cfg.App.Name,
+	//		[]string{instanceEndpoint},
+	//	)
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//	logField = logger.Any("consulAddress", cfg.Consul.Addr)
 
 	// registering service with etcd
 	case "etcd":
@@ -82,20 +79,20 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 		}
 		logField = logger.Any("etcdAddress", cfg.Etcd.Addrs)
 
-	// registering service with nacos
-	case "nacos":
-		iRegistry, instance, err = nacos.NewRegistry(
-			cfg.NacosRd.IPAddr,
-			cfg.NacosRd.Port,
-			cfg.NacosRd.NamespaceID,
-			id,
-			cfg.App.Name,
-			[]string{instanceEndpoint},
-		)
-		if err != nil {
-			panic(err)
-		}
-		logField = logger.String("nacosAddress", fmt.Sprintf("%v:%d", cfg.NacosRd.IPAddr, cfg.NacosRd.Port))
+		// registering service with nacos
+		//case "nacos":
+		//	iRegistry, instance, err = nacos.NewRegistry(
+		//		cfg.NacosRd.IPAddr,
+		//		cfg.NacosRd.Port,
+		//		cfg.NacosRd.NamespaceID,
+		//		id,
+		//		cfg.App.Name,
+		//		[]string{instanceEndpoint},
+		//	)
+		//	if err != nil {
+		//		panic(err)
+		//	}
+		//	logField = logger.String("nacosAddress", fmt.Sprintf("%v:%d", cfg.NacosRd.IPAddr, cfg.NacosRd.Port))
 	}
 
 	if instance != nil {
