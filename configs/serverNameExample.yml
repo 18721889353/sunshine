@@ -92,7 +92,7 @@ database:
   # mysql settings
   mysql:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
-    dsn: "root:123456@(192.168.3.37:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
+    dsn: "root:123456@(192.168.132.142:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
     maxOpenConns: 100       # set the maximum number of open database connections
@@ -105,7 +105,7 @@ database:
   # postgresql settings
   postgresql:
     # dsn format,  <username>:<password>@<hostname>:<port>/<db>?[k=v& ......]
-    dsn: "root:123456@192.168.3.37:5432/account?sslmode=disable"
+    dsn: "root:123456@192.168.132.142:5432/account?sslmode=disable"
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
     maxOpenConns: 100       # set the maximum number of open database connections
@@ -124,14 +124,14 @@ database:
     # dsn format,  [scheme://]<username>:<password>@<hostname1>:<port1>[,<hostname2>:<port2>,......]/<db>?[k=v& ......]
     # default scheme is mongodb://, scheme can be omitted, if you want to use ssl, you can use mongodb+srv:// scheme, the scheme must be filled in
     # parameter k=v see https://www.mongodb.com/docs/drivers/go/current/fundamentals/connections/connection-guide/#connection-options
-    dsn: "root:123456@192.168.3.37:27017/account?connectTimeoutMS=15000"
+    dsn: "root:123456@192.168.132.142:27017/account?connectTimeoutMS=15000"
 
 # delete the templates code end
 
 # redis settings
 redis:
   # dsn format, [user]:<pass>@127.0.0.1:6379/[db], the default user is default, redis version 6.0 and above only supports user.
-  dsn: "default:123456@192.168.3.37:6379/0"
+  dsn: "default:123456@192.168.132.142:6379/0"
   dialTimeout: 10           # connection timeout, unit(second)
   readTimeout: 2            # read timeout, unit(second)
   writeTimeout: 2           # write timeout, unit(second)
@@ -139,25 +139,25 @@ redis:
 
 # jaeger settings
 jaeger:
-  agentHost: "192.168.3.37"
+  agentHost: "192.168.132.142"
   agentPort: 6831
 
 
-# consul settings
-consul:
-  addr: "192.168.3.37:8500"
+## consul settings
+#consul:
+#  addr: "192.168.132.142:8500"
 
 
 # etcd settings
 etcd:
-  addrs: [ "192.168.3.37:2379" ]
+  addrs: [ "192.168.132.142:2379" ]
 
 
-# nacos settings, used in service registration discovery
-nacosRd:
-  ipAddr: "192.168.3.37"
-  port: 8848
-  namespaceID: "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"   # namespace id
+## nacos settings, used in service registration discovery
+#nacosRd:
+#  ipAddr: "192.168.132.142"
+#  port: 8848
+#  namespaceID: "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"   # namespace id
 
 sign:
   signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"

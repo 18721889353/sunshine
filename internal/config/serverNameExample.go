@@ -30,7 +30,6 @@ func Set(conf *Config) {
 
 type Config struct {
 	App        App          `yaml:"app" json:"app"`
-	Consul     Consul       `yaml:"consul" json:"consul"`
 	Database   Database     `yaml:"database" json:"database"`
 	Etcd       Etcd         `yaml:"etcd" json:"etcd"`
 	Grpc       Grpc         `yaml:"grpc" json:"grpc"`
@@ -39,13 +38,8 @@ type Config struct {
 	Jaeger     Jaeger       `yaml:"jaeger" json:"jaeger"`
 	Jwt        Jwt          `yaml:"jwt" json:"jwt"`
 	Logger     Logger       `yaml:"logger" json:"logger"`
-	NacosRd    NacosRd      `yaml:"nacosRd" json:"nacosRd"`
 	Redis      Redis        `yaml:"redis" json:"redis"`
 	Sign       Sign         `yaml:"sign" json:"sign"`
-}
-
-type Consul struct {
-	Addr string `yaml:"addr" json:"addr"`
 }
 
 type Etcd struct {
@@ -184,12 +178,6 @@ type Logger struct {
 	Level         string        `yaml:"level" json:"level"`
 	LogFileConfig LogFileConfig `yaml:"logFileConfig" json:"logFileConfig"`
 	MaxLen        int           `yaml:"maxLen" json:"maxLen"`
-}
-
-type NacosRd struct {
-	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`
-	NamespaceID string `yaml:"namespaceID" json:"namespaceID"`
-	Port        int    `yaml:"port" json:"port"`
 }
 
 type HTTP struct {

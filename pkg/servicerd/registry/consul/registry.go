@@ -36,7 +36,7 @@ type Config struct {
 
 // Registry is consul registry
 type Registry struct {
-	ConsulClient      *Client
+	cli               *Client
 	enableHealthCheck bool
 	registry          map[string]*serviceSet
 	lock              sync.RWMutex
@@ -58,7 +58,7 @@ func NewRegistry(consulAddr string, id string, instanceName string, instanceEndp
 // New create a consul registry
 func New(apiClient *api.Client, opts ...Option) *Registry {
 	r := &Registry{
-		ConsulClient:      NewClient(apiClient),
+		cli:               NewClient(apiClient),
 		registry:          make(map[string]*serviceSet),
 		enableHealthCheck: true,
 	}
@@ -70,13 +70,13 @@ func New(apiClient *api.Client, opts ...Option) *Registry {
 
 // Register register service
 func (r *Registry) Register(ctx context.Context, svc *registry.ServiceInstance) error {
-	return r.ConsulClient.Register(ctx, svc, r.enableHealthCheck)
+	return r.cli.Register(ctx, svc, r.enableHealthCheck)
 }
 
 // Deregister deregister service
 func (r *Registry) Deregister(ctx context.Context, svc *registry.ServiceInstance) error {
 	// NOTE: invoke the func Deregister will block when err is not nil
-	return r.ConsulClient.Deregister(ctx, svc.ID)
+	return r.cli.Deregister(ctx, svc.ID)
 }
 
 // GetService return service by name
@@ -149,7 +149,7 @@ func (r *Registry) Watch(_ context.Context, name string) (registry.Watcher, erro
 
 func (r *Registry) resolve(ss *serviceSet) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	services, idx, err := r.ConsulClient.Service(ctx, ss.serviceName, 0, true)
+	services, idx, err := r.cli.Service(ctx, ss.serviceName, 0, true)
 	cancel()
 	if err == nil && len(services) > 0 {
 		ss.broadcast(services)
@@ -159,7 +159,7 @@ func (r *Registry) resolve(ss *serviceSet) {
 	for {
 		<-ticker.C
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*120)
-		tmpService, tmpIdx, err := r.ConsulClient.Service(ctx, ss.serviceName, idx, true)
+		tmpService, tmpIdx, err := r.cli.Service(ctx, ss.serviceName, idx, true)
 		cancel()
 		if err != nil {
 			time.Sleep(time.Second)
