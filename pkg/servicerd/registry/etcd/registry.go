@@ -90,8 +90,24 @@ func New(client *clientv3.Client, opts ...Option) (r *Registry) {
 	}
 }
 
+// IsServiceRegistered 检查给定的服务实例是否已注册。
+func (r *Registry) IsServiceRegistered(ctx context.Context, service *registry.ServiceInstance) (bool, error) {
+	key := fmt.Sprintf("%s/%s/%s", r.opts.namespace, service.Name, service.ID)
+	resp, err := r.kv.Get(ctx, key)
+	if err != nil {
+		return false, err
+	}
+	return len(resp.Kvs) > 0, nil
+}
+
 // Register the registration.
 func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstance) error {
+	// 检查服务是否已注册
+	if registered, err := r.IsServiceRegistered(ctx, service); err != nil {
+		return err
+	} else if registered {
+		return fmt.Errorf("service already registered")
+	}
 	key := fmt.Sprintf("%s/%s/%s", r.opts.namespace, service.Name, service.ID)
 	value, err := marshal(service)
 	if err != nil {
