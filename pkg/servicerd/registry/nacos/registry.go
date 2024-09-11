@@ -59,8 +59,8 @@ func WithDefaultKind(kind string) Option {
 
 // Registry is nacos registry.
 type Registry struct {
-	opts options
-	cli  naming_client.INamingClient
+	opts        options
+	NacosClient naming_client.INamingClient
 }
 
 // NewRegistry instantiating the nacos registry
@@ -90,8 +90,8 @@ func New(cli naming_client.INamingClient, opts ...Option) (r *Registry) {
 		option(&op)
 	}
 	return &Registry{
-		opts: op,
-		cli:  cli,
+		opts:        op,
+		NacosClient: cli,
 	}
 }
 
@@ -129,7 +129,7 @@ func (r *Registry) Register(_ context.Context, si *registry.ServiceInstance) err
 			rmd["kind"] = u.Scheme
 			rmd["version"] = si.Version
 		}
-		_, e := r.cli.RegisterInstance(vo.RegisterInstanceParam{
+		_, e := r.NacosClient.RegisterInstance(vo.RegisterInstanceParam{
 			Ip:          host,
 			Port:        uint64(p),
 			ServiceName: si.Name + "." + u.Scheme,
@@ -163,7 +163,7 @@ func (r *Registry) Deregister(_ context.Context, service *registry.ServiceInstan
 		if err != nil {
 			return err
 		}
-		if _, err = r.cli.DeregisterInstance(vo.DeregisterInstanceParam{
+		if _, err = r.NacosClient.DeregisterInstance(vo.DeregisterInstanceParam{
 			Ip:          host,
 			Port:        uint64(p),
 			ServiceName: service.Name + "." + u.Scheme,
@@ -179,12 +179,12 @@ func (r *Registry) Deregister(_ context.Context, service *registry.ServiceInstan
 
 // Watch creates a watcher according to the service name.
 func (r *Registry) Watch(ctx context.Context, serviceName string) (registry.Watcher, error) {
-	return newWatcher(ctx, r.cli, serviceName, r.opts.group, r.opts.kind, []string{r.opts.cluster})
+	return newWatcher(ctx, r.NacosClient, serviceName, r.opts.group, r.opts.kind, []string{r.opts.cluster})
 }
 
 // GetService return the service instances in memory according to the service name.
 func (r *Registry) GetService(_ context.Context, serviceName string) ([]*registry.ServiceInstance, error) {
-	res, err := r.cli.SelectInstances(vo.SelectInstancesParam{
+	res, err := r.NacosClient.SelectInstances(vo.SelectInstancesParam{
 		ServiceName: serviceName,
 		GroupName:   r.opts.group,
 		HealthyOnly: true,

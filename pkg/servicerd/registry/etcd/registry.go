@@ -71,10 +71,10 @@ func NewRegistry(etcdEndpoints []string, id string, instanceName string, instanc
 
 // Registry is etcd registry.
 type Registry struct {
-	opts   *options
-	client *clientv3.Client
-	kv     clientv3.KV
-	lease  clientv3.Lease
+	opts       *options
+	EtcdClient *clientv3.Client
+	kv         clientv3.KV
+	lease      clientv3.Lease
 }
 
 // New create a etcd registry
@@ -84,9 +84,9 @@ func New(client *clientv3.Client, opts ...Option) (r *Registry) {
 		opt(o)
 	}
 	return &Registry{
-		opts:   o,
-		client: client,
-		kv:     clientv3.NewKV(client),
+		opts:       o,
+		EtcdClient: client,
+		kv:         clientv3.NewKV(client),
 	}
 }
 
@@ -100,7 +100,7 @@ func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstan
 	if r.lease != nil {
 		_ = r.lease.Close()
 	}
-	r.lease = clientv3.NewLease(r.client)
+	r.lease = clientv3.NewLease(r.EtcdClient)
 	leaseID, err := r.registerWithKV(ctx, key, value)
 	if err != nil {
 		return err
@@ -118,7 +118,7 @@ func (r *Registry) Deregister(ctx context.Context, service *registry.ServiceInst
 		}
 	}()
 	key := fmt.Sprintf("%s/%s/%s", r.opts.namespace, service.Name, service.ID)
-	_, err := r.client.Delete(ctx, key)
+	_, err := r.EtcdClient.Delete(ctx, key)
 	return err
 }
 
@@ -146,7 +146,7 @@ func (r *Registry) GetService(ctx context.Context, name string) ([]*registry.Ser
 // Watch creates a watcher according to the service name.
 func (r *Registry) Watch(ctx context.Context, name string) (registry.Watcher, error) {
 	key := fmt.Sprintf("%s/%s", r.opts.namespace, name)
-	return newWatcher(ctx, key, name, r.client)
+	return newWatcher(ctx, key, name, r.EtcdClient)
 }
 
 // registerWithKV create a new lease, return current leaseID
@@ -155,7 +155,7 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 	if err != nil {
 		return 0, err
 	}
-	_, err = r.client.Put(ctx, key, value, clientv3.WithLease(grant.ID))
+	_, err = r.EtcdClient.Put(ctx, key, value, clientv3.WithLease(grant.ID))
 	if err != nil {
 		return 0, err
 	}
@@ -164,7 +164,7 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 
 func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key string, value string) {
 	curLeaseID := leaseID
-	kac, err := r.client.KeepAlive(ctx, leaseID)
+	kac, err := r.EtcdClient.KeepAlive(ctx, leaseID)
 	if err != nil {
 		curLeaseID = 0
 	}
@@ -201,7 +201,7 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				case curLeaseID = <-idChan:
 				}
 
-				kac, err = r.client.KeepAlive(ctx, curLeaseID)
+				kac, err = r.EtcdClient.KeepAlive(ctx, curLeaseID)
 				if err == nil {
 					break
 				}
