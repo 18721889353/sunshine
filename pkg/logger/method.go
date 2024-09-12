@@ -113,7 +113,7 @@ func toJSON(fields []zap.Field) string {
 			}
 		case zapcore.BoolType:
 			if b, ok := f.Interface.(bool); ok {
-				keyValuePairs[key] = b
+				keyValuePairs[key] = strconv.FormatBool(b)
 			}
 		case zapcore.ByteStringType:
 			if bs, ok := f.Interface.([]byte); ok {
