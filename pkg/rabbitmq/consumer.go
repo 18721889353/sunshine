@@ -354,7 +354,7 @@ func (c *Consumer) initialize() error {
 	}
 
 	fields := logFields(c.QueueName, c.Exchange)
-	fields = append(fields, zap.Bool("autoAck", c.isAutoAck))
+	fields = append(fields, zap.String("autoAck", strconv.FormatBool(c.isAutoAck)))
 	pkgLogger.Info("[rabbitmq consumer] initialized", fields...)
 	return nil
 }
