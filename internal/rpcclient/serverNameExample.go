@@ -3,6 +3,7 @@ package rpcclient
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,7 +47,7 @@ func NewServerNameExampleRPCConn() {
 		grpccli.WithUnaryInterceptors(
 			interceptor.UnaryClientLog(
 				logger.Get(),
-				interceptor.WithLogFrom(config.Get().App.Name),
+				interceptor.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 				interceptor.WithMaxLen(config.Get().Logger.MaxLen),
 				interceptor.WithReplaceGRPCLogger(),
 			),
