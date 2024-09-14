@@ -3,6 +3,7 @@ package routers
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,7 +58,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		middleware.WithLog(logger.Get()),
 		middleware.WithMaxLen(config.Get().Logger.MaxLen),
 		middleware.WithRequestIDFromContext(),
-		middleware.WithLogFrom(config.Get().App.Name),
+		middleware.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
 	// 将签名添加为全局中间件
