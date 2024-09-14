@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/logger"
 	"net/http"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 
@@ -40,9 +41,9 @@ func (s *httpServer) Start() error {
 				case <-ticker.C:
 					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
 					if err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						logger.Warn("s.iRegistry.Register error", logger.Err(err))
+						//logger.Warn("s.iRegistry.Register error", logger.Err(err))
 					} else {
-						logger.Info("s.iRegistry.Register")
+						logger.Warn("s.iRegistry.Register")
 					}
 				}
 			}

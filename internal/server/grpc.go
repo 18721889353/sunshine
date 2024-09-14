@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
@@ -63,9 +64,9 @@ func (s *grpcServer) Start() error {
 				case <-ticker.C:
 					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
 					if err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						logger.Warn("s.iRegistry.Register error", logger.Err(err))
+						//logger.Warn("s.iRegistry.Register error", logger.Err(err))
 					} else {
-						logger.Info("s.iRegistry.Register")
+						logger.Warn("s.iRegistry.Register")
 					}
 				}
 			}
@@ -170,7 +171,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerLog(
 		logger.Get(),
 		interceptor.WithMaxLen(config.Get().Logger.MaxLen),
-		interceptor.WithLogFrom(config.Get().App.Name),
+		interceptor.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 		interceptor.WithReplaceGRPCLogger(),
 	))
 
