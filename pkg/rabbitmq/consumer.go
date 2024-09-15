@@ -440,6 +440,8 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 							continue
 						}
 						pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
+						// Wait for 60 seconds before retrying
+						time.Sleep(time.Second * 60)
 						continue
 					}
 					if !c.isAutoAck {
