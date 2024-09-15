@@ -409,6 +409,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				continue
 			}
 			pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
+			tracer := otel.Tracer("rabbitmq-Consume")
 
 			isContinueConsume := false
 			for {
@@ -422,20 +423,36 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 						isContinueConsume = true
 						break
 					}
+					// 开始一个新的 span
+					ctx, span := tracer.Start(ctx, "deadConsume message")
+					span.SetAttributes(attribute.String("message.body", string(d.Body)))
+
 					tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
 					err = handler(ctx, d.Body, tagID)
 					if err != nil {
+						span.RecordError(err)
 						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
+						//如果设置为 false，则将消息从队列中移除，不再重新排队
+						if err = d.Reject(true); err != nil {
+							span.RecordError(err)
+							pkgLogger.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							continue
+						}
+						pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
 						continue
 					}
 					if !c.isAutoAck {
 						if err = d.Ack(false); err != nil {
+							span.RecordError(err)
 							pkgLogger.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
 						pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
 					atomic.AddInt64(&c.count, 1)
+					// 结束 span
+					span.End()
 				}
 
 				if isContinueConsume {
@@ -521,6 +538,8 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 					if err != nil {
 						span.RecordError(err)
 						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
+						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(false); err != nil {
 							span.RecordError(err)
 							pkgLogger.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
