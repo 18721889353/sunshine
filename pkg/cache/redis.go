@@ -27,7 +27,7 @@ type redisCache struct {
 	encoding          encoding.Encoding
 	DefaultExpireTime time.Duration
 	newObject         func() interface{}
-	redsync           *redsync.Redsync
+	redsSync          *redsync.Redsync
 }
 
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
@@ -40,12 +40,12 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 		KeyPrefix: keyPrefix,
 		encoding:  encode,
 		newObject: newObject,
-		redsync:   rs,
+		redsSync:  rs,
 	}
 }
 
-// RedisLock acquires a distributed lock with the given key
-func (c *redisCache) RedisLock(ctx context.Context, key string, timeout time.Duration) (*redsync.Mutex, error) {
+// GetLock acquires a distributed lock with the given key
+func (c *redisCache) GetLock(ctx context.Context, key string, timeout time.Duration) (*redsync.Mutex, error) {
 	begin := time.Now()
 	fields := []zap.Field{
 		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
@@ -54,7 +54,7 @@ func (c *redisCache) RedisLock(ctx context.Context, key string, timeout time.Dur
 	}
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
-	mutex := c.redsync.NewMutex(lockKey, redsync.WithExpiry(timeout))
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(timeout))
 	// 开始锁定
 	if err := mutex.Lock(); err != nil {
 		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
@@ -343,16 +343,60 @@ type redisClusterCache struct {
 	encoding          encoding.Encoding
 	DefaultExpireTime time.Duration
 	newObject         func() interface{}
+	redsSync          *redsync.Redsync
 }
 
 // NewRedisClusterCache new a cache
 func NewRedisClusterCache(client *redis.ClusterClient, keyPrefix string, encode encoding.Encoding, newObject func() interface{}) Cache {
+	redisPool := goredis.NewPool(client)
+	rs := redsync.New(redisPool)
 	return &redisClusterCache{
 		client:    client,
 		KeyPrefix: keyPrefix,
 		encoding:  encode,
 		newObject: newObject,
+		redsSync:  rs,
 	}
+}
+
+// GetLock acquires a distributed lock with the given key
+func (c *redisClusterCache) GetLock(ctx context.Context, key string, timeout time.Duration) (*redsync.Mutex, error) {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg RedisLock"),
+	}
+	// 初始化锁
+	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(timeout))
+	// 开始锁定
+	if err := mutex.Lock(); err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
+		return nil, err
+	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+	return mutex, nil
+}
+
+// ReleaseLock releases the distributed lock
+func (c *redisClusterCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg ReleaseLock"),
+	}
+	if ok, err := mutex.Unlock(); !ok || err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
+		return err
+	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+	return nil
 }
 
 // Set one value
@@ -511,4 +555,20 @@ func (c *redisClusterCache) SetCacheWithNotFound(ctx context.Context, key string
 	}
 
 	return c.client.Set(ctx, cacheKey, NotFoundPlaceholder, DefaultNotFoundExpireTime).Err()
+}
+
+func requestIDField(ctx context.Context, requestIDKey string) zap.Field {
+	if requestIDKey == "" {
+		return zap.Skip()
+	}
+
+	var field zap.Field
+	if requestIDKey != "" {
+		if v, ok := ctx.Value(requestIDKey).(string); ok {
+			field = zap.String(requestIDKey, v)
+		} else {
+			field = zap.Skip()
+		}
+	}
+	return field
 }
