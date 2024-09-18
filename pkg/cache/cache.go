@@ -1,14 +1,11 @@
-// Package cache is memory and redis cache libraries.
+// Package cache is  redis cache libraries.
 package cache
 
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/go-redsync/redsync/v4"
 	"time"
-
-	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
-	"go.uber.org/zap"
 )
 
 var (
@@ -25,12 +22,12 @@ var (
 
 	// ErrPlaceholder .
 	ErrPlaceholder = errors.New("cache: placeholder")
-	// ErrSetMemoryWithNotFound .
-	ErrSetMemoryWithNotFound = errors.New("cache: set memory cache err for not found")
 )
 
 // Cache driver interface
 type Cache interface {
+	GetLock(ctx context.Context, key string, timeout time.Duration) (*redsync.Mutex, error)
+	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
 	Set(ctx context.Context, key string, val interface{}, expiration time.Duration) error
 	Get(ctx context.Context, key string, val interface{}) error
 	MultiSet(ctx context.Context, valMap map[string]interface{}, expiration time.Duration) error
@@ -39,104 +36,39 @@ type Cache interface {
 	SetCacheWithNotFound(ctx context.Context, key string) error
 }
 
+func GetLock(ctx context.Context, key string, timeout time.Duration) (*redsync.Mutex, error) {
+	return DefaultClient.GetLock(ctx, key, timeout)
+}
+func ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
+	return DefaultClient.ReleaseLock(ctx, mutex)
+}
+
 // Set data
 func Set(ctx context.Context, key string, val interface{}, expiration time.Duration) error {
-	begin := time.Now()
-	res := DefaultClient.Set(ctx, key, val, expiration)
-	elapsed := time.Since(begin)
-	pkgLogger.Info("Cache msg",
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg Set"),
-	)
-	return res
+	return DefaultClient.Set(ctx, key, val, expiration)
 }
 
 // Get data
 func Get(ctx context.Context, key string, val interface{}) error {
-	begin := time.Now()
-	res := DefaultClient.Get(ctx, key, val)
-	elapsed := time.Since(begin)
-	pkgLogger.Info("Cache msg",
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg Get"),
-	)
-	return res
+	return DefaultClient.Get(ctx, key, val)
 }
 
 // MultiSet multiple set data
 func MultiSet(ctx context.Context, valMap map[string]interface{}, expiration time.Duration) error {
-	begin := time.Now()
-	res := DefaultClient.MultiSet(ctx, valMap, expiration)
-	elapsed := time.Since(begin)
-	pkgLogger.Info("Cache msg",
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg MultiSet"),
-	)
-	return res
+	return DefaultClient.MultiSet(ctx, valMap, expiration)
 }
 
 // MultiGet multiple get data
 func MultiGet(ctx context.Context, keys []string, valueMap interface{}) error {
-	begin := time.Now()
-	res := DefaultClient.MultiGet(ctx, keys, valueMap)
-	elapsed := time.Since(begin)
-	pkgLogger.Info("Cache msg",
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg MultiGet"),
-	)
-	return res
+	return DefaultClient.MultiGet(ctx, keys, valueMap)
 }
 
 // Del multiple delete data
 func Del(ctx context.Context, keys ...string) error {
-	begin := time.Now()
-	res := DefaultClient.Del(ctx, keys...)
-	elapsed := time.Since(begin)
-	pkgLogger.Info("Cache msg",
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg Del"),
-	)
-	return res
-
+	return DefaultClient.Del(ctx, keys...)
 }
 
 // SetCacheWithNotFound .
 func SetCacheWithNotFound(ctx context.Context, key string) error {
-	begin := time.Now()
-	res := DefaultClient.SetCacheWithNotFound(ctx, key)
-	elapsed := time.Since(begin)
-	pkgLogger.Info("Cache msg",
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg SetCacheWithNotFound"),
-	)
-	return res
-
-}
-
-func requestIDField(ctx context.Context, requestIDKey string) zap.Field {
-	if requestIDKey == "" {
-		return zap.Skip()
-	}
-
-	var field zap.Field
-	if requestIDKey != "" {
-		if v, ok := ctx.Value(requestIDKey).(string); ok {
-			field = zap.String(requestIDKey, v)
-		} else {
-			field = zap.Skip()
-		}
-	}
-	return field
+	return DefaultClient.SetCacheWithNotFound(ctx, key)
 }

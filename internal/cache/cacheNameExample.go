@@ -51,9 +51,6 @@ func NewCacheNameExampleCache(cacheType *model.CacheType) CacheNameExampleCache 
 	case "redis":
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, newObject)
 		return &cacheNameExampleCache{cache: c}
-	case "memory":
-		c := cache.NewMemoryCache(cachePrefix, jsonEncoding, newObject)
-		return &cacheNameExampleCache{cache: c}
 	}
 
 	panic(fmt.Sprintf("unsupported cache type='%s'", cacheType.CType))

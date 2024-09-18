@@ -48,11 +48,6 @@ func NewUserExampleCache(cacheType *model.CacheType) UserExampleCache {
 			return &model.UserExample{}
 		})
 		return &userExampleCache{cache: c}
-	case "memory":
-		c := cache.NewMemoryCache(cachePrefix, jsonEncoding, func() interface{} {
-			return &model.UserExample{}
-		})
-		return &userExampleCache{cache: c}
 	}
 
 	return nil // no cache
