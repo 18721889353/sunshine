@@ -66,6 +66,46 @@ func (c *redisCache) GetLock(ctx context.Context, key string, timeout time.Durat
 	return mutex, nil
 }
 
+// GetLoopLock acquires a distributed lock with the given key
+func (c *redisCache) GetLoopLock(ctx context.Context, key string, timeout, waitTime time.Duration, loopNum uint) (*redsync.Mutex, error) {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg GetLoopLock"),
+	}
+	// 初始化锁
+	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(timeout))
+	// 设置超时时间
+	timeoutTime := time.Now().Add(waitTime)
+	// 如果循环次数为0，则使用默认值
+	if loopNum == 0 {
+		loopNum = 5 // 设置默认值为3次
+	}
+	if waitTime == 0 {
+		waitTime = 100 * time.Millisecond
+	}
+	// 开始循环尝试获取锁
+	for i := uint(0); i < loopNum; i++ {
+		if err := mutex.Lock(); err != nil {
+			// 如果获取锁失败，则等待一段时间再尝试获取
+			if time.Now().After(timeoutTime) {
+				// 超过超时时间，返回失败
+				fields = append(fields, pkgLogger.Err(errors.New("failed to acquire lock within specified timeout")), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+				pkgLogger.Warn("Cache msg", fields...)
+				return nil, errors.New("failed to acquire lock within specified timeout")
+			}
+			time.Sleep(waitTime)
+		} else {
+			break
+		}
+	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+	return mutex, nil
+}
+
 // ReleaseLock releases the distributed lock
 func (c *redisCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
 	begin := time.Now()
