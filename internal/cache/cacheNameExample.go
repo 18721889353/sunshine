@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"github.com/go-redsync/redsync/v4"
 	"strings"
 	"time"
 
@@ -29,6 +30,8 @@ var _ CacheNameExampleCache = (*cacheNameExampleCache)(nil)
 
 // CacheNameExampleCache cache interface
 type CacheNameExampleCache interface {
+	GetLock(ctx context.Context, keyNameExample keyTypeExample, timeout time.Duration) (*redsync.Mutex, error)
+	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
 	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error
 	Get(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error)
 	Del(ctx context.Context, keyNameExample keyTypeExample) error
@@ -59,6 +62,18 @@ func NewCacheNameExampleCache(cacheType *model.CacheType) CacheNameExampleCache 
 // cache key
 func (c *cacheNameExampleCache) getCacheKey(keyNameExample keyTypeExample) string {
 	return fmt.Sprintf("%s%v", cacheNameExampleCachePrefixKey, keyNameExample)
+}
+
+func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, timeout time.Duration) (*redsync.Mutex, error) {
+	cacheKey := c.getCacheKey(keyNameExample)
+	lock, err := c.cache.GetLock(ctx, cacheKey, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return lock, nil
+}
+func (c *cacheNameExampleCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
+	return c.cache.ReleaseLock(ctx, mutex)
 }
 
 // Set cache

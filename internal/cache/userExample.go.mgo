@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"github.com/go-redsync/redsync/v4"
 	"strings"
 	"time"
 
@@ -22,6 +23,8 @@ var _ UserExampleCache = (*userExampleCache)(nil)
 
 // UserExampleCache cache interface
 type UserExampleCache interface {
+	GetLock(ctx context.Context, id uint64, timeout time.Duration) (*redsync.Mutex, error)
+	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
 	Set(ctx context.Context, id string, data *model.UserExample, duration time.Duration) error
 	Get(ctx context.Context, id string) (*model.UserExample, error)
 	MultiGet(ctx context.Context, ids []string) (map[string]*model.UserExample, error)
@@ -56,6 +59,20 @@ func NewUserExampleCache(cacheType *model.CacheType) UserExampleCache {
 func (c *userExampleCache) GetUserExampleCacheKey(id string) string {
 	return userExampleCachePrefixKey + id
 }
+
+func (c *userExampleCache) GetLock(ctx context.Context, id uint64, timeout time.Duration) (*redsync.Mutex, error) {
+	cacheKey := c.GetUserExampleCacheKey(id)
+	lock, err := c.cache.GetLock(ctx, cacheKey, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return lock, nil
+}
+
+func (c *userExampleCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
+	return c.cache.ReleaseLock(ctx, mutex)
+}
+
 
 // Set write to cache
 func (c *userExampleCache) Set(ctx context.Context, id string, data *model.UserExample, duration time.Duration) error {
