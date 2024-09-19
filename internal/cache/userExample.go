@@ -24,6 +24,7 @@ var _ UserExampleCache = (*userExampleCache)(nil)
 
 // UserExampleCache cache interface
 type UserExampleCache interface {
+	GetLoopLock(ctx context.Context, id uint64, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error)
 	GetLock(ctx context.Context, id uint64, timeout time.Duration) (*redsync.Mutex, error)
 	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
@@ -61,6 +62,14 @@ func (c *userExampleCache) GetUserExampleCacheKey(id uint64) string {
 	return userExampleCachePrefixKey + utils.Uint64ToStr(id)
 }
 
+func (c *userExampleCache) GetLoopLock(ctx context.Context, id uint64, timeout, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error) {
+	cacheKey := c.GetUserExampleCacheKey(id)
+	lock, err := c.cache.GetLoopLock(ctx, cacheKey, timeout, loopWaitTime, loopNum)
+	if err != nil {
+		return nil, err
+	}
+	return lock, nil
+}
 func (c *userExampleCache) GetLock(ctx context.Context, id uint64, timeout time.Duration) (*redsync.Mutex, error) {
 	cacheKey := c.GetUserExampleCacheKey(id)
 	lock, err := c.cache.GetLock(ctx, cacheKey, timeout)
