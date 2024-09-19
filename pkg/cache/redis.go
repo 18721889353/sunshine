@@ -36,38 +36,17 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 	redisPool := goredis.NewPool(client)
 	rs := redsync.New(redisPool)
 	return &redisCache{
-		client:    client,
-		KeyPrefix: keyPrefix,
-		encoding:  encode,
-		newObject: newObject,
-		redsSync:  rs,
+		client:            client,
+		KeyPrefix:         keyPrefix,
+		encoding:          encode,
+		newObject:         newObject,
+		redsSync:          rs,
+		DefaultExpireTime: time.Second * 5,
 	}
-}
-
-// GetLock acquires a distributed lock with the given key
-func (c *redisCache) GetLock(ctx context.Context, key string, timeout time.Duration) (*redsync.Mutex, error) {
-	begin := time.Now()
-	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-		requestIDField(ctx, "request_id"),
-		zap.String("log_from", "Cache msg RedisLock"),
-	}
-	// 初始化锁
-	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
-	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(timeout))
-	// 开始锁定
-	if err := mutex.Lock(); err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
-		return nil, err
-	}
-	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
-	return mutex, nil
 }
 
 // GetLoopLock acquires a distributed lock with the given key
-func (c *redisCache) GetLoopLock(ctx context.Context, key string, timeout, waitTime time.Duration, loopNum uint) (*redsync.Mutex, error) {
+func (c *redisCache) GetLoopLock(ctx context.Context, key string, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error) {
 	begin := time.Now()
 	fields := []zap.Field{
 		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
@@ -76,30 +55,56 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, timeout, waitT
 	}
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
-	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(timeout))
-	// 设置超时时间
-	timeoutTime := time.Now().Add(waitTime)
+	if expireTime == 0 {
+		expireTime = c.DefaultExpireTime
+	}
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(expireTime))
+
 	// 如果循环次数为0，则使用默认值
 	if loopNum == 0 {
-		loopNum = 5 // 设置默认值为3次
+		loopNum = 10
 	}
-	if waitTime == 0 {
-		waitTime = 100 * time.Millisecond
+	if loopWaitTime == 0 {
+		loopWaitTime = 200 * time.Millisecond
 	}
+	// 设置超时时间
+	timeoutTime := time.Now().Add(loopWaitTime * time.Duration(loopNum+1))
 	// 开始循环尝试获取锁
-	for i := uint(0); i < loopNum; i++ {
+	for i := 0; i < loopNum; i++ {
 		if err := mutex.Lock(); err != nil {
 			// 如果获取锁失败，则等待一段时间再尝试获取
 			if time.Now().After(timeoutTime) {
 				// 超过超时时间，返回失败
-				fields = append(fields, pkgLogger.Err(errors.New("failed to acquire lock within specified timeout")), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+				fields = append(fields, pkgLogger.Err(errors.New("failed to acquire loopLock within specified timeout")), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 				pkgLogger.Warn("Cache msg", fields...)
-				return nil, errors.New("failed to acquire lock within specified timeout")
+				return nil, errors.New("failed to acquire loopLock within specified timeout")
 			}
-			time.Sleep(waitTime)
+			time.Sleep(loopWaitTime)
 		} else {
 			break
 		}
+	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+	return mutex, nil
+}
+
+// GetLock acquires a distributed lock with the given key
+func (c *redisCache) GetLock(ctx context.Context, key string, expireTime time.Duration) (*redsync.Mutex, error) {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg RedisLock"),
+	}
+	// 初始化锁
+	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(expireTime))
+	// 开始锁定
+	if err := mutex.Lock(); err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
+		return nil, err
 	}
 	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 	pkgLogger.Info("Cache msg", fields...)
@@ -125,7 +130,7 @@ func (c *redisCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) erro
 }
 
 // Set one value
-func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expiration time.Duration) error {
+func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) error {
 	begin := time.Now()
 	fields := []zap.Field{
 		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
@@ -146,10 +151,10 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
-	//if expiration == 0 {
-	//	expiration = DefaultExpireTime
-	//}
-	err = c.client.Set(ctx, cacheKey, buf, expiration).Err()
+	if expireTime == 0 {
+		expireTime = c.DefaultExpireTime
+	}
+	err = c.client.Set(ctx, cacheKey, buf, expireTime).Err()
 	if err != nil {
 		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", fields...)
@@ -206,7 +211,7 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 }
 
 // MultiSet set multiple values
-func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expiration time.Duration) error {
+func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expireTime time.Duration) error {
 	begin := time.Now()
 	fields := []zap.Field{
 		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
@@ -216,9 +221,9 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	if len(valueMap) == 0 {
 		return nil
 	}
-	//if expiration == 0 {
-	//	expiration = DefaultExpireTime
-	//}
+	if expireTime == 0 {
+		expireTime = c.DefaultExpireTime
+	}
 
 	// the key-value is paired and has twice the capacity of a map
 	paris := make([]interface{}, 0, 2*len(valueMap))
@@ -246,7 +251,7 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	for i := 0; i < len(paris); i = i + 2 {
 		switch paris[i].(type) {
 		case []byte:
-			pipeline.Expire(ctx, string(paris[i].([]byte)), expiration)
+			pipeline.Expire(ctx, string(paris[i].([]byte)), expireTime)
 		default:
 			fmt.Printf("redis expire is unsupported key type: %+v\n", reflect.TypeOf(paris[i]))
 		}
@@ -391,11 +396,12 @@ func NewRedisClusterCache(client *redis.ClusterClient, keyPrefix string, encode 
 	redisPool := goredis.NewPool(client)
 	rs := redsync.New(redisPool)
 	return &redisClusterCache{
-		client:    client,
-		KeyPrefix: keyPrefix,
-		encoding:  encode,
-		newObject: newObject,
-		redsSync:  rs,
+		client:            client,
+		KeyPrefix:         keyPrefix,
+		encoding:          encode,
+		newObject:         newObject,
+		redsSync:          rs,
+		DefaultExpireTime: time.Second * 5,
 	}
 }
 
@@ -421,6 +427,50 @@ func (c *redisClusterCache) GetLock(ctx context.Context, key string, timeout tim
 	return mutex, nil
 }
 
+// GetLoopLock acquires a distributed lock with the given key
+func (c *redisClusterCache) GetLoopLock(ctx context.Context, key string, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error) {
+	begin := time.Now()
+	fields := []zap.Field{
+		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg GetLoopLock"),
+	}
+	// 初始化锁
+	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	if expireTime == 0 {
+		expireTime = c.DefaultExpireTime
+	}
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(expireTime))
+
+	// 如果循环次数为0，则使用默认值
+	if loopNum == 0 {
+		loopNum = 10
+	}
+	if loopWaitTime == 0 {
+		loopWaitTime = 200 * time.Millisecond
+	}
+	// 设置超时时间
+	timeoutTime := time.Now().Add(loopWaitTime * time.Duration(loopNum+1))
+	// 开始循环尝试获取锁
+	for i := 0; i < loopNum; i++ {
+		if err := mutex.Lock(); err != nil {
+			// 如果获取锁失败，则等待一段时间再尝试获取
+			if time.Now().After(timeoutTime) {
+				// 超过超时时间，返回失败
+				fields = append(fields, pkgLogger.Err(errors.New("failed to acquire loopLock within specified timeout")), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+				pkgLogger.Warn("Cache msg", fields...)
+				return nil, errors.New("failed to acquire loopLock within specified timeout")
+			}
+			time.Sleep(loopWaitTime)
+		} else {
+			break
+		}
+	}
+	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+	return mutex, nil
+}
+
 // ReleaseLock releases the distributed lock
 func (c *redisClusterCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
 	begin := time.Now()
@@ -440,7 +490,7 @@ func (c *redisClusterCache) ReleaseLock(ctx context.Context, mutex *redsync.Mute
 }
 
 // Set one value
-func (c *redisClusterCache) Set(ctx context.Context, key string, val interface{}, expiration time.Duration) error {
+func (c *redisClusterCache) Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) error {
 	buf, err := encoding.Marshal(c.encoding, val)
 	if err != nil {
 		return fmt.Errorf("encoding.Marshal error: %v, key=%s, val=%+v ", err, key, val)
@@ -450,10 +500,10 @@ func (c *redisClusterCache) Set(ctx context.Context, key string, val interface{}
 	if err != nil {
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
-	//if expiration == 0 {
-	//	expiration = DefaultExpireTime
-	//}
-	err = c.client.Set(ctx, cacheKey, buf, expiration).Err()
+	if expireTime == 0 {
+		expireTime = c.DefaultExpireTime
+	}
+	err = c.client.Set(ctx, cacheKey, buf, expireTime).Err()
 	if err != nil {
 		return fmt.Errorf("c.client.Set error: %v, cacheKey=%s", err, cacheKey)
 	}
@@ -490,9 +540,12 @@ func (c *redisClusterCache) Get(ctx context.Context, key string, val interface{}
 }
 
 // MultiSet set multiple values
-func (c *redisClusterCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expiration time.Duration) error {
+func (c *redisClusterCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expireTime time.Duration) error {
 	if len(valueMap) == 0 {
 		return nil
+	}
+	if expireTime == 0 {
+		expireTime = c.DefaultExpireTime
 	}
 
 	// the key-value is paired and has twice the capacity of a map
@@ -519,7 +572,7 @@ func (c *redisClusterCache) MultiSet(ctx context.Context, valueMap map[string]in
 	for i := 0; i < len(paris); i = i + 2 {
 		switch paris[i].(type) {
 		case []byte:
-			pipeline.Expire(ctx, string(paris[i].([]byte)), expiration)
+			pipeline.Expire(ctx, string(paris[i].([]byte)), expireTime)
 		default:
 			fmt.Printf("redis expire is unsupported key type: %+v\n", reflect.TypeOf(paris[i]))
 		}

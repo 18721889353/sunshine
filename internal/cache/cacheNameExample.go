@@ -30,9 +30,10 @@ var _ CacheNameExampleCache = (*cacheNameExampleCache)(nil)
 
 // CacheNameExampleCache cache interface
 type CacheNameExampleCache interface {
-	GetLock(ctx context.Context, keyNameExample keyTypeExample, timeout time.Duration) (*redsync.Mutex, error)
+	GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error)
+	GetLock(ctx context.Context, keyNameExample keyTypeExample, expireTime time.Duration) (*redsync.Mutex, error)
 	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
-	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error
+	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, expireTime time.Duration) error
 	Get(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error)
 	Del(ctx context.Context, keyNameExample keyTypeExample) error
 }
@@ -63,10 +64,17 @@ func NewCacheNameExampleCache(cacheType *model.CacheType) CacheNameExampleCache 
 func (c *cacheNameExampleCache) getCacheKey(keyNameExample keyTypeExample) string {
 	return fmt.Sprintf("%s%v", cacheNameExampleCachePrefixKey, keyNameExample)
 }
-
-func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, timeout time.Duration) (*redsync.Mutex, error) {
+func (c *cacheNameExampleCache) GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error) {
 	cacheKey := c.getCacheKey(keyNameExample)
-	lock, err := c.cache.GetLock(ctx, cacheKey, timeout)
+	lock, err := c.cache.GetLoopLock(ctx, cacheKey, expireTime, loopWaitTime, loopNum)
+	if err != nil {
+		return nil, err
+	}
+	return lock, nil
+}
+func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, expireTime time.Duration) (*redsync.Mutex, error) {
+	cacheKey := c.getCacheKey(keyNameExample)
+	lock, err := c.cache.GetLock(ctx, cacheKey, expireTime)
 	if err != nil {
 		return nil, err
 	}
@@ -77,9 +85,9 @@ func (c *cacheNameExampleCache) ReleaseLock(ctx context.Context, mutex *redsync.
 }
 
 // Set cache
-func (c *cacheNameExampleCache) Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error {
+func (c *cacheNameExampleCache) Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, expireTime time.Duration) error {
 	cacheKey := c.getCacheKey(keyNameExample)
-	return c.cache.Set(ctx, cacheKey, &valueNameExample, duration)
+	return c.cache.Set(ctx, cacheKey, &valueNameExample, expireTime)
 }
 
 // Get cache
