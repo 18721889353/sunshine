@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
+	"time"
+
 	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"go.uber.org/zap"
-	"reflect"
-	"strings"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -58,8 +59,6 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, expireTime, lo
 	if expireTime == 0 {
 		expireTime = c.DefaultExpireTime
 	}
-	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(expireTime))
-
 	// 如果循环次数为0，则使用默认值
 	if loopNum == 0 {
 		loopNum = 10
@@ -67,23 +66,15 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, expireTime, lo
 	if loopWaitTime == 0 {
 		loopWaitTime = 200 * time.Millisecond
 	}
-	// 设置超时时间
-	timeoutTime := time.Now().Add(loopWaitTime * time.Duration(loopNum+1))
-	// 开始循环尝试获取锁
-	for i := 0; i < loopNum; i++ {
-		if err := mutex.Lock(); err != nil {
-			// 如果获取锁失败，则等待一段时间再尝试获取
-			if time.Now().After(timeoutTime) {
-				// 超过超时时间，返回失败
-				fields = append(fields, pkgLogger.Err(errors.New("failed to acquire loopLock within specified timeout")), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-				pkgLogger.Warn("Cache msg", fields...)
-				return nil, errors.New("failed to acquire loopLock within specified timeout")
-			}
-			time.Sleep(loopWaitTime)
-		} else {
-			break
-		}
+	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(expireTime), redsync.WithTries(loopNum), redsync.WithRetryDelay(loopWaitTime))
+
+	// 开始锁定
+	if err := mutex.LockContext(ctx); err != nil {
+		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		pkgLogger.Warn("Cache msg", fields...)
+		return nil, err
 	}
+
 	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 	pkgLogger.Info("Cache msg", fields...)
 	return mutex, nil
@@ -101,7 +92,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, expireTime time.Du
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
 	mutex := c.redsSync.NewMutex(lockKey, redsync.WithExpiry(expireTime))
 	// 开始锁定
-	if err := mutex.Lock(); err != nil {
+	if err := mutex.TryLockContext(ctx); err != nil {
 		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", fields...)
 		return nil, err
@@ -119,7 +110,7 @@ func (c *redisCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) erro
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg ReleaseLock"),
 	}
-	if ok, err := mutex.Unlock(); !ok || err != nil {
+	if ok, err := mutex.UnlockContext(ctx); !ok || err != nil {
 		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", fields...)
 		return err
