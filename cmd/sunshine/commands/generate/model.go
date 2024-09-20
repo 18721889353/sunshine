@@ -97,7 +97,7 @@ type modelGenerator struct {
 }
 
 func (g *modelGenerator) generateCode() (string, error) {
-	subTplName := "model"
+	subTplName := codeNameModel
 	r := Replacers[TplNameSunshine]
 	if r == nil {
 		return "", errors.New("replacer is nil")

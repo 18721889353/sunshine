@@ -25,12 +25,12 @@ checkResult $?
 sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
 
-colorCyan='\033[1;36m'
+colorGreen='\033[1;32m'
 highBright='\033[1m'
 markEnd='\033[0m'
 
 echo ""
 echo -e "${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then visit ${colorCyan}http://${HOST_ADDR}:8080/swagger/index.html${markEnd} in your browser."
 echo ""
-echo "generated api docs successfully."
+echo -e "${colorGreen}generated api docs done.${markEnd}"
 echo ""

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/fatih/color"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -22,13 +23,15 @@ func AdaptMonoRepoCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "adapt-mono-repo",
 		Short: "Adapt to mono-repo in api directory code",
-		Long: `adapt to mono-repo in api directory code
+		Long: color.HiBlackString(`adapt to mono-repo in api directory code
 
 Examples:
-  # adapt to mono-repo code
+  # adapt to mono-repo code in local server directory
   sunshine patch adapt-mono-repo
 
-`,
+  # adapt to mono-repo code in specified directory
+  sunshine patch adapt-mono-repo --dir=/path/to/server/directory
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -49,8 +52,8 @@ Examples:
 				return err
 			}
 
-			var oldStr = fmt.Sprintf("\"%s/api", moduleName)
-			var newStr = fmt.Sprintf("\"%s/api", moduleName+"/"+serverName)
+			var oldStr = fmt.Sprintf("\"%s/api", moduleName+"/"+serverName)
+			var newStr = fmt.Sprintf("\"%s/api", moduleName)
 			for _, file := range files {
 				data, err := os.ReadFile(file)
 				if err != nil {

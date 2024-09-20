@@ -7,6 +7,15 @@ allProtoFiles=""
 specifiedProtoFilePath=$1
 specifiedProtoFilePaths=""
 
+colorGray='\033[1;30m'
+colorGreen='\033[1;32m'
+colorMagenta='\033[1;35m'
+colorCyan='\033[1;36m'
+highBright='\033[1m'
+markEnd='\033[0m'
+
+tipMsg=""
+
 function checkResult() {
     result=$1
     if [ ${result} -ne 0 ]; then
@@ -97,7 +106,7 @@ function generateByAllProto(){
     echo "Error: not found proto file in path $protoBasePath"
     exit 1
   fi
-  echo "generate *pb.go by proto files: $allProtoFiles"
+  echo -e "generate *pb.go by proto files: ${colorGray}$allProtoFiles${markEnd}"
   echo ""
 
   # generate files *_pb.go
@@ -153,7 +162,7 @@ function generateBySpecifiedProto(){
   if [ "$specifiedProtoFiles"x = x ];then
     return
   fi
-  echo "generate template code by proto files: $specifiedProtoFiles"
+  echo -e "generate template code by proto files: ${colorMagenta}$specifiedProtoFiles${markEnd}"
   # todo generate api template code command here
   # delete the templates code start
 
@@ -180,17 +189,12 @@ function generateBySpecifiedProto(){
   sunshine merge rpc-gw-pb
   checkResult $?
 
-  colorCyan='\033[1;36m'
-  highBright='\033[1m'
-  markEnd='\033[0m'
 
-  echo ""
-  echo -e "${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then visit ${colorCyan}http://localhost:8080/apis/swagger/index.html${markEnd} in your browser."
-  echo ""
+  tipMsg="${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then visit ${colorCyan}http://localhost:8080/apis/swagger/index.html${markEnd} in your browser."
   # delete the templates code end
 
   if [ "$suitedMonoRepo" == "true" ]; then
-    sunshine patch adapt-mono-repo
+    sunshine patch adapt-mono-repo --dir=serverNameExample
   fi
 }
 
@@ -212,5 +216,7 @@ sunshine patch modify-dup-err-code --dir=internal/ecode
 sunshine patch gen-db-init --db-driver=mysql --out=./
 sunshine patch gen-types-pb --out=./
 sunshine config --server-dir=.
-echo "generated code successfully."
+echo -e "${colorGreen}generated code done.${markEnd}"
+echo ""
+echo -e $tipMsg
 echo ""

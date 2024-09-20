@@ -130,7 +130,7 @@ function runningProtoService() {
     return 1
   fi
 
-  make proto
+  make patch TYPE=types-pb
   checkResult $?
   echo -e "startup service $name"
   make run &
@@ -721,8 +721,6 @@ function generate_grpc_gw_pb() {
   fi
 
   cd $outDir
-  make copy-proto SERVER=../mono_05_grpc_mysql
-  checkResult $?
   runningProtoService $serverName $outDir
   checkResult $?
   sleep 1

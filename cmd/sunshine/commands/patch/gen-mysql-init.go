@@ -3,6 +3,7 @@ package patch
 import (
 	"errors"
 	"fmt"
+	"github.com/fatih/color"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,15 +24,15 @@ func GenMysqlInitCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen-mysql-init",
 		Short: "Generate mysql initialization code",
-		Long: `generate mysql initialization code
+		Long: color.HiBlackString(`generate mysql initialization code
 
 Examples:
   # generate mysql initialization code.
-  sunshine patch gen-mysql-init --module-name=yourModuleName
+  sponge patch gen-mysql-init --module-name=yourModuleName
 
   # generate mysql initialization code, and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine patch gen-mysql-init --out=./yourServerDir
-`,
+  sponge patch gen-mysql-init --out=./yourServerDir
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
