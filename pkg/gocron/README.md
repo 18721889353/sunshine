@@ -17,41 +17,44 @@ import (
 )
 
 var task1 = func() {
-     fmt.Println("this is task1")
-     fmt.Println("running task list:", gocron.GetRunningTasks())
+	fmt.Println("this is task1")
+	fmt.Println("running task list:", gocron.GetRunningTasks())
 }
 
 var taskOnce = func() {
-    fmt.Println("this is task2, only run once")
-    fmt.Println("running task list:", gocron.GetRunningTasks())
+	fmt.Println("this is task2, only run once")
+	fmt.Println("running task list:", gocron.GetRunningTasks())
 }
 
 func main() {
-    err := gocron.Init()
-    if err != nil {
-        panic(err)
-    }
-	
-    gocron.Run([]*gocron.Task{
-        {
-            Name:     "task1",
-            TimeSpec: "@every 2s",
-            Fn:       task1,
-        },
-        {
-            Name:     "taskOnce",
-            TimeSpec: "@every 3s",
-            Fn:       taskOnce,
-            IsRunOnce: true,  // run only once
-        },
-    }...)
+	err := gocron.Init(
+		gocron.WithLogger(logger.Get()),
+		// gocron.WithLogger(logger.Get(), true), // only print error logs, ignore info logs
+	)
+	if err != nil {
+		panic(err)
+	}
 
-    time.Sleep(time.Second * 10)
+	gocron.Run([]*gocron.Task{
+		{
+			Name:     "task1",
+			TimeSpec: "@every 2s",
+			Fn:       task1,
+		},
+		{
+			Name:      "taskOnce",
+			TimeSpec:  "@every 3s",
+			Fn:        taskOnce,
+			IsRunOnce: true, // run only once
+		},
+	}...)
 
-    // stop task1
-    gocron.DeleteTask("task1")
+	time.Sleep(time.Second * 10)
 
-    // view running tasks
-    fmt.Println("running task list:", gocron.GetRunningTasks())
+	// stop task1
+	gocron.DeleteTask("task1")
+
+	// view running tasks
+	fmt.Println("running task list:", gocron.GetRunningTasks())
 }
 ```

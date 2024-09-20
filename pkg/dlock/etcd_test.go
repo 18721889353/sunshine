@@ -2,10 +2,10 @@ package dlock
 
 import (
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"testing"
 	"time"
 
-	"github.com/zhufuyi/sponge/pkg/etcdcli"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +36,7 @@ func getEtcdLock() Locker {
 		return nil
 	}
 
-	locker, err := NewEtcd(cli, "sponge/dlock", 10)
+	locker, err := NewEtcd(cli, "sunshine/dlock", 10)
 	if err != nil {
 		fmt.Println(err)
 		return nil
