@@ -28,10 +28,10 @@ func GenMysqlInitCommand() *cobra.Command {
 
 Examples:
   # generate mysql initialization code.
-  sponge patch gen-mysql-init --module-name=yourModuleName
+  sunshine patch gen-mysql-init --module-name=yourModuleName
 
   # generate mysql initialization code, and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sponge patch gen-mysql-init --out=./yourServerDir
+  sunshine patch gen-mysql-init --out=./yourServerDir
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,

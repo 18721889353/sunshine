@@ -25,10 +25,10 @@ func CopyGOModCommand() *cobra.Command {
 
 Examples:
   # copy go mod files to current directory
-  sponge patch copy-go-mod --module-name=yourModuleName
+  sunshine patch copy-go-mod --module-name=yourModuleName
 
   # copy go mod files to yourServerDir, module name from out directory
-  sponge patch copy-go-mod --out=./yourServerDir
+  sunshine patch copy-go-mod --out=./yourServerDir
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -73,7 +73,7 @@ func runCopyGoModCommand(moduleName string, out string) (string, error) {
 	}
 
 	// setting up template information
-	subFiles := []string{"sponge/go.mod", "sponge/go.sum"}
+	subFiles := []string{"sunshine/go.mod", "sunshine/go.sum"}
 	r.SetSubDirsAndFiles(nil, subFiles...)
 	r.SetReplacementFields(generate.GetGoModFields(moduleName))
 	_ = r.SetOutputDir(out)

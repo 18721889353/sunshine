@@ -24,10 +24,10 @@ func CopyThirdPartyProtoCommand() *cobra.Command {
 
 Examples:
   # copy third-party proto files to current directory
-  sponge patch copy-third-party-proto
+  sunshine patch copy-third-party-proto
 
   # copy third-party proto files to yourServerDir
-  sponge patch copy-third-party-proto --out=./yourServerDir
+  sunshine patch copy-third-party-proto --out=./yourServerDir
 `),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -64,7 +64,7 @@ func runCopyThirdPartyProtoCommand(out string) (string, error) {
 	}
 
 	// setting up template information
-	subDirs := []string{"sponge/third_party"}
+	subDirs := []string{"sunshine/third_party"}
 
 	r.SetSubDirsAndFiles(subDirs)
 	_ = r.SetOutputDir(out)
