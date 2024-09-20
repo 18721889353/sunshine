@@ -3,6 +3,7 @@ package patch
 import (
 	"errors"
 	"fmt"
+	"github.com/fatih/color"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,7 +24,7 @@ func GenTypesPbCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen-types-pb",
 		Short: "Generate types.proto code",
-		Long: `generate types.proto code
+		Long: color.HiBlackString(`generate types.proto code
 
 Examples:
   # generate types.proto code.
@@ -31,7 +32,7 @@ Examples:
 
   # generate types.proto code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine patch gen-types-pb --out=./yourServerDir
-`,
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -115,7 +116,7 @@ func addTypePbFields(moduleName string) []replacer.Field {
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old:             "github.com/18721889353/sunshine",
+			Old:             "github.com/zhufuyi/sunshine",
 			New:             moduleName,
 			IsCaseSensitive: false,
 		},

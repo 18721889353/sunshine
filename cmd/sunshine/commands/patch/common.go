@@ -1,6 +1,8 @@
 package patch
 
 import (
+	"errors"
+	"github.com/18721889353/sunshine/pkg/gofile"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,4 +38,27 @@ func cutPathPrefix(srcProtoFile string) string {
 	dirPath, _ := filepath.Abs(".")
 	srcProtoFile = strings.ReplaceAll(srcProtoFile, dirPath, ".")
 	return strings.ReplaceAll(srcProtoFile, "\\", "/")
+}
+
+func listErrCodeFiles(dir string) ([]string, error) {
+	files, err := gofile.ListFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(files) == 0 {
+		return nil, errors.New("not found files")
+	}
+
+	filterFiles := []string{}
+	for _, file := range files {
+		if strings.Contains(file, "systemCode_http.go") || strings.Contains(file, "systemCode_rpc.go") {
+			continue
+		}
+		if strings.Contains(file, "_http.go") || strings.Contains(file, "_rpc.go") {
+			filterFiles = append(filterFiles, file)
+		}
+	}
+
+	return filterFiles, nil
 }

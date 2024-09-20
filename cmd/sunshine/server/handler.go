@@ -253,7 +253,7 @@ func UploadFiles(c *gin.Context) {
 
 	//sunshineArg, err := getFormValue(form.Value, "sunshineArg")
 	//if err != nil {
-	//  response.Error(c, errcode.InvalidParams.RewriteMsg("the field 'spongeArg' cannot be empty"))
+	//  response.Error(c, errcode.InvalidParams.RewriteMsg("the field 'sunshineArg' cannot be empty"))
 	//	return
 	//}
 
