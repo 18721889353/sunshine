@@ -145,8 +145,8 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 	}
 
 	if g.suitedMonoRepo {
-		subDirs = removeElements(subDirs, "sponge/third_party")
-		subFiles = removeElements(subFiles, "sponge/go.mod", "sponge/go.sum", "api/types/types.proto")
+		subDirs = removeElements(subDirs, "sunshine/third_party")
+		subFiles = removeElements(subFiles, "sunshine/go.mod", "sunshine/go.sum", "api/types/types.proto")
 	}
 
 	replaceFiles := make(map[string][]string)

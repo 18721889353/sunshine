@@ -234,8 +234,8 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	}
 
 	if g.suitedMonoRepo {
-		subDirs = removeElements(subDirs, "sponge/third_party")
-		subFiles = removeElements(subFiles, "sponge/go.mod", "sponge/go.sum")
+		subDirs = removeElements(subDirs, "sunshine/third_party")
+		subFiles = removeElements(subFiles, "sunshine/go.mod", "sunshine/go.sum")
 		delete(selectFiles, "api/types")
 	}
 
