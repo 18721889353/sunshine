@@ -22,4 +22,5 @@ example:
 
 2. Adjust some code. 
 3. Fix logging bug
-4. snake case style
+4. snake case style- Modify the scripts in the large repository type so that the web service and grpc service code generated based on SQL can automatically complete the missing parts.
+5. - Modified the code directory structure for large repository services, making the `api` and `third_party` directories shared among all services, while keeping other directories unchanged.

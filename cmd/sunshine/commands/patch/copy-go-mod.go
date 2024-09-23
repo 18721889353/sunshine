@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
 	"github.com/18721889353/sunshine/pkg/gofile"
+	"os"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -12,10 +14,12 @@ import (
 
 // CopyGOModCommand copy go mod files
 func CopyGOModCommand() *cobra.Command {
+
 	var (
-		moduleName string // module name for go.mod
-		outPath    string // output directory
-		isLogExist bool
+		moduleName     string // module name for go.mod
+		outPath        string // output directory
+		isLogExist     bool
+		isForceReplace bool
 	)
 
 	cmd := &cobra.Command{
@@ -43,10 +47,15 @@ Examples:
 
 			goModFile := outPath + gofile.GetPathDelimiter() + "go.mod"
 			if gofile.IsExists(goModFile) {
-				if isLogExist {
-					fmt.Printf("%s already exists, skip copying.\n", goModFile)
+				if !isForceReplace {
+					if isLogExist {
+						fmt.Printf("%s already exists, skip copying.\n", goModFile)
+					}
+					return nil
 				}
-				return nil
+				// delete the go.mod and go.sum file if it exists
+				_ = os.RemoveAll(goModFile)
+				_ = os.RemoveAll(strings.TrimSuffix(goModFile, ".mod") + ".sum")
 			}
 
 			out, err := runCopyGoModCommand(moduleName, outPath)
@@ -61,7 +70,8 @@ Examples:
 
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
 	cmd.Flags().StringVarP(&outPath, "out", "o", ".", "output directory")
-	cmd.Flags().BoolVarP(&isLogExist, "is-log-exist", "l", false, "is log file exist")
+	cmd.Flags().BoolVarP(&isLogExist, "is-log-exist", "l", false, "whether to log file exist")
+	cmd.Flags().BoolVarP(&isForceReplace, "is-force-replace", "f", false, "whether to force  replace the go.mod file")
 
 	return cmd
 }
