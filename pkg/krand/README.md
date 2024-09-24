@@ -53,7 +53,7 @@ Generate random strings, integers, floating point numbers.
 ### Generate id
 
 ```go
-    import "github.com/zhufuyi/sponge/pkg/krand"
+    import "github.com/18721889353/sunshine/pkg/krand"
 
     krand.NewID()  // generate a id, example: 1701234567890397409
     krand.NewStringID()  // generate a string id, example: 179bffd372b8e8e1

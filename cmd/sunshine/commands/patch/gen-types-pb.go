@@ -116,7 +116,7 @@ func addTypePbFields(moduleName string) []replacer.Field {
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old:             "github.com/zhufuyi/sunshine",
+			Old:             "github.com/18721889353/sunshine",
 			New:             moduleName,
 			IsCaseSensitive: false,
 		},
