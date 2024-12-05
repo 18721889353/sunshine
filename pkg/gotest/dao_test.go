@@ -9,7 +9,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/gorm"
 
-	"github.com/18721889353/sunshine/pkg/ggorm/query"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
 )
 
 func TestNewDao(t *testing.T) {
@@ -123,8 +123,6 @@ func (d *userDao) GetByColumns(ctx context.Context, params *query.Params) ([]*Us
 		if total == 0 {
 			return nil, total, nil
 		}
-	} else {
-		params.Sort = "id"
 	}
 
 	records := []*User{}
