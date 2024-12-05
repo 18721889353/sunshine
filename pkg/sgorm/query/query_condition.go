@@ -105,7 +105,7 @@ func (c *Column) convert() error {
 			if !ok {
 				return fmt.Errorf("invalid value type '%s'", c.Value)
 			}
-			iVal := []interface{}{}
+			var iVal []interface{}
 			ss := strings.Split(val, ",")
 			for _, s := range ss {
 				iVal = append(iVal, s)
@@ -141,7 +141,7 @@ func (p *Params) ConvertToPage() (order string, limit int, offset int) { //nolin
 // ignore the logical type of the last column, whether it is a one-column or multi-column query
 func (p *Params) ConvertToGormConditions() (string, []interface{}, error) {
 	str := ""
-	args := []interface{}{}
+	var args []interface{}
 	l := len(p.Columns)
 	if l == 0 {
 		return "", nil, nil
