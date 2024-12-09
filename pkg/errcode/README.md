@@ -1,15 +1,21 @@
 ## errcode
 
-Error codes usually include system-level error codes and business-level error codes, consisting of a total of 5 decimal digits, e.g. 20101
+Error codes usually include system-level error codes and business-level error codes, consisting of a total of 6 decimal digits, e.g. 200101
 
-| First digit                                                                          | Middle two digits | Last two digits |
-|:-------------------------------------------------------------------------------------|:-------|:-------|
-| For http error codes, 2 indicates a business-level error (1 is a system-level error) | Service Module Code | Specific error codes |
-| For grpc error codes, 4 indicates a business-level error (3 is a system-level error) | Service Module Code | Specific error codes |
+**Error code structure:**
 
-- Error levels occupy one digit: 1 (http) and 3 (grpc) indicate system-level errors, 2 (http) and 4 (grpc) indicate business-level errors, usually caused by illegal user operations.
-- Double-digit service modules: A large system usually has no more than two service modules; if it exceeds that, it's time to split the system.
-- Error codes take up two digits: prevents a module from being customised with too many error codes, which are not well maintained later.
+| First digit                                                                                                                    | Middle three digits                  | Last two digits         |
+|:-------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------|:------------------------|
+| `1` is http system-level error<br>`2` is http business-level error<br>`3` is grpc system-level error<br>`4` is grpc system-level error | Table or module number, range 1~1000 | Custom number, range 1~100 |
+
+<br>
+
+**Error code ranges:**
+
+| Service Type | System-level Error Code Range | Business-level Error Code Range |
+|:-------------|:------------------------------|:--------------------------------|
+| http         | 100000 ~ 200000               | 200000 ~ 300000                 |
+| grpc         | 300000 ~ 400000               | 400000 ~ 500000                 |
 
 <br>
 
@@ -17,14 +23,34 @@ Error codes usually include system-level error codes and business-level error co
 
 ### Example of http error code usage
 
-```go
-    import "github.com/18721889353/sunshine/pkg/errcode"
+Web services created based on **SQL**, use the following error code:
 
-    // defining error codes
-    var ErrLogin = errcode.NewError(20101, "incorrect username or password")
+```go
+    import "github.com/18721889353/sunshine/pkg/gin/response"
 
     // return error
-    response.Error(c, errcode.LoginErr)
+    response.Error(c, ecode.InvalidParams)
+    // rewrite error messages
+    response.Error(c, ecode.InvalidParams.RewriteMsg("custom error message"))
+
+    // convert error code to standard http status code
+    response.Out(c, ecode.InvalidParams)
+    // convert error code to standard http status code, and rewrite error messages
+    response.Out(c, ecode.InvalidParams.RewriteMsg("custom error message"))
+```
+
+Web services created based on **Protobuf**, use the following error code:
+
+```go
+    // return error
+    return nil, ecode.InvalidParams.Err()
+    // rewrite error messages
+    return nil, ecode.InvalidParams.Err("custom error message")
+
+    // convert error code to standard http status code
+    return nil, ecode.InvalidParams.ErrToHTTP()
+    // convert error code to standard http status code, and rewrite error messages
+    return nil, ecode.InvalidParams.ErrToHTTP("custom error message")
 ```
 
 <br>
@@ -32,13 +58,18 @@ Error codes usually include system-level error codes and business-level error co
 ### Example of grpc error code usage
 
 ```go
-    import "github.com/18721889353/sunshine/pkg/errcode"
-
-    // defining error codes
-    var ErrLogin = errcode.NewRPCStatus(40101, "incorrect username or password")
-
     // return error
-    errcode.ErrLogin.Err()
-    // return with error details
-    errcode.ErrLogin.Err(errcode.Any("err", err))
+    return nil, ecode.StatusInvalidParams.Err()
+    // rewrite error messages
+    return nil, ecode.StatusInvalidParams.Err("custom error message")
+
+    // convert error code to standard grpc status code
+    return nil, ecode.StatusInvalidParams.ToRPCErr()
+    // convert error code to standard grpc status code, and rewrite error messages
+    return nil, ecode.StatusInvalidParams.ToRPCErr("custom error message")
+
+    // convert error code to standard http status code
+    return nil, ecode.StatusInvalidParams.ErrToHTTP()
+    // convert error code to standard http status code, and rewrite error messages
+    return nil, ecode.StatusInvalidParams.ErrToHTTP("custom error message")
 ```
