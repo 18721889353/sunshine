@@ -9,14 +9,23 @@ import (
 	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
+// 默认的会话过期时间（秒）
 var defaultTTL = 15 // seconds
 
+// EtcdLock 结构体表示一个基于 etcd 的分布式锁
 type EtcdLock struct {
-	session *concurrency.Session
-	mutex   *concurrency.Mutex
+	session *concurrency.Session // etcd 会话
+	mutex   *concurrency.Mutex   // 分布式互斥锁
 }
 
-// NewEtcd creates a new etcd locker with the given key and ttl.
+// NewEtcd 创建一个新的 etcd 分布式锁
+// 参数：
+// - client: etcd 客户端实例，不能为空
+// - key: 锁的键，不能为空
+// - ttl: 会话的过期时间（秒），如果小于等于 0 则使用默认值
+// 返回值：
+// - Locker: 分布式锁接口实例
+// - error: 如果创建失败则返回错误
 func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 	if client == nil {
 		return nil, errors.New("etcd client is nil")
@@ -32,6 +41,7 @@ func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 	expiration := time.Duration(ttl) * time.Second
 	ctx, _ := context.WithTimeout(context.Background(), expiration) //nolint
 
+	// 创建一个新的 etcd 会话
 	session, err := concurrency.NewSession(
 		client,
 		concurrency.WithTTL(ttl),
@@ -40,6 +50,7 @@ func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 创建一个新的分布式互斥锁
 	mutex := concurrency.NewMutex(session, key)
 
 	locker := &EtcdLock{
@@ -50,17 +61,30 @@ func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 	return locker, nil
 }
 
-// Lock blocks until the lock is acquired or the context is canceled.
+// Lock 阻塞直到获取到锁或上下文被取消
+// 参数：
+// - ctx: 上下文，用于控制锁的获取操作
+// 返回值：
+// - error: 如果获取锁失败则返回错误
 func (l *EtcdLock) Lock(ctx context.Context) error {
 	return l.mutex.Lock(ctx)
 }
 
-// Unlock releases the lock.
+// Unlock 释放锁
+// 参数：
+// - ctx: 上下文，用于控制锁的释放操作
+// 返回值：
+// - error: 如果释放锁失败则返回错误
 func (l *EtcdLock) Unlock(ctx context.Context) error {
 	return l.mutex.Unlock(ctx)
 }
 
-// TryLock tries to acquire the lock without blocking.
+// TryLock 尝试获取锁而不阻塞
+// 参数：
+// - ctx: 上下文，用于控制锁的获取操作
+// 返回值：
+// - bool: 如果成功获取锁则返回 true，否则返回 false
+// - error: 如果发生错误则返回错误
 func (l *EtcdLock) TryLock(ctx context.Context) (bool, error) {
 	err := l.mutex.TryLock(ctx)
 	if err == nil {
@@ -72,7 +96,9 @@ func (l *EtcdLock) TryLock(ctx context.Context) (bool, error) {
 	return false, err
 }
 
-// Close releases the lock and the etcd session.
+// Close 释放锁并关闭 etcd 会话
+// 返回值：
+// - error: 如果关闭会话失败则返回错误
 func (l *EtcdLock) Close() error {
 	if l.session != nil {
 		return l.session.Close()
