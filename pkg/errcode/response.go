@@ -11,17 +11,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// SkipResponse skip response
+// SkipResponse 跳过响应
 var SkipResponse = errors.New("skip response") //nolint
 
-// Responser response interface
+// Responser 响应接口
 type Responser interface {
-	Success(ctx *gin.Context, data interface{})
-	ParamError(ctx *gin.Context, err error)
-	Error(ctx *gin.Context, err error) bool
+	Success(ctx *gin.Context, data interface{}) // 成功响应
+	ParamError(ctx *gin.Context, err error)     // 参数错误响应
+	Error(ctx *gin.Context, err error) bool     // 错误响应，返回 true 表示已将错误代码转换为标准 HTTP 代码
 }
 
-// NewResponser creates a new responser, if isFromRPC=true, it means return from rpc, otherwise default return from http
+// NewResponser 创建一个新的 Responser，如果 isFromRPC=true，表示从 RPC 返回，否则默认从 HTTP 返回
 func NewResponser(isFromRPC bool, httpErrors []*Error, rpcStatus []*RPCStatus) Responser {
 	httpErrorsMap := make(map[int]*Error)
 	rpcStatusMap := make(map[int]*RPCStatus)
@@ -47,12 +47,14 @@ func NewResponser(isFromRPC bool, httpErrors []*Error, rpcStatus []*RPCStatus) R
 	}
 }
 
+// defaultResponse 默认响应实现
 type defaultResponse struct {
-	isFromRPC  bool // error comes from grpc, if not, default is from http
-	httpErrors map[int]*Error
-	rpcStatus  map[int]*RPCStatus
+	isFromRPC  bool               // 错误是否来自 gRPC，如果不是，默认来自 HTTP
+	httpErrors map[int]*Error     // HTTP 错误映射
+	rpcStatus  map[int]*RPCStatus // gRPC 状态映射
 }
 
+// response 构建 JSON 响应
 func (resp *defaultResponse) response(c *gin.Context, respStatus, code int, msg string, data interface{}) {
 	c.JSON(respStatus, map[string]interface{}{
 		"code": code,
@@ -61,46 +63,45 @@ func (resp *defaultResponse) response(c *gin.Context, respStatus, code int, msg 
 	})
 }
 
-// Success response success information
+// Success 成功响应
 func (resp *defaultResponse) Success(c *gin.Context, data interface{}) {
 	resp.response(c, http.StatusOK, 0, "ok", data)
 }
 
-// ParamError response parameter error information, does not return an error message
+// ParamError 参数错误响应
 func (resp *defaultResponse) ParamError(c *gin.Context, _ error) {
 	resp.response(c, http.StatusOK, InvalidParams.Code(), InvalidParams.Msg(), struct{}{})
 }
 
-// Error response error information, if return true, means that the error code is converted to a standard http code,
-// otherwise the return http code is always 200
+// Error 错误响应
 func (resp *defaultResponse) Error(c *gin.Context, err error) bool {
 	if resp.isFromRPC {
-		// error from rpc and response the corresponding http code
+		// 错误来自 gRPC 并响应相应的 HTTP 代码
 		return resp.handleRPCError(c, err)
 	}
 
-	// error from http and response http code
+	// 错误来自 HTTP 并响应 HTTP 代码
 	return resp.handleHTTPError(c, err)
 }
 
-// error from grpc
+// handleRPCError 处理来自 gRPC 的错误
 func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	st, _ := status.FromError(err)
 
-	// user defined err, response 200
+	// 用户自定义错误，响应 200
 	if st.Code() == codes.Unknown {
 		code, msg := parseCodeAndMsg(st.String())
 		if code == -1 {
-			// non-conforming err
+			// 不符合规范的错误
 			resp.response(c, http.StatusOK, -1, "unknown error", struct{}{})
 		} else {
-			// err created using NewRPCStatus
+			// 使用 NewRPCStatus 创建的错误
 			resp.response(c, http.StatusOK, code, msg, struct{}{})
 		}
 		return false
 	}
 
-	// default error code to http
+	// 默认错误代码转换为 HTTP
 	switch st.Code() {
 	case codes.Internal, StatusInternalServerError.status.Code():
 		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), struct{}{})
@@ -110,7 +111,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		return true
 	}
 
-	// check if you need to return the standard http code
+	// 检查是否需要返回标准 HTTP 代码
 	if strings.Contains(st.Message(), ToHTTPCodeLabel) {
 		code := convertToHTTPCode(st.Code())
 		msg := strings.ReplaceAll(st.Message(), ToHTTPCodeLabel, "")
@@ -118,22 +119,22 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		return true
 	}
 
-	// user defined error code to http
+	// 用户自定义错误代码转换为 HTTP
 	if resp.isUserDefinedRPCErrorCode(c, int(st.Code())) {
 		return true
 	}
 
-	// response 200
+	// 响应 200
 	resp.response(c, http.StatusOK, int(st.Code()), st.Message(), struct{}{})
 
 	return false
 }
 
-// error from http
+// handleHTTPError 处理来自 HTTP 的错误
 func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	e := ParseError(err)
 
-	// default error code to http
+	// 默认错误代码转换为 HTTP
 	switch e.Code() {
 	case InternalServerError.Code(), http.StatusInternalServerError:
 		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), struct{}{})
@@ -143,23 +144,24 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 		return true
 	}
 
-	// user requests to return standard HTTP code, if e.ToHTTPCode() not match, will return of 500
+	// 用户请求返回标准 HTTP 代码，如果 e.ToHTTPCode() 不匹配，则返回 500
 	if e.needHTTPCode {
 		msg := strings.ReplaceAll(e.msg, ToHTTPCodeLabel, "")
 		resp.response(c, e.ToHTTPCode(), e.code, msg, struct{}{})
 		return true
 	}
 
-	// user defined error code to http
+	// 用户自定义错误代码转换为 HTTP
 	if resp.isUserDefinedHTTPErrorCode(c, e.Code()) {
 		return true
 	}
 
-	// response 200
+	// 响应 200
 	resp.response(c, http.StatusOK, e.code, e.msg, struct{}{})
 	return false
 }
 
+// isUserDefinedRPCErrorCode 检查是否为用户自定义的 gRPC 错误代码
 func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode int) bool {
 	if v, ok := resp.rpcStatus[errCode]; ok {
 		httpCode := ToHTTPErr(v.status).ToHTTPCode()
@@ -173,6 +175,7 @@ func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode i
 	return false
 }
 
+// isUserDefinedHTTPErrorCode 检查是否为用户自定义的 HTTP 错误代码
 func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode int) bool {
 	if v, ok := resp.httpErrors[errCode]; ok {
 		httpCode := v.ToHTTPCode()
@@ -186,7 +189,7 @@ func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode 
 	return false
 }
 
-// ToHTTPErr converted to http error
+// ToHTTPErr 将 gRPC 状态转换为 HTTP 错误
 func ToHTTPErr(st *status.Status) *Error { //nolint
 	switch st.Code() {
 	case StatusSuccess.status.Code(), codes.OK:
@@ -241,6 +244,7 @@ func ToHTTPErr(st *status.Status) *Error { //nolint
 	}
 }
 
+// parseCodeAndMsg 解析错误字符串中的代码和消息
 func parseCodeAndMsg(errStr string) (int, string) {
 	if errStr != "" {
 		ss := strings.Split(errStr, "desc = ")

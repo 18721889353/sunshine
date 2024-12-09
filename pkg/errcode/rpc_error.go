@@ -11,21 +11,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// 存储 gRPC 错误代码及其对应的错误消息
 var grpcErrCodes = map[int]string{}
 
-// RPCStatus rpc status
+// RPCStatus 用于封装 gRPC 状态
 type RPCStatus struct {
-	status *status.Status
+	status *status.Status // 内部存储的 gRPC 状态
 }
 
+// 存储 gRPC 状态代码及其对应的错误消息
 var statusCodes = map[codes.Code]string{}
 
-// NewRPCStatus create a new rpc status
+// NewRPCStatus 创建一个新的 gRPC 状态
 func NewRPCStatus(code codes.Code, msg string) *RPCStatus {
 	if v, ok := statusCodes[code]; ok {
-		panic(fmt.Sprintf(`grpc status code = %d already exists, please define a new error code,
-msg1 = %s
-msg2 = %s
+		panic(fmt.Sprintf(`gRPC 状态代码 %d 已经存在，请定义一个新的错误代码,
+原始消息 = %s
+新消息 = %s
 `, code, v, msg))
 	}
 
@@ -36,18 +38,18 @@ msg2 = %s
 	}
 }
 
-// Detail error details
+// Detail 用于存储错误详情的键值对
 type Detail struct {
-	key string
-	val interface{}
+	key string      // 键
+	val interface{} // 值
 }
 
-// String detail key-value
+// String 返回 Detail 的字符串表示形式
 func (d *Detail) String() string {
 	return fmt.Sprintf("%s: %v", d.key, d.val)
 }
 
-// Any type key value
+// Any 创建一个 Detail 对象
 func Any(key string, val interface{}) Detail {
 	return Detail{
 		key: key,
@@ -55,18 +57,18 @@ func Any(key string, val interface{}) Detail {
 	}
 }
 
-// Code get code
+// Code 获取 gRPC 状态代码
 func (s *RPCStatus) Code() codes.Code {
 	return s.status.Code()
 }
 
-// Msg get message
+// Msg 获取 gRPC 状态消息
 func (s *RPCStatus) Msg() string {
 	return s.status.Message()
 }
 
-// Err return error
-// if there is a parameter 'desc', it will replace the original message
+// Err 返回一个 gRPC 错误
+// 如果有参数 'desc'，则替换原始消息
 func (s *RPCStatus) Err(desc ...string) error {
 	if len(desc) > 0 {
 		return status.Errorf(s.status.Code(), "%s", strings.Join(desc, ", "))
@@ -74,9 +76,9 @@ func (s *RPCStatus) Err(desc ...string) error {
 	return status.Errorf(s.status.Code(), "%s", s.status.Message())
 }
 
-// ErrToHTTP convert to standard error add ToHTTPCodeLabel to error message,
-// usually used when HTTP calls the GRPC API,
-// if there is a parameter 'desc', it will replace the original message.
+// ErrToHTTP 将 gRPC 错误转换为标准 HTTP 错误，并添加 ToHTTPCodeLabel 标签
+// 通常用于 HTTP 调用 gRPC API 时
+// 如果有参数 'desc'，则替换原始消息
 func (s *RPCStatus) ErrToHTTP(desc ...string) error {
 	message := s.status.Message()
 	if len(desc) > 0 {
@@ -85,9 +87,8 @@ func (s *RPCStatus) ErrToHTTP(desc ...string) error {
 	return status.Errorf(s.status.Code(), "%s%s", message, ToHTTPCodeLabel)
 }
 
-// ToRPCErr converted to standard RPC error,
-// use it if you need to convert to standard RPC errors,
-// if there is a parameter 'desc', it will replace the original message.
+// ToRPCErr 将当前状态转换为标准的 gRPC 错误
+// 如果有参数 'desc'，则替换原始消息
 func (s *RPCStatus) ToRPCErr(desc ...string) error {
 	switch s.status.Code() {
 	case StatusInvalidParams.status.Code():
@@ -136,6 +137,7 @@ func (s *RPCStatus) ToRPCErr(desc ...string) error {
 	return s.status.Err()
 }
 
+// toRPCErr 创建一个标准的 gRPC 错误
 func toRPCErr(code codes.Code, descs ...string) error {
 	var desc string
 	if len(descs) > 0 {
@@ -146,7 +148,7 @@ func toRPCErr(code codes.Code, descs ...string) error {
 	return status.New(code, desc).Err()
 }
 
-// ToRPCCode converted to standard RPC error code
+// ToRPCCode 将当前状态转换为标准的 gRPC 错误代码
 func (s *RPCStatus) ToRPCCode() codes.Code {
 	switch s.status.Code() {
 	case StatusInvalidParams.status.Code():
@@ -195,7 +197,7 @@ func (s *RPCStatus) ToRPCCode() codes.Code {
 	return s.status.Code()
 }
 
-// converted grpc code to http code
+// convertToHTTPCode 将 gRPC 错误代码转换为 HTTP 状态代码
 func convertToHTTPCode(code codes.Code) int {
 	switch code {
 	case StatusSuccess.status.Code():
@@ -236,18 +238,19 @@ func convertToHTTPCode(code codes.Code) int {
 	return http.StatusInternalServerError
 }
 
-// GetStatusCode get status code from error returned by RPC invoke
+// GetStatusCode 从 gRPC 调用返回的错误中获取状态代码
 func GetStatusCode(err error) codes.Code {
 	st, _ := status.FromError(err)
 	return st.Code()
 }
 
-// ErrInfo error info
+// ErrInfo 用于存储错误信息
 type ErrInfo struct {
-	Code int    `json:"code"`
-	Msg  string `json:"msg"`
+	Code int    `json:"code"` // 错误代码
+	Msg  string `json:"msg"`  // 错误消息
 }
 
+// getErrorInfo 获取所有错误代码及其对应的消息
 func getErrorInfo(codeInfo map[int]string) []ErrInfo {
 	var keys []int
 	for key := range codeInfo {
@@ -266,7 +269,7 @@ func getErrorInfo(codeInfo map[int]string) []ErrInfo {
 	return eis
 }
 
-// ListGRPCErrCodes list grpc error codes, http handle func
+// ListGRPCErrCodes 列出所有 gRPC 错误代码，HTTP 处理函数
 func ListGRPCErrCodes(w http.ResponseWriter, _ *http.Request) {
 	eis := getErrorInfo(grpcErrCodes)
 
@@ -285,9 +288,9 @@ func ListGRPCErrCodes(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// ShowConfig show config info
-// @Summary show config info
-// @Description show config info
+// ShowConfig 显示配置信息
+// @Summary 显示配置信息
+// @Description 显示配置信息
 // @Tags system
 // @Accept  json
 // @Produce  json
