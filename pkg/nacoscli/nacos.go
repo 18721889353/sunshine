@@ -1,4 +1,3 @@
-// Package nacoscli provides for getting the configuration from the nacos configuration center and parse it into a structure.
 package nacoscli
 
 import (
@@ -13,33 +12,34 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 )
 
-// Params nacos parameters
+// Params 包含 Nacos 的配置参数。
 type Params struct {
-	IPAddr      string // server address
-	Port        uint64 // port
-	Scheme      string // http or grpc
-	ContextPath string // path
-	// if you set this parameter, the above fields(IPAddr, Port, Scheme, ContextPath) are invalid
+	IPAddr      string // 服务器地址
+	Port        uint64 // 端口
+	Scheme      string // 协议，http 或 grpc
+	ContextPath string // 路径
+	// 如果设置了此参数，上述字段（IPAddr, Port, Scheme, ContextPath）将无效
 	serverConfigs []constant.ServerConfig
 
-	NamespaceID string // namespace id
-	// if you set this parameter, the above field(NamespaceID) is invalid
+	NamespaceID string // 命名空间 ID
+	// 如果设置了此参数，上述字段（NamespaceID）将无效
 	clientConfig *constant.ClientConfig
 
-	Group  string // group, example: dev, prod, test
-	DataID string // config file id
-	Format string // configuration file type: json,yaml,toml
+	Group  string // 分组，例如：dev, prod, test
+	DataID string // 配置文件 ID
+	Format string // 配置文件类型：json, yaml, toml
 }
 
+// valid 检查 Params 结构体中的必填字段是否有效。
 func (p *Params) valid() error {
 	if p.Group == "" {
-		return errors.New("field 'Group' cannot be empty")
+		return errors.New("字段 'Group' 不能为空")
 	}
 	if p.DataID == "" {
-		return errors.New("field 'DataID' cannot be empty")
+		return errors.New("字段 'DataID' 不能为空")
 	}
 	if p.Format == "" {
-		return errors.New("field 'DataID' cannot be empty")
+		return errors.New("字段 'Format' 不能为空")
 	}
 	format := strings.ToLower(p.Format)
 	switch format {
@@ -48,19 +48,20 @@ func (p *Params) valid() error {
 	case "yml":
 		p.Format = "yaml"
 	default:
-		return fmt.Errorf("config file types 'Format=%s' not supported", p.Format)
+		return fmt.Errorf("配置文件类型 'Format=%s' 不支持", p.Format)
 	}
 
 	return nil
 }
 
+// setParams 根据传入的选项设置 Params 结构体中的参数。
 func setParams(params *Params, opts ...Option) {
 	o := defaultOptions()
 	o.apply(opts...)
 	params.clientConfig = o.clientConfig
 	params.serverConfigs = o.serverConfigs
 
-	// create clientConfig
+	// 创建 clientConfig
 	if params.clientConfig == nil {
 		params.clientConfig = &constant.ClientConfig{
 			NamespaceId:         params.NamespaceID,
@@ -73,7 +74,7 @@ func setParams(params *Params, opts ...Option) {
 		}
 	}
 
-	// create serverConfig
+	// 创建 serverConfig
 	if params.serverConfigs == nil {
 		params.serverConfigs = []constant.ServerConfig{
 			{
@@ -86,7 +87,7 @@ func setParams(params *Params, opts ...Option) {
 	}
 }
 
-// GetConfig get configuration from nacos
+// GetConfig 从 Nacos 获取配置并返回配置内容。
 func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 	err := params.valid()
 	if err != nil {
@@ -95,7 +96,7 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 
 	setParams(params, opts...)
 
-	// create a dynamic configuration client
+	// 创建动态配置客户端
 	configClient, err := clients.NewConfigClient(
 		vo.NacosClientParam{
 			ClientConfig:  params.clientConfig,
@@ -106,7 +107,7 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 		return "", nil, err
 	}
 
-	// read config content
+	// 读取配置内容
 	data, err := configClient.GetConfig(vo.ConfigParam{
 		DataId: params.DataID,
 		Group:  params.Group,
@@ -118,16 +119,16 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 	return params.Format, []byte(data), err
 }
 
-// Init get configuration from nacos and parse to struct, use for configuration center
+// Init 从 Nacos 获取配置并解析为结构体，用于配置中心。
 //
-// Deprecated: use GetConfig instead.
+// 已弃用：请使用 GetConfig 替代。
 func Init(_ interface{}, _ *Params, _ ...Option) error {
-	return errors.New("not implemented, use GetConfig instead")
+	return errors.New("未实现，使用 GetConfig 替代")
 }
 
-// NewNamingClient create a service registration and discovery of nacos client.
-// Note: If parameter WithClientConfig is set, nacosNamespaceID is invalid,
-// if parameter WithServerConfigs is set, nacosIPAddr and nacosPort are invalid.
+// NewNamingClient 创建一个 Nacos 服务注册与发现客户端。
+// 注意：如果设置了参数 WithClientConfig，nacosNamespaceID 将无效，
+// 如果设置了参数 WithServerConfigs，nacosIPAddr 和 nacosPort 将无效。
 func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string, opts ...Option) (naming_client.INamingClient, error) {
 	params := &Params{
 		IPAddr:      nacosIPAddr,
