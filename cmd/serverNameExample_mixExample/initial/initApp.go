@@ -119,9 +119,11 @@ func InitApp() {
 	}
 
 	// initializing database
-	database.InitDB()
-	logger.Infof("[%s] was initialized", cfg.Database.Driver)
-	if cfg.App.CacheType != "" {
+	if cfg.Database.Driver == "mysql" {
+		database.InitDB()
+		logger.Infof("[%s] was initialized", cfg.Database.Driver)
+	}
+	if cfg.App.CacheType == "redis" {
 		database.InitCache(cfg.App.CacheType)
 		logger.Infof("[%s] was initialized", cfg.App.CacheType)
 	}
