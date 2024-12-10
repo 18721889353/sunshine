@@ -2,32 +2,38 @@ package initial
 
 import (
 	"fmt"
-	"strconv"
-
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/internal/server"
-	"github.com/18721889353/sunshine/pkg/app"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
+	"strconv"
+
+	"github.com/18721889353/sunshine/pkg/app"
+
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/server"
 )
 
-// CreateServices create grpc or http service
+// CreateServices create grpc service
 func CreateServices() []app.IServer {
 	var cfg = config.Get()
 	var servers []app.IServer
+	var grpcAddr = ":" + strconv.Itoa(cfg.Grpc.Port)
 
-	// creating grpc service
-	grpcAddr := ":" + strconv.Itoa(cfg.Grpc.Port)
-	grpcRegistry, grpcInstance := registerService("grpc", cfg.App.Host, cfg.Grpc.Port)
-	grpcServer := server.NewGRPCServer(grpcAddr,
-		server.WithGrpcRegistry(grpcRegistry, grpcInstance),
-	)
+	// case 1, create a grpc service without registry
+	grpcServer := server.NewGRPCServer(grpcAddr)
+
+	// case 2, create a grpc service and register it with etcd
+	//grpcRegistry, grpcInstance := registerService("grpc", cfg.App.Host, cfg.Grpc.Port)
+	//grpcServer := server.NewGRPCServer(grpcAddr,
+	//	server.WithGrpcRegistry(grpcRegistry, grpcInstance),
+	//)
+
 	servers = append(servers, grpcServer)
 
 	return servers
 }
 
+// register service with  etcd, select one of them to use
 func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
 	var (
 		instanceEndpoint = fmt.Sprintf("%s://%s:%d", scheme, host, port)
@@ -37,12 +43,11 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 		instance  *registry.ServiceInstance
 		err       error
 
-		id       = cfg.App.Name + "_" + scheme + "_" + host
+		id       = cfg.App.Name + "_" + scheme + "_" + host + "_" + strconv.Itoa(port)
 		logField logger.Field
 	)
 
 	switch cfg.App.RegistryDiscoveryType {
-	// registering service with etcd
 	case "etcd":
 		iRegistry, instance, err = etcd.NewRegistry(
 			cfg.Etcd.Addrs,
@@ -58,7 +63,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 
 	if instance != nil {
 		msg := fmt.Sprintf("register service address to %s", cfg.App.RegistryDiscoveryType)
-		logger.Info(msg, logField, logger.String("id", id), logger.String("name", cfg.App.Name), logger.String("endpoint", instanceEndpoint))
+		logger.Info(msg, logger.String("name", cfg.App.Name), logger.String("endpoint", instanceEndpoint), logger.String("id", id), logField)
 		return iRegistry, instance
 	}
 

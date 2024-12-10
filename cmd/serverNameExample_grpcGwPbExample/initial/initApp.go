@@ -6,13 +6,13 @@ package initial
 import (
 	"flag"
 	"fmt"
-	"github.com/18721889353/sunshine/internal/model"
 	"github.com/18721889353/sunshine/pkg/jwt"
 	v5 "github.com/golang-jwt/jwt/v5"
-	"github.com/jinzhu/copier"
 	"go.uber.org/zap/zapcore"
 	"strconv"
 	"time"
+
+	"github.com/jinzhu/copier"
 
 	"github.com/18721889353/sunshine/pkg/conf"
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -22,7 +22,7 @@ import (
 
 	"github.com/18721889353/sunshine/configs"
 	"github.com/18721889353/sunshine/internal/config"
-	//"github.com/18721889353/sunshine/internal/rpcclient"
+	"github.com/18721889353/sunshine/internal/database"
 )
 
 var (
@@ -44,8 +44,8 @@ func ZapLogHandler(entry zapcore.Entry) error {
 	//这里启动一个协程，hook丝毫不会影响程序性能，
 	go func(paramEntry zapcore.Entry) {
 		//logServiceV1.NewAdminLogServiceClient(rpcclient.GetAdminLogServiceRPCConn()).Add(context.Background(), &logServiceV1.AdminLogAddRequest{
-		//	Body:     entry.Message,
-		//	LogLevel: int32(entry.Level),
+		//    Body:     entry.Message,
+		//    LogLevel: int32(entry.Level),
 		//})
 	}(entry)
 
@@ -75,16 +75,7 @@ func InitApp() {
 		panic(err)
 	}
 	logger.Debug(config.Show())
-	logger.Info("init logger succeeded")
-
-	//model.GetDB()
-	//logger.Infof("[%s] was initialized", cfg.Database.Driver)
-	//
-	//model.InitCache(cfg.App.CacheType)
-	//logger.Info("init " + cfg.App.CacheType + " succeeded")
-
-	model.GetSnowNode()
-	logger.Info("init SnowNode  succeeded")
+	logger.Info("[logger] was initialized")
 
 	if cfg.App.OpenJwt {
 		var sm *v5.SigningMethodHMAC
@@ -103,18 +94,7 @@ func InitApp() {
 		)
 		logger.Info("init jwt succeeded")
 	}
-	// initializing tracing
-	if cfg.App.EnableTrace {
-		tracer.InitWithConfig(
-			cfg.App.Name,
-			cfg.App.Env,
-			cfg.App.Version,
-			cfg.Jaeger.AgentHost,
-			strconv.Itoa(cfg.Jaeger.AgentPort),
-			cfg.App.TracingSamplingRate,
-		)
-		logger.Info("[tracer] was initialized")
-	}
+
 	// initializing tracing
 	if cfg.App.EnableTrace {
 		tracer.InitWithConfig(
@@ -132,15 +112,25 @@ func InitApp() {
 	if cfg.App.EnableStat {
 		stat.Init(
 			stat.WithLog(logger.Get()),
-			stat.WithAlarm(), // invalid if it is windows, the default threshold for cpu and memory is 0.8, you can modify themstat.WithPrintField(logger.String("service_name", cfg.App.Name), logger.String("host", cfg.App.Host)),
+			stat.WithAlarm(), // invalid if it is windows, the default threshold for cpu and memory is 0.8, you can modify them
 			stat.WithPrintField(logger.String("service_name", cfg.App.Name), logger.String("host", cfg.App.Host)),
 		)
 		logger.Info("[resource statistics] was initialized")
 	}
 
-	// initializing the rpc server connection
-	// example:
-	//rpcclient.NewServerNameExampleRPCConn()
+	// initializing database
+	if cfg.Database.Driver == "mysql" {
+		database.InitDB()
+		logger.Infof("[%s] was initialized", cfg.Database.Driver)
+	}
+	if cfg.App.CacheType == "redis" {
+		database.InitCache(cfg.App.CacheType)
+		logger.Infof("[%s] was initialized", cfg.App.CacheType)
+	}
+	if int64(cfg.App.MachineID) > 0 {
+		database.GetSnowNode()
+		logger.Info("init SnowNode  succeeded")
+	}
 }
 
 func initConfig() {
@@ -151,42 +141,50 @@ func initConfig() {
 	flag.Parse()
 
 	if enableConfigCenter {
-		// get the configuration from the configuration center (first get the nacos configuration,
-		// then read the service configuration according to the nacos configuration center)
-		if configFile == "" {
-			configFile = configs.Path("serverNameExample_cc.yml")
-		}
-		nacosConfig, err := config.NewCenter(configFile)
-		if err != nil {
-			panic(err)
-		}
-		appConfig := &config.Config{}
-		params := &nacoscli.Params{}
-		_ = copier.Copy(params, &nacosConfig.Nacos)
-		format, data, err := nacoscli.GetConfig(params)
-		if err != nil {
-			panic(fmt.Sprintf("connect to configuration center err, %v", err))
-		}
-		err = conf.ParseConfigData(data, format, appConfig)
-		if err != nil {
-			panic(fmt.Sprintf("parse configuration data err, %v", err))
-		}
-		if appConfig.App.Name == "" {
-			panic("read the config from center error, config data is empty")
-		}
-		config.Set(appConfig)
+		getConfigFromNacos()
 	} else {
-		// get configuration from local configuration file
-		if configFile == "" {
-			configFile = configs.Path("serverNameExample.yml")
-		}
-		err := config.Init(configFile)
-		if err != nil {
-			panic("init config error: " + err.Error())
-		}
+		getConfigFromLocal()
 	}
 
 	if version != "" {
 		config.Get().App.Version = version
+	}
+}
+
+// get the configuration from the configuration center (first get the nacos configuration,
+// then read the service configuration according to the nacos configuration center)
+func getConfigFromNacos() {
+	if configFile == "" {
+		configFile = configs.Path("serverNameExample_cc.yml")
+	}
+	nacosConfig, err := config.NewCenter(configFile)
+	if err != nil {
+		panic(err)
+	}
+	appConfig := &config.Config{}
+	params := &nacoscli.Params{}
+	_ = copier.Copy(params, &nacosConfig.Nacos)
+	format, data, err := nacoscli.GetConfig(params)
+	if err != nil {
+		panic(fmt.Sprintf("connect to configuration center err, %v", err))
+	}
+	err = conf.ParseConfigData(data, format, appConfig)
+	if err != nil {
+		panic(fmt.Sprintf("parse configuration data err, %v", err))
+	}
+	if appConfig.App.Name == "" {
+		panic("read the config from center error, config data is empty")
+	}
+	config.Set(appConfig)
+}
+
+// get configuration from local configuration file
+func getConfigFromLocal() {
+	if configFile == "" {
+		configFile = configs.Path("serverNameExample.yml")
+	}
+	err := config.Init(configFile)
+	if err != nil {
+		panic("init config error: " + err.Error())
 	}
 }

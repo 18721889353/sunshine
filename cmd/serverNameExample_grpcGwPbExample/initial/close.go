@@ -5,10 +5,11 @@ import (
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/app"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
 
 	"github.com/18721889353/sunshine/internal/config"
-	//"github.com/18721889353/sunshine/internal/rpcclient"
+	"github.com/18721889353/sunshine/internal/database"
 )
 
 // Close releasing resources after service exit
@@ -20,11 +21,19 @@ func Close(servers []app.IServer) []app.Close {
 		closes = append(closes, s.Stop)
 	}
 
-	// close the rpc client connection
-	// example:
-	//closes = append(closes, func() error {
-	//	return rpcclient.CloseServerNameExampleRPCConn()
-	//})
+	// close database
+	if config.Get().Database.Driver == "mysql" {
+		closes = append(closes, func() error {
+			return database.CloseDB()
+		})
+	}
+
+	// close redis
+	if config.Get().App.CacheType == "redis" {
+		closes = append(closes, func() error {
+			return database.CloseRedis()
+		})
+	}
 
 	// close tracing
 	if config.Get().App.EnableTrace {
@@ -33,6 +42,11 @@ func Close(servers []app.IServer) []app.Close {
 			return tracer.Close(ctx)
 		})
 	}
+
+	// close logger
+	closes = append(closes, func() error {
+		return logger.Sync()
+	})
 
 	return closes
 }
