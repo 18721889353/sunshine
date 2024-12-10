@@ -22,7 +22,7 @@ func CreateServices() []app.IServer {
 	// case 1, create a grpc service without registry
 	grpcServer := server.NewGRPCServer(grpcAddr)
 
-	//// case 2, create a grpc service and register it with consul or etcd or nacos
+	//// case 2, create a grpc service and register it with etcd
 	//grpcRegistry, grpcInstance := registerService("grpc", cfg.App.Host, cfg.Grpc.Port)
 	//grpcServer := server.NewGRPCServer(grpcAddr,
 	//	server.WithGrpcRegistry(grpcRegistry, grpcInstance),
@@ -33,7 +33,7 @@ func CreateServices() []app.IServer {
 	return servers
 }
 
-// register service with consul or etcd or nacos, select one of them to use
+// register service with etcd, select one of them to use
 func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
 	var (
 		instanceEndpoint = fmt.Sprintf("%s://%s:%d", scheme, host, port)

@@ -21,7 +21,7 @@ func init() {
 		panic(err)
 	}
 
-	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
+	rand.Seed(time.Now().UnixNano()) //nolint
 }
 
 var (
@@ -51,7 +51,7 @@ type {{.LowerName}}Client struct {
 func New{{.Name}}Client() {{.ProtoPkgName}}.{{.Name}}Logicer {
 	return &{{.LowerName}}Client{
 		// example:
-		//	    {{.LowerName}}Cli: {{.ProtoPkgName}}.New{{.Name}}Client(rpcclient.Get{{.Name}}RPCConn()),
+		//	    {{.LowerName}}Cli: {{.ProtoPkgName}}.New{{.Name}}Client(rpcclient.Get{{.CutServiceName}}RPCConn()),
 	}
 }
 
@@ -66,20 +66,20 @@ func (c *{{.LowerServiceName}}Client) {{.MethodName}}(ctx context.Context, req *
 	//	    {{if .IsIgnoreShouldBind}}gc, ctx := middleware.AdaptCtx(ctx)
 	//	    if err = gc.ShouldBindJSON(req); err != nil {
 	//	    	logger.Warn("ShouldBindJSON error", logger.Error(err), middleware.CtxRequestIDField(ctx))
-	//	    	return nil, ecode.StatusInvalidParams.Err(err.Error())
+	//	    	return nil, ecode.StatusInvalidParams.Err()
 	//	    }{{else}}{{if .IsPassGinContext}}gc, ctx := middleware.AdaptCtx(ctx){{end}}{{end}}
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.CtxRequestIDField(ctx))
-	//		    return nil, ecode.StatusInvalidParams.Err(err.Error())
+	//		    return nil, ecode.StatusInvalidParams.Err()
 	//	    }
 	//
-	//     reply, err := c.{{.LowerServiceName}}Cli.{{.MethodName}}(ctx, &{{.RequestImportPkgName}}.{{.Request}}{
+	//	    reply, err := c.{{.LowerServiceName}}Cli.{{.MethodName}}(ctx, &{{.RequestImportPkgName}}.{{.Request}}{
 {{- range .RequestFields}}
 	//     	{{.Name}}: req.{{.Name}},
 {{- end}}
 	//     })
-	//     if err != nil {
+	//	    if err != nil {
 	//     	logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.CtxRequestIDField(ctx))
 	//     	return nil, err
 	//     }
@@ -141,9 +141,8 @@ func {{.LowerName}}Router(
 	ctxFn := func(c *gin.Context) context.Context {
 		md := metadata.New(map[string]string{
 			// set metadata to be passed from http to rpc
-			"clientIP":                        c.ClientIP(), //在这里获取client ip
 			middleware.ContextRequestIDKey: middleware.GCtxRequestID(c), // request_id
-			middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey),  // authorization
+			//middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey),  // authorization
 		})
 		return metadata.NewOutgoingContext(c.Request.Context(), md)
 	}
@@ -175,7 +174,7 @@ func {{.LowerName}}Middlewares(c *middlewareConfig) {
 
 	// set up single route middleware, just uncomment the code and fill in the middlewares, nothing else needs to be changed
 {{- range .Methods}}
-    {{if eq .InvokeType 0}}{{if .Path}}//c.setSinglePath("{{.Method}}", "{{.Path}}", middleware.Auth())    {{.Comment}}{{end}}{{end}}
+	{{if eq .InvokeType 0}}{{if .Path}}//c.setSinglePath("{{.Method}}", "{{.Path}}", middleware.Auth())    {{.Comment}}{{end}}{{end}}
 {{- end}}
 }
 

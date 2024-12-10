@@ -37,7 +37,7 @@ func CreateServices() []app.IServer {
 	return servers
 }
 
-// register service with consul or etcd or nacos, select one of them to use
+// register service with etcd, select one of them to use
 func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
 	var (
 		instanceEndpoint = fmt.Sprintf("%s://%s:%d", scheme, host, port)

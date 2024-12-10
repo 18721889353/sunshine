@@ -21,7 +21,7 @@ func init() {
 		panic(err)
 	}
 
-	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
+	rand.Seed(time.Now().UnixNano()) //nolint
 }
 
 var (
@@ -41,6 +41,7 @@ import (
 	// import api service package here
 	//"moduleNameExample/internal/cache"
 	//"moduleNameExample/internal/dao"
+	//"moduleNameExample/internal/database"
 	//"moduleNameExample/internal/ecode"
 	//"moduleNameExample/internal/model"
 )
@@ -69,8 +70,8 @@ func New{{.Name}}Server() {{.ProtoPkgName}}.{{.Name}}Server {
 	return &{{.LowerName}}{
 		// example:
 		//		iDao: dao.New{{.Name}}Dao(
-		//			model.GetDB(),
-		//			cache.New{{.Name}}Cache(model.GetCacheType()),
+		//			database.GetDB(),
+		//			cache.New{{.Name}}Cache(database.GetCacheType()),
 		//		),
 	}
 }
@@ -100,17 +101,17 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//	        err = req.Validate()
 	//	        if err != nil {
 	//		        logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		        return ecode.StatusInvalidParams.Err(err.Error())
+	//		        return ecode.StatusInvalidParams.Err()
 	//	        }
 	//
-	// 	    reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
+	//	        reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
 				    {{- range .RequestFields}}
 	//     	    {{.Name}}: req.{{.Name}},
 				    {{- end}}
 	//         })
-	// 	    if err != nil {
+	//	        if err != nil {
 	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(err.Error())
+	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//	    }
 }
@@ -125,18 +126,18 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		    return ecode.StatusInvalidParams.Err(err.Error())
+	//		    return ecode.StatusInvalidParams.Err()
 	//	    }
 	//
 	//	    for i := 0; i < 3; i++ {
-	// 	    reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
+	//         reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
 				    {{- range .RequestFields}}
 	//     	    {{.Name}}: req.{{.Name}},
 				    {{- end}}
 	//         })
-	// 	    if err != nil {
+	//         if err != nil {
 	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(err.Error())
+	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//
 	//	        err = stream.Send(&{{.ReplyImportPkgName}}.{{.Reply}}{
@@ -171,17 +172,17 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//	        err = req.Validate()
 	//	        if err != nil {
 	//		        logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		        return ecode.StatusInvalidParams.Err(err.Error())
+	//		        return ecode.StatusInvalidParams.Err()
 	//	        }
 	//
-	// 	    reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
+	//         reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
 				    {{- range .RequestFields}}
 	//     	    {{.Name}}: req.{{.Name}},
 				    {{- end}}
 	//         })
-	// 	    if err != nil {
+	//         if err != nil {
 	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(err.Error())
+	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//
 	//	    	err = stream.Send(&{{.ReplyImportPkgName}}.{{.Reply}}{
@@ -189,9 +190,9 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//			    {{.Name}}: reply.{{.Name}},
 				    {{- end}}
 	//	    	})
-	// 	    if err != nil {
+	//         if err != nil {
 	//			    logger.Warn("stream.Send error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			    return ecode.StatusInternalServerError.Err(err.Error())
+	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//	    }
 }
@@ -205,18 +206,18 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	    err := req.Validate()
 	//	    if err != nil {
 	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		    return nil, ecode.StatusInvalidParams.Err(err.Error())
+	//		    return nil, ecode.StatusInvalidParams.Err()
 	//	    }
-    // 	ctx = interceptor.WrapServerCtx(ctx)
+	//     ctx = interceptor.WrapServerCtx(ctx)
     //
-	// 	reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
+	//     reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
 				{{- range .RequestFields}}
 	//     	{{.Name}}: req.{{.Name}},
 				{{- end}}
 	//     })
-	// 	if err != nil {
+	//     if err != nil {
 	//			logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
-	//			return nil, ecode.StatusInternalServerError.Err(err.Error())
+	//			return nil, ecode.StatusInternalServerError.Err()
 	//		}
 	//
 	//     return &{{.ReplyImportPkgName}}.{{.Reply}}{

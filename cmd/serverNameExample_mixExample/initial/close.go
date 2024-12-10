@@ -22,9 +22,11 @@ func Close(servers []app.IServer) []app.Close {
 	}
 
 	// close database
-	closes = append(closes, func() error {
-		return database.CloseDB()
-	})
+	if config.Get().Database.Driver == "mysql" {
+		closes = append(closes, func() error {
+			return database.CloseDB()
+		})
+	}
 
 	// close redis
 	if config.Get().App.CacheType == "redis" {
