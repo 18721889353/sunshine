@@ -17,7 +17,7 @@ func CreateServices() []app.IServer {
 	var cfg = config.Get()
 	var servers []app.IServer
 
-	// creating http service
+	// create a http service
 	httpAddr := ":" + strconv.Itoa(cfg.HTTP.Port)
 	httpRegistry, httpInstance := registerService("http", cfg.App.Host, cfg.HTTP.Port)
 	httpServer := server.NewHTTPServer(httpAddr,
@@ -26,7 +26,7 @@ func CreateServices() []app.IServer {
 	)
 	servers = append(servers, httpServer)
 
-	// creating grpc service
+	// create a grpc service
 	grpcAddr := ":" + strconv.Itoa(cfg.Grpc.Port)
 	grpcRegistry, grpcInstance := registerService("grpc", cfg.App.Host, cfg.Grpc.Port)
 	grpcServer := server.NewGRPCServer(grpcAddr,
@@ -37,6 +37,7 @@ func CreateServices() []app.IServer {
 	return servers
 }
 
+// register service with consul or etcd or nacos, select one of them to use
 func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
 	var (
 		instanceEndpoint = fmt.Sprintf("%s://%s:%d", scheme, host, port)
@@ -51,7 +52,6 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 	)
 
 	switch cfg.App.RegistryDiscoveryType {
-	// registering service with etcd
 	case "etcd":
 		iRegistry, instance, err = etcd.NewRegistry(
 			cfg.Etcd.Addrs,
