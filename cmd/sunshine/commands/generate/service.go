@@ -35,23 +35,20 @@ func ServiceCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "service",
 		Short: "Generate grpc service CRUD code based on sql",
-		Long: color.HiBlackString(`generate grpc service CRUD code based on sql.
-
-Examples:
-  # generate service code.
+		Long:  "Generate grpc service CRUD code based on sql.",
+		Example: color.HiBlackString(`  # Generate service code.
   sunshine micro service --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # generate service code with multiple table names.
+  # Generate service code with multiple table names.
   sunshine micro service --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # generate service code with extended api.
+  # Generate service code with extended api.
   sunshine micro service --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
-  # generate service code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate service code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine micro service --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -121,7 +118,7 @@ using help:
 	//_ = cmd.MarkFlagRequired("module-name")
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
 	//_ = cmd.MarkFlagRequired("server-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -145,13 +142,14 @@ type serviceGenerator struct {
 	outPath        string
 	suitedMonoRepo bool
 
-	fields []replacer.Field
+	fields        []replacer.Field
+	isCommonStyle bool
 }
 
 // nolint
 func (g *serviceGenerator) generateCode() (string, error) {
 	subTplName := codeNameService
-	r := Replacers[TplNameSunshine]
+	r, _ := replacer.New(SunshineDir)
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -184,14 +182,57 @@ func (g *serviceGenerator) generateCode() (string, error) {
 			"userExample.go", "userExample_client_test.go",
 		},
 	}
-	replaceFiles := make(map[string][]string)
 
+	info := g.codes[parser.CodeTypeCrudInfo]
+	crudInfo, _ := unmarshalCrudInfo(info)
+	if crudInfo.CheckCommonType() {
+		g.isCommonStyle = true
+		selectFiles = map[string][]string{
+			"api/serverNameExample/v1": {
+				"userExample.proto",
+			},
+			"internal/cache": {
+				"userExample.go.tpl",
+			},
+			"internal/dao": {
+				"userExample.go.tpl",
+			},
+			"internal/ecode": {
+				"userExample_rpc.go.tpl",
+			},
+			"internal/model": {
+				"userExample.go",
+			},
+			"internal/service": {
+				"userExample.go.tpl",
+			},
+		}
+		var fields []replacer.Field
+		if g.isExtendedAPI {
+			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
+			selectFiles["internal/service"] = []string{"userExample.go.exp.tpl"}
+			fields = commonServiceExtendedFields(r)
+		} else {
+			fields = commonServiceFields(r)
+		}
+		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if err != nil {
+			return "", err
+		}
+		g.fields = append(g.fields, contentFields...)
+		g.fields = append(g.fields, fields...)
+	}
+
+	replaceFiles := make(map[string][]string)
 	switch strings.ToLower(g.dbDriver) {
 	case DBDriverMysql, DBDriverPostgresql, DBDriverTidb, DBDriverSqlite:
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
 		if g.isExtendedAPI {
 			var fields []replacer.Field
-			replaceFiles, fields = serviceExtendedAPI(r, codeNameService)
+			if !crudInfo.CheckCommonType() {
+				replaceFiles, fields = serviceExtendedAPI(r, codeNameService)
+			}
 			g.fields = append(g.fields, fields...)
 		}
 
@@ -269,7 +310,7 @@ func (g *serviceGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{ // replace the contents of the service/userExample_client_test.go file
 			Old: serviceFileMark,
-			New: adjustmentOfIDType(g.codes[parser.CodeTypeService], g.dbDriver),
+			New: adjustmentOfIDType(g.codes[parser.CodeTypeService], g.dbDriver, g.isCommonStyle),
 		},
 		{
 			Old: selfPackageName + "/" + r.GetSourcePath(),
@@ -304,6 +345,10 @@ func (g *serviceGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		{
 			Old: "serverNameExample",
 			New: g.serverName,
+		},
+		{
+			Old: showDbNameMark,
+			New: CurrentDbDriver(g.dbDriver),
 		},
 		{
 			Old: "userExample_client_test.go.mgo",
@@ -385,16 +430,12 @@ func serviceMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 		"internal/ecode": {
 			"systemCode_rpc.go", "userExample_rpc.go.exp",
 		},
-		"internal/model": {
-			"init.go.mgo", "userExample.go",
-		},
 		"internal/service": {
 			"service.go", "service_test.go", "userExample.go.mgo.exp", "userExample_client_test.go.mgo.exp",
 		},
 	}
 	if codeName == codeNameService {
 		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp"}
-		replaceFiles["internal/model"] = []string{"userExample.go"}
 		replaceFiles["internal/service"] = []string{"userExample.go.mgo.exp", "userExample_client_test.go.mgo.exp"}
 	}
 
@@ -420,4 +461,50 @@ func serviceMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 	}...)
 
 	return replaceFiles, fields
+}
+
+func commonServiceFields(r replacer.Replacer) []replacer.Field {
+	var fields []replacer.Field
+
+	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, serviceFile+tplSuffix, startMark, endMark)...)
+
+	fields = append(fields, []replacer.Field{
+		{
+			Old: "userExample_rpc.go.tpl",
+			New: "userExample_rpc.go",
+		},
+		{
+			Old: "userExample.go.tpl",
+			New: "userExample.go",
+		},
+	}...)
+
+	return fields
+}
+
+func commonServiceExtendedFields(r replacer.Replacer) []replacer.Field {
+	var fields []replacer.Field
+
+	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, serviceFile+expSuffix+tplSuffix, startMark, endMark)...)
+
+	fields = append(fields, []replacer.Field{
+		{
+			Old: "userExample_rpc.go.exp.tpl",
+			New: "userExample_rpc.go",
+		},
+		{
+			Old: "userExample.go.tpl",
+			New: "userExample.go",
+		},
+		{
+			Old: "userExample.go.exp.tpl",
+			New: "userExample.go",
+		},
+	}...)
+
+	return fields
 }

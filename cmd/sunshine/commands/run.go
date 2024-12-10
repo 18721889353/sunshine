@@ -25,16 +25,13 @@ func OpenUICommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run the sunshine UI service",
-		Long: color.HiBlackString(`run the sunshine UI service.
-
-Examples:
-  # running ui service, local browser access only.
+		Short: "Run code generation UI service",
+		Long:  "Run code generation UI service.",
+		Example: color.HiBlackString(`  # Running ui service, local browser access only.
   sunshine run
 
-  # running ui service, can be accessed from other host browsers.
-  sunshine run -a http://your-host-ip:24631
-`),
+  # Running ui service, can be accessed from other host browsers.
+  sunshine run -a http://your-host-ip:24631`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 

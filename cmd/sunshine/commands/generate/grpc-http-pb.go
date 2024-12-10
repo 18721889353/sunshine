@@ -27,20 +27,17 @@ func GRPCAndHTTPPbCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "grpc-http-pb",
 		Short: "Generate grpc+http service code based on protobuf file",
-		Long: color.HiBlackString(`generate grpc+http service code based on protobuf file.
-
-Examples:
-  # generate grpc service code.
+		Long:  "Generate grpc+http service code based on protobuf file.",
+		Example: color.HiBlackString(`  # Generate grpc+http service code.
   sunshine micro grpc-http-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto
 
-  # generate grpc service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate grpc+http service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine micro grpc-http-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto --out=./yourServerDir
 
-  # generate grpc service code and specify the docker image repository address.
+  # Generate grpc+http service code and specify the docker image repository address.
   sunshine micro grpc-http-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --protobuf-file=./demo.proto
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -131,7 +128,7 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 			"apis.go", "apis.swagger.json",
 		},
 		"internal/config": {
-			"serverNameExample.go", "serverNameExample_test.go", "serverNameExample_cc.go",
+			"serverNameExample.go",
 		},
 		"internal/ecode": {
 			"systemCode_http.go", "systemCode_rpc.go",
@@ -155,11 +152,13 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 	replaceFiles := make(map[string][]string)
 	subFiles = append(subFiles, getSubFiles(selectFiles, replaceFiles)...)
 
-	// ignore some directories
+	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
+	ignoreFiles := []string{"configs/serverNameExample_cc.yml"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
+	r.SetIgnoreSubFiles(ignoreFiles...)
 	_ = r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName)
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
@@ -337,6 +336,8 @@ func (g *httpAndGRPCPbGenerator) addFields(r replacer.Replacer) []replacer.Field
 			New: "Reference: https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L87",
 		},
 	}...)
+
+	fields = append(fields, getGRPCServiceFields()...)
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameGRPCHTTP, g.moduleName, g.serverName)

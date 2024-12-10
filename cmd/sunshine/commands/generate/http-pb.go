@@ -27,20 +27,17 @@ func HTTPPbCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "http-pb",
 		Short: "Generate web service code based on protobuf file",
-		Long: color.HiBlackString(`generate web service code based on protobuf file.
-
-Examples:
-  # generate web service code.
+		Long:  "Generate web service code based on protobuf file.",
+		Example: color.HiBlackString(`  # Generate web service code.
   sunshine web http-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./test.proto
 
-  # generate web service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate web service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine web http-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./test.proto --out=./yourServerDir
 
-  # generate web service code and specify the docker image repository address.
+  # Generate web service code and specify the docker image repository address.
   sunshine web http-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --protobuf-file=./test.proto
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -131,7 +128,7 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 			"apis.go", "apis.swagger.json",
 		},
 		"internal/config": {
-			"serverNameExample.go", "serverNameExample_test.go", "serverNameExample_cc.go",
+			"serverNameExample.go",
 		},
 		"internal/ecode": {
 			"systemCode_http.go",
@@ -140,7 +137,7 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 			"routers_pbExample.go",
 		},
 		"internal/server": {
-			"http.go", "http_test.go", "http_option.go",
+			"http.go.noregistry", "http_option.go.noregistry",
 		},
 	}
 
@@ -152,11 +149,13 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 	replaceFiles := make(map[string][]string)
 	subFiles = append(subFiles, getSubFiles(selectFiles, replaceFiles)...)
 
-	// ignore some directories
+	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
+	ignoreFiles := []string{"configs/serverNameExample_cc.yml"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
+	r.SetIgnoreSubFiles(ignoreFiles...)
 	_ = r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName)
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
@@ -189,6 +188,7 @@ func (g *httpPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	repoHost, _ := parseImageRepoAddr(g.repoAddr)
 
 	fields = append(fields, deleteFieldsMark(r, httpFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, httpFile+".noregistry", startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFileBuild, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerComposeFile, wellStartMark, wellEndMark)...)
@@ -315,6 +315,8 @@ func (g *httpPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: "",
 		},
 	}...)
+
+	fields = append(fields, getHTTPServiceFields()...)
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameHTTPPb, g.moduleName, g.serverName)

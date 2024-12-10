@@ -83,7 +83,13 @@ func TestGetFilename(t *testing.T) {
 	name := GetFilename("./README.md")
 	assert.Equal(t, "README.md", name)
 
+	name = GetFileSuffixName("./README.md")
+	assert.Equal(t, ".md", name)
+
 	name = GetDir("gofile/README.md")
+	assert.Equal(t, "gofile", name)
+
+	name = GetSuffixDir("gofile/")
 	assert.Equal(t, "gofile", name)
 
 	name = GetFileDir("gofile/README.md")
@@ -169,4 +175,14 @@ func TestListDirs(t *testing.T) {
 	t.Log(FilterDirs(dirs, WithSuffix(".txt")))
 	t.Log(FilterDirs(dirs, WithPrefix("query")))
 	t.Log(FilterDirs(dirs, WithContain("auth")))
+}
+
+func TestListSubDirs(t *testing.T) {
+	dir := ".."
+	dirs, err := ListSubDirs(dir, "gin")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	t.Log(dirs)
 }

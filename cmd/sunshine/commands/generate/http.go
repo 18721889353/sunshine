@@ -37,26 +37,23 @@ func HTTPCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "http",
 		Short: "Generate web service code based on sql",
-		Long: color.HiBlackString(`generate web service code based on sql.
-
-Examples:
-  # generate web service code.
+		Long:  "Generate web service code based on sql.",
+		Example: color.HiBlackString(`  # Generate web service code.
   sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # generate web service code with multiple table names.
+  # Generate web service code with multiple table names.
   sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # generate web service code with extended api.
+  # Generate web service code with extended api.
   sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
-  # generate web service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate web service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
-  # generate web service code and specify the docker image repository address.
+  # Generate web service code and specify the docker image repository address.
   sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -90,16 +87,16 @@ Examples:
 				return err
 			}
 			g := &httpGenerator{
-				moduleName:    moduleName,
-				serverName:    serverName,
-				projectName:   projectName,
-				repoAddr:      repoAddr,
-				dbDSN:         sqlArgs.DBDsn,
-				dbDriver:      sqlArgs.DBDriver,
-				codes:         codes,
-				outPath:       outPath,
-				isExtendedAPI: sqlArgs.IsExtendedAPI,
-
+				moduleName:     moduleName,
+				serverName:     serverName,
+				projectName:    projectName,
+				repoAddr:       repoAddr,
+				dbDSN:          sqlArgs.DBDsn,
+				dbDriver:       sqlArgs.DBDriver,
+				codes:          codes,
+				outPath:        outPath,
+				isExtendedAPI:  sqlArgs.IsExtendedAPI,
+				isEmbed:        sqlArgs.IsEmbed,
 				suitedMonoRepo: suitedMonoRepo,
 			}
 			outPath, err = g.generateCode()
@@ -155,7 +152,7 @@ using help:
 	_ = cmd.MarkFlagRequired("server-name")
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
 	_ = cmd.MarkFlagRequired("project-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -183,12 +180,13 @@ type httpGenerator struct {
 	isExtendedAPI  bool
 	suitedMonoRepo bool
 
-	fields []replacer.Field
+	fields        []replacer.Field
+	isCommonStyle bool
 }
 
 func (g *httpGenerator) generateCode() (string, error) {
 	subTplName := codeNameHTTP
-	r := Replacers[TplNameSunshine]
+	r, _ := replacer.New(SunshineDir)
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -213,10 +211,13 @@ func (g *httpGenerator) generateCode() (string, error) {
 			"userExample.go", "userExample_test.go",
 		},
 		"internal/config": {
-			"serverNameExample.go", "serverNameExample_test.go", "serverNameExample_cc.go",
+			"serverNameExample.go",
 		},
 		"internal/dao": {
 			"userExample.go", "userExample_test.go",
+		},
+		"internal/database": {
+			"init.go",
 		},
 		"internal/ecode": {
 			"systemCode_http.go", "userExample_http.go",
@@ -225,26 +226,61 @@ func (g *httpGenerator) generateCode() (string, error) {
 			"userExample.go", "userExample_test.go",
 		},
 		"internal/model": {
-			"init.go", "userExample.go",
+			"userExample.go",
 		},
 		"internal/routers": {
 			"routers.go", "userExample.go",
 		},
 		"internal/server": {
-			"http.go", "http_test.go", "http_option.go",
+			"http.go.noregistry", "http_option.go.noregistry",
 		},
 		"internal/types": {
 			"swagger_types.go", "userExample_types.go",
 		},
 	}
-	replaceFiles := make(map[string][]string)
+	err := SetSelectFiles(g.dbDriver, selectFiles)
+	if err != nil {
+		return "", err
+	}
 
+	info := g.codes[parser.CodeTypeCrudInfo]
+	crudInfo, _ := unmarshalCrudInfo(info)
+	if crudInfo.CheckCommonType() {
+		g.isCommonStyle = true
+		selectFiles["internal/cache"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/dao"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go.tpl"}
+		selectFiles["internal/handler"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/routers"] = []string{"routers.go", "userExample.go.tpl"}
+		selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go.tpl"}
+		var fields []replacer.Field
+		if g.isExtendedAPI {
+			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go.exp.tpl"}
+			selectFiles["internal/handler"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/routers"] = []string{"routers.go", "userExample.go.exp.tpl"}
+			selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go.exp.tpl"}
+			fields = commonHTTPExtendedFields(r)
+		} else {
+			fields = commonHTTPFields(r)
+		}
+		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if err != nil {
+			return "", err
+		}
+		g.fields = append(g.fields, contentFields...)
+		g.fields = append(g.fields, fields...)
+	}
+
+	replaceFiles := make(map[string][]string)
 	switch strings.ToLower(g.dbDriver) {
 	case DBDriverMysql, DBDriverPostgresql, DBDriverTidb, DBDriverSqlite:
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
 		if g.isExtendedAPI {
 			var fields []replacer.Field
-			replaceFiles, fields = handlerExtendedAPI(r, codeNameHTTP)
+			if !crudInfo.CheckCommonType() {
+				replaceFiles, fields = handlerExtendedAPI(r, codeNameHTTP)
+			}
 			g.fields = append(g.fields, fields...)
 		}
 
@@ -264,9 +300,6 @@ func (g *httpGenerator) generateCode() (string, error) {
 				"internal/handler": {
 					"userExample.go.mgo",
 				},
-				"internal/model": {
-					"init.go.mgo", "userExample.go",
-				},
 				"internal/types": {
 					"swagger_types.go", "userExample_types.go.mgo",
 				},
@@ -281,7 +314,8 @@ func (g *httpGenerator) generateCode() (string, error) {
 
 	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
-	ignoreFiles := []string{"scripts/image-rpc-test.sh", "scripts/patch.sh", "scripts/protoc.sh", "scripts/proto-doc.sh"}
+	ignoreFiles := []string{"scripts/image-rpc-test.sh", "scripts/patch.sh", "scripts/protoc.sh",
+		"scripts/proto-doc.sh", "configs/serverNameExample_cc.yml"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
@@ -303,14 +337,15 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 	fields = append(fields, g.fields...)
 	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, modelInitDBFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, databaseInitDBFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerMgoFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerTestFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, httpFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, httpFile+".noregistry", startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFileBuild, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerComposeFile, wellStartMark, wellEndMark)...)
@@ -338,8 +373,8 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: modelFileMark,
 			New: g.codes[parser.CodeTypeModel],
 		},
-		{ // replace the contents of the model/init.go file
-			Old: modelInitDBFileMark,
+		{ // replace the contents of the database/init.go file
+			Old: databaseInitDBFileMark,
 			New: getInitDBCode(g.dbDriver),
 		},
 		{ // replace the contents of the dao/userExample.go file
@@ -348,7 +383,7 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{ // replace the contents of the handler/userExample.go file
 			Old: handlerFileMark,
-			New: adjustmentOfIDType(g.codes[parser.CodeTypeHandler], g.dbDriver),
+			New: adjustmentOfIDType(g.codes[parser.CodeTypeHandler], g.dbDriver, g.isCommonStyle),
 		},
 		{ // replace the contents of the Dockerfile file
 			Old: dockerFileMark,
@@ -465,12 +500,16 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: g.dbDSN,
 		},
 		{
-			Old: "root:123456@192.168.3.37:5432/account",
-			New: g.dbDSN,
+			Old: "root:123456@192.168.3.37:5432/account?sslmode=disable",
+			New: adaptPgDsn(g.dbDSN),
 		},
 		{
 			Old: "test/sql/sqlite/sunshine.db",
 			New: sqliteDSNAdaptation(g.dbDriver, g.dbDSN),
+		},
+		{
+			Old: showDbNameMark,
+			New: CurrentDbDriver(g.dbDriver),
 		},
 		{
 			Old: "Makefile-for-http",
@@ -479,6 +518,10 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		{
 			Old: "init.go.mgo",
 			New: "init.go",
+		},
+		{
+			Old: "mongodb.go.mgo",
+			New: "mongodb.go",
 		},
 		{
 			Old: "userExample_types.go.mgo",
@@ -495,10 +538,20 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 	}...)
 
+	fields = append(fields, getHTTPServiceFields()...)
+
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameHTTP, g.moduleName, g.serverName)
 		fields = append(fields, fs...)
 	}
 
 	return fields
+}
+
+func commonHTTPFields(r replacer.Replacer) []replacer.Field {
+	return commonHandlerFields(r)
+}
+
+func commonHTTPExtendedFields(r replacer.Replacer) []replacer.Field {
+	return commonHandlerExtendedFields(r)
 }

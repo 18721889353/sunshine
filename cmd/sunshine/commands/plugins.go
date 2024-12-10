@@ -23,6 +23,7 @@ var pluginNames = []string{
 	"protoc-gen-gotag",
 	"protoc-gen-go-gin",
 	"protoc-gen-go-rpc-tmpl",
+	"protoc-gen-json-field",
 	"protoc-gen-openapiv2",
 	"protoc-gen-doc",
 	"swag",
@@ -39,6 +40,7 @@ var installPluginCommands = map[string]string{
 	"protoc-gen-gotag":       "github.com/srikrsna/protoc-gen-gotag@latest",
 	"protoc-gen-go-gin":      "github.com/18721889353/sunshine/cmd/protoc-gen-go-gin@latest",
 	"protoc-gen-go-rpc-tmpl": "github.com/18721889353/sunshine/cmd/protoc-gen-go-rpc-tmpl@latest",
+	"protoc-gen-json-field":  "github.com/18721889353/sunshine/cmd/protoc-gen-json-field@latest",
 	"protoc-gen-openapiv2":   "github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest",
 	"protoc-gen-doc":         "github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest",
 	"swag":                   "github.com/swaggo/swag/cmd/swag@v1.8.12",
@@ -59,19 +61,16 @@ func PluginsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "plugins",
-		Short: "Managing sunshine dependency plugins",
-		Long: color.HiBlackString(`managing sunshine dependency plugins.
-
-Examples:
-  # show all dependency plugins.
+		Short: "Manage sunshine dependency plugins",
+		Long:  "Manage sunshine dependency plugins.",
+		Example: color.HiBlackString(`  # Show all dependency plugins.
   sunshine plugins
 
-  # install all dependency plugins.
+  # Install all dependency plugins.
   sunshine plugins --install
 
-  # skip installing dependency plugins, multiple plugin names separated by commas
-  sunshine plugins --install --skip=go-callvis
-`),
+  # Skip installing dependency plugins, multiple plugin names separated by commas
+  sunshine plugins --install --skip=go-callvis`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -116,20 +115,20 @@ func showDependencyPlugins(installedNames []string, lackNames []string) {
 	var content string
 
 	if len(installedNames) > 0 {
-		content = "Installed dependency plugins:\n"
+		content = "installed dependency plugins:\n"
 		for _, name := range installedNames {
 			content += "    " + installedSymbol + " " + name + "\n"
 		}
 	}
 
 	if len(lackNames) > 0 {
-		content += "\nUninstalled dependency plugins:\n"
+		content += "\nuninstalled dependency plugins:\n"
 		for _, name := range lackNames {
 			content += "    " + lackSymbol + " " + name + "\n"
 		}
-		content += "\nInstalling dependency plugins using the command: sunshine plugins --install\n"
+		content += "\ninstalling dependency plugins using the command: sunshine plugins --install\n"
 	} else {
-		content += "\nAll dependency plugins installed.\n"
+		content += "\nall dependency plugins installed.\n"
 	}
 
 	fmt.Println(content)
@@ -137,10 +136,10 @@ func showDependencyPlugins(installedNames []string, lackNames []string) {
 
 func installPlugins(lackNames []string) {
 	if len(lackNames) == 0 {
-		fmt.Printf("\n    All dependency plugins installed.\n\n")
+		fmt.Printf("\n    all dependency plugins installed.\n\n")
 		return
 	}
-	fmt.Printf("install a total of %d dependency plugins, need to wait a little time.\n\n", len(lackNames))
+	fmt.Printf("\ninstalling %d dependency plugins, please wait a moment.\n\n", len(lackNames))
 
 	var wg = &sync.WaitGroup{}
 	var manuallyNames []string
@@ -180,7 +179,7 @@ func installPlugins(lackNames []string) {
 }
 
 func adaptInternalCommand(name string, pkgAddr string) string {
-	if name == "protoc-gen-go-gin" || name == "protoc-gen-go-rpc-tmpl" {
+	if name == "protoc-gen-go-gin" || name == "protoc-gen-go-rpc-tmpl" || name == "protoc-gen-json-field" {
 		if version != "v0.0.0" {
 			return strings.ReplaceAll(pkgAddr, "@latest", "@"+version)
 		}

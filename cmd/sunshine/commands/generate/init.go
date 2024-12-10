@@ -15,11 +15,14 @@ import (
 const warnSymbol = "⚠ "
 
 func init() {
-	rand.New(rand.NewSource(time.Now().UnixNano())) //nolint
+	rand.Seed(time.Now().UnixNano()) //nolint
 }
 
 // Replacers replacer name
 var Replacers = map[string]replacer.Replacer{}
+
+// SunshineDir sunshine directory
+var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
 
 // Template information
 type Template struct {
@@ -29,9 +32,9 @@ type Template struct {
 }
 
 // Init initializing the template
-func Init(name string, filepath string) error {
+func Init() error {
 	// determine if the template file exists, if not, prompt to initialize first
-	if !gofile.IsExists(filepath) {
+	if !gofile.IsExists(SunshineDir) {
 		if isShowCommand() {
 			return nil
 		}
@@ -39,10 +42,10 @@ func Init(name string, filepath string) error {
 	}
 
 	var err error
-	if _, ok := Replacers[name]; ok {
-		panic(fmt.Sprintf("template name \"%s\" already exists", name))
+	if _, ok := Replacers[TplNameSunshine]; ok {
+		panic(fmt.Sprintf("template name \"%s\" already exists", TplNameSunshine))
 	}
-	Replacers[name], err = replacer.New(filepath)
+	Replacers[TplNameSunshine], err = replacer.New(SunshineDir)
 	if err != nil {
 		return err
 	}
@@ -82,4 +85,14 @@ func isShowCommand() bool {
 	}
 
 	return false
+}
+
+func getHomeDir() string {
+	dir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Println("can't get home directory'")
+		return ""
+	}
+
+	return dir
 }

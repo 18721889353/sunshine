@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
@@ -19,9 +20,9 @@ var (
 func NewRootCMD() *cobra.Command {
 	cmd := &cobra.Command{
 		Use: "sunshine",
-		Long: `Sunshine is a powerful Go development framework, it's easy to develop web and microservice projects.
-repo: https://github.com/18721889353/sunshine
-docs: https://go-sunshine.com`,
+		Long: fmt.Sprintf(`Sunshine is a powerful Go development framework, it's easy to develop web and microservice projects.
+Repo: %s
+Docs: %s`, color.HiCyanString("https://github.com/18721889353/sunshine"), color.HiCyanString("https://go-sunshine.com")),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Version:       getVersion(),
@@ -34,10 +35,11 @@ docs: https://go-sunshine.com`,
 		GenWebCommand(),
 		GenMicroCommand(),
 		generate.ConfigCommand(),
-		generate.ConfigmapCommand(),
 		OpenUICommand(),
 		MergeCommand(),
 		PatchCommand(),
+		GenGraphCommand(),
+		TemplateCommand(),
 	)
 
 	return cmd

@@ -3,11 +3,12 @@ package patch
 import (
 	"errors"
 	"fmt"
-	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
-	"github.com/18721889353/sunshine/pkg/gofile"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
+	"github.com/18721889353/sunshine/pkg/gofile"
 )
 
 // CopyThirdPartyProtoCommand copy third-party proto files
@@ -20,15 +21,12 @@ func CopyThirdPartyProtoCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "copy-third-party-proto",
 		Short: "Copy third-party proto files",
-		Long: color.HiBlackString(`copy third-party proto files to local directory.
-
-Examples:
-  # copy third-party proto files to current directory
+		Long:  "Copy third-party proto files to local directory.",
+		Example: color.HiBlackString(`  # Copy third-party proto files to current directory
   sunshine patch copy-third-party-proto
 
-  # copy third-party proto files to yourServerDir
-  sunshine patch copy-third-party-proto --out=./yourServerDir
-`),
+  # Copy third-party proto files to yourServerDir
+  sunshine patch copy-third-party-proto --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

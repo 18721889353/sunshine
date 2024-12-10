@@ -10,8 +10,8 @@ import (
 func PatchCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "patch",
-		Short:         "Command set for patching service code",
-		Long:          `command set for patching service code.`,
+		Short:         "Patch the generated code",
+		Long:          `Patch the generated code.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
@@ -19,7 +19,6 @@ func PatchCommand() *cobra.Command {
 	cmd.AddCommand(
 		patch.DeleteJSONOmitemptyCommand(),
 		patch.GenerateDBInitCommand(),
-		patch.GenMysqlInitCommand(),
 		patch.GenTypesPbCommand(),
 		patch.CopyProtoCommand(),
 		patch.CopyThirdPartyProtoCommand(),

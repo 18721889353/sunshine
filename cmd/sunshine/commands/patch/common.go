@@ -2,10 +2,11 @@ package patch
 
 import (
 	"errors"
-	"github.com/18721889353/sunshine/pkg/gofile"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/18721889353/sunshine/pkg/gofile"
 )
 
 // get moduleName and serverName from directory
@@ -61,4 +62,14 @@ func listErrCodeFiles(dir string) ([]string, error) {
 	}
 
 	return filterFiles, nil
+}
+
+func getSubFiles(selectedFiles map[string][]string) []string {
+	subFiles := []string{}
+	for dir, files := range selectedFiles {
+		for _, file := range files {
+			subFiles = append(subFiles, dir+"/"+file)
+		}
+	}
+	return subFiles
 }

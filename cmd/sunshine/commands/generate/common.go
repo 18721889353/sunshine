@@ -4,22 +4,30 @@ package generate
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/gobash"
-	"github.com/18721889353/sunshine/pkg/gofile"
-	"github.com/18721889353/sunshine/pkg/replacer"
-	"github.com/huandu/xstrings"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 	"time"
+
+	"github.com/huandu/xstrings"
+
+	"github.com/18721889353/sunshine/pkg/gobash"
+	"github.com/18721889353/sunshine/pkg/gofile"
+	"github.com/18721889353/sunshine/pkg/replacer"
+	"github.com/18721889353/sunshine/pkg/sql2code/parser"
+	"github.com/18721889353/sunshine/pkg/utils"
 )
 
 const (
-	defaultGoModVersion = "go 1.20"
+	defaultGoModVersion = "go 1.22"
 
 	// TplNameSunshine name of the template
 	TplNameSunshine = "sunshine"
@@ -58,6 +66,7 @@ const (
 	mgoSuffix     = ".mgo"
 	pkgPathSuffix = "/pkg"
 	expSuffix     = ".exp"
+	tplSuffix     = ".tpl"
 	apiDocsSuffix = " api docs"
 )
 
@@ -65,8 +74,11 @@ var (
 	modelFile     = "model/userExample.go"
 	modelFileMark = "// todo generate model code to here"
 
-	modelInitDBFile     = "model/init.go"
-	modelInitDBFileMark = "// todo generate initialisation database code here"
+	databaseInitDBFile     = "database/init.go"
+	databaseInitDBFileMark = "// todo generate initialisation database code here"
+
+	showDbNameMark  = "// todo show db driver name here"
+	CurrentDbDriver = func(dbDriver string) string { return "// db driver is " + dbDriver }
 
 	cacheFile = "cache/cacheNameExample.go"
 
@@ -75,10 +87,11 @@ var (
 	daoFileMark = "// todo generate the update fields code to here"
 	daoTestFile = "dao/userExample_test.go"
 
-	handlerFile       = "types/userExample_types.go"
-	handlerMgoFile    = "types/userExample_types.go.mgo"
+	typesFile         = "types/userExample_types.go"
+	typesMgoFile      = "types/userExample_types.go.mgo"
 	handlerFileMark   = "// todo generate the request and response struct to here"
 	handlerTestFile   = "handler/userExample_test.go"
+	handlerPbFile     = "handler/userExample_logic.go"
 	handlerPbTestFile = "handler/userExample_logic_test.go"
 
 	handlerLogicFile = "handler/userExample_logic.go"
@@ -93,6 +106,7 @@ var (
 	serviceTestFile      = "service/userExample_test.go"
 	serviceClientFile    = "service/userExample_client_test.go"
 	serviceClientMgoFile = "service/userExample_client_test.go.mgo"
+	serviceFile          = "service/userExample.go"
 	serviceFileMark      = "// todo generate the service struct code here"
 
 	dockerFile     = "scripts/build/Dockerfile"
@@ -123,6 +137,7 @@ var (
 	appConfigFile      = "configs/serverNameExample.yml"
 	appConfigFileMark  = "# todo generate http or rpc server configuration here"
 	appConfigFileMark2 = "# todo generate the database configuration here"
+	appConfigFileMark3 = "# todo generate the registry and discovery configuration here"
 
 	expectedSQLForDeletion = "expectedSQLForDeletion := \"UPDATE .*\""
 
@@ -149,11 +164,11 @@ var (
 )
 
 var (
-	ModelInitDBFile     = modelInitDBFile
-	ModelInitDBFileMark = modelInitDBFileMark
-	AppConfigFileDBMark = appConfigFileMark2
-	StartMark           = startMark
-	EndMark             = endMark
+	ModelInitDBFile     = databaseInitDBFile
+	ModelInitDBFileMark = databaseInitDBFileMark
+	//AppConfigFileDBMark = appConfigFileMark2
+	StartMark = startMark
+	EndMark   = endMark
 )
 
 func symbolConvert(str string, additionalChar ...string) []byte {
@@ -182,9 +197,12 @@ func convertProjectAndServerName(projectName, serverName string) (pn string, sn 
 	return pn, sn, err
 }
 
-func adjustmentOfIDType(handlerCodes string, dbDriver string) string {
+func adjustmentOfIDType(handlerCodes string, dbDriver string, isCommonStyle bool) string {
 	if dbDriver == DBDriverMongodb {
 		return idTypeToStr(handlerCodes)
+	}
+	if isCommonStyle {
+		return handlerCodes
 	}
 	return idTypeToUint64(idTypeFixToUint64(handlerCodes))
 }
@@ -331,6 +349,20 @@ func parseProtobufFiles(protobufFile string) ([]string, bool, error) {
 	return protobufFiles, countImportTypes > 0, nil
 }
 
+// ParseFuzzyProtobufFiles parse fuzzy protobuf files
+func ParseFuzzyProtobufFiles(protobufFile string) ([]string, error) {
+	var protoFiles []string
+	ss := strings.Split(protobufFile, ",")
+	for _, s := range ss {
+		files, _, err := parseProtobufFiles(s)
+		if err != nil {
+			return nil, err
+		}
+		protoFiles = append(protoFiles, files...)
+	}
+	return protoFiles, nil
+}
+
 // save the moduleName and serverName to the specified file for external use
 func saveGenInfo(moduleName string, serverName string, suitedMonoRepo bool, outputDir string) error {
 	genInfo := moduleName + "," + serverName + "," + strconv.FormatBool(suitedMonoRepo)
@@ -456,8 +488,6 @@ func getDBConfigCode(dbDriver string) string {
 		dbConfigCode = mongodbConfigCode
 	case undeterminedDBDriver:
 		dbConfigCode = undeterminedDatabaseConfigCode
-	default:
-		panic("getDBConfigCode error, unsupported database driver: " + dbDriver)
 	}
 	return dbConfigCode
 }
@@ -772,29 +802,54 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	return files
 }
 
+type Version struct {
+	major     string
+	minor     string
+	patch     string
+	goVersion string
+}
+
 func getLocalGoVersion() string {
 	result, err := gobash.Exec("go", "version")
 	if err != nil {
 		return defaultGoModVersion
 	}
 
-	pattern := `go(\d+\.\d+)`
-	re := regexp.MustCompile(pattern)
-	matches := re.FindStringSubmatch(string(result))
-	if len(matches) < 2 {
+	versions := []string{
+		strings.ReplaceAll(defaultGoModVersion, " ", ""),
+		string(result),
+	}
+
+	versionRegex := regexp.MustCompile(`go(\d+)\.(\d+)(\.(\d+))?`)
+
+	var versionList []Version
+	for _, v := range versions {
+		matches := versionRegex.FindStringSubmatch(v)
+		if len(matches) >= 3 {
+			goVersion := "go " + matches[1] + "." + matches[2]
+			if matches[4] != "" {
+				goVersion += "." + matches[4]
+			}
+			versionList = append(versionList, Version{major: matches[1], minor: matches[2], patch: matches[4], goVersion: goVersion})
+		}
+	}
+
+	//  descending sort by major, minor, patch
+	sort.Slice(versionList, func(i, j int) bool {
+		if versionList[i].major != versionList[j].major {
+			return utils.StrToInt(versionList[i].major) > utils.StrToInt(versionList[j].major)
+		}
+		if versionList[i].minor != versionList[j].minor {
+			return utils.StrToInt(versionList[i].minor) > utils.StrToInt(versionList[j].minor)
+		}
+		return utils.StrToInt(versionList[i].patch) > utils.StrToInt(versionList[j].patch)
+	})
+
+	if len(versionList) == 0 {
 		return defaultGoModVersion
 	}
 
-	localGoVersion := "go " + matches[1]
-	if localGoVersion < defaultGoModVersion {
-		return defaultGoModVersion
-	}
-
-	if len(localGoVersion) != 6 && len(localGoVersion) != 7 {
-		return defaultGoModVersion
-	}
-
-	return localGoVersion
+	return versionList[0].goVersion
 }
 
 func dbDriverErr(driver string) error {
@@ -856,6 +911,172 @@ func GetGoModFields(moduleName string) []replacer.Field {
 		{
 			Old: sunshineTemplateVersionMark,
 			New: getLocalSunshineTemplateVersion(),
+		},
+	}
+}
+
+func adaptPgDsn(dsn string) string {
+	if !strings.Contains(dsn, "postgres://") {
+		dsn = "postgres://" + dsn
+	}
+	dsn = utils.DeleteBrackets(dsn)
+
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return dsn
+	}
+
+	if u.RawQuery == "" {
+		u.RawQuery = "sslmode=disable"
+	} else if u.Query().Get("sslmode") == "" {
+		u.RawQuery = "sslmode=disable&" + u.RawQuery
+	}
+
+	return strings.ReplaceAll(u.String(), "postgres://", "")
+}
+
+func unmarshalCrudInfo(str string) (*parser.CrudInfo, error) {
+	if str == "" {
+		return nil, errors.New("crud info is empty")
+	}
+	crudInfo := &parser.CrudInfo{}
+	err := json.Unmarshal([]byte(str), crudInfo)
+	if err != nil {
+		return nil, err
+	}
+	return crudInfo, nil
+}
+
+func getTemplateFiles(files map[string][]string) []string {
+	var templateFiles []string
+	for dir, filenames := range files {
+		for _, filename := range filenames {
+			if strings.HasSuffix(filename, tplSuffix) {
+				templateFiles = append(templateFiles, dir+"/"+filename)
+			}
+		}
+	}
+	return templateFiles
+}
+
+func replaceFilesContent(r replacer.Replacer, files []string, crudInfo *parser.CrudInfo) ([]replacer.Field, error) {
+	var fields []replacer.Field
+
+	for _, file := range files {
+		field, err := replaceTemplateFileContent(r, file, crudInfo)
+		if err != nil {
+			return nil, err
+		}
+		if field.Old == "" {
+			continue
+		}
+		fields = append(fields, field)
+	}
+	return fields, nil
+}
+
+func replaceTemplateFileContent(r replacer.Replacer, file string, crudInfo *parser.CrudInfo) (field replacer.Field, err error) {
+	var data []byte
+	data, err = r.ReadFile(file)
+	if err != nil {
+		return field, err
+	}
+
+	content := string(data)
+	if strings.Contains(content, "{{{.ColumnNameCamelFCL}}}") {
+		content = strings.ReplaceAll(content, "{{{.ColumnNameCamelFCL}}}", fmt.Sprintf("{%s}", crudInfo.ColumnNameCamelFCL))
+	}
+
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%v", e)
+		}
+	}()
+	tpl := template.Must(template.New(file).Parse(content))
+	buf := new(bytes.Buffer)
+	err = tpl.Execute(buf, crudInfo)
+	if err != nil {
+		return field, err
+	}
+
+	dstContent := buf.String()
+	if !strings.Contains(dstContent, "utils.") {
+		dstContent = strings.ReplaceAll(dstContent, `"github.com/18721889353/sunshine/pkg/utils"`, "")
+	}
+	if !strings.Contains(dstContent, "math.MaxInt32") {
+		dstContent = strings.ReplaceAll(dstContent, `"math"`, "")
+	}
+
+	field = replacer.Field{
+		Old: string(data),
+		New: dstContent,
+	}
+
+	return field, nil
+}
+
+// nolint
+func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
+	dbDriver = strings.ToLower(dbDriver)
+	switch dbDriver {
+	case DBDriverMysql, DBDriverTidb:
+		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go"}
+	case DBDriverPostgresql:
+		selectFiles["internal/database"] = []string{"init.go", "redis.go", "postgresql.go"}
+	case DBDriverSqlite:
+		selectFiles["internal/database"] = []string{"init.go", "redis.go", "sqlite.go"}
+	case DBDriverMongodb:
+		selectFiles["internal/database"] = []string{"init.go.mgo", "redis.go", "mongodb.go.mgo"}
+	default:
+		return errors.New("unsupported db driver: " + dbDriver)
+	}
+	return nil
+}
+
+func getHTTPServiceFields() []replacer.Field {
+	return []replacer.Field{
+		{
+			Old: appConfigFileMark3,
+			New: "",
+		},
+		{
+			Old: "http.go.noregistry",
+			New: "http.go",
+		},
+		{
+			Old: "http_option.go.noregistry",
+			New: "http_option.go",
+		},
+		{
+			Old: `registryDiscoveryType: ""`,
+			New: `#registryDiscoveryType: ""`,
+		},
+	}
+}
+
+func getGRPCServiceFields() []replacer.Field {
+	return []replacer.Field{
+		{
+			Old: appConfigFileMark3,
+			New: `# consul settings
+#consul:
+#  addr: "192.168.3.37:8500"
+
+
+# etcd settings
+#etcd:
+#  addrs: ["192.168.3.37:2379"]
+
+
+# nacos settings, used in service registration discovery
+#nacosRd:
+#  ipAddr: "192.168.3.37"
+#  port: 8848
+#  namespaceID: "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"   # namespace id`,
+		},
+		{
+			Old: `registryDiscoveryType: ""`,
+			New: `#registryDiscoveryType: ""`,
 		},
 	}
 }

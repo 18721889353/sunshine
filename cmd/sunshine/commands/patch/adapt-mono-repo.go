@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/fatih/color"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/18721889353/sunshine/pkg/gofile"
@@ -23,15 +23,12 @@ func AdaptMonoRepoCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "adapt-mono-repo",
 		Short: "Adapt to mono-repo in api directory code",
-		Long: color.HiBlackString(`adapt to mono-repo in api directory code
-
-Examples:
-  # adapt to mono-repo code in local server directory
+		Long:  "Adapt to mono-repo in api directory code.",
+		Example: color.HiBlackString(`  # Adapt to mono-repo code in local server directory
   sunshine patch adapt-mono-repo
 
-  # adapt to mono-repo code in specified directory
-  sunshine patch adapt-mono-repo --dir=/path/to/server/directory
-`),
+  # Adapt to mono-repo code in specified directory
+  sunshine patch adapt-mono-repo --dir=/path/to/server/directory`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

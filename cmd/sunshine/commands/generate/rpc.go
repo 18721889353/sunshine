@@ -38,26 +38,23 @@ func RPCCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rpc",
 		Short: "Generate grpc service code based on sql",
-		Long: color.HiBlackString(`generate grpc service code based on sql.
-
-Examples:
-  # generate grpc service code.
+		Long:  "Generate grpc service code based on sql.",
+		Example: color.HiBlackString(`  # Generate grpc service code.
   sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # generate grpc service code with multiple table names.
+  # Generate grpc service code with multiple table names.
   sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # generate grpc service code with extended api.
+  # Generate grpc service code with extended api.
   sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
-  # generate grpc service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate grpc service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
-  # generate grpc service code and specify the docker image repository address.
+  # Generate grpc service code and specify the docker image repository address.
   sunshine micro rpc --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -155,7 +152,7 @@ using help:
 	_ = cmd.MarkFlagRequired("server-name")
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
 	_ = cmd.MarkFlagRequired("project-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -183,12 +180,13 @@ type rpcGenerator struct {
 	outPath        string
 	suitedMonoRepo bool
 
-	fields []replacer.Field
+	fields        []replacer.Field
+	isCommonStyle bool
 }
 
 func (g *rpcGenerator) generateCode() (string, error) {
 	subTplName := codeNameGRPC
-	r := Replacers[TplNameSunshine]
+	r, _ := replacer.New(SunshineDir)
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -214,23 +212,55 @@ func (g *rpcGenerator) generateCode() (string, error) {
 			"userExample.go", "userExample_test.go",
 		},
 		"internal/config": {
-			"serverNameExample.go", "serverNameExample_test.go", "serverNameExample_cc.go",
+			"serverNameExample.go",
 		},
 		"internal/dao": {
 			"userExample.go", "userExample_test.go",
+		},
+		"internal/database": {
+			"init.go",
 		},
 		"internal/ecode": {
 			"systemCode_rpc.go", "userExample_rpc.go",
 		},
 		"internal/model": {
-			"init.go", "userExample.go",
+			"userExample.go",
 		},
 		"internal/server": {
-			"grpc.go", "grpc_test.go", "grpc_option.go",
+			"grpc.go", "grpc_option.go",
 		},
 		"internal/service": {
 			"service.go", "service_test.go", "userExample.go", "userExample_client_test.go",
 		},
+	}
+	err := SetSelectFiles(g.dbDriver, selectFiles)
+	if err != nil {
+		return "", err
+	}
+
+	info := g.codes[parser.CodeTypeCrudInfo]
+	crudInfo, _ := unmarshalCrudInfo(info)
+	if crudInfo.CheckCommonType() {
+		g.isCommonStyle = true
+		selectFiles["internal/cache"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/dao"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go.tpl"}
+		selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.tpl"}
+		var fields []replacer.Field
+		if g.isExtendedAPI {
+			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go.exp.tpl"}
+			selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.exp.tpl"}
+			fields = commonGRPCExtendedFields(r)
+		} else {
+			fields = commonGRPCFields(r)
+		}
+		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if err != nil {
+			return "", err
+		}
+		g.fields = append(g.fields, contentFields...)
+		g.fields = append(g.fields, fields...)
 	}
 
 	if g.suitedMonoRepo {
@@ -262,9 +292,6 @@ func (g *rpcGenerator) generateCode() (string, error) {
 				"internal/dao": {
 					"userExample.go.mgo",
 				},
-				"internal/model": {
-					"init.go.mgo", "userExample.go",
-				},
 				"internal/service": {
 					"service.go", "service_test.go", "userExample.go.mgo", "userExample_client_test.go.mgo",
 				},
@@ -280,7 +307,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 
 	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
-	ignoreFiles := []string{"scripts/swag-docs.sh"}
+	ignoreFiles := []string{"scripts/swag-docs.sh", "configs/serverNameExample_cc.yml"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
@@ -308,7 +335,7 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 	fields = append(fields, g.fields...)
 	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, modelInitDBFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, databaseInitDBFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
@@ -344,8 +371,8 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: modelFileMark,
 			New: g.codes[parser.CodeTypeModel],
 		},
-		{ // replace the contents of the model/init.go file
-			Old: modelInitDBFileMark,
+		{ // replace the contents of the database/init.go file
+			Old: databaseInitDBFileMark,
 			New: getInitDBCode(g.dbDriver),
 		},
 		{ // replace the contents of the dao/userExample.go file
@@ -370,7 +397,7 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{ // replace the contents of the service/userExample_client_test.go file
 			Old: serviceFileMark,
-			New: adjustmentOfIDType(g.codes[parser.CodeTypeService], g.dbDriver),
+			New: adjustmentOfIDType(g.codes[parser.CodeTypeService], g.dbDriver, g.isCommonStyle),
 		},
 		{ // replace the contents of the Dockerfile file
 			Old: dockerFileMark,
@@ -488,16 +515,24 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: g.dbDSN,
 		},
 		{
-			Old: "root:123456@192.168.3.37:5432/account",
-			New: g.dbDSN,
+			Old: "root:123456@192.168.3.37:5432/account?sslmode=disable",
+			New: adaptPgDsn(g.dbDSN),
 		},
 		{
 			Old: "test/sql/sqlite/sunshine.db",
 			New: sqliteDSNAdaptation(g.dbDriver, g.dbDSN),
 		},
 		{
+			Old: showDbNameMark,
+			New: CurrentDbDriver(g.dbDriver),
+		},
+		{
 			Old: "init.go.mgo",
 			New: "init.go",
+		},
+		{
+			Old: "mongodb.go.mgo",
+			New: "mongodb.go",
 		},
 		{
 			Old: "userExample_client_test.go.mgo",
@@ -514,10 +549,20 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 	}...)
 
+	fields = append(fields, getGRPCServiceFields()...)
+
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameGRPC, g.moduleName, g.serverName)
 		fields = append(fields, fs...)
 	}
 
 	return fields
+}
+
+func commonGRPCFields(r replacer.Replacer) []replacer.Field {
+	return commonServiceFields(r)
+}
+
+func commonGRPCExtendedFields(r replacer.Replacer) []replacer.Field {
+	return commonServiceExtendedFields(r)
 }

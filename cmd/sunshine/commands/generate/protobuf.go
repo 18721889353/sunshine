@@ -30,24 +30,21 @@ func ProtobufCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "protobuf",
 		Short: "Generate protobuf code based on sql",
-		Long: color.HiBlackString(`generate protobuf code based on sql.
-
-Examples:
-  # generate protobuf code.
+		Long:  "Generate protobuf code based on sql.",
+		Example: color.HiBlackString(`  # Generate protobuf code.
   sunshine micro protobuf --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # generate protobuf code with multiple table names.
+  # Generate protobuf code with multiple table names.
   sunshine micro protobuf --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # generate protobuf code with extended api.
+  # Generate protobuf code with extended api.
   sunshine micro protobuf --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
-  # generate protobuf code that include router path and swagger info.
+  # Generate protobuf code that include router path and swagger info.
   sunshine micro protobuf --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --web-type=true
 
-  # generate protobuf code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine micro protobuf --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
-`),
+  # Generate protobuf code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
+  sunshine micro protobuf --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -107,7 +104,7 @@ using help:
 	//_ = cmd.MarkFlagRequired("module-name")
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
 	//_ = cmd.MarkFlagRequired("server-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")

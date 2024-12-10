@@ -3,9 +3,9 @@ package patch
 import (
 	"errors"
 	"fmt"
-	"github.com/fatih/color"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
@@ -24,15 +24,12 @@ func GenTypesPbCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen-types-pb",
 		Short: "Generate types.proto code",
-		Long: color.HiBlackString(`generate types.proto code
-
-Examples:
-  # generate types.proto code.
+		Long:  "Generate types.proto code.",
+		Example: color.HiBlackString(`  # Generate types.proto code.
   sunshine patch gen-types-pb --module-name=yourModuleName
 
-  # generate types.proto code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine patch gen-types-pb --out=./yourServerDir
-`),
+  # Generate types.proto code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
+  sunshine patch gen-types-pb --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

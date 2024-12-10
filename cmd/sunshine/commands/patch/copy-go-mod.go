@@ -3,18 +3,18 @@ package patch
 import (
 	"errors"
 	"fmt"
-	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
-	"github.com/18721889353/sunshine/pkg/gofile"
 	"os"
 	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
+	"github.com/18721889353/sunshine/pkg/gofile"
 )
 
 // CopyGOModCommand copy go mod files
 func CopyGOModCommand() *cobra.Command {
-
 	var (
 		moduleName     string // module name for go.mod
 		outPath        string // output directory
@@ -25,15 +25,12 @@ func CopyGOModCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "copy-go-mod",
 		Short: "Copy go mod files",
-		Long: color.HiBlackString(`copy go mod files to local directory.
-
-Examples:
-  # copy go mod files to current directory
+		Long:  "Copy go mod files to local directory.",
+		Example: color.HiBlackString(`  # Copy go mod files to current directory
   sunshine patch copy-go-mod --module-name=yourModuleName
 
-  # copy go mod files to yourServerDir, module name from out directory
-  sunshine patch copy-go-mod --out=./yourServerDir
-`),
+  # Copy go mod files to yourServerDir, module name from out directory
+  sunshine patch copy-go-mod --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

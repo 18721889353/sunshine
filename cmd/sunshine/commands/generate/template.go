@@ -266,7 +266,7 @@ func NewCenter(configFile string) (*Center, error) {
 
   sunshine merge rpc-pb
   checkResult $?
- 
+
   tipMsg="${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then test grpc api in the file ${colorCyan}internal/service/xxx_client_test.go${markEnd}."
 `
 
@@ -394,8 +394,7 @@ grpcClient:
     host: "127.0.0.1"            # grpc service address, used for direct connection
     port: 8282                   # grpc service port
     timeout: 0                   # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, valid only for unary grpc type
-    registryDiscoveryType: ""    # registration and discovery types:etcd, if empty, connecting to server using host and port
-    enableLoadBalance: true      # whether to turn on the load balancer
+    registryDiscoveryType: ""    # registration and discovery types: consul, etcd, nacos, if empty, connecting to server using host and port
     # clientSecure parameter setting
     # if type="", it means no secure connection, no need to fill in any parameters
     # if type="one-way", it means server-side certification, only the fields 'serverName' and 'certFile' should be filled in
@@ -423,8 +422,7 @@ grpcClient:
     host: "127.0.0.1"            # grpc service address, used for direct connection
     port: 8282                   # grpc service port
     timeout: 0                   # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, valid only for unary grpc type
-    registryDiscoveryType: ""    # registration and discovery types:etcd, if empty, connecting to server using host and port
-    enableLoadBalance: true      # whether to turn on the load balancer
+    registryDiscoveryType: ""    # registration and discovery types: consul, etcd, nacos, if empty, connecting to server using host and port
     # clientSecure parameter setting
     # if type="", it means no secure connection, no need to fill in any parameters
     # if type="one-way", it means server-side certification, only the fields 'serverName' and 'certFile' should be filled in
@@ -468,8 +466,7 @@ grpcClient:
     host: "127.0.0.1"            # grpc service address, used for direct connection
     port: 8282                   # grpc service port
     timeout: 0                   # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, valid only for unary grpc type
-    registryDiscoveryType: ""    # registration and discovery types:etcd, if empty, connecting to server using host and port
-    enableLoadBalance: true      # whether to turn on the load balancer
+    registryDiscoveryType: ""    # registration and discovery types: consul, etcd, nacos, if empty, connecting to server using host and port
     # clientSecure parameter setting
     # if type="", it means no secure connection, no need to fill in any parameters
     # if type="one-way", it means server-side certification, only the fields 'serverName' and 'certFile' should be filled in
@@ -530,7 +527,7 @@ database:
     # dsn format,  [scheme://]<username>:<password>@<hostname1>:<port1>[,<hostname2>:<port2>,......]/<db>?[k=v& ......]
     # default scheme is mongodb://, scheme can be omitted, if you want to use ssl, you can use mongodb+srv:// scheme, the scheme must be filled in 
     # parameter k=v see https://www.mongodb.com/docs/drivers/go/current/fundamentals/connections/connection-guide/#connection-options
-    dsn: "root:123456@192.168.3.37:27017/account?connectTimeoutMS=15000"`
+    dsn: "root:123456@192.168.3.37:27017/account?connectTimeoutMS=15000&socketTimeoutMS=30000&maxPoolSize=100&minPoolSize=1&maxConnIdleTimeMS=300000"`
 
 	undeterminedDatabaseConfigCode = `# set database configuration. reference-db-config-url
 database:
@@ -547,122 +544,37 @@ database:
 
 	modelInitDBFileMysqlCode = `// InitDB connect database
 func InitDB() {
-	switch strings.ToLower(config.Get().Database.Driver) {
-	case ggorm.DBDriverMysql, ggorm.DBDriverTidb:
-		InitMysql()
+	dbDriver := config.Get().Database.Driver
+	switch strings.ToLower(dbDriver) {
+	case sgorm.DBDriverMysql, sgorm.DBDriverTidb:
+		gdb = InitMysql()
 	default:
-		panic("InitDB error, unsupported database driver: " + config.Get().Database.Driver)
-	}
-}
-
-// InitMysql connect mysql
-func InitMysql() {
-	opts := []ggorm.Option{
-		ggorm.WithMaxIdleConns(config.Get().Database.Mysql.MaxIdleConns),
-		ggorm.WithMaxOpenConns(config.Get().Database.Mysql.MaxOpenConns),
-		ggorm.WithConnMaxLifetime(time.Duration(config.Get().Database.Mysql.ConnMaxLifetime) * time.Minute),
-	}
-	if config.Get().Database.Mysql.EnableLog {
-		opts = append(opts,
-			ggorm.WithLogging(logger.Get()),
-			ggorm.WithLogRequestIDKey("request_id"),
-		)
-	}
-
-	if config.Get().App.EnableTrace {
-		opts = append(opts, ggorm.WithEnableTrace())
-	}
-
-	// setting mysql slave and master dsn addresses,
-	// if there is no read/write separation, you can comment out the following piece of code
-	opts = append(opts, ggorm.WithRWSeparation(
-		config.Get().Database.Mysql.SlavesDsn,
-		config.Get().Database.Mysql.MastersDsn...,
-	))
-
-	// add custom gorm plugin
-	//opts = append(opts, ggorm.WithGormPlugin(yourPlugin))
-
-	var dsn = utils.AdaptiveMysqlDsn(config.Get().Database.Mysql.Dsn)
-	var err error
-	db, err = ggorm.InitMysql(dsn, opts...)
-	if err != nil {
-		panic("InitMysql error: " + err.Error())
+		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
+			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
 	}
 }`
 
 	modelInitDBFilePostgresqlCode = `// InitDB connect database
 func InitDB() {
-	switch strings.ToLower(config.Get().Database.Driver) {
-	case ggorm.DBDriverPostgresql:
-		InitPostgresql()
+	dbDriver := config.Get().Database.Driver
+	switch strings.ToLower(dbDriver) {
+	case sgorm.DBDriverPostgresql:
+		gdb = InitPostgresql()
 	default:
-		panic("InitDB error, unsupported database driver: " + config.Get().Database.Driver)
-	}
-}
-
-// InitPostgresql connect postgresql
-func InitPostgresql() {
-	opts := []ggorm.Option{
-		ggorm.WithMaxIdleConns(config.Get().Database.Postgresql.MaxIdleConns),
-		ggorm.WithMaxOpenConns(config.Get().Database.Postgresql.MaxOpenConns),
-		ggorm.WithConnMaxLifetime(time.Duration(config.Get().Database.Postgresql.ConnMaxLifetime) * time.Minute),
-	}
-	if config.Get().Database.Postgresql.EnableLog {
-		opts = append(opts,
-			ggorm.WithLogging(logger.Get()),
-			ggorm.WithLogRequestIDKey("request_id"),
-		)
-	}
-
-	if config.Get().App.EnableTrace {
-		opts = append(opts, ggorm.WithEnableTrace())
-	}
-
-	// add custom gorm plugin
-	//opts = append(opts, ggorm.WithGormPlugin(yourPlugin))
-
-	var dsn = utils.AdaptivePostgresqlDsn(config.Get().Database.Postgresql.Dsn)
-	var err error
-	db, err = ggorm.InitPostgresql(dsn, opts...)
-	if err != nil {
-		panic("InitPostgresql error: " + err.Error())
+		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
+			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
 	}
 }`
 
 	modelInitDBFileSqliteCode = `// InitDB connect database
 func InitDB() {
-	switch strings.ToLower(config.Get().Database.Driver) {
-	case ggorm.DBDriverSqlite:
-		InitSqlite()
+	dbDriver := config.Get().Database.Driver
+	switch strings.ToLower(dbDriver) {
+	case sgorm.DBDriverSqlite:
+		gdb = InitSqlite()
 	default:
-		panic("InitDB error, unsupported database driver: " + config.Get().Database.Driver)
-	}
-}
-
-// InitSqlite connect sqlite
-func InitSqlite() {
-	opts := []ggorm.Option{
-		ggorm.WithMaxIdleConns(config.Get().Database.Sqlite.MaxIdleConns),
-		ggorm.WithMaxOpenConns(config.Get().Database.Sqlite.MaxOpenConns),
-		ggorm.WithConnMaxLifetime(time.Duration(config.Get().Database.Sqlite.ConnMaxLifetime) * time.Minute),
-	}
-	if config.Get().Database.Sqlite.EnableLog {
-		opts = append(opts,
-			ggorm.WithLogging(logger.Get()),
-			ggorm.WithLogRequestIDKey("request_id"),
-		)
-	}
-
-	if config.Get().App.EnableTrace {
-		opts = append(opts, ggorm.WithEnableTrace())
-	}
-
-	var err error
-	var dbFile = utils.AdaptiveSqlite(config.Get().Database.Sqlite.DBFile)
-	db, err = ggorm.InitSqlite(dbFile, opts...)
-	if err != nil {
-		panic("InitSqlite error: " + err.Error())
+		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
+			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
 	}
 }`
 
