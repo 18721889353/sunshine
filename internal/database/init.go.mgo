@@ -1,0 +1,43 @@
+package database
+
+import (
+	"strings"
+	"sync"
+
+	"github.com/18721889353/sunshine/pkg/mgo"
+
+	"github.com/18721889353/sunshine/internal/config"
+)
+
+var (
+	mdb     *mgo.Database
+	mdbOnce sync.Once
+)
+
+// InitDB connect database
+func InitDB() {
+	dbDriver := config.Get().Database.Driver
+	switch strings.ToLower(dbDriver) {
+	case mgo.DBDriverName:
+		mdb = InitMongodb()
+	default:
+		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
+			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
+	}
+}
+
+// GetDB get db
+func GetDB() *mgo.Database {
+	if mdb == nil {
+		mdbOnce.Do(func() {
+			InitDB()
+		})
+	}
+
+	return mdb
+}
+
+// CloseDB close db
+func CloseDB() error {
+	return mgo.Close(mdb)
+}
