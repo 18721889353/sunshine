@@ -53,7 +53,7 @@ func (s *grpcServer) Start() error {
 	// registration Services
 	if s.iRegistry != nil {
 		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-		if err := s.iRegistry.Register(ctx, s.instance); err != nil {
+		if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
 			return err
 		}
 		go func() {
@@ -63,8 +63,8 @@ func (s *grpcServer) Start() error {
 				select {
 				case <-ticker.C:
 					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-					if err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						//logger.Warn("s.iRegistry.Register error", logger.Err(err))
+					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
+						logger.Warn("s.iRegistry.Register error", logger.Err(err))
 					} else {
 						logger.Warn("s.iRegistry.Register")
 					}
