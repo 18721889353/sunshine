@@ -30,15 +30,12 @@ func ConfigCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Generate go config code from yaml file",
-		Long: color.HiBlackString(`generate go config code from yaml file.
-
-Examples:
-  # generate config code in server directory, the yaml configuration file must be in <yourServerDir>/configs directory.
+		Long:  "Generate go config code from yaml file.",
+		Example: color.HiBlackString(`  # Generate config code in server directory, the yaml configuration file must be in <yourServerDir>/configs directory.
   sunshine config --server-dir=/yourServerDir
 
-  # generate config code from yaml file.
-  sunshine config --yaml-file=yourConfig.yml
-`),
+  # Generate config code from yaml file.
+  sunshine config --yaml-file=yourConfig.yml`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,6 +55,7 @@ Examples:
 			if len(files) == 0 {
 				return fmt.Errorf("not found yaml configuration files in server directory %s/configs", serverDir)
 			}
+
 			err = runGenConfigCommand(files, ysArgs)
 			if err != nil {
 				return err
@@ -70,6 +68,10 @@ Examples:
 	cmd.Flags().StringVarP(&serverDir, "server-dir", "d", "", "server directory")
 	cmd.Flags().StringVarP(&ysArgs.InputFile, "yaml-file", "f", "", "yaml file")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./config_<time>")
+
+	cmd.AddCommand(
+		ConfigmapCommand(), // k8s configmap command
+	)
 
 	return cmd
 }

@@ -6,7 +6,6 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/IBM/sarama v1.43.3
 	github.com/alicebob/miniredis/v2 v2.33.0
-	github.com/blastrain/vitess-sqlparser v0.0.0-20201030050434-a139afbb1aba
 	github.com/bojand/ghz v0.120.0
 	github.com/bwmarrin/snowflake v0.3.0
 	github.com/fatih/color v1.17.0
@@ -46,6 +45,7 @@ require (
 	github.com/swaggo/swag v1.16.3
 	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.1
 	github.com/vmihailenco/msgpack v4.0.4+incompatible
+	github.com/zhufuyi/sqlparser v1.0.0
 	go.etcd.io/etcd/client/v3 v3.5.15
 	go.mongodb.org/mongo-driver v1.16.1
 	go.opentelemetry.io/contrib v1.29.0
@@ -155,7 +155,7 @@ require (
 	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/juju/errors v0.0.0-20170703010042-c7d06af17c68 // indirect
+	github.com/juju/errors v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect

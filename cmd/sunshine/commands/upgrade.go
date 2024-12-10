@@ -23,18 +23,15 @@ func UpgradeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Upgrade sunshine version",
-		Long: color.HiBlackString(`upgrade sunshine version.
-
-Examples:
-  # upgrade to latest version
+		Long:  "Upgrade sunshine version.",
+		Example: color.HiBlackString(`  # Upgrade to latest version
   sunshine upgrade
-  # upgrade to specified version
-  sunshine upgrade --version=v1.5.6
-`),
+
+  # Upgrade to specified version
+  sunshine upgrade --version=v1.5.6`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("upgrading sunshine, please wait a moment ......")
 			if targetVersion == "" {
 				targetVersion = latestVersion
 			}
@@ -52,24 +49,41 @@ Examples:
 }
 
 func runUpgrade(targetVersion string) (string, error) {
+	runningTip := "upgrading sunshine binary "
+	finishTip := "upgrade sunshine binary done " + installedSymbol
+	failTip := "upgrade sunshine binary failed " + lackSymbol
+	p := utils.NewWaitPrinter(time.Millisecond * 500)
+	p.LoopPrint(runningTip)
 	err := runUpgradeCommand(targetVersion)
 	if err != nil {
-		fmt.Println(lackSymbol + "upgrade sunshine binary.")
+		p.StopPrint(failTip)
 		return "", err
 	}
-	fmt.Println(installedSymbol + "upgraded sunshine binary.")
+	p.StopPrint(finishTip)
+
+	runningTip = "upgrading template code "
+	finishTip = "upgrade template code done " + installedSymbol
+	failTip = "upgrade template code failed " + lackSymbol
+	p = utils.NewWaitPrinter(time.Millisecond * 500)
+	p.LoopPrint(runningTip)
 	ver, err := copyToTempDir(targetVersion)
 	if err != nil {
-		fmt.Println(lackSymbol + "upgrade template code.")
+		p.StopPrint(failTip)
 		return "", err
 	}
-	fmt.Println(installedSymbol + "upgraded template code.")
+	p.StopPrint(finishTip)
+
+	runningTip = "upgrading the built-in plugins of sunshine "
+	finishTip = "upgrade the built-in plugins of sunshine done " + installedSymbol
+	failTip = "upgrade the built-in plugins of sunshine failed " + lackSymbol
+	p = utils.NewWaitPrinter(time.Millisecond * 500)
+	p.LoopPrint(runningTip)
 	err = updateSunshineInternalPlugin(ver)
 	if err != nil {
-		fmt.Println(lackSymbol + "upgrade protoc plugins.")
+		p.StopPrint(failTip)
 		return "", err
 	}
-	fmt.Println(installedSymbol + "upgraded protoc plugins.")
+	p.StopPrint(finishTip)
 	return ver, nil
 }
 
@@ -130,6 +144,9 @@ func copyToTempDir(targetVersion string) (string, error) {
 		return "", err
 	}
 	_ = executeCommand("rm", "-rf", targetDir+"/cmd/sunshine")
+	_ = executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-go-gin")
+	_ = executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-go-rpc-tmpl")
+	_ = executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-json-field")
 	_ = executeCommand("rm", "-rf", targetDir+"/pkg")
 	_ = executeCommand("rm", "-rf", targetDir+"/test")
 	_ = executeCommand("rm", "-rf", targetDir+"/assets")
@@ -207,6 +224,18 @@ func updateSunshineInternalPlugin(targetVersion string) error {
 	}
 	if result.Err != nil {
 		return result.Err
+	}
+
+	// v1.x.x version does not support protoc-gen-json-field
+	if !strings.HasPrefix(targetVersion, "v1") {
+		ctx, _ = context.WithTimeout(context.Background(), time.Minute) //nolint
+		result = gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/protoc-gen-json-field@"+targetVersion)
+		for v := range result.StdOut {
+			_ = v
+		}
+		if result.Err != nil {
+			return result.Err
+		}
 	}
 
 	return nil

@@ -21,17 +21,14 @@ func ConfigmapCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "configmap",
+		Use:   "cm",
 		Short: "Generate k8s configmap",
-		Long: color.HiBlackString(`generate k8s configmap.
+		Long:  "Generate k8s configmap.",
+		Example: color.HiBlackString(`  # Generate k8s configmap
+  sunshine config cm --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml
 
-Examples:
-  # generate k8s configmap
-  sunshine configmap --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml
-
-  # generate grpc connection code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine configmap --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml --out=./yourServerDir
-`),
+  # Generate k8s configmap and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
+  sunshine config cm --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

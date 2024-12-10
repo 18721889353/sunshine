@@ -6,8 +6,8 @@ package merge
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
-	"github.com/fatih/color"
 	"os"
 	"path"
 	"path/filepath"
@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
 
 	"github.com/18721889353/sunshine/pkg/gobash"
 	"github.com/18721889353/sunshine/pkg/gofile"
@@ -111,7 +113,7 @@ func (m *mergeParam) runMergeCode(file string) (string, error) {
 	count1 := bytes.Count(data1, m.splitLineMark)
 	count2 := bytes.Count(data2, m.splitLineMark)
 	if count1 != count2 {
-		return "", fmt.Errorf(color.RedString("merge code failed (%s --> %s), manually merge code"+
+		return "", errors.New(color.RedString("merge code failed (%s --> %s), manually merge code"+
 			" reference document https://github.com/18721889353/sunshine/tree/main/cmd/sunshine/commands/merge",
 			cutPathPrefix(file), getTargetFilename(file)))
 	}
@@ -134,7 +136,7 @@ func (m *mergeParam) runMergeCode(file string) (string, error) {
 	}
 
 	if len(data1) > len(data) {
-		return "", fmt.Errorf(color.RedString("merge code failed (%s --> %s), to avoid replacing logical code, "+
+		return "", errors.New(color.RedString("merge code failed (%s --> %s), to avoid replacing logical code, "+
 			"manually merge code reference document https://github.com/18721889353/sunshine/tree/main/cmd/sunshine/commands/merge",
 			cutPathPrefix(file), getTargetFilename(file)))
 	}

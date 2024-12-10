@@ -6,16 +6,14 @@ package main
 
 import (
 	"fmt"
-	"os"
-
-	"github.com/18721889353/sunshine/pkg/gofile"
-
 	"github.com/18721889353/sunshine/cmd/sunshine/commands"
 	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
+
+	"os"
 )
 
 func main() {
-	err := generate.Init(generate.TplNameSunshine, commands.GetSunshineDir()+gofile.GetPathDelimiter()+".sunshine")
+	err := generate.Init()
 	if err != nil {
 		fmt.Printf("\n    %v\n\n", err)
 		return

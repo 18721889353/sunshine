@@ -34,23 +34,20 @@ func HandlerCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "handler",
 		Short: "Generate handler CRUD code based on sql",
-		Long: color.HiBlackString(`generate handler CRUD code based on sql.
-
-Examples:
-  # generate handler code.
+		Long:  "Generate handler CRUD code based on sql.",
+		Example: color.HiBlackString(`  # Generate handler code.
   sunshine web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # generate handler code with multiple table names.
+  # Generate handler code with multiple table names.
   sunshine web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # generate handler code with extended api.
+  # Generate handler code with extended api.
   sunshine web handler --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
-  # generate handler code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate handler code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine web handler --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true --server-name=yourServerName
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true --server-name=yourServerName`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -118,7 +115,7 @@ using help:
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
 	//_ = cmd.MarkFlagRequired("module-name")
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -142,12 +139,13 @@ type handlerGenerator struct {
 	isExtendedAPI  bool
 	suitedMonoRepo bool
 
-	fields []replacer.Field
+	fields        []replacer.Field
+	isCommonStyle bool
 }
 
 func (g *handlerGenerator) generateCode() (string, error) {
 	subTplName := codeNameHandler
-	r := Replacers[TplNameSunshine]
+	r, _ := replacer.New(SunshineDir)
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -179,14 +177,62 @@ func (g *handlerGenerator) generateCode() (string, error) {
 			"userExample_types.go",
 		},
 	}
-	replaceFiles := make(map[string][]string)
 
+	info := g.codes[parser.CodeTypeCrudInfo]
+	crudInfo, _ := unmarshalCrudInfo(info)
+	if crudInfo.CheckCommonType() {
+		g.isCommonStyle = true
+		selectFiles = map[string][]string{
+			"internal/cache": {
+				"userExample.go.tpl",
+			},
+			"internal/dao": {
+				"userExample.go.tpl",
+			},
+			"internal/ecode": {
+				"userExample_http.go.tpl",
+			},
+			"internal/handler": {
+				"userExample.go.tpl",
+			},
+			"internal/model": {
+				"userExample.go",
+			},
+			"internal/routers": {
+				"userExample.go.tpl",
+			},
+			"internal/types": {
+				"userExample_types.go.tpl",
+			},
+		}
+		var fields []replacer.Field
+		if g.isExtendedAPI {
+			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
+			selectFiles["internal/handler"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/routers"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/types"] = []string{"userExample_types.go.exp.tpl"}
+			fields = commonHandlerExtendedFields(r)
+		} else {
+			fields = commonHandlerFields(r)
+		}
+		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if err != nil {
+			return "", err
+		}
+		g.fields = append(g.fields, contentFields...)
+		g.fields = append(g.fields, fields...)
+	}
+
+	replaceFiles := make(map[string][]string)
 	switch strings.ToLower(g.dbDriver) {
 	case DBDriverMysql, DBDriverPostgresql, DBDriverTidb, DBDriverSqlite:
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
 		if g.isExtendedAPI {
 			var fields []replacer.Field
-			replaceFiles, fields = handlerExtendedAPI(r, codeNameHandler)
+			if !crudInfo.CheckCommonType() {
+				replaceFiles, fields = handlerExtendedAPI(r, codeNameHandler)
+			}
 			g.fields = append(g.fields, fields...)
 		}
 
@@ -236,8 +282,8 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerMgoFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesFile, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerTestFile, startMark, endMark)...)
 	fields = append(fields, []replacer.Field{
 		{ // replace the contents of the model/userExample.go file
@@ -250,7 +296,7 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{ // replace the contents of the handler/userExample.go file
 			Old: handlerFileMark,
-			New: adjustmentOfIDType(g.codes[parser.CodeTypeHandler], g.dbDriver),
+			New: adjustmentOfIDType(g.codes[parser.CodeTypeHandler], g.dbDriver, g.isCommonStyle),
 		},
 		{
 			Old: selfPackageName + "/" + r.GetSourcePath(),
@@ -271,6 +317,10 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		{
 			Old: "userExample_types.go.mgo",
 			New: "userExample_types.go",
+		},
+		{
+			Old: showDbNameMark,
+			New: CurrentDbDriver(g.dbDriver),
 		},
 		{
 			Old: "userExample.go.mgo",
@@ -319,7 +369,7 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 
 	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerFile+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerTestFile+expSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
@@ -358,9 +408,6 @@ func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 		"internal/handler": {
 			"userExample.go.mgo.exp",
 		},
-		"internal/model": {
-			"init.go.mgo", "userExample.go",
-		},
 		"internal/routers": {
 			"routers.go", "userExample.go.exp",
 		},
@@ -370,7 +417,6 @@ func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 	}
 	if codeName == codeNameHandler {
 		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp"}
-		replaceFiles["internal/model"] = []string{"userExample.go"}
 		replaceFiles["internal/routers"] = []string{"userExample.go.exp"}
 		replaceFiles["internal/types"] = []string{"userExample_types.go.mgo.exp"}
 	}
@@ -378,7 +424,7 @@ func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 	var fields []replacer.Field
 
 	fields = append(fields, deleteFieldsMark(r, daoMgoFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerMgoFile+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesMgoFile+expSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
@@ -400,4 +446,58 @@ func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 	}...)
 
 	return replaceFiles, fields
+}
+
+func commonHandlerFields(r replacer.Replacer) []replacer.Field {
+	var fields []replacer.Field
+
+	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesFile+tplSuffix, startMark, endMark)...)
+
+	fields = append(fields, []replacer.Field{
+		{
+			Old: "userExample_http.go.tpl",
+			New: "userExample_http.go",
+		},
+		{
+			Old: "userExample_types.go.tpl",
+			New: "userExample_types.go",
+		},
+		{
+			Old: "userExample.go.tpl",
+			New: "userExample.go",
+		},
+	}...)
+
+	return fields
+}
+
+func commonHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
+	var fields []replacer.Field
+
+	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix+tplSuffix, startMark, endMark)...)
+
+	fields = append(fields, []replacer.Field{
+		{
+			Old: "userExample_http.go.exp.tpl",
+			New: "userExample_http.go",
+		},
+		{
+			Old: "userExample_types.go.exp.tpl",
+			New: "userExample_types.go",
+		},
+		{
+			Old: "userExample.go.tpl",
+			New: "userExample.go",
+		},
+		{
+			Old: "userExample.go.exp.tpl",
+			New: "userExample.go",
+		},
+	}...)
+
+	return fields
 }

@@ -34,23 +34,21 @@ func DaoCommand(parentName string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dao",
 		Short: "Generate dao code based on sql",
-		Long: color.HiBlackString(fmt.Sprintf(`generate dao code based on sql.
-
-Examples:
-  # generate dao code.
+		Long:  "Generate dao code based on sql.",
+		Example: color.HiBlackString(fmt.Sprintf(`  # Generate dao code.
   sunshine %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
 
-  # generate dao code with multiple table names.
+  # Generate dao code with multiple table names.
   sunshine %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # generate dao code with extened api.
+  # Generate dao code with extened api.
   sunshine %s dao --module-name=yourModuleName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
 
-  # generate dao code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate dao code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine %s dao --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true --server-name=yourServerName
-`, parentName, parentName, parentName, parentName)),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true --server-name=yourServerName`,
+			parentName, parentName, parentName, parentName)),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -121,7 +119,7 @@ using help:
 
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
 	//_ = cmd.MarkFlagRequired("module-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, tidb, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -153,7 +151,7 @@ type daoGenerator struct {
 
 func (g *daoGenerator) generateCode() (string, error) {
 	subTplName := codeNameDao
-	r := Replacers[TplNameSunshine]
+	r, _ := replacer.New(SunshineDir)
 	if r == nil {
 		return "", errors.New("r is nil")
 	}
@@ -173,14 +171,45 @@ func (g *daoGenerator) generateCode() (string, error) {
 			"userExample.go",
 		},
 	}
-	replaceFiles := make(map[string][]string)
 
+	info := g.codes[parser.CodeTypeCrudInfo]
+	crudInfo, _ := unmarshalCrudInfo(info)
+	if crudInfo.CheckCommonType() {
+		selectFiles = map[string][]string{
+			"internal/cache": {
+				"userExample.go.tpl",
+			},
+			"internal/dao": {
+				"userExample.go.tpl",
+			},
+			"internal/model": {
+				"userExample.go",
+			},
+		}
+		var fields []replacer.Field
+		if g.isExtendedAPI {
+			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			fields = commonDaoExtendedFields(r)
+		} else {
+			fields = commonDaoFields(r)
+		}
+		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if err != nil {
+			return "", err
+		}
+		g.fields = append(g.fields, contentFields...)
+		g.fields = append(g.fields, fields...)
+	}
+
+	replaceFiles := make(map[string][]string)
 	switch strings.ToLower(g.dbDriver) {
 	case DBDriverMysql, DBDriverPostgresql, DBDriverTidb, DBDriverSqlite:
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
 		if g.isExtendedAPI {
 			var fields []replacer.Field
-			replaceFiles, fields = daoExtendedAPI(r)
+			if !crudInfo.CheckCommonType() {
+				replaceFiles, fields = daoExtendedAPI(r)
+			}
 			g.fields = append(g.fields, fields...)
 		}
 
@@ -320,4 +349,40 @@ func daoMongoDBExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer
 	}...)
 
 	return replaceFiles, fields
+}
+
+func commonDaoFields(r replacer.Replacer) []replacer.Field {
+	var fields []replacer.Field
+
+	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
+
+	fields = append(fields, []replacer.Field{
+		{
+			Old: "userExample.go.tpl",
+			New: "userExample.go",
+		},
+	}...)
+
+	return fields
+}
+
+func commonDaoExtendedFields(r replacer.Replacer) []replacer.Field {
+	var fields []replacer.Field
+
+	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+
+	fields = append(fields, []replacer.Field{
+		{
+			Old: "userExample.go.tpl",
+			New: "userExample.go",
+		},
+		{
+			Old: "userExample.go.exp.tpl",
+			New: "userExample.go",
+		},
+	}...)
+
+	return fields
 }

@@ -27,20 +27,17 @@ func RPCGwPbCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rpc-gw-pb",
 		Short: "Generate grpc gateway service code based on protobuf file",
-		Long: color.HiBlackString(`generate grpc gateway service code based on protobuf file.
-
-Examples:
-  # generate grpc gateway service code.
+		Long:  "Generate grpc gateway service code based on protobuf file.",
+		Example: color.HiBlackString(`  # Generate grpc gateway service code.
   sunshine micro rpc-gw-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto
 
-  # generate grpc gateway service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
+  # Generate grpc gateway service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
   sunshine micro rpc-gw-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto --out=./yourServerDir
 
-  # generate grpc gateway service code and specify the docker image repository address.
+  # Generate grpc gateway service code and specify the docker image repository address.
   sunshine micro rpc-gw-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --protobuf-file=./demo.proto
 
-  # if you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true
-`),
+  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -132,7 +129,7 @@ func (g *rpcGwPbGenerator) generateCode() error {
 			"apis.go", "apis.swagger.json",
 		},
 		"internal/config": {
-			"serverNameExample.go", "serverNameExample_test.go", "serverNameExample_cc.go",
+			"serverNameExample.go",
 		},
 		"internal/ecode": {
 			"systemCode_rpc.go",
@@ -141,7 +138,7 @@ func (g *rpcGwPbGenerator) generateCode() error {
 			"routers_pbExample.go",
 		},
 		"internal/server": {
-			"http.go", "http_test.go", "http_option.go",
+			"http.go", "http_option.go",
 		},
 	}
 
@@ -153,11 +150,13 @@ func (g *rpcGwPbGenerator) generateCode() error {
 	replaceFiles := make(map[string][]string)
 	subFiles = append(subFiles, getSubFiles(selectFiles, replaceFiles)...)
 
-	// ignore some directories
+	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
+	ignoreFiles := []string{"configs/serverNameExample_cc.yml"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
+	r.SetIgnoreSubFiles(ignoreFiles...)
 	_ = r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName)
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
@@ -211,7 +210,7 @@ func (g *rpcGwPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{ // replace the configuration of the *.yml file
 			Old: appConfigFileMark2,
-			New: getDBConfigCode(undeterminedDBDriver),
+			New: getDBConfigCode(""), // no db config
 		},
 		{ // replace the configuration of the *.yml file
 			Old: appConfigFileMark,
@@ -321,6 +320,8 @@ func (g *rpcGwPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: "",
 		},
 	}...)
+
+	fields = append(fields, getGRPCServiceFields()...)
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameGRPCGW, g.moduleName, g.serverName)
