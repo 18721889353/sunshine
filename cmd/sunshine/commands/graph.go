@@ -40,7 +40,7 @@ func GenGraphCommand() *cobra.Command {
 			_, err := gobash.Exec("spograph", "-h")
 			if err != nil {
 				fmt.Printf("not found spograph command, please install it by running the following command: %s\n",
-					color.HiCyanString("go install github.com/18721889353/spograph@latest"))
+					color.HiCyanString("go install github.com/zhufuyi/spograph@latest"))
 				return nil
 			}
 

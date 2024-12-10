@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
 	"os"
 	"strings"
 	"sync"
