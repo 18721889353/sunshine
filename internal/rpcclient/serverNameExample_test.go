@@ -22,23 +22,7 @@ func TestNewServerNameExampleRPCConn(t *testing.T) {
 	config.Get().App.EnableCircuitBreaker = true
 
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		config.Get().GrpcClient[0].RegistryDiscoveryType = "consul"
-		NewServerNameExampleRPCConn()
-		time.Sleep(time.Millisecond * 100)
-		_ = CloseServerNameExampleRPCConn()
-		cancel()
-	})
-
-	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
 		config.Get().GrpcClient[0].RegistryDiscoveryType = "etcd"
-		NewServerNameExampleRPCConn()
-		time.Sleep(time.Millisecond * 100)
-		_ = CloseServerNameExampleRPCConn()
-		cancel()
-	})
-
-	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		config.Get().GrpcClient[0].RegistryDiscoveryType = "nacos"
 		NewServerNameExampleRPCConn()
 		time.Sleep(time.Millisecond * 100)
 		_ = CloseServerNameExampleRPCConn()

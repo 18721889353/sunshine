@@ -394,7 +394,7 @@ grpcClient:
     host: "127.0.0.1"            # grpc service address, used for direct connection
     port: 8282                   # grpc service port
     timeout: 0                   # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, valid only for unary grpc type
-    registryDiscoveryType: ""    # registration and discovery types: consul, etcd, nacos, if empty, connecting to server using host and port
+    registryDiscoveryType: ""    # registration and discovery types:etcd, if empty, connecting to server using host and port
     enableLoadBalance: true      # whether to turn on the load balancer
     # clientSecure parameter setting
     # if type="", it means no secure connection, no need to fill in any parameters
@@ -423,7 +423,7 @@ grpcClient:
     host: "127.0.0.1"            # grpc service address, used for direct connection
     port: 8282                   # grpc service port
     timeout: 0                   # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, valid only for unary grpc type
-    registryDiscoveryType: ""    # registration and discovery types: consul, etcd, nacos, if empty, connecting to server using host and port
+    registryDiscoveryType: ""    # registration and discovery types:etcd, if empty, connecting to server using host and port
     enableLoadBalance: true      # whether to turn on the load balancer
     # clientSecure parameter setting
     # if type="", it means no secure connection, no need to fill in any parameters
@@ -468,7 +468,7 @@ grpcClient:
     host: "127.0.0.1"            # grpc service address, used for direct connection
     port: 8282                   # grpc service port
     timeout: 0                   # request timeout, unit(second), if 0 means not set, if greater than 0 means set timeout, valid only for unary grpc type
-    registryDiscoveryType: ""    # registration and discovery types: consul, etcd, nacos, if empty, connecting to server using host and port
+    registryDiscoveryType: ""    # registration and discovery types:etcd, if empty, connecting to server using host and port
     enableLoadBalance: true      # whether to turn on the load balancer
     # clientSecure parameter setting
     # if type="", it means no secure connection, no need to fill in any parameters
