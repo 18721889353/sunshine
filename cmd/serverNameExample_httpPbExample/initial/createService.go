@@ -43,19 +43,6 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 	)
 
 	switch cfg.App.RegistryDiscoveryType {
-	// registering service with consul
-	//case "consul":
-	//	iRegistry, instance, err = consul.NewRegistry(
-	//		cfg.Consul.Addr,
-	//		id,
-	//		cfg.App.Name,
-	//		[]string{instanceEndpoint},
-	//	)
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	logField = logger.Any("consulAddress", cfg.Consul.Addr)
-
 	// registering service with etcd
 	case "etcd":
 		iRegistry, instance, err = etcd.NewRegistry(
@@ -68,21 +55,6 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 			panic(err)
 		}
 		logField = logger.Any("etcdAddress", cfg.Etcd.Addrs)
-
-		// registering service with nacos
-		//case "nacos":
-		//	iRegistry, instance, err = nacos.NewRegistry(
-		//		cfg.NacosRd.IPAddr,
-		//		cfg.NacosRd.Port,
-		//		cfg.NacosRd.NamespaceID,
-		//		id,
-		//		cfg.App.Name,
-		//		[]string{instanceEndpoint},
-		//	)
-		//	if err != nil {
-		//		panic(err)
-		//	}
-		//	logField = logger.String("nacosAddress", fmt.Sprintf("%v:%d", cfg.NacosRd.IPAddr, cfg.NacosRd.Port))
 	}
 
 	if instance != nil {

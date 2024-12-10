@@ -21,7 +21,7 @@ var (
 // Registry 是 etcd 注册表。
 type Registry struct {
 	opts   *options         // 选项
-	Client *clientv3.Client // etcd 客户端
+	client *clientv3.Client // etcd 客户端
 	kv     clientv3.KV      // etcd KV 客户端
 	lease  clientv3.Lease   // etcd 租约客户端
 }
@@ -75,7 +75,7 @@ func New(client *clientv3.Client, opts ...Option) (r *Registry) {
 	}
 	return &Registry{
 		opts:   o,
-		Client: client,
+		client: client,
 		kv:     clientv3.NewKV(client),
 	}
 }
@@ -104,32 +104,32 @@ func (r *Registry) IsServiceRegistered(ctx context.Context, key string) (bool, e
 }
 
 // Register 注册服务实例。
-func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstance) error {
+func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstance) (*clientv3.Client, error) {
 	key := fmt.Sprintf("%s/%s/%s", r.opts.namespace, service.Name, service.ID)
 	// 检查服务是否已注册
 	if registered, err := r.IsServiceRegistered(ctx, key); err != nil {
-		return err
+		return nil, err
 	} else if registered {
-		return nil
+		return r.client, nil
 		//return fmt.Errorf("service %v already registered", key)
 	}
 	value, err := marshal(service)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if r.lease != nil {
 		_ = r.lease.Close()
 	}
 	//创建一个新的 lease，用于保持服务的活跃状态
-	r.lease = clientv3.NewLease(r.Client)
+	r.lease = clientv3.NewLease(r.client)
 	// etcd 中注册服务，并获取 lease ID
 	leaseID, err := r.registerWithKV(ctx, key, value)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	go r.heartBeat(r.opts.ctx, leaseID, key, value)
-	return nil
+	return r.client, nil
 }
 
 // Deregister 注销服务实例。
@@ -140,7 +140,7 @@ func (r *Registry) Deregister(ctx context.Context, service *registry.ServiceInst
 		}
 	}()
 	key := fmt.Sprintf("%s/%s/%s", r.opts.namespace, service.Name, service.ID)
-	_, err := r.Client.Delete(ctx, key)
+	_, err := r.client.Delete(ctx, key)
 	return err
 }
 
@@ -168,7 +168,7 @@ func (r *Registry) GetService(ctx context.Context, name string) ([]*registry.Ser
 // Watch 根据服务名称创建一个观察者。
 func (r *Registry) Watch(ctx context.Context, name string) (registry.Watcher, error) {
 	key := fmt.Sprintf("%s/%s", r.opts.namespace, name)
-	return newWatcher(ctx, key, name, r.Client)
+	return newWatcher(ctx, key, name, r.client)
 }
 
 // registerWithKV 创建一个新的租约，并返回当前的租约 ID。
@@ -180,7 +180,7 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 	}
 
 	// 将服务信息存储到 etcd 中，并关联到刚刚创建的 lease
-	_, err = r.Client.Put(ctx, key, value, clientv3.WithLease(grant.ID))
+	_, err = r.client.Put(ctx, key, value, clientv3.WithLease(grant.ID))
 	if err != nil {
 		return 0, err // 如果存储过程中出现错误，返回错误
 	}
@@ -191,7 +191,7 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 // heartBeat 心跳维护，确保租约不被回收。
 func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key string, value string) {
 	curLeaseID := leaseID
-	kac, err := r.Client.KeepAlive(ctx, leaseID)
+	kac, err := r.client.KeepAlive(ctx, leaseID)
 	if err != nil {
 		curLeaseID = 0
 	}
@@ -230,7 +230,7 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 				case curLeaseID = <-idChan:
 				}
 
-				kac, err = r.Client.KeepAlive(ctx, curLeaseID)
+				kac, err = r.client.KeepAlive(ctx, curLeaseID)
 				if err == nil {
 					break
 				}
