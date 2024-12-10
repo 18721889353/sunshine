@@ -1,12 +1,15 @@
 // Package registry 是一个服务注册库，支持 etcd、consul 和 nacos。
 package registry
 
-import "context"
+import (
+	"context"
+	clientv3 "go.etcd.io/etcd/client/v3"
+)
 
 // Registry 是服务注册器接口。
 type Registry interface {
 	// Register 注册服务实例。
-	Register(ctx context.Context, service *ServiceInstance) error
+	Register(ctx context.Context, service *ServiceInstance) (*clientv3.Client, error)
 	// Deregister 取消注册服务实例。
 	Deregister(ctx context.Context, service *ServiceInstance) error
 }
