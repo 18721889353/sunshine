@@ -15,14 +15,14 @@ import (
 
 // Client is consul client config
 type Client struct {
-	client *api.Client
+	Client *api.Client
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
 // NewClient creates consul client
 func NewClient(cli *api.Client) *Client {
-	c := &Client{client: cli}
+	c := &Client{Client: cli}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c
 }
@@ -34,7 +34,7 @@ func (d *Client) Service(ctx context.Context, service string, index uint64, pass
 		WaitTime:  time.Second * 55,
 	}
 	opts = opts.WithContext(ctx)
-	entries, meta, err := d.client.Health().Service(service, "", passingOnly, opts)
+	entries, meta, err := d.Client.Health().Service(service, "", passingOnly, opts)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -99,7 +99,7 @@ func (d *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 			DeregisterCriticalServiceAfter: "60s",
 		})
 	}
-	err := d.client.Agent().ServiceRegister(asr)
+	err := d.Client.Agent().ServiceRegister(asr)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (d *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 		for {
 			select {
 			case <-ticker.C:
-				_ = d.client.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass")
+				_ = d.Client.Agent().UpdateTTL("service:"+svc.ID, "pass", "pass")
 			case <-d.ctx.Done():
 				return
 			}
@@ -122,5 +122,5 @@ func (d *Client) Register(_ context.Context, svc *registry.ServiceInstance, enab
 // Deregister deregister service by service ID
 func (d *Client) Deregister(_ context.Context, serviceID string) error {
 	d.cancel()
-	return d.client.Agent().ServiceDeregister(serviceID)
+	return d.Client.Agent().ServiceDeregister(serviceID)
 }

@@ -6,9 +6,9 @@ import (
 )
 
 func TestLoopPrint(t *testing.T) {
-	runningTip := "upgrading sponge binary "
-	finishTip := "upgrade sponge binary successfully"
-	failedTip := "failed to upgrade sponge binary "
+	runningTip := "upgrading sunshine binary "
+	finishTip := "upgrade sunshine binary successfully"
+	failedTip := "failed to upgrade sunshine binary "
 
 	p := NewWaitPrinter(time.Millisecond * 100)
 	p.LoopPrint(runningTip)
