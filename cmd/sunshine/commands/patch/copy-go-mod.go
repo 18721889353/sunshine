@@ -3,13 +3,13 @@ package patch
 import (
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
 	"os"
 	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
 	"github.com/18721889353/sunshine/pkg/gofile"
 )
 

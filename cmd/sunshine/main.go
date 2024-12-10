@@ -6,10 +6,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/18721889353/sunshine/cmd/sunshine/commands"
 	"github.com/18721889353/sunshine/cmd/sunshine/commands/generate"
-
-	"os"
 )
 
 func main() {
