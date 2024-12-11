@@ -6,12 +6,18 @@ import (
 	"strings"
 )
 
-// AdaptiveMysqlDsn adaptation of various mysql format dsn address
+// AdaptiveMysqlDsn 适应各种 MySQL 格式的 DSN 地址
+// 将 "mysql://" 前缀替换为空字符串
 func AdaptiveMysqlDsn(dsn string) string {
 	return strings.ReplaceAll(dsn, "mysql://", "")
 }
 
-// AdaptivePostgresqlDsn convert postgres dsn to kv string
+// AdaptivePostgresqlDsn 将 PostgreSQL 的 DSN 转换为键值对字符串
+// 如果 DSN 中包含空格超过 3 个，则直接返回原字符串
+// 如果 DSN 不以 "postgres://" 开头，则添加前缀
+// 删除 DSN 中的括号
+// 解析 DSN 并设置默认的 sslmode 为 disable
+// 返回格式化的键值对字符串
 func AdaptivePostgresqlDsn(dsn string) string {
 	if strings.Count(dsn, " ") > 3 {
 		return dsn
@@ -41,13 +47,16 @@ func AdaptivePostgresqlDsn(dsn string) string {
 		u.Hostname(), u.Port(), u.User.Username(), password, u.Path[1:], strings.Join(ss, " "))
 }
 
-// AdaptiveSqlite adaptive sqlite
+// AdaptiveSqlite 适应 SQLite 数据库文件路径
+// TODO: 转换为绝对路径
 func AdaptiveSqlite(dbFile string) string {
 	// todo convert to absolute path
 	return dbFile
 }
 
-// AdaptiveMongodbDsn adaptive mongodb dsn
+// AdaptiveMongodbDsn 适应 MongoDB 的 DSN
+// 如果 DSN 不以 "mongodb://" 或 "mongodb+srv://" 开头，则添加默认前缀 "mongodb://"
+// 删除 DSN 中的括号
 func AdaptiveMongodbDsn(dsn string) string {
 	if !strings.Contains(dsn, "mongodb://") &&
 		!strings.Contains(dsn, "mongodb+srv://") {
@@ -57,7 +66,8 @@ func AdaptiveMongodbDsn(dsn string) string {
 	return DeleteBrackets(dsn)
 }
 
-// DeleteBrackets delete brackets in dsn
+// DeleteBrackets 删除 DSN 中的括号
+// 查找并删除形如 "@(host:port)/" 的括号
 func DeleteBrackets(str string) string {
 	start := strings.Index(str, "@(")
 	end := strings.LastIndex(str, ")/")
