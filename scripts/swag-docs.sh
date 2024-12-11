@@ -31,6 +31,7 @@ sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
 
 colorGreen='\033[1;32m'
+colorCyan='\033[1;36m'
 highBright='\033[1m'
 markEnd='\033[0m'
 

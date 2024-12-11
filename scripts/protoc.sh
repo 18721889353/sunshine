@@ -93,6 +93,23 @@ function handlePbGoFiles(){
     cd ..
 }
 
+function patchTypesPbFile() {
+  for file in $allProtoFiles; do
+    if [  "$file" = "api/types/types.proto"  ]; then
+      return
+    fi
+    if grep -q "api/types/types.proto" "$file"; then
+      allProtoFiles=$allProtoFiles" api/types/types.proto"
+      bash scripts/patch.sh types-pb
+      return
+    fi
+  done
+}
+
+function autoDetectInitDbFile() {
+  sunshine patch gen-db-init --out=. > /dev/null
+}
+
 function generateByAllProto(){
   getSpecifiedProtoFiles
   if [ $? -eq 0 ]; then
@@ -100,6 +117,9 @@ function generateByAllProto(){
   else
     allProtoFiles=$specifiedProtoFilePaths
   fi
+
+  patchTypesPbFile
+  autoDetectInitDbFile
 
   if [ "$allProtoFiles"x = x ];then
     echo "Error: not found proto file in path $protoBasePath"
@@ -162,6 +182,7 @@ function generateBySpecifiedProto(){
     return
   fi
   echo -e "generate template code by proto files: ${colorMagenta}$specifiedProtoFiles${markEnd}"
+  echo ""
   # todo generate api template code command here
   # delete the templates code start
 
@@ -187,7 +208,6 @@ function generateBySpecifiedProto(){
 
   sunshine merge rpc-gw-pb
   checkResult $?
-
 
   tipMsg="${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then visit ${colorCyan}http://localhost:8080/apis/swagger/index.html${markEnd} in your browser."
   # delete the templates code end
