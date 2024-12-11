@@ -1,5 +1,4 @@
-// Package replacer is a library of replacement file content, supports replacement of
-// files in local directories and embedded directory files via embed.
+// Package replacer 是一个用于替换文件内容的库，支持本地目录和嵌入目录文件的替换。
 package replacer
 
 import (
@@ -17,34 +16,34 @@ import (
 
 var _ Replacer = (*replacerInfo)(nil)
 
-// Replacer interface
+// Replacer 接口定义了文件替换器的行为
 type Replacer interface {
-	SetReplacementFields(fields []Field)
-	SetSubDirsAndFiles(subDirs []string, subFiles ...string)
-	SetIgnoreSubDirs(dirs ...string)
-	SetIgnoreSubFiles(filenames ...string)
-	SetOutputDir(absDir string, name ...string) error
-	GetOutputDir() string
-	GetSourcePath() string
-	SaveFiles() error
-	ReadFile(filename string) ([]byte, error)
-	GetFiles() []string
-	SaveTemplateFiles(m map[string]interface{}, parentDir ...string) error
+	SetReplacementFields(fields []Field)                                   // 设置替换字段
+	SetSubDirsAndFiles(subDirs []string, subFiles ...string)               // 设置子目录和文件列表
+	SetIgnoreSubDirs(dirs ...string)                                       // 设置忽略的子目录
+	SetIgnoreSubFiles(filenames ...string)                                 // 设置忽略的文件
+	SetOutputDir(absDir string, name ...string) error                      // 设置输出目录
+	GetOutputDir() string                                                  // 获取输出目录
+	GetSourcePath() string                                                 // 获取源目录
+	SaveFiles() error                                                      // 保存文件
+	ReadFile(filename string) ([]byte, error)                              // 读取文件内容
+	GetFiles() []string                                                    // 获取文件列表
+	SaveTemplateFiles(m map[string]interface{}, parentDir ...string) error // 保存模板文件
 }
 
-// replacerInfo replacer information
+// replacerInfo 替换器信息结构体
 type replacerInfo struct {
-	path              string   // template directory or file
-	fs                embed.FS // Template directory corresponding to binary objects
-	isActual          bool     // true: use os to manipulate files, false: use fs to manipulate files
-	files             []string // list of template files
-	ignoreFiles       []string // ignore the list of replaced files, e.g. ignore.txt or myDir/ignore.txt
-	ignoreDirs        []string // ignore processed subdirectories
-	replacementFields []Field  // characters to be replaced when converting from a template file to a new file
-	outPath           string   // the directory where the file is saved after replacement
+	path              string   // 模板目录或文件
+	fs                embed.FS // 模板目录对应的二进制对象
+	isActual          bool     // true: 使用 os 操作文件，false: 使用 fs 操作文件
+	files             []string // 模板文件列表
+	ignoreFiles       []string // 忽略的文件列表，例如 ignore.txt 或 myDir/ignore.txt
+	ignoreDirs        []string // 忽略的子目录列表
+	replacementFields []Field  // 从模板文件转换为新文件时需要替换的字符
+	outPath           string   // 替换后文件保存的目录
 }
 
-// New create replacer with local directory
+// New 创建使用本地目录的替换器
 func New(path string) (Replacer, error) {
 	files, err := gofile.ListFiles(path)
 	if err != nil {
@@ -60,7 +59,7 @@ func New(path string) (Replacer, error) {
 	}, nil
 }
 
-// NewFS create replacer with embed.FS
+// NewFS 创建使用嵌入目录的替换器
 func NewFS(path string, fs embed.FS) (Replacer, error) {
 	files, err := listFiles(path, fs)
 	if err != nil {
@@ -76,28 +75,27 @@ func NewFS(path string, fs embed.FS) (Replacer, error) {
 	}, nil
 }
 
-// Field replace field information
+// Field 替换字段信息结构体
 type Field struct {
-	Old             string // old field
-	New             string // new field
-	IsCaseSensitive bool   // whether the first letter is case-sensitive
+	Old             string // 要被替换的旧字段
+	New             string // 新字段
+	IsCaseSensitive bool   // 是否区分大小写
 }
 
-// SetReplacementFields set the replacement field, note: old characters should not be included in the relationship,
-// if they exist, pay attention to the order of precedence when setting the Field
+// SetReplacementFields 设置替换字段，注意：旧字符不应包含关系，如果存在，设置 Field 时需注意优先级
 func (r *replacerInfo) SetReplacementFields(fields []Field) {
 	var newFields []Field
 	for _, field := range fields {
-		if field.IsCaseSensitive && isFirstAlphabet(field.Old) { // splitting the initial case field
+		if field.IsCaseSensitive && isFirstAlphabet(field.Old) { // 分割首字母字段
 			if field.New == "" {
 				continue
 			}
 			newFields = append(newFields,
-				Field{ // convert the first letter to upper case
+				Field{ // 将首字母转换为大写
 					Old: strings.ToUpper(field.Old[:1]) + field.Old[1:],
 					New: strings.ToUpper(field.New[:1]) + field.New[1:],
 				},
-				Field{ // convert the first letter to lower case
+				Field{ // 将首字母转换为小写
 					Old: strings.ToLower(field.Old[:1]) + field.Old[1:],
 					New: strings.ToLower(field.New[:1]) + field.New[1:],
 				},
@@ -109,18 +107,18 @@ func (r *replacerInfo) SetReplacementFields(fields []Field) {
 	r.replacementFields = newFields
 }
 
-// GetFiles get files
+// GetFiles 获取文件列表
 func (r *replacerInfo) GetFiles() []string {
 	return r.files
 }
 
-// SetSubDirsAndFiles set up processing of specified subdirectories, files in other directories are ignored
+// SetSubDirsAndFiles 设置指定子目录和文件的处理，其他目录中的文件将被忽略
 func (r *replacerInfo) SetSubDirsAndFiles(subDirs []string, subFiles ...string) {
 	subDirs = r.convertPathsDelimiter(subDirs...)
 	subFiles = r.convertPathsDelimiter(subFiles...)
 
 	var files []string
-	isExistFile := make(map[string]struct{}) // use map to avoid duplicate files
+	isExistFile := make(map[string]struct{}) // 使用 map 避免重复文件
 	for _, file := range r.files {
 		for _, dir := range subDirs {
 			if isSubPath(file, dir) {
@@ -148,21 +146,20 @@ func (r *replacerInfo) SetSubDirsAndFiles(subDirs []string, subFiles ...string) 
 	r.files = files
 }
 
-// SetIgnoreSubFiles specify files to be ignored
+// SetIgnoreSubFiles 设置忽略的文件
 func (r *replacerInfo) SetIgnoreSubFiles(filenames ...string) {
 	r.ignoreFiles = append(r.ignoreFiles, filenames...)
 }
 
-// SetIgnoreSubDirs specify subdirectories to be ignored
+// SetIgnoreSubDirs 设置忽略的子目录
 func (r *replacerInfo) SetIgnoreSubDirs(dirs ...string) {
 	dirs = r.convertPathsDelimiter(dirs...)
 	r.ignoreDirs = append(r.ignoreDirs, dirs...)
 }
 
-// SetOutputDir specify the output directory, preferably using absPath, if absPath is empty,
-// the output directory is automatically generated in the current directory according to the name of the parameter
+// SetOutputDir 设置输出目录，建议使用绝对路径，如果绝对路径为空，则根据参数名称在当前目录自动生成输出目录
 func (r *replacerInfo) SetOutputDir(absPath string, name ...string) error {
-	// output to the specified directory
+	// 输出到指定目录
 	if absPath != "" {
 		abs, err := filepath.Abs(absPath)
 		if err != nil {
@@ -173,7 +170,7 @@ func (r *replacerInfo) SetOutputDir(absPath string, name ...string) error {
 		return nil
 	}
 
-	// output to the current directory
+	// 输出到当前目录
 	subPath := strings.Join(name, "_")
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -183,21 +180,21 @@ func (r *replacerInfo) SetOutputDir(absPath string, name ...string) error {
 	return nil
 }
 
-// GetOutputDir get output directory
+// GetOutputDir 获取输出目录
 func (r *replacerInfo) GetOutputDir() string {
 	return r.outPath
 }
 
-// GetSourcePath get source directory
+// GetSourcePath 获取源目录
 func (r *replacerInfo) GetSourcePath() string {
 	return r.path
 }
 
-// ReadFile read file content
+// ReadFile 读取文件内容
 func (r *replacerInfo) ReadFile(filename string) ([]byte, error) {
 	filename = r.convertPathDelimiter(filename)
 
-	foundFile := []string{}
+	var foundFile []string
 	for _, file := range r.files {
 		if strings.Contains(file, filename) && gofile.GetFilename(file) == gofile.GetFilename(filename) {
 			foundFile = append(foundFile, file)
@@ -213,7 +210,7 @@ func (r *replacerInfo) ReadFile(filename string) ([]byte, error) {
 	return r.fs.ReadFile(foundFile[0])
 }
 
-// SaveFiles save file with setting
+// SaveFiles 根据设置保存文件
 func (r *replacerInfo) SaveFiles() error {
 	if r.outPath == "" {
 		r.outPath = gofile.GetRunPath() + gofile.GetPathDelimiter() + "generate_" + time.Now().Format("150405")
@@ -231,23 +228,23 @@ func (r *replacerInfo) SaveFiles() error {
 		var err error
 
 		if r.isActual {
-			data, err = os.ReadFile(file) // read from local files
+			data, err = os.ReadFile(file) // 从本地文件读取
 		} else {
-			data, err = r.fs.ReadFile(file) // read from local embed.FS
+			data, err = r.fs.ReadFile(file) // 从嵌入的 FS 读取
 		}
 		if err != nil {
 			return err
 		}
 
-		// replace text content
+		// 替换文本内容
 		for _, field := range r.replacementFields {
 			data = bytes.ReplaceAll(data, []byte(field.Old), []byte(field.New))
 		}
 
-		// get new file path
+		// 获取新的文件路径
 		newFilePath := r.getNewFilePath(file)
 		dir, filename := filepath.Split(newFilePath)
-		// replace file names and directory names
+		// 替换文件名和目录名
 		for _, field := range r.replacementFields {
 			if strings.Contains(dir, field.Old) {
 				dir = strings.ReplaceAll(dir, field.Old, field.New)
@@ -269,13 +266,13 @@ func (r *replacerInfo) SaveFiles() error {
 
 	if len(existFiles) > 0 {
 		//nolint
-		return fmt.Errorf("existing files detected\n    %s\nCode generation has been cancelled\n",
+		return fmt.Errorf("检测到已存在的文件\n    %s\n代码生成已取消\n",
 			strings.Join(existFiles, "\n    "))
 	}
 
 	for file, data := range writeData {
 		if isForbiddenFile(file, r.path) {
-			return fmt.Errorf("disable writing file(%s) to directory(%s), file size=%d", file, r.path, len(data))
+			return fmt.Errorf("禁止将文件(%s)写入目录(%s)，文件大小=%d", file, r.path, len(data))
 		}
 	}
 
@@ -289,7 +286,7 @@ func (r *replacerInfo) SaveFiles() error {
 	return nil
 }
 
-// SaveTemplateFiles save file with setting
+// SaveTemplateFiles 根据设置保存模板文件
 func (r *replacerInfo) SaveTemplateFiles(m map[string]interface{}, parentDir ...string) error {
 	refDir := ""
 	if len(parentDir) > 0 {
@@ -305,7 +302,7 @@ func (r *replacerInfo) SaveTemplateFiles(m map[string]interface{}, parentDir ...
 		newFilePath := r.getNewFilePath2(file, refDir)
 		newFilePath = trimExt(newFilePath)
 		if gofile.IsExists(newFilePath) {
-			return fmt.Errorf("file %s already exists, cancel code generation", newFilePath)
+			return fmt.Errorf("文件 %s 已存在，取消代码生成", newFilePath)
 		}
 		newFilePath, err = replaceTemplateFilePath(newFilePath, m)
 		if err != nil {
@@ -324,10 +321,11 @@ func (r *replacerInfo) SaveTemplateFiles(m map[string]interface{}, parentDir ...
 	return nil
 }
 
+// replaceTemplateData 替换模板数据
 func replaceTemplateData(file string, m map[string]interface{}) ([]byte, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("read file failed, err=%s", err)
+		return nil, fmt.Errorf("读取文件失败，err=%s", err)
 	}
 	if !bytes.Contains(data, []byte("{{")) {
 		return data, nil
@@ -336,15 +334,16 @@ func replaceTemplateData(file string, m map[string]interface{}) ([]byte, error) 
 	builder := bytes.Buffer{}
 	tmpl, err := template.New(file).Parse(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("parse data failed, err=%s", err)
+		return nil, fmt.Errorf("解析数据失败，err=%s", err)
 	}
 	err = tmpl.Execute(&builder, m)
 	if err != nil {
-		return nil, fmt.Errorf("execute data failed, err=%s", err)
+		return nil, fmt.Errorf("执行数据失败，err=%s", err)
 	}
 	return builder.Bytes(), nil
 }
 
+// replaceTemplateFilePath 替换模板文件路径
 func replaceTemplateFilePath(file string, m map[string]interface{}) (string, error) {
 	if !strings.Contains(file, "{{") {
 		return file, nil
@@ -353,15 +352,16 @@ func replaceTemplateFilePath(file string, m map[string]interface{}) (string, err
 	builder := strings.Builder{}
 	tmpl, err := template.New("file: " + file).Parse(file)
 	if err != nil {
-		return file, fmt.Errorf("parse file failed, err=%s", err)
+		return file, fmt.Errorf("解析文件失败，err=%s", err)
 	}
 	err = tmpl.Execute(&builder, m)
 	if err != nil {
-		return file, fmt.Errorf("execute file failed, err=%s", err)
+		return file, fmt.Errorf("执行文件失败，err=%s", err)
 	}
 	return builder.String(), nil
 }
 
+// trimExt 去除文件扩展名
 func trimExt(file string) string {
 	file = strings.TrimSuffix(file, ".tmpl")
 	file = strings.TrimSuffix(file, ".tpl")
@@ -369,6 +369,7 @@ func trimExt(file string) string {
 	return file
 }
 
+// isIgnoreFile 判断文件是否在忽略列表中
 func (r *replacerInfo) isIgnoreFile(file string) bool {
 	isIgnore := false
 	for _, v := range r.ignoreFiles {
@@ -380,6 +381,7 @@ func (r *replacerInfo) isIgnoreFile(file string) bool {
 	return isIgnore
 }
 
+// isInIgnoreDir 判断文件是否在忽略的子目录中
 func (r *replacerInfo) isInIgnoreDir(file string) bool {
 	isIgnore := false
 	dir, _ := filepath.Split(file)
@@ -392,6 +394,7 @@ func (r *replacerInfo) isInIgnoreDir(file string) bool {
 	return isIgnore
 }
 
+// isForbiddenFile 判断文件是否被禁止写入指定目录
 func isForbiddenFile(file string, path string) bool {
 	if gofile.IsWindows() {
 		path = strings.ReplaceAll(path, "/", "\\")
@@ -400,13 +403,8 @@ func isForbiddenFile(file string, path string) bool {
 	return strings.Contains(file, path)
 }
 
+// getNewFilePath 获取新的文件路径
 func (r *replacerInfo) getNewFilePath(file string) string {
-	//var newFilePath string
-	//if r.isActual {
-	//	newFilePath = r.outPath + strings.Replace(file, r.path, "", 1)
-	//} else {
-	//	newFilePath = r.outPath + strings.Replace(file, r.path, "", 1)
-	//}
 	newFilePath := r.outPath + strings.Replace(file, r.path, "", 1)
 
 	if gofile.IsWindows() {
@@ -416,6 +414,7 @@ func (r *replacerInfo) getNewFilePath(file string) string {
 	return newFilePath
 }
 
+// getNewFilePath2 获取新的文件路径（带父目录）
 func (r *replacerInfo) getNewFilePath2(file string, refDir string) string {
 	if refDir == "" {
 		return r.getNewFilePath(file)
@@ -428,7 +427,7 @@ func (r *replacerInfo) getNewFilePath2(file string, refDir string) string {
 	return newFilePath
 }
 
-// if windows, convert the path splitter
+// 如果是 Windows，转换路径分隔符
 func (r *replacerInfo) convertPathDelimiter(filePath string) string {
 	if r.isActual && gofile.IsWindows() {
 		filePath = strings.ReplaceAll(filePath, "/", "\\")
@@ -436,10 +435,10 @@ func (r *replacerInfo) convertPathDelimiter(filePath string) string {
 	return filePath
 }
 
-// if windows, batch convert path splitters
+// 如果是 Windows，批量转换路径分隔符
 func (r *replacerInfo) convertPathsDelimiter(filePaths ...string) []string {
 	if r.isActual && gofile.IsWindows() {
-		filePathsTmp := []string{}
+		var filePathsTmp []string
 		for _, dir := range filePaths {
 			filePathsTmp = append(filePathsTmp, strings.ReplaceAll(dir, "/", "\\"))
 		}
@@ -448,15 +447,16 @@ func (r *replacerInfo) convertPathsDelimiter(filePaths ...string) []string {
 	return filePaths
 }
 
+// 保存新文件
 func saveToNewFile(filePath string, data []byte) error {
-	// create directory
+	// 创建目录
 	dir, _ := filepath.Split(filePath)
 	err := os.MkdirAll(dir, 0766)
 	if err != nil {
 		return err
 	}
 
-	// save file
+	// 保存文件
 	err = os.WriteFile(filePath, data, 0666)
 	if err != nil {
 		return err
@@ -465,14 +465,14 @@ func saveToNewFile(filePath string, data []byte) error {
 	return nil
 }
 
-// iterates over all files in the embedded directory, returning the absolute path to the file
+// 遍历嵌入目录中的所有文件，返回文件的绝对路径
 func listFiles(path string, fs embed.FS) ([]string, error) {
-	files := []string{}
+	var files []string
 	err := walkDir(path, &files, fs)
 	return files, err
 }
 
-// iterating through the embedded catalog
+// 遍历嵌入目录
 func walkDir(dirPath string, allFiles *[]string, fs embed.FS) error {
 	files, err := fs.ReadDir(dirPath)
 	if err != nil {
@@ -491,7 +491,7 @@ func walkDir(dirPath string, allFiles *[]string, fs embed.FS) error {
 	return nil
 }
 
-// determine if the first character of a string is a letter
+// 判断字符串的第一个字符是否为字母
 func isFirstAlphabet(str string) bool {
 	if len(str) == 0 {
 		return false
@@ -504,11 +504,13 @@ func isFirstAlphabet(str string) bool {
 	return false
 }
 
+// 判断文件路径是否为子路径
 func isSubPath(filePath string, subPath string) bool {
 	dir, _ := filepath.Split(filePath)
 	return strings.Contains(dir, subPath)
 }
 
+// 判断文件是否匹配
 func isMatchFile(filePath string, sf string) bool {
 	dir1, file1 := filepath.Split(filePath)
 	dir2, file2 := filepath.Split(sf)
