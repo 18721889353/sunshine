@@ -130,15 +130,6 @@ func getGRPCClientCfg(grpcClient ...config.GrpcClient) config.GrpcClient {
 //	)
 //
 //	switch grpcClientCfg.RegistryDiscoveryType {
-//	case "consul":
-//		endpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName.scheme
-//		cli, err := consulcli.Init(cfg.Consul.Addr, consulcli.WithWaitTime(time.Second*2))
-//		if err != nil {
-//			panic(err)
-//		}
-//		iDiscovery := consul.New(cli)
-//		grpcCliOption = grpccli.WithDiscovery(iDiscovery)
-//
 //	case "etcd":
 //		endpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName.scheme
 //		cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*2))
@@ -146,18 +137,6 @@ func getGRPCClientCfg(grpcClient ...config.GrpcClient) config.GrpcClient {
 //			panic(err)
 //		}
 //		iDiscovery := etcd.New(cli)
-//		grpcCliOption = grpccli.WithDiscovery(iDiscovery)
-//
-//	case "nacos":
-//		endpoint = "discovery:///" + grpcClientCfg.Name + ".grpc" // format: discovery:///serverName.scheme
-//		cli, err := nacoscli.NewNamingClient(
-//			cfg.NacosRd.IPAddr,
-//			cfg.NacosRd.Port,
-//			cfg.NacosRd.NamespaceID)
-//		if err != nil {
-//			panic(err)
-//		}
-//		iDiscovery := nacos.New(cli)
 //		grpcCliOption = grpccli.WithDiscovery(iDiscovery)
 //	}
 //
