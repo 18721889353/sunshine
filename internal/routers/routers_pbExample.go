@@ -2,13 +2,12 @@ package routers
 
 import (
 	"context"
+	"github.com/18721889353/sunshine/internal/database"
+	"google.golang.org/grpc/metadata"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/18721889353/sunshine/internal/model"
-	"google.golang.org/grpc/metadata"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -47,11 +46,8 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		r.Use(middleware.Timeout(time.Second * time.Duration(config.Get().HTTP.Timeout)))
 	}
 
-	// access path /apis/swagger/index.html
-	swagger.CustomRouter(r, "apis", docs.ApiDocs)
-
 	// request id middleware
-	r.Use(middleware.RequestID(middleware.WithSnow(model.GetSnowNode())))
+	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
@@ -108,7 +104,12 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.GET("/health", handlerfunc.CheckHealth)
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
-	r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
+
+	if config.Get().App.Env != "prod" {
+		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
+		// access path /apis/swagger/index.html
+		swagger.CustomRouter(r, "apis", docs.ApiDocs)
+	}
 
 	c := newMiddlewareConfig()
 

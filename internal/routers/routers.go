@@ -17,7 +17,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/middleware/metrics"
 	"github.com/18721889353/sunshine/pkg/gin/prof"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
-	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/docs"
@@ -53,13 +52,6 @@ func NewRouter() *gin.Engine {
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
 
-	// init jwt middleware
-	jwt.Init(
-	//jwt.WithExpire(time.Hour*24),
-	//jwt.WithSigningKey("123456"),
-	//jwt.WithSigningMethod(jwt.HS384),
-	)
-
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
 		r.Use(metrics.Metrics(r,
@@ -94,12 +86,14 @@ func NewRouter() *gin.Engine {
 	r.GET("/health", handlerfunc.CheckHealth)
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
-	r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
 
-	// register swagger routes, generate code via swag init
-	docs.SwaggerInfo.BasePath = ""
-	// access path /swagger/index.html
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	if config.Get().App.Env != "prod" {
+		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
+		// register swagger routes, generate code via swag init
+		docs.SwaggerInfo.BasePath = ""
+		// access path /swagger/index.html
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	// register routers, middleware support
 	registerRouters(r, "/api/v1", apiV1RouterFns)

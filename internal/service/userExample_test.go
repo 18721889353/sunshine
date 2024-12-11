@@ -15,6 +15,7 @@ import (
 	"github.com/18721889353/sunshine/api/types"
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
+	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/model"
 )
 
@@ -27,7 +28,7 @@ func newUserExampleService() *gotest.Service {
 
 	// init mock cache
 	c := gotest.NewCache(map[string]interface{}{utils.Uint64ToStr(testData.ID): testData})
-	c.ICache = cache.NewUserExampleCache(&model.CacheType{
+	c.ICache = cache.NewUserExampleCache(&database.CacheType{
 		CType: "redis",
 		Rdb:   c.RedisClient,
 	})

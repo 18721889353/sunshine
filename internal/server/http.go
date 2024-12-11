@@ -3,10 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"net/http"
 	"time"
-
-	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 

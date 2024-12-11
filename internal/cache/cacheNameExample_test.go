@@ -9,7 +9,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/gotest"
 	"github.com/18721889353/sunshine/pkg/utils"
 
-	"github.com/18721889353/sunshine/internal/model"
+	"github.com/18721889353/sunshine/internal/database"
 )
 
 type cacheNameExampleData struct {
@@ -31,7 +31,7 @@ func newCacheNameExampleCache() *gotest.Cache {
 	}
 
 	c := gotest.NewCache(testData)
-	c.ICache = NewCacheNameExampleCache(&model.CacheType{
+	c.ICache = NewCacheNameExampleCache(&database.CacheType{
 		CType: "redis",
 		Rdb:   c.RedisClient,
 	})
@@ -84,7 +84,7 @@ func Test_cacheNameExampleCache_Del(t *testing.T) {
 }
 
 func TestNewCacheNameExampleCache(t *testing.T) {
-	c := NewCacheNameExampleCache(&model.CacheType{
+	c := NewCacheNameExampleCache(&database.CacheType{
 		CType: "memory",
 	})
 	assert.NotNil(t, c)
@@ -92,7 +92,7 @@ func TestNewCacheNameExampleCache(t *testing.T) {
 	defer func() {
 		_ = recover()
 	}()
-	c = NewCacheNameExampleCache(&model.CacheType{
+	c = NewCacheNameExampleCache(&database.CacheType{
 		CType: "",
 	})
 }

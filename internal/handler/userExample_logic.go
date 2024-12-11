@@ -8,13 +8,14 @@ import (
 
 	"github.com/jinzhu/copier"
 
-	"github.com/18721889353/sunshine/pkg/ggorm/query"
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
 
 	serverNameExampleV1 "github.com/18721889353/sunshine/api/serverNameExample/v1"
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
+	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/ecode"
 	"github.com/18721889353/sunshine/internal/model"
 )
@@ -30,8 +31,8 @@ type userExamplePbHandler struct {
 func NewUserExamplePbHandler() serverNameExampleV1.UserExampleLogicer {
 	return &userExamplePbHandler{
 		userExampleDao: dao.NewUserExampleDao(
-			model.GetDB(),
-			cache.NewUserExampleCache(model.GetCacheType()),
+			database.GetDB(), // todo show db driver name here
+			cache.NewUserExampleCache(database.GetCacheType()),
 		),
 	}
 }
@@ -112,7 +113,7 @@ func (h *userExamplePbHandler) GetByID(ctx context.Context, req *serverNameExamp
 
 	record, err := h.userExampleDao.GetByID(ctx, req.Id)
 	if err != nil {
-		if errors.Is(err, model.ErrRecordNotFound) {
+		if errors.Is(err, database.ErrRecordNotFound) {
 			logger.Warn("GetByID error", logger.Err(err), logger.Any("id", req.Id), middleware.CtxRequestIDField(ctx))
 			return nil, ecode.NotFound.Err()
 		}

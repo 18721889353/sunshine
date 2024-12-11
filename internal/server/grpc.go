@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -94,7 +93,8 @@ func (s *grpcServer) Start() error {
 		}()
 	}
 
-	if err := s.server.Serve(s.listen); err != nil { // block
+	listen := metrics.NewCustomListener(s.listen, metrics.WithConnectionsLogger(logger.Get()), metrics.WithConnectionsGauge())
+	if err := s.server.Serve(listen); err != nil { // block
 		return err
 	}
 
@@ -186,7 +186,6 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		}
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerToken(checkToken))
 	}
-
 	if config.Get().App.OpenJwt {
 		// jwt token interceptor
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
@@ -223,7 +222,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerTracing())
 	}
 
-	return grpc_middleware.WithUnaryServerChain(unaryServerInterceptors...)
+	return grpc.ChainUnaryInterceptor(unaryServerInterceptors...)
 }
 
 // setting up stream server interceptors
@@ -253,10 +252,10 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 
 	// jwt token interceptor
 	//streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerJwtAuth(
-	// choose a verification method as needed
-	//	interceptor.WithStandardVerify(standardVerifyFn), // standard verify (default), you can set standardVerifyFn to nil if you don't need it
-	//	interceptor.WithCustomVerify(customVerifyFn), // custom verify
-	//	// set ignore rpc methods(full path) for jwt token
+	// // choose a verification method as needed
+	//interceptor.WithStandardVerify(standardVerifyFn), // standard verify (default), you can set standardVerifyFn to nil if you don't need it
+	//interceptor.WithCustomVerify(customVerifyFn), // custom verify
+	// // specify the grpc API to ignore token verification(full path)
 	//	interceptor.WithAuthIgnoreMethods("/api.user.v1.User/Register", "/api.user.v1.User/Login"),
 	//))
 
@@ -284,7 +283,7 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 		streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerTracing())
 	}
 
-	return grpc_middleware.WithStreamServerChain(streamServerInterceptors...)
+	return grpc.ChainStreamInterceptor(streamServerInterceptors...)
 }
 
 func (s *grpcServer) getOptions() []grpc.ServerOption {

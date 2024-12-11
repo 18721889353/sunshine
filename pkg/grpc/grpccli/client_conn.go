@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 
-	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -15,8 +14,8 @@ import (
 	"github.com/18721889353/sunshine/pkg/servicerd/discovery"
 )
 
-// Dial to grpc server
-func Dial(ctx context.Context, endpoint string, opts ...Option) (*grpc.ClientConn, error) {
+// NewClient creates a new grpc client
+func NewClient(endpoint string, opts ...Option) (*grpc.ClientConn, error) {
 	o := defaultOptions()
 	o.apply(opts...)
 
@@ -59,7 +58,13 @@ func Dial(ctx context.Context, endpoint string, opts ...Option) (*grpc.ClientCon
 	// custom options
 	clientOptions = append(clientOptions, o.dialOptions...)
 
-	return grpc.DialContext(ctx, endpoint, clientOptions...)
+	return grpc.NewClient(endpoint, clientOptions...)
+}
+
+// Dial to grpc server
+// Deprecated: use NewClient instead
+func Dial(_ context.Context, endpoint string, opts ...Option) (*grpc.ClientConn, error) {
+	return NewClient(endpoint, opts...)
 }
 
 func secureOption(o *options) (grpc.DialOption, error) {
@@ -145,9 +150,7 @@ func unaryClientOptions(o *options) grpc.DialOption {
 	// custom unary interceptors
 	unaryClientInterceptors = append(unaryClientInterceptors, o.unaryInterceptors...)
 
-	return grpc.WithUnaryInterceptor(
-		grpc_middleware.ChainUnaryClient(unaryClientInterceptors...),
-	)
+	return grpc.WithChainUnaryInterceptor(unaryClientInterceptors...)
 }
 
 func streamClientOptions(o *options) grpc.DialOption {
@@ -191,7 +194,5 @@ func streamClientOptions(o *options) grpc.DialOption {
 	// custom stream interceptors
 	streamClientInterceptors = append(streamClientInterceptors, o.streamInterceptors...)
 
-	return grpc.WithStreamInterceptor(
-		grpc_middleware.ChainStreamClient(streamClientInterceptors...),
-	)
+	return grpc.WithChainStreamInterceptor(streamClientInterceptors...)
 }

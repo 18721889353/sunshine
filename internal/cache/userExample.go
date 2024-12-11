@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"errors"
 	"github.com/go-redsync/redsync/v4"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/encoding"
 	"github.com/18721889353/sunshine/pkg/utils"
 
+	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/model"
 )
 
@@ -32,7 +34,8 @@ type UserExampleCache interface {
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	MultiSet(ctx context.Context, data []*model.UserExample, duration time.Duration) error
 	Del(ctx context.Context, id uint64) error
-	SetCacheWithNotFound(ctx context.Context, id uint64) error
+	SetPlaceholder(ctx context.Context, id uint64) error
+	IsPlaceholderErr(err error) bool
 }
 
 // userExampleCache define a cache struct
@@ -41,7 +44,7 @@ type userExampleCache struct {
 }
 
 // NewUserExampleCache new a cache
-func NewUserExampleCache(cacheType *model.CacheType) UserExampleCache {
+func NewUserExampleCache(cacheType *database.CacheType) UserExampleCache {
 	jsonEncoding := encoding.JSONEncoding{}
 	cachePrefix := ""
 
@@ -157,12 +160,13 @@ func (c *userExampleCache) Del(ctx context.Context, id uint64) error {
 	return nil
 }
 
-// SetCacheWithNotFound set empty cache
-func (c *userExampleCache) SetCacheWithNotFound(ctx context.Context, id uint64) error {
+// SetPlaceholder set placeholder value to cache
+func (c *userExampleCache) SetPlaceholder(ctx context.Context, id uint64) error {
 	cacheKey := c.GetUserExampleCacheKey(id)
-	err := c.cache.SetCacheWithNotFound(ctx, cacheKey)
-	if err != nil {
-		return err
-	}
-	return nil
+	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
+}
+
+// IsPlaceholderErr check if cache is placeholder error
+func (c *userExampleCache) IsPlaceholderErr(err error) bool {
+	return errors.Is(err, cache.ErrPlaceholder)
 }
