@@ -10,7 +10,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/cache"
 	"github.com/18721889353/sunshine/pkg/encoding"
 
-	"github.com/18721889353/sunshine/internal/model"
+	"github.com/18721889353/sunshine/internal/database"
 )
 
 // delete the templates code start
@@ -33,7 +33,7 @@ type CacheNameExampleCache interface {
 	GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error)
 	GetLock(ctx context.Context, keyNameExample keyTypeExample, expireTime time.Duration) (*redsync.Mutex, error)
 	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
-	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, expireTime time.Duration) error
+	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error
 	Get(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error)
 	Del(ctx context.Context, keyNameExample keyTypeExample) error
 }
@@ -43,7 +43,7 @@ type cacheNameExampleCache struct {
 }
 
 // NewCacheNameExampleCache create a new cache
-func NewCacheNameExampleCache(cacheType *model.CacheType) CacheNameExampleCache {
+func NewCacheNameExampleCache(cacheType *database.CacheType) CacheNameExampleCache {
 	newObject := func() interface{} {
 		return ""
 	}
@@ -85,9 +85,9 @@ func (c *cacheNameExampleCache) ReleaseLock(ctx context.Context, mutex *redsync.
 }
 
 // Set cache
-func (c *cacheNameExampleCache) Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, expireTime time.Duration) error {
+func (c *cacheNameExampleCache) Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error {
 	cacheKey := c.getCacheKey(keyNameExample)
-	return c.cache.Set(ctx, cacheKey, &valueNameExample, expireTime)
+	return c.cache.Set(ctx, cacheKey, &valueNameExample, duration)
 }
 
 // Get cache

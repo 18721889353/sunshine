@@ -9,13 +9,14 @@ import (
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/18721889353/sunshine/pkg/ggorm/query"
 	"github.com/18721889353/sunshine/pkg/gotest"
 	"github.com/18721889353/sunshine/pkg/httpcli"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
 
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
+	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/model"
 	"github.com/18721889353/sunshine/internal/types"
 )
@@ -29,7 +30,7 @@ func newUserExampleHandler() *gotest.Handler {
 
 	// init mock cache
 	c := gotest.NewCache(map[string]interface{}{utils.Uint64ToStr(testData.ID): testData})
-	c.ICache = cache.NewUserExampleCache(&model.CacheType{
+	c.ICache = cache.NewUserExampleCache(&database.CacheType{
 		CType: "redis",
 		Rdb:   c.RedisClient,
 	})

@@ -3,7 +3,7 @@ package types
 import (
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/ggorm/query"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
 )
 
 var _ time.Time

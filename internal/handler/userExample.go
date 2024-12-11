@@ -13,6 +13,7 @@ import (
 
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
+	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/ecode"
 	"github.com/18721889353/sunshine/internal/model"
 	"github.com/18721889353/sunshine/internal/types"
@@ -37,8 +38,8 @@ type userExampleHandler struct {
 func NewUserExampleHandler() UserExampleHandler {
 	return &userExampleHandler{
 		iDao: dao.NewUserExampleDao(
-			model.GetDB(),
-			cache.NewUserExampleCache(model.GetCacheType()),
+			database.GetDB(), // todo show db driver name here
+			cache.NewUserExampleCache(database.GetCacheType()),
 		),
 	}
 }
@@ -175,7 +176,7 @@ func (h *userExampleHandler) GetByID(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	userExample, err := h.iDao.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, model.ErrRecordNotFound) {
+		if errors.Is(err, database.ErrRecordNotFound) {
 			logger.Warn("GetByID not found", logger.Err(err), logger.Any("id", id), middleware.GCtxRequestIDField(c))
 			response.Error(c, ecode.NotFound)
 		} else {
