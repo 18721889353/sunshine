@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/types"
 	"github.com/jinzhu/inflection"
 	"github.com/stretchr/testify/assert"
-	"github.com/zhufuyi/sqlparser/dependency/mysql"
-	"github.com/zhufuyi/sqlparser/dependency/types"
 )
 
 func TestParseSQL(t *testing.T) {

@@ -12,12 +12,12 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/18721889353/sunshine/pkg/sqlparser/ast"
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/types"
+	"github.com/18721889353/sunshine/pkg/sqlparser/parser"
 	"github.com/huandu/xstrings"
 	"github.com/jinzhu/inflection"
-	"github.com/zhufuyi/sqlparser/ast"
-	"github.com/zhufuyi/sqlparser/dependency/mysql"
-	"github.com/zhufuyi/sqlparser/dependency/types"
-	"github.com/zhufuyi/sqlparser/parser"
 )
 
 const (
