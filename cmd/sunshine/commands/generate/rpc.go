@@ -307,7 +307,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 
 	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
-	ignoreFiles := []string{"scripts/swag-docs.sh", "configs/serverNameExample_cc.yml"}
+	ignoreFiles := []string{"scripts/swag-docs.sh"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)

@@ -152,7 +152,7 @@ func (g *rpcGwPbGenerator) generateCode() error {
 
 	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
-	ignoreFiles := []string{"configs/serverNameExample_cc.yml"}
+	ignoreFiles := []string{""}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)

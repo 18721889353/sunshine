@@ -315,7 +315,7 @@ func (g *httpGenerator) generateCode() (string, error) {
 	// ignore some directories and files
 	ignoreDirs := []string{"cmd/sunshine"}
 	ignoreFiles := []string{"scripts/image-rpc-test.sh", "scripts/patch.sh", "scripts/protoc.sh",
-		"scripts/proto-doc.sh", "configs/serverNameExample_cc.yml"}
+		"scripts/proto-doc.sh"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
