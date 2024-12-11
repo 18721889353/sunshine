@@ -207,7 +207,7 @@ func filterLackNames(lackNames []string, skipPluginName string) []string {
 	}
 	skipPluginNames := strings.Split(skipPluginName, ",")
 
-	names := []string{}
+	var names []string
 	for _, name := range lackNames {
 		isMatch := false
 		for _, pluginName := range skipPluginNames {
