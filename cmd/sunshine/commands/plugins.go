@@ -14,6 +14,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/gobash"
 )
 
+// 定义需要检查的插件名称列表
 var pluginNames = []string{
 	"go",
 	"protoc",
@@ -31,9 +32,10 @@ var pluginNames = []string{
 	//"go-callvis",
 }
 
+// 定义插件安装命令映射
 var installPluginCommands = map[string]string{
-	"go":                     "go: please install manually yourself, download url is https://go.dev/dl/ or https://golang.google.cn/dl/",
-	"protoc":                 "protoc: please install manually yourself, download url is https://github.com/protocolbuffers/protobuf/releases/tag/v25.2",
+	"go":                     "go: 请手动安装，下载地址为 https://go.dev/dl/ 或 https://golang.google.cn/dl/",
+	"protoc":                 "protoc: 请手动安装，下载地址为 https://github.com/protocolbuffers/protobuf/releases/tag/v25.2",
 	"protoc-gen-go":          "google.golang.org/protobuf/cmd/protoc-gen-go@latest",
 	"protoc-gen-go-grpc":     "google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest",
 	"protoc-gen-validate":    "github.com/envoyproxy/protoc-gen-validate@latest",
@@ -48,51 +50,58 @@ var installPluginCommands = map[string]string{
 	//"go-callvis":             "github.com/ofabry/go-callvis@latest",
 }
 
+// 定义符号常量
 const (
-	installedSymbol = "✔ "
-	lackSymbol      = "❌ "
-	warnSymbol      = "⚠ "
+	installedSymbol = "✔ " // 已安装符号
+	lackSymbol      = "❌ " // 缺失符号
+	warnSymbol      = "⚠ " // 警告符号
 )
 
-// PluginsCommand plugins management
+// PluginsCommand 创建一个管理依赖插件的 Cobra 命令
 func PluginsCommand() *cobra.Command {
 	var installFlag bool
 	var skipPluginName string
 
 	cmd := &cobra.Command{
 		Use:   "plugins",
-		Short: "Manage sunshine dependency plugins",
-		Long:  "Manage sunshine dependency plugins.",
-		Example: color.HiBlackString(`  # Show all dependency plugins.
+		Short: "管理 sunshine 依赖插件",
+		Long:  "管理 sunshine 依赖插件。",
+		Example: color.HiBlackString(`  # 显示所有依赖插件。
   sunshine plugins
 
-  # Install all dependency plugins.
+  # 安装所有依赖插件。
   sunshine plugins --install
 
-  # Skip installing dependency plugins, multiple plugin names separated by commas
+  # 跳过安装某些依赖插件，多个插件名称用逗号分隔
   sunshine plugins --install --skip=go-callvis`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// 检查已安装和缺失的插件
 			installedNames, lackNames := checkInstallPlugins()
+			// 根据 skipPluginName 过滤缺失的插件
 			lackNames = filterLackNames(lackNames, skipPluginName)
 			if installFlag {
+				// 如果设置了安装标志，则安装缺失的插件
 				installPlugins(lackNames)
 			} else {
+				// 否则显示依赖插件的状态
 				showDependencyPlugins(installedNames, lackNames)
 			}
 
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&installFlag, "install", "i", false, "install dependency plugins")
-	cmd.Flags().StringVarP(&skipPluginName, "skip", "s", "", "skip installing dependency plugins")
+	cmd.Flags().BoolVarP(&installFlag, "install", "i", false, "安装依赖插件")
+	cmd.Flags().StringVarP(&skipPluginName, "skip", "s", "", "跳过安装依赖插件")
 
 	return cmd
 }
 
+// checkInstallPlugins 检查哪些插件已安装，哪些缺失
 func checkInstallPlugins() ([]string, []string) {
-	var installedNames, lackNames = []string{}, []string{}
+	var installedNames []string
+	var lackNames []string
 	for _, name := range pluginNames {
 		_, err := gobash.Exec("which", name)
 		if err != nil {
@@ -111,35 +120,37 @@ func checkInstallPlugins() ([]string, []string) {
 	return installedNames, lackNames
 }
 
+// showDependencyPlugins 显示已安装和缺失的依赖插件
 func showDependencyPlugins(installedNames []string, lackNames []string) {
 	var content string
 
 	if len(installedNames) > 0 {
-		content = "installed dependency plugins:\n"
+		content = "已安装的依赖插件:\n"
 		for _, name := range installedNames {
 			content += "    " + installedSymbol + " " + name + "\n"
 		}
 	}
 
 	if len(lackNames) > 0 {
-		content += "\nuninstalled dependency plugins:\n"
+		content += "\n未安装的依赖插件:\n"
 		for _, name := range lackNames {
 			content += "    " + lackSymbol + " " + name + "\n"
 		}
-		content += "\ninstalling dependency plugins using the command: sunshine plugins --install\n"
+		content += "\n使用命令 sunshine plugins --install 安装依赖插件\n"
 	} else {
-		content += "\nall dependency plugins installed.\n"
+		content += "\n所有依赖插件已安装。\n"
 	}
 
 	fmt.Println(content)
 }
 
+// installPlugins 安装缺失的依赖插件
 func installPlugins(lackNames []string) {
 	if len(lackNames) == 0 {
-		fmt.Printf("\n    all dependency plugins installed.\n\n")
+		fmt.Printf("\n    所有依赖插件已安装。\n\n")
 		return
 	}
-	fmt.Printf("\ninstalling %d dependency plugins, please wait a moment.\n\n", len(lackNames))
+	fmt.Printf("\n正在安装 %d 个依赖插件，请稍等片刻。\n\n", len(lackNames))
 
 	var wg = &sync.WaitGroup{}
 	var manuallyNames []string
@@ -178,6 +189,7 @@ func installPlugins(lackNames []string) {
 	fmt.Println()
 }
 
+// adaptInternalCommand 根据版本调整内部命令
 func adaptInternalCommand(name string, pkgAddr string) string {
 	if name == "protoc-gen-go-gin" || name == "protoc-gen-go-rpc-tmpl" || name == "protoc-gen-json-field" {
 		if version != "v0.0.0" {
@@ -188,6 +200,7 @@ func adaptInternalCommand(name string, pkgAddr string) string {
 	return pkgAddr
 }
 
+// filterLackNames 根据 skipPluginName 过滤缺失的插件名称
 func filterLackNames(lackNames []string, skipPluginName string) []string {
 	if skipPluginName == "" {
 		return lackNames
@@ -200,7 +213,7 @@ func filterLackNames(lackNames []string, skipPluginName string) []string {
 		for _, pluginName := range skipPluginNames {
 			if name == pluginName {
 				isMatch = true
-				continue
+				break
 			}
 		}
 		if !isMatch {
