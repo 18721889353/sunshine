@@ -1049,7 +1049,7 @@ func getHTTPServiceFields() []replacer.Field {
 		},
 		{
 			Old: `registryDiscoveryType: ""`,
-			New: `#registryDiscoveryType: ""`,
+			New: `registryDiscoveryType: ""`,
 		},
 	}
 }
@@ -1076,7 +1076,7 @@ func getGRPCServiceFields() []replacer.Field {
 		},
 		{
 			Old: `registryDiscoveryType: ""`,
-			New: `#registryDiscoveryType: ""`,
+			New: `registryDiscoveryType: ""`,
 		},
 	}
 }

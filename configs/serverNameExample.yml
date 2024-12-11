@@ -150,12 +150,6 @@ etcd:
   addrs: [ "192.168.132.142:2379" ]
 
 
-## nacos settings, used in service registration discovery
-#nacosRd:
-#  ipAddr: "192.168.132.142"
-#  port: 8848
-#  namespaceID: "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"   # namespace id
-
 sign:
   signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"
 
