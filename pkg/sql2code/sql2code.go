@@ -1,37 +1,37 @@
-// Package sql2code provides for generating code for different purposes according to sql,
-// support generating json, gorm model, update parameter, request parameter code,
-// sql can be obtained from parameter, file, db three ways, priority from high to low.
+// Package sql2code 提供根据 SQL 生成不同用途代码的功能，
+// 支持生成 JSON、GORM 模型、更新参数、请求参数代码，
+// SQL 可以从参数、文件、数据库三种方式获取，优先级从高到低。
 package sql2code
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"strings"
+	"errors"  // 导入错误处理包
+	"fmt"     // 导入格式化输入输出包
+	"os"      // 导入操作系统包
+	"strings" // 导入字符串处理包
 
-	"github.com/18721889353/sunshine/pkg/gofile"
-	"github.com/18721889353/sunshine/pkg/sql2code/parser"
-	"github.com/18721889353/sunshine/pkg/utils"
+	"github.com/18721889353/sunshine/pkg/gofile"          // 导入文件操作包
+	"github.com/18721889353/sunshine/pkg/sql2code/parser" // 导入 SQL 解析器包
+	"github.com/18721889353/sunshine/pkg/utils"           // 导入工具包
 )
 
-// Args generate code arguments
+// Args 生成代码的参数结构体
 type Args struct {
-	SQL string // DDL sql
+	SQL string // DDL SQL 语句
 
-	DDLFile string // DDL file
+	DDLFile string // DDL 文件路径
 
-	DBDriver   string            // db driver name, such as mysql, mongodb, postgresql, sqlite, default is mysql
-	DBDsn      string            // connecting to mysql's dsn, if DBDriver is sqlite, DBDsn is local db file
-	DBTable    string            // table name
-	fieldTypes map[string]string // field name:type
+	DBDriver   string            // 数据库驱动名称，如 mysql, mongodb, postgresql, sqlite，默认为 mysql
+	DBDsn      string            // 连接 MySQL 的 DSN，如果是 SQLite，DBDsn 是本地数据库文件路径
+	DBTable    string            // 表名
+	fieldTypes map[string]string // 字段名:类型映射
 
-	Package        string // specify the package name (only valid for model types)
-	GormType       bool   // whether to display the gorm type name (only valid for model type codes)
-	JSONTag        bool   // does it include a json tag
-	JSONNamedType  int    // json field naming type, 0: snake case such as my_field_name, 1: camel sase, such as myFieldName
-	IsEmbed        bool   // is gorm.Model embedded
-	IsWebProto     bool   // proto file type, true: include router path and swagger info, false: normal proto file without router and swagger
-	CodeType       string // specify the different types of code to be generated, namely model (default), json, dao, handler, proto
+	Package        string // 指定包名（仅对模型类型有效）
+	GormType       bool   // 是否显示 GORM 类型名称（仅对模型类型代码有效）
+	JSONTag        bool   // 是否包含 JSON 标签
+	JSONNamedType  int    // JSON 字段命名类型，0: 蛇形命名如 my_field_name，1: 驼峰命名如 myFieldName
+	IsEmbed        bool   // 是否嵌入 gorm.Model
+	IsWebProto     bool   // proto 文件类型，true: 包含路由路径和 Swagger 信息，false: 正常 proto 文件不包含路由和 Swagger
+	CodeType       string // 指定生成的不同类型的代码，包括 model（默认）、json、dao、handler、proto
 	ForceTableName bool
 	Charset        string
 	Collation      string
@@ -39,37 +39,44 @@ type Args struct {
 	ColumnPrefix   string
 	NoNullType     bool
 	NullStyle      string
-	IsExtendedAPI  bool // true: generate extended api (9 api), false: generate basic api (5 api)
+	IsExtendedAPI  bool // true: 生成扩展 API（9 个 API），false: 生成基本 API（5 个 API）
 
-	IsCustomTemplate bool // whether to use custom template, default is false
+	IsCustomTemplate bool // 是否使用自定义模板，默认为 false
 }
 
+// checkValid 检查 Args 结构体的有效性
 func (a *Args) checkValid() error {
+	// 必须指定 SQL 或 DDL 文件
 	if a.SQL == "" && a.DDLFile == "" && (a.DBDsn == "" && a.DBTable == "") {
-		return errors.New("you must specify sql or ddl file")
+		return errors.New("必须指定 SQL 或 DDL 文件")
 	}
+	// 检查表名是否以 _test 结尾
 	if a.DBTable != "" {
 		tables := strings.Split(a.DBTable, ",")
 		for _, name := range tables {
 			if strings.HasSuffix(name, "_test") {
-				return fmt.Errorf(`the table name (%s) suffix "_test" is not supported for code generation, please delete suffix "_test" or change it to another name. `, name)
+				return fmt.Errorf(`表名 (%s) 后缀 "_test" 不支持代码生成，请删除后缀 "_test" 或更改为其他名称。`, name)
 			}
 		}
 	}
 
+	// 设置默认数据库驱动为 MySQL
 	if a.DBDriver == "" {
 		a.DBDriver = parser.DBDriverMysql
 	} else if a.DBDriver == parser.DBDriverSqlite {
+		// 检查 SQLite 数据库文件是否存在
 		if !gofile.IsExists(a.DBDsn) {
-			return fmt.Errorf("sqlite db file %s not found in local host", a.DBDsn)
+			return fmt.Errorf("未在本地找到 SQLite 数据库文件 %s", a.DBDsn)
 		}
 	}
+	// 如果未指定字段类型映射，则初始化为空映射
 	if a.fieldTypes == nil {
 		a.fieldTypes = make(map[string]string)
 	}
 	return nil
 }
 
+// getSQL 获取 SQL 语句
 func getSQL(args *Args) (string, map[string]string, error) {
 	if args.SQL != "" {
 		return args.SQL, nil, nil
@@ -78,17 +85,18 @@ func getSQL(args *Args) (string, map[string]string, error) {
 	sql := ""
 	dbDriverName := strings.ToLower(args.DBDriver)
 	if args.DDLFile != "" {
+		// 只支持 MySQL DDL 文件
 		if dbDriverName != parser.DBDriverMysql {
-			return sql, nil, fmt.Errorf("not support driver %s for parsing the sql file, only mysql is supported", args.DBDriver)
+			return sql, nil, fmt.Errorf("不支持使用 %s 解析 SQL 文件，仅支持 MySQL", args.DBDriver)
 		}
 		b, err := os.ReadFile(args.DDLFile)
 		if err != nil {
-			return sql, nil, fmt.Errorf("read %s failed, %s", args.DDLFile, err)
+			return sql, nil, fmt.Errorf("读取 %s 失败，%s", args.DDLFile, err)
 		}
 		return string(b), nil, nil
 	} else if args.DBDsn != "" {
 		if args.DBTable == "" {
-			return sql, nil, errors.New("miss database table")
+			return sql, nil, errors.New("缺少数据库表名")
 		}
 
 		switch dbDriverName {
@@ -116,13 +124,14 @@ func getSQL(args *Args) (string, map[string]string, error) {
 			sqlStr, mongoTypeMap := parser.ConvertToSQLByMgoFields(args.DBTable, fields)
 			return sqlStr, mongoTypeMap, nil
 		default:
-			return "", nil, errors.New("get sql error, unsupported database driver: " + dbDriverName)
+			return "", nil, errors.New("获取 SQL 错误，不支持的数据库驱动: " + dbDriverName)
 		}
 	}
 
-	return sql, nil, errors.New("no SQL input(-sql|-f|-db-dsn)")
+	return sql, nil, errors.New("没有 SQL 输入(-sql|-f|-db-dsn)")
 }
 
+// setOptions 设置解析器选项
 func setOptions(args *Args) []parser.Option {
 	var opts []parser.Option
 
@@ -165,7 +174,7 @@ func setOptions(args *Args) []parser.Option {
 		case "ptr":
 			opts = append(opts, parser.WithNullStyle(parser.NullInPointer))
 		default:
-			fmt.Printf("invalid null style: %s\n", args.NullStyle)
+			fmt.Printf("无效的 null 样式: %s\n", args.NullStyle)
 			return nil
 		}
 	} else {
@@ -190,7 +199,7 @@ func setOptions(args *Args) []parser.Option {
 	return opts
 }
 
-// GenerateOne generate gorm code from sql, which can be obtained from parameters, files and db, with priority from highest to lowest
+// GenerateOne 从 SQL 生成 GORM 代码，SQL 可以从参数、文件、数据库获取，优先级从高到低
 func GenerateOne(args *Args) (string, error) {
 	codes, err := Generate(args)
 	if err != nil {
@@ -198,17 +207,17 @@ func GenerateOne(args *Args) (string, error) {
 	}
 
 	if args.CodeType == "" {
-		args.CodeType = parser.CodeTypeModel // default is model code
+		args.CodeType = parser.CodeTypeModel // 默认生成模型代码
 	}
 	out, ok := codes[args.CodeType]
 	if !ok {
-		return "", fmt.Errorf("unknown code type %s", args.CodeType)
+		return "", fmt.Errorf("未知的代码类型 %s", args.CodeType)
 	}
 
 	return out, nil
 }
 
-// Generate model, json, dao, handler, proto codes
+// Generate 生成模型、JSON、DAO、Handler、Proto 代码
 func Generate(args *Args) (map[string]string, error) {
 	if err := args.checkValid(); err != nil {
 		return nil, err
@@ -222,7 +231,7 @@ func Generate(args *Args) (map[string]string, error) {
 		args.fieldTypes = fieldTypes
 	}
 	if sql == "" {
-		return nil, fmt.Errorf("get sql from %s error, maybe the table %s doesn't exist", args.DBDriver, args.DBTable)
+		return nil, fmt.Errorf("从 %s 获取 SQL 错误，可能是表 %s 不存在", args.DBDriver, args.DBTable)
 	}
 
 	opt := setOptions(args)
