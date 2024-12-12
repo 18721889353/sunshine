@@ -1,4 +1,3 @@
-// Package parse is parsed proto file to struct
 package parse
 
 import (
@@ -12,14 +11,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Field message field
+// Field 表示消息字段
 type Field struct {
-	Name      string // field name
-	FieldType string // field type
-	Comment   string // field comment
+	Name      string // 字段名称
+	FieldType string // 字段类型
+	Comment   string // 字段注释
 }
 
-// GoTypeZero default zero value for type
+// GoTypeZero 返回给定类型的默认零值
 func (r Field) GoTypeZero() string {
 	switch r.FieldType {
 	case "bool":
@@ -35,59 +34,67 @@ func (r Field) GoTypeZero() string {
 	}
 }
 
-// ServiceMethod RPCMethod fields
+// ServiceMethod 表示 RPC 方法的字段
 type ServiceMethod struct {
-	MethodName    string // Create
-	Request       string // CreateRequest
+	MethodName    string // 方法名称，例如 Create
+	Request       string // 请求消息类型，例如 CreateRequest
 	RequestFields []*Field
-	Reply         string // CreateReply
+	Reply         string // 响应消息类型，例如 CreateReply
 	ReplyFields   []*Field
-	Comment       string // e.g. Create a record
-	InvokeType    int    // 0:unary, 1: client-side streaming, 2: server-side streaming, 3: bidirectional streaming
+	Comment       string // 注释，例如 Create a record
+	InvokeType    int    // 调用类型: 0-单次调用, 1-客户端流式, 2-服务端流式, 3-双向流式
 
-	ServiceName         string // Greeter
-	LowerServiceName    string // greeter first character to lower
-	LowerCutServiceName string // GreeterService --> greeter
+	ServiceName         string // 服务名称，例如 Greeter
+	LowerServiceName    string // 服务名称首字母小写，例如 greeter
+	LowerCutServiceName string // 去掉 Service 后缀的服务名称首字母小写，例如 GreeterService --> greeter
 
-	// http_rule
-	Path   string // rule
-	Method string // HTTP Method
+	// HTTP 规则
+	Path   string // 请求路径
+	Method string // HTTP 方法
 	Body   string
 
-	IsPassGinContext   bool
-	IsIgnoreShouldBind bool
+	IsPassGinContext   bool // 是否传递 gin.Context
+	IsIgnoreShouldBind bool // 是否忽略 ShouldBindXXX
 
-	RequestImportPkgName string // e.g. userV1
-	ReplyImportPkgName   string // e.g. userV1
-	ProtoPkgName         string // e.g. userV1
+	RequestImportPkgName string // 请求消息的导入包名称，例如 userV1
+	ReplyImportPkgName   string // 响应消息的导入包名称，例如 userV1
+	ProtoPkgName         string // proto 文件的包名称，例如 userV1
 }
 
-// AddOne counter
+// AddOne 计数器加一
 func (t *ServiceMethod) AddOne(i int) int {
 	return i + 1
 }
 
-// PbService service fields
+// PbService 表示服务的字段
 type PbService struct {
-	Name      string           // Greeter
-	LowerName string           // greeter first character to lower
-	Methods   []*ServiceMethod // service methods
+	Name      string           // 服务名称，例如 Greeter
+	LowerName string           // 服务名称首字母小写，例如 greeter
+	Methods   []*ServiceMethod // 服务的方法
 
-	CutServiceName      string // GreeterService --> Greeter
-	LowerCutServiceName string // GreeterService --> greeter
+	CutServiceName      string // 去掉 Service 后缀的服务名称，例如 GreeterService --> Greeter
+	LowerCutServiceName string // 去掉 Service 后缀的服务名称首字母小写，例如 GreeterService --> greeter
 
-	ImportPkgMap map[string]string // e.g. [userV1]:[userV1 "user/api/user/v1"]
+	ImportPkgMap map[string]string // 导入包映射，例如 [userV1]:[userV1 "user/api/user/v1"]
 
-	ProtoFileDir string // e.g. api/user/v1
-	ProtoPkgName string // e.g. userV1
-	ModuleName   string
+	ProtoFileDir string // proto 文件目录，例如 api/user/v1
+	ProtoPkgName string // proto 文件的包名称，例如 userV1
+	ModuleName   string // 模块名称
 }
 
-// RandNumber rand number 1~100
+// RandNumber 返回 1 到 100 之间的随机数
 func (s *PbService) RandNumber() int {
 	return rand.Intn(99) + 1
 }
 
+// parsePbService 解析单个服务
+// 参数:
+//   - s: *protogen.Service, 即当前解析的服务
+//   - protoFileDir: string, proto 文件目录
+//   - moduleName: string, 模块名称
+//
+// 返回值:
+//   - *PbService, 解析后的服务对象
 func parsePbService(s *protogen.Service, protoFileDir string, moduleName string) *PbService {
 	protoPkgName := convertToPkgName(protoFileDir)
 	cutServiceName := getCutServiceName(s.GoName)
@@ -100,7 +107,7 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 		if rule != nil && ok {
 			rpcMethod = buildHTTPRule(m, rule, protoPkgName)
 		} /*else {
-			// if the http method and path is not set, set default value.
+			// 如果没有设置 HTTP 方法和路径，则设置默认值
 			//rpcMethod = defaultMethod(m)
 		}*/
 
@@ -152,7 +159,13 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 	}
 }
 
-// GetServices parse protobuf services
+// GetServices 解析所有服务
+// 参数:
+//   - file: *protogen.File, 即当前解析的 proto 文件
+//   - moduleName: string, 模块名称
+//
+// 返回值:
+//   - []*PbService, 解析后的所有服务对象
 func GetServices(file *protogen.File, moduleName string) []*PbService {
 	protoFileDir := getProtoFileDir(file.GeneratedFilenamePrefix)
 	var pss []*PbService
@@ -162,6 +175,12 @@ func GetServices(file *protogen.File, moduleName string) []*PbService {
 	return pss
 }
 
+// getCutServiceName 去掉服务名称中的 "Service" 后缀
+// 参数:
+//   - name: string, 服务名称
+//
+// 返回值:
+//   - string, 去掉 "Service" 后缀的服务名称
 func getCutServiceName(name string) string {
 	service := "Service"
 	if len(name) < len(service) {
@@ -177,6 +196,12 @@ func getCutServiceName(name string) string {
 	return name
 }
 
+// getFields 获取消息的所有字段
+// 参数:
+//   - m: *protogen.Message, 即当前解析的消息
+//
+// 返回值:
+//   - []*Field, 消息的所有字段
 func getFields(m *protogen.Message) []*Field {
 	var fields []*Field
 	for _, f := range m.Fields {
@@ -193,6 +218,12 @@ func getFields(m *protogen.Message) []*Field {
 	return fields
 }
 
+// getMethodComment 获取方法的注释
+// 参数:
+//   - m: *protogen.Method, 即当前解析的方法
+//
+// 返回值:
+//   - string, 方法的注释
 func getMethodComment(m *protogen.Method) string {
 	symbol := "// "
 	symbolLen := len(symbol)
@@ -219,6 +250,12 @@ func getMethodComment(m *protogen.Method) string {
 	return commentPrefix + "......"
 }
 
+// getFieldComment 获取字段的注释
+// 参数:
+//   - commentSet: protogen.CommentSet, 字段的注释集合
+//
+// 返回值:
+//   - string, 字段的注释
 func getFieldComment(commentSet protogen.CommentSet) string {
 	comment1 := getFieldCommentStr(commentSet.Leading.String())
 	comment2 := getFieldCommentStr(commentSet.Trailing.String())
@@ -228,6 +265,12 @@ func getFieldComment(commentSet protogen.CommentSet) string {
 	return comment1 + " " + comment2
 }
 
+// getFieldCommentStr 获取字段的注释字符串
+// 参数:
+//   - comment: string, 字段的注释字符串
+//
+// 返回值:
+//   - string, 处理后的字段注释字符串
 func getFieldCommentStr(comment string) string {
 	if len(comment) > 2 && comment[len(comment)-1] == '\n' {
 		return comment[:len(comment)-1]
@@ -235,21 +278,34 @@ func getFieldCommentStr(comment string) string {
 	return comment
 }
 
+// getInvokeType 获取调用类型
+// 参数:
+//   - isStreamingClient: bool, 是否客户端流式
+//   - isStreamingServer: bool, 是否服务端流式
+//
+// 返回值:
+//   - int, 调用类型: 0-单次调用, 1-客户端流式, 2-服务端流式, 3-双向流式
 func getInvokeType(isStreamingClient bool, isStreamingServer bool) int {
 	if isStreamingClient {
 		if isStreamingServer {
-			return 3 // bidirectional streaming
+			return 3 // 双向流式
 		}
-		return 1 // client-side streaming
+		return 1 // 客户端流式
 	}
 
 	if isStreamingServer {
-		return 2 // server-side streaming
+		return 2 // 服务端流式
 	}
 
-	return 0 // unary
+	return 0 // 单次调用
 }
 
+// getProtoFileDir 获取 proto 文件目录
+// 参数:
+//   - protoPath: string, proto 文件路径
+//
+// 返回值:
+//   - string, proto 文件目录
 func getProtoFileDir(protoPath string) string {
 	ss := strings.Split(protoPath, "/")
 	if len(ss) > 1 {
@@ -258,6 +314,12 @@ func getProtoFileDir(protoPath string) string {
 	return ""
 }
 
+// convertToPkgName 将导入路径转换为包名称
+// 参数:
+//   - importPath: string, 导入路径
+//
+// 返回值:
+//   - string, 包名称
 func convertToPkgName(importPath string) string {
 	importPath = strings.ReplaceAll(importPath, `"`, "")
 	ss := strings.Split(importPath, "/")
@@ -272,6 +334,12 @@ func convertToPkgName(importPath string) string {
 	return ""
 }
 
+// isVersionNum 检查是否为版本号
+// 参数:
+//   - pkgName: string, 包名称
+//
+// 返回值:
+//   - bool, 是否为版本号
 func isVersionNum(pkgName string) bool {
 	pattern := `^v\d+$`
 	matched, err := regexp.MatchString(pattern, pkgName)
@@ -281,11 +349,22 @@ func isVersionNum(pkgName string) bool {
 	return matched
 }
 
+// removeMiddleLine 移除字符串中的中间连字符
+// 参数:
+//   - str: string, 输入字符串
+//
+// 返回值:
+//   - string, 移除中间连字符后的字符串
 func removeMiddleLine(str string) string {
 	return strings.ReplaceAll(str, "-", "")
 }
 
-// GetImportPkg get import package
+// GetImportPkg 获取导入包
+// 参数:
+//   - services: []*PbService, 服务列表
+//
+// 返回值:
+//   - []byte, 导入包字符串
 func GetImportPkg(services []*PbService) []byte {
 	pkgMap := make(map[string]string)
 	protoFileDir := ""
@@ -299,14 +378,10 @@ func GetImportPkg(services []*PbService) []byte {
 		}
 	}
 
-	//pkgName := convertToPkgName(protoFileDir)
-	//if _, ok := pkgMap[pkgName]; !ok {
-	//	pkgMap[pkgName] = fmt.Sprintf(`%s "%s"`, pkgName, moduleName+"/"+protoFileDir)
-	//}
 	pkgName := convertToPkgName(protoFileDir)
 	selfPkgPath := fmt.Sprintf(`%s "%s"`, pkgName, moduleName+"/"+protoFileDir)
 	if _, ok := pkgMap[pkgName]; ok {
-		pkgMap[pkgName] = selfPkgPath // real package path priority
+		pkgMap[pkgName] = selfPkgPath // 真实包路径优先
 	}
 
 	var importPkg []string
@@ -320,7 +395,12 @@ func GetImportPkg(services []*PbService) []byte {
 	return []byte(strings.Join(importPkg, "\n\t"))
 }
 
-// GetSourceImportPkg get source import package
+// GetSourceImportPkg 获取源导入包
+// 参数:
+//   - services: []*PbService, 服务列表
+//
+// 返回值:
+//   - []byte, 源导入包字符串
 func GetSourceImportPkg(services []*PbService) []byte {
 	pkgMap := make(map[string]string)
 	protoFileDir := ""
@@ -341,47 +421,64 @@ func GetSourceImportPkg(services []*PbService) []byte {
 
 // -------------------------------------------------------------------------------------------
 
-// HTTPPbService http service fields
+// HTTPPbService 表示 HTTP 服务的字段
 type HTTPPbService struct {
-	Name      string // Greeter
-	LowerName string // greeter first character to lower
+	Name      string // 服务名称，例如 Greeter
+	LowerName string // 服务名称首字母小写，例如 greeter
 
-	Methods       []*RPCMethod // service methods
+	Methods       []*RPCMethod // 服务的方法
 	UniqueMethods []*RPCMethod
 
-	ImportPkgMap map[string]string // [userV1]:[userV1 "user/api/user/v1"]
+	ImportPkgMap map[string]string // 导入包映射，例如 [userV1]:[userV1 "user/api/user/v1"]
 }
 
 type HTTPPbServices []*HTTPPbService
 
-// ParseHTTPPbServices parse protobuf services
+// ParseHTTPPbServices 解析所有 HTTP 服务
+// 参数:
+//   - file: *protogen.File, 即当前解析的 proto 文件
+//
+// 返回值:
+//   - []*HTTPPbService, 解析后的所有 HTTP 服务对象
 func ParseHTTPPbServices(file *protogen.File) []*HTTPPbService {
+	// 获取文件的 Go 导入路径
 	goImportPath := file.GoImportPath.String()
-
+	// 初始化一个 HTTPPbService 列表
 	var pss []*HTTPPbService
+	// 遍历文件中的每个服务
 	for _, s := range file.Services {
+		// 初始化导入包映射
 		importPkgMap := map[string]string{}
+		// 初始化方法列表
 		var methods []*RPCMethod
+		// 遍历服务中的每个方法
 		for _, m := range s.Methods {
+			// 获取方法的详细信息
 			ms := GetMethods(m, goImportPath)
+			// 遍历获取到的方法列表
 			for _, method := range ms {
+				// 遍历方法的导入包路径
 				for pkgPath := range method.ImportPkgPaths {
+					// 将导入包路径转换为包名
 					pkgName := convertToPkgName(pkgPath)
+					// 将包名和路径添加到导入包映射中
 					importPkgMap[pkgName] = pkgName + " " + pkgPath
 				}
 			}
+			// 将方法列表追加到当前服务的方法列表中
 			methods = append(methods, ms...)
 		}
-
+		// 创建 HTTPPbService 结构体并添加到列表中
 		pss = append(pss, &HTTPPbService{
-			Name:          s.GoName,
-			LowerName:     strings.ToLower(s.GoName[:1]) + s.GoName[1:],
-			Methods:       methods,
-			UniqueMethods: removeDuplicates(methods),
-			ImportPkgMap:  importPkgMap,
+			Name:          s.GoName,                                     // 服务名称
+			LowerName:     strings.ToLower(s.GoName[:1]) + s.GoName[1:], // 小写的名称
+			Methods:       methods,                                      // 方法列表
+			UniqueMethods: removeDuplicates(methods),                    // 唯一的方法列表
+			ImportPkgMap:  importPkgMap,                                 // 导入包映射
 		})
 	}
 
+	// 返回解析后的 HTTPPbService 列表
 	return pss
 }
 
