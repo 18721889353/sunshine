@@ -210,7 +210,7 @@ func (g *rpcGwPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{ // replace the configuration of the *.yml file
 			Old: appConfigFileMark2,
-			New: getDBConfigCode(""), // no db config
+			New: getDBConfigCode(DBDriverMysql), // no db config
 		},
 		{ // replace the configuration of the *.yml file
 			Old: appConfigFileMark,
