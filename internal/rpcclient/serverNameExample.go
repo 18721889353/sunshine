@@ -58,13 +58,15 @@ func NewServerNameExampleRPCConn() {
 	isUseDiscover := false
 
 	// using service discovery
-	//discoverOption, discoveryEndpoint := discoverService(cfg, grpcClientCfg)
-	//if discoverOption != nil {
-	//	isUseDiscover = true
-	//	endpoint = discoveryEndpoint
-	//	cliOptions = append(cliOptions, discoverOption)
-	//	cliOptions = append(cliOptions, grpccli.WithEnableLoadBalance()) // load balance
-	//}
+	if cfg.App.RegistryDiscoveryType != "" {
+		discoverOption, discoveryEndpoint := discoverService(cfg, grpcClientCfg)
+		if discoverOption != nil {
+			isUseDiscover = true
+			endpoint = discoveryEndpoint
+			cliOptions = append(cliOptions, discoverOption)
+			cliOptions = append(cliOptions, grpccli.WithEnableLoadBalance()) // load balance
+		}
+	}
 
 	// secure
 	cliOptions = append(cliOptions, grpccli.WithSecure(

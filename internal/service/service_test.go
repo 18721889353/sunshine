@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"github.com/18721889353/sunshine/pkg/etcdcli"
+	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
 	"io"
 	"strconv"
 	"testing"
@@ -42,13 +44,15 @@ func getRPCClientConnForTest(grpcClient ...config.GrpcClient) *grpc.ClientConn {
 	isUseDiscover := false
 
 	// using service discovery
-	//discoverOption, discoveryEndpoint := discoverService(config.Get(), grpcClientCfg)
-	//if discoverOption != nil {
-	//	isUseDiscover = true
-	//	endpoint = discoveryEndpoint
-	//	cliOptions = append(cliOptions, discoverOption)
-	//	cliOptions = append(cliOptions, grpccli.WithEnableLoadBalance()) // load balance
-	//}
+	if config.Get().App.RegistryDiscoveryType != "" {
+		discoverOption, discoveryEndpoint := discoverService(config.Get(), grpcClientCfg)
+		if discoverOption != nil {
+			isUseDiscover = true
+			endpoint = discoveryEndpoint
+			cliOptions = append(cliOptions, discoverOption)
+			cliOptions = append(cliOptions, grpccli.WithEnableLoadBalance()) // load balance
+		}
+	}
 
 	if grpcClientCfg.Timeout > 0 {
 		cliOptions = append(cliOptions, grpccli.WithTimeout(time.Second*time.Duration(grpcClientCfg.Timeout)))
@@ -123,22 +127,22 @@ func getGRPCClientCfg(grpcClient ...config.GrpcClient) config.GrpcClient {
 }
 
 // discovery service with consul or etcd or nacos, select one of them to use
-//func discoverService(cfg *config.Config, grpcClientCfg config.GrpcClient) (grpccli.Option, string) {
-//	var (
-//		endpoint      string
-//		grpcCliOption grpccli.Option
-//	)
-//
-//	switch grpcClientCfg.RegistryDiscoveryType {
-//	case "etcd":
-//		endpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName.scheme
-//		cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*2))
-//		if err != nil {
-//			panic(err)
-//		}
-//		iDiscovery := etcd.New(cli)
-//		grpcCliOption = grpccli.WithDiscovery(iDiscovery)
-//	}
-//
-//	return grpcCliOption, endpoint
-//}
+func discoverService(cfg *config.Config, grpcClientCfg config.GrpcClient) (grpccli.Option, string) {
+	var (
+		endpoint      string
+		grpcCliOption grpccli.Option
+	)
+
+	switch grpcClientCfg.RegistryDiscoveryType {
+	case "etcd":
+		endpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName.scheme
+		cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*2))
+		if err != nil {
+			panic(err)
+		}
+		iDiscovery := etcd.New(cli)
+		grpcCliOption = grpccli.WithDiscovery(iDiscovery)
+	}
+
+	return grpcCliOption, endpoint
+}
