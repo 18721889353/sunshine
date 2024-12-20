@@ -21,6 +21,7 @@ var _ UserExampleDao = (*userExampleDao)(nil)
 // UserExampleDao defining the dao interface
 type UserExampleDao interface {
 	Create(ctx context.Context, table *model.UserExample) error
+	CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error
 	DeleteByID(ctx context.Context, id uint64) error
 	UpdateByID(ctx context.Context, table *model.UserExample) error
 	GetByID(ctx context.Context, id uint64) (*model.UserExample, error)
@@ -59,6 +60,10 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 // Create a record, insert the record and the id value is written back to the table
 func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
 	return d.db.WithContext(ctx).Create(table).Error
+}
+
+func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
+	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 
 // DeleteByID delete a record by id

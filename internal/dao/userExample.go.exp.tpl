@@ -22,6 +22,7 @@ var _ {{.TableNameCamel}}Dao = (*{{.TableNameCamelFCL}}Dao)(nil)
 // {{.TableNameCamel}}Dao defining the dao interface
 type {{.TableNameCamel}}Dao interface {
 	Create(ctx context.Context, table *model.{{.TableNameCamel}}) error
+	CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error
 	DeleteBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
 	UpdateBy{{.ColumnNameCamel}}(ctx context.Context, table *model.{{.TableNameCamel}}) error
 	GetBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error)
@@ -66,6 +67,11 @@ func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, {{.ColumnNa
 func (d *{{.TableNameCamelFCL}}Dao) Create(ctx context.Context, table *model.{{.TableNameCamel}}) error {
 	return d.db.WithContext(ctx).Create(table).Error
 }
+
+func (d *{{.TableNameCamelFCL}}Dao) CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error {
+	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+}
+
 
 // DeleteBy{{.ColumnNameCamel}} delete a record by {{.ColumnNameCamelFCL}}
 func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
