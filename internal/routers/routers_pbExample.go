@@ -46,6 +46,12 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		r.Use(middleware.Timeout(time.Second * time.Duration(config.Get().HTTP.Timeout)))
 	}
 
+	if config.Get().App.Env != "prod" {
+		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
+		// access path /apis/swagger/index.html
+		swagger.CustomRouter(r, "apis", docs.ApiDocs)
+	}
+
 	// request id middleware
 	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
 
@@ -104,12 +110,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.GET("/health", handlerfunc.CheckHealth)
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
-
-	if config.Get().App.Env != "prod" {
-		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
-		// access path /apis/swagger/index.html
-		swagger.CustomRouter(r, "apis", docs.ApiDocs)
-	}
 
 	c := newMiddlewareConfig()
 
