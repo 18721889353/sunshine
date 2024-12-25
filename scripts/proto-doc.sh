@@ -40,4 +40,5 @@ checkResult $?
 
 mv -f apis.html docs/apis.html
 
+sunshine config --server-dir=.
 echo "generate proto doc file successfully, view in docs/apis.html"
