@@ -3,7 +3,9 @@
 package routers
 
 import (
+	"github.com/18721889353/sunshine/internal/database"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,17 +43,40 @@ func NewRouter() *gin.Engine {
 		// if you need more fine-grained control over your routes, set the timeout in your routes, unsetting the timeout globally here.
 		r.Use(middleware.Timeout(time.Second * time.Duration(config.Get().HTTP.Timeout)))
 	}
+	// validator
+	binding.Validator = validator.Init()
+
+	r.GET("/health", handlerfunc.CheckHealth)
+	r.GET("/ping", handlerfunc.Ping)
+	r.GET("/codes", handlerfunc.ListCodes)
+
+	if config.Get().App.Env != "prod" {
+		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
+		// register swagger routes, generate code via swag init
+		docs.SwaggerInfo.BasePath = ""
+		// access path /swagger/index.html
+		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
 	// request id middleware
-	r.Use(middleware.RequestID())
+	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
 		middleware.WithLog(logger.Get()),
+		middleware.WithMaxLen(config.Get().Logger.MaxLen),
 		middleware.WithRequestIDFromContext(),
+		middleware.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
-
+	// 将签名添加为全局中间件
+	if config.Get().App.OpenSign {
+		r.Use(middleware.VerifySignatureMiddleware(config.Get().Sign.SignKey))
+	}
+	// 将XSSMiddleware添加为全局中间件
+	if config.Get().App.OpenXSS {
+		r.Use(middleware.XSSCrossMiddleware())
+	}
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
 		r.Use(metrics.Metrics(r,
@@ -67,7 +92,11 @@ func NewRouter() *gin.Engine {
 
 	// circuit breaker middleware
 	if config.Get().App.EnableCircuitBreaker {
-		r.Use(middleware.CircuitBreaker())
+		r.Use(middleware.CircuitBreaker(
+			// set http code for circuit breaker, default already includes 500 and 503
+			middleware.WithValidCode(errcode.InternalServerError.Code()),
+			middleware.WithValidCode(errcode.ServiceUnavailable.Code()),
+		))
 	}
 
 	// trace middleware
@@ -78,21 +107,6 @@ func NewRouter() *gin.Engine {
 	// profile performance analysis
 	if config.Get().App.EnableHTTPProfile {
 		prof.Register(r, prof.WithIOWaitTime())
-	}
-
-	// validator
-	binding.Validator = validator.Init()
-
-	r.GET("/health", handlerfunc.CheckHealth)
-	r.GET("/ping", handlerfunc.Ping)
-	r.GET("/codes", handlerfunc.ListCodes)
-
-	if config.Get().App.Env != "prod" {
-		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
-		// register swagger routes, generate code via swag init
-		docs.SwaggerInfo.BasePath = ""
-		// access path /swagger/index.html
-		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
 	// register routers, middleware support
