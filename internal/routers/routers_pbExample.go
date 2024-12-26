@@ -51,6 +51,12 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		// access path /apis/swagger/index.html
 		swagger.CustomRouter(r, "apis", docs.ApiDocs)
 	}
+	// validator
+	binding.Validator = validator.Init()
+
+	r.GET("/health", handlerfunc.CheckHealth)
+	r.GET("/ping", handlerfunc.Ping)
+	r.GET("/codes", handlerfunc.ListCodes)
 
 	// request id middleware
 	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
@@ -103,13 +109,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	if config.Get().App.EnableHTTPProfile {
 		prof.Register(r, prof.WithIOWaitTime())
 	}
-
-	// validator
-	binding.Validator = validator.Init()
-
-	r.GET("/health", handlerfunc.CheckHealth)
-	r.GET("/ping", handlerfunc.Ping)
-	r.GET("/codes", handlerfunc.ListCodes)
 
 	c := newMiddlewareConfig()
 
