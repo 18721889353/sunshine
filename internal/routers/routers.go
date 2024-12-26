@@ -50,6 +50,11 @@ func NewRouter() *gin.Engine {
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
 
+	// profile performance analysis
+	if config.Get().App.EnableHTTPProfile {
+		prof.Register(r, prof.WithIOWaitTime())
+	}
+
 	if config.Get().App.Env != "prod" {
 		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
 		// register swagger routes, generate code via swag init
@@ -103,12 +108,7 @@ func NewRouter() *gin.Engine {
 	if config.Get().App.EnableTrace {
 		r.Use(middleware.Tracing(config.Get().App.Name))
 	}
-
-	// profile performance analysis
-	if config.Get().App.EnableHTTPProfile {
-		prof.Register(r, prof.WithIOWaitTime())
-	}
-
+	
 	// register routers, middleware support
 	registerRouters(r, "/api/v1", apiV1RouterFns)
 	// if you have other group routes you can add them here
