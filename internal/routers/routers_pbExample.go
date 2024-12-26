@@ -25,11 +25,9 @@ import (
 	"github.com/18721889353/sunshine/internal/config"
 )
 
-type routeFns = []func(r *gin.Engine, groupPathMiddlewares map[string][]gin.HandlerFunc, singlePathMiddlewares map[string][]gin.HandlerFunc)
-
 var (
 	// all route functions
-	allRouteFns = make(routeFns, 0)
+	allRouteFns = make([]func(r *gin.Engine, groupPathMiddlewares map[string][]gin.HandlerFunc, singlePathMiddlewares map[string][]gin.HandlerFunc), 0)
 	// all middleware functions
 	allMiddlewareFns = []func(c *middlewareConfig){}
 )
