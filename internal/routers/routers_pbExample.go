@@ -58,6 +58,11 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
 
+	// profile performance analysis
+	if config.Get().App.EnableHTTPProfile {
+		prof.Register(r, prof.WithIOWaitTime())
+	}
+
 	// request id middleware
 	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
 
@@ -103,11 +108,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	// trace middleware
 	if config.Get().App.EnableTrace {
 		r.Use(middleware.Tracing(config.Get().App.Name))
-	}
-
-	// profile performance analysis
-	if config.Get().App.EnableHTTPProfile {
-		prof.Register(r, prof.WithIOWaitTime())
 	}
 
 	c := newMiddlewareConfig()
