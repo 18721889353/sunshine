@@ -29,6 +29,7 @@ checkResult $?
 # modify duplicate numbers and error codes
 sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
+sunshine config --server-dir=.
 
 colorGreen='\033[1;32m'
 colorCyan='\033[1;36m'
