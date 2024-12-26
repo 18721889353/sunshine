@@ -137,7 +137,7 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 			"routers_pbExample.go",
 		},
 		"internal/server": {
-			"http.go.noregistry", "http_option.go.noregistry",
+			"http.go", "http_option.go",
 		},
 	}
 

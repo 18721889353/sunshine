@@ -232,7 +232,7 @@ func (g *httpGenerator) generateCode() (string, error) {
 			"routers.go", "userExample.go",
 		},
 		"internal/server": {
-			"http.go.noregistry", "http_option.go.noregistry",
+			"http.go", "http_option.go",
 		},
 		"internal/types": {
 			"swagger_types.go", "userExample_types.go",
