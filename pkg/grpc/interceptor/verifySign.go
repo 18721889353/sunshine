@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+var authIgnoreMethods = map[string]struct{}{}
+
 // SignOption setting the Sign Field
 type SignOption func(*signOption)
 
@@ -60,7 +62,7 @@ func VerifySignatureInterceptor(opts ...SignOption) grpc.UnaryServerInterceptor 
 	o := defaultSignOptions()
 	o.apply(opts...)
 	signKey := o.signKey
-	authIgnoreMethods := o.ignoreMethods
+	authIgnoreMethods = o.ignoreMethods
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		var newCtx context.Context
