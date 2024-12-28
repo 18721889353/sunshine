@@ -26,7 +26,7 @@ var (
 
 // Cache driver interface
 type Cache interface {
-	GetLoopLock(ctx context.Context, key string, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error)
+	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
 	GetLock(ctx context.Context, key string, expireTime time.Duration) (*redsync.Mutex, error)
 	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
 	Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) error
@@ -37,8 +37,8 @@ type Cache interface {
 	SetCacheWithNotFound(ctx context.Context, key string) error
 }
 
-func GetLoopLock(ctx context.Context, key string, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error) {
-	return DefaultClient.GetLoopLock(ctx, key, expireTime, loopWaitTime, loopNum)
+func GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
+	return DefaultClient.GetLoopLock(ctx, key, options...)
 }
 func GetLock(ctx context.Context, key string, expireTime time.Duration) (*redsync.Mutex, error) {
 	return DefaultClient.GetLock(ctx, key, expireTime)
