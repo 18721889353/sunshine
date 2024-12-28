@@ -69,6 +69,7 @@ func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Cl
 		ReadTimeout:  o.readTimeout,
 		WriteTimeout: o.writeTimeout,
 		TLSConfig:    o.tlsConfig,
+		PoolSize:     10, // default pool size, can be overridden by WithPoolSize
 	}
 
 	// replace single options if provided
@@ -105,6 +106,7 @@ func InitSentinel(masterName string, addrs []string, username string, password s
 		ReadTimeout:   o.readTimeout,
 		WriteTimeout:  o.writeTimeout,
 		TLSConfig:     o.tlsConfig,
+		PoolSize:      10, // default pool size, can be overridden by WithPoolSize
 	}
 
 	// replace sentinel options if provided
@@ -140,6 +142,7 @@ func InitCluster(addrs []string, username string, password string, opts ...Optio
 		ReadTimeout:  o.readTimeout,
 		WriteTimeout: o.writeTimeout,
 		TLSConfig:    o.tlsConfig,
+		PoolSize:     10, // default pool size, can be overridden by WithPoolSize
 	}
 
 	// replace cluster options if provided

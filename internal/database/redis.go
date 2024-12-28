@@ -58,6 +58,7 @@ func InitRedis() {
 		goredis.WithDialTimeout(time.Duration(redisCfg.DialTimeout) * time.Second),
 		goredis.WithReadTimeout(time.Duration(redisCfg.ReadTimeout) * time.Second),
 		goredis.WithWriteTimeout(time.Duration(redisCfg.WriteTimeout) * time.Second),
+		goredis.WithPoolSize(redisCfg.PoolSize),
 	}
 	if config.Get().App.EnableTrace {
 		opts = append(opts, goredis.WithTracing(tracer.GetProvider()))

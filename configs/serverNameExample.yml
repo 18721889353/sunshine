@@ -137,6 +137,7 @@ redis:
   dialTimeout: 10           # connection timeout, unit(second)
   readTimeout: 2            # read timeout, unit(second)
   writeTimeout: 2           # write timeout, unit(second)
+  poolSize: 1           # 连接池大小
 
 
 # jaeger settings
