@@ -135,6 +135,7 @@ type Redis struct {
 	Dsn          string `yaml:"dsn" json:"dsn"`
 	ReadTimeout  int    `yaml:"readTimeout" json:"readTimeout"`
 	WriteTimeout int    `yaml:"writeTimeout" json:"writeTimeout"`
+	PoolSize     int    `yaml:"poolSize" json:"poolSize"`
 }
 
 type Database struct {

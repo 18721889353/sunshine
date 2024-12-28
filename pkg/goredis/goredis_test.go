@@ -54,6 +54,7 @@ func TestInit(t *testing.T) {
 				WithDialTimeout(time.Second),
 				WithReadTimeout(time.Second),
 				WithWriteTimeout(time.Second),
+				WithPoolSize(20),
 				WithEnableTrace(),
 				WithTracing(nil),   // nil means no set field
 				WithTLSConfig(nil), // nil means no set field
@@ -77,6 +78,7 @@ func TestInitSingle(t *testing.T) {
 		WithDialTimeout(time.Second),
 		WithReadTimeout(time.Second),
 		WithWriteTimeout(time.Second),
+		WithPoolSize(20),
 		WithTracing(nil),       // nil means no set field
 		WithTLSConfig(nil),     // nil means no set field
 		WithSingleOptions(nil), // nil means no set field
@@ -94,6 +96,7 @@ func TestInitSentinel(t *testing.T) {
 		WithDialTimeout(time.Second),
 		WithReadTimeout(time.Second),
 		WithWriteTimeout(time.Second),
+		WithPoolSize(20),
 		WithTracing(nil),         // nil means no set field
 		WithTLSConfig(nil),       // nil means no set field
 		WithSentinelOptions(nil), // nil means no set field
@@ -111,6 +114,7 @@ func TestInitCluster(t *testing.T) {
 		WithDialTimeout(time.Second*15),
 		WithReadTimeout(time.Second),
 		WithWriteTimeout(time.Second),
+		WithPoolSize(20),
 		WithTracing(nil),        // nil means no set field
 		WithTLSConfig(nil),      // nil means no set field
 		WithClusterOptions(nil), // nil means no set field

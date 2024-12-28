@@ -44,6 +44,21 @@ func defaultOptions() *options {
 	}
 }
 
+// WithPoolSize set the pool size for redis connections
+func WithPoolSize(size int) Option {
+	return func(o *options) {
+		if o.singleOptions != nil {
+			o.singleOptions.PoolSize = size
+		}
+		if o.sentinelOptions != nil {
+			o.sentinelOptions.PoolSize = size
+		}
+		if o.clusterOptions != nil {
+			o.clusterOptions.PoolSize = size
+		}
+	}
+}
+
 // WithEnableTrace use trace, redis v8
 // Deprecated: use WithEnableTracer instead
 func WithEnableTrace() Option {
