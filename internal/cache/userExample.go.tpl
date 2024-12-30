@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"github.com/go-redsync/redsync/v4"
 
 	"github.com/18721889353/sunshine/pkg/cache"
 	"github.com/18721889353/sunshine/pkg/encoding"
@@ -25,6 +26,9 @@ var _ {{.TableNameCamel}}Cache = (*{{.TableNameCamelFCL}}Cache)(nil)
 
 // {{.TableNameCamel}}Cache cache interface
 type {{.TableNameCamel}}Cache interface {
+    GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
+	GetLock(ctx context.Context, key string, options ...redsync.Option) error
+	ReleaseLock(ctx context.Context) error
 	Set(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}, data *model.{{.TableNameCamel}}, duration time.Duration) error
 	Get(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error)
 	MultiGet(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
@@ -55,6 +59,26 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 
 	return nil // no cache
 }
+
+
+
+func (c *{{.TableNameCamelFCL}}Cache) getLockCacheKey(key string) string {
+	return fmt.Sprintf("%s%v", {{.TableNameCamelFCL}}CachePrefixKey, key)
+}
+
+func (c *{{.TableNameCamelFCL}}Cache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
+	lockCacheKey := c.getLockCacheKey(key)
+	return c.cache.GetLoopLock(ctx, lockCacheKey, options...)
+}
+
+func (c *{{.TableNameCamelFCL}}Cache) GetLock(ctx context.Context, key string, options ...redsync.Option) error {
+	lockCacheKey := c.getLockCacheKey(key)
+	return c.cache.GetLock(ctx, lockCacheKey, options...)
+}
+func (c *{{.TableNameCamelFCL}}Cache) ReleaseLock(ctx context.Context) error {
+	return c.cache.ReleaseLock(ctx)
+}
+
 
 // Get{{.TableNameCamel}}CacheKey cache key
 func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey({{.ColumnNameCamelFCL}} {{.GoType}}) string {

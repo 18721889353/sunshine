@@ -29,6 +29,7 @@ type redisCache struct {
 	DefaultExpireTime time.Duration
 	newObject         func() interface{}
 	redsSync          *redsync.Redsync
+	mutex             *redsync.Mutex // Redis 分布式锁
 }
 
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
@@ -59,20 +60,23 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 		requestID,
 		zap.String("log_from", "Cache msg GetLoopLock"),
 	}
+	//Lock 阻塞直到获取到锁或上下文被取消
 	// 开始锁定
-	err := c.redsSync.NewMutex(lockKey, options...).LockContext(ctx)
+	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
+	err := c.mutex.LockContext(ctx)
 	if err != nil {
 		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%.6f", time.Since(begin).Seconds()*1000)))
 		pkgLogger.Warn("Cache msg", logFields...)
 		return err
+	} else {
+		logFields = append(logFields, zap.String("ms", fmt.Sprintf("%.6f", time.Since(begin).Seconds()*1000)))
+		pkgLogger.Info("Cache msg", logFields...)
+		return nil
 	}
-	logFields = append(logFields, zap.String("ms", fmt.Sprintf("%.6f", time.Since(begin).Seconds()*1000)))
-	pkgLogger.Info("Cache msg", logFields...)
-	return err
 }
 
 // GetLock acquires a distributed lock with the given key
-func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync.Option) (bool, error) {
+func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync.Option) error {
 	begin := time.Now()
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
@@ -84,29 +88,24 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 		requestID,
 		zap.String("log_from", "Cache msg RedisLock"),
 	}
+	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
 	// TryLock 尝试获取锁而不阻塞
-	// 参数：
-	// - ctx: 上下文，用于控制锁的获取操作
-	// 返回值：
-	// - bool: 如果成功获取锁则返回 true，否则返回 false
-	// - error: 如果发生错误则返回错误
-	// 开始锁定
-	err := c.redsSync.NewMutex(lockKey, options...).TryLockContext(ctx)
+	err := c.mutex.TryLockContext(ctx)
 	if err != nil {
 		logFields = append(logFields, pkgLogger.Err(err), zap.Float64("ms", time.Since(begin).Seconds()*1000))
 		pkgLogger.Warn("Cache msg", logFields...)
-		return false, err
+		return err
 	} else {
 		logFields = append(logFields, zap.Float64("ms", time.Since(begin).Seconds()*1000))
 		pkgLogger.Info("Cache msg", logFields...)
-		return true, nil
+		return nil
 
 	}
 
 }
 
 // ReleaseLock releases the distributed lock
-func (c *redisCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
+func (c *redisCache) ReleaseLock(ctx context.Context) error {
 	begin := time.Now()
 	// 构建日志字段
 	currentTime := begin.Format("2006-01-02 15:04:05.000000000")
@@ -117,16 +116,16 @@ func (c *redisCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) erro
 		zap.String("log_from", "Cache msg ReleaseLock"),
 	}
 	// 解锁操作
-	ok, err := mutex.UnlockContext(ctx)
-	if !ok || err != nil {
+	_, err := c.mutex.UnlockContext(ctx)
+	if err != nil {
 		logFields = append(logFields, pkgLogger.Err(err), zap.Float64("ms", time.Since(begin).Seconds()*1000))
 		pkgLogger.Warn("Cache msg", logFields...)
 		return err
+	} else {
+		logFields = append(logFields, zap.Float64("ms", time.Since(begin).Seconds()*1000))
+		pkgLogger.Info("Cache msg", logFields...)
+		return nil
 	}
-	logFields = append(logFields, zap.Float64("ms", time.Since(begin).Seconds()*1000))
-	pkgLogger.Info("Cache msg", logFields...)
-
-	return nil
 }
 
 // Set one value
