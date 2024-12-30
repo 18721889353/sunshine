@@ -30,9 +30,9 @@ var _ CacheNameExampleCache = (*cacheNameExampleCache)(nil)
 
 // CacheNameExampleCache cache interface
 type CacheNameExampleCache interface {
-	GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error)
-	GetLock(ctx context.Context, keyNameExample keyTypeExample, expireTime time.Duration) (*redsync.Mutex, error)
-	ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error
+	GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error
+	GetLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error
+	ReleaseLock(ctx context.Context) error
 	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error
 	Get(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error)
 	Del(ctx context.Context, keyNameExample keyTypeExample) error
@@ -64,24 +64,17 @@ func NewCacheNameExampleCache(cacheType *database.CacheType) CacheNameExampleCac
 func (c *cacheNameExampleCache) getCacheKey(keyNameExample keyTypeExample) string {
 	return fmt.Sprintf("%s%v", cacheNameExampleCachePrefixKey, keyNameExample)
 }
-func (c *cacheNameExampleCache) GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, expireTime, loopWaitTime time.Duration, loopNum int) (*redsync.Mutex, error) {
+func (c *cacheNameExampleCache) GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error {
 	cacheKey := c.getCacheKey(keyNameExample)
-	lock, err := c.cache.GetLoopLock(ctx, cacheKey, expireTime, loopWaitTime, loopNum)
-	if err != nil {
-		return nil, err
-	}
-	return lock, nil
+	return c.cache.GetLoopLock(ctx, cacheKey, options...)
 }
-func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, expireTime time.Duration) (*redsync.Mutex, error) {
+func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error {
 	cacheKey := c.getCacheKey(keyNameExample)
-	lock, err := c.cache.GetLock(ctx, cacheKey, expireTime)
-	if err != nil {
-		return nil, err
-	}
-	return lock, nil
+	return c.cache.GetLock(ctx, cacheKey, options...)
+
 }
-func (c *cacheNameExampleCache) ReleaseLock(ctx context.Context, mutex *redsync.Mutex) error {
-	return c.cache.ReleaseLock(ctx, mutex)
+func (c *cacheNameExampleCache) ReleaseLock(ctx context.Context) error {
+	return c.cache.ReleaseLock(ctx)
 }
 
 // Set cache
