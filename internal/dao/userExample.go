@@ -192,10 +192,10 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExa
 //
 // query parameters (not required):
 //
-//	name: column name
-//	exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in
-//	value: column value, if exp=in, multiple values are separated by commas
-//	logic: logical type, defaults to and when value is null, only &(and), ||(or)
+//		name: column name
+//	 exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
+//		value: column value, if exp=in, multiple values are separated by commas
+//		logic: logical type, defaults to and when value is null, only &(and), ||(or)
 //
 // example: search for a male over 20 years of age
 //

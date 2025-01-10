@@ -1,4 +1,4 @@
-// Package query is a library of custom condition queries, support for complex conditional paging queries.
+// Package query 是一个自定义条件查询库，支持复杂的分页查询。
 package query
 
 import (
@@ -7,113 +7,153 @@ import (
 )
 
 const (
-	// Eq equal
+	// Eq 等于
 	Eq = "eq"
-	// Neq not equal
+	// Neq 不等于
 	Neq = "neq"
-	// Gt greater than
+	// Gt 大于
 	Gt = "gt"
-	// Gte greater than or equal
+	// Gte 大于等于
 	Gte = "gte"
-	// Lt less than
+	// Lt 小于
 	Lt = "lt"
-	// Lte less than or equal
+	// Lte 小于等于
 	Lte = "lte"
-	// Like fuzzy lookup
+	// Like 模糊查询
 	Like = "like"
-	// In include
+	// In 包含
 	In = "in"
+	// NotIN 不包含
+	NotIN = "notin"
+	// IsNull 是否为空
+	IsNull = "isnull"
+	// IsNotNull 是否不为空
+	IsNotNull = "isnotnull"
 
-	// AND logic and
+	// AND 逻辑与
 	AND string = "and"
-	// OR logic or
+	// OR 逻辑或
 	OR string = "or"
 )
 
 var expMap = map[string]string{
-	Eq:   " = ",
-	Neq:  " <> ",
-	Gt:   " > ",
-	Gte:  " >= ",
-	Lt:   " < ",
-	Lte:  " <= ",
-	Like: " LIKE ",
-	In:   " IN ",
+	Eq:        " = ",           // 等于
+	Neq:       " <> ",          // 不等于
+	Gt:        " > ",           // 大于
+	Gte:       " >= ",          // 大于等于
+	Lt:        " < ",           // 小于
+	Lte:       " <= ",          // 小于等于
+	Like:      " LIKE ",        // 模糊查询
+	In:        " IN ",          // 包含
+	NotIN:     " NOT IN ",      // 不包含
+	IsNull:    " IS NULL ",     // 是否为空
+	IsNotNull: " IS NOT NULL ", // 是否不为空
 
-	"=":  " = ",
-	"!=": " <> ",
-	">":  " > ",
-	">=": " >= ",
-	"<":  " < ",
-	"<=": " <= ",
+	"=":           " = ",           // 等于
+	"!=":          " <> ",          // 不等于
+	">":           " > ",           // 大于
+	">=":          " >= ",          // 大于等于
+	"<":           " < ",           // 小于
+	"<=":          " <= ",          // 小于等于
+	"not in":      " NOT IN ",      // 不包含
+	"is null":     " IS NULL ",     // 是否为空
+	"is not null": " IS NOT NULL ", // 是否不为空
 }
 
 var logicMap = map[string]string{
-	AND: " AND ",
-	OR:  " OR ",
+	AND: " AND ", // 逻辑与
+	OR:  " OR ",  // 逻辑或
 
-	"&":   " AND ",
-	"&&":  " AND ",
-	"|":   " OR ",
-	"||":  " OR ",
-	"AND": " AND ",
-	"OR":  " OR ",
+	"&":   " AND ", // 逻辑与
+	"&&":  " AND ", // 逻辑与
+	"|":   " OR ",  // 逻辑或
+	"||":  " OR ",  // 逻辑或
+	"AND": " AND ", // 逻辑与
+	"OR":  " OR ",  // 逻辑或
 }
 
-// Params query parameters
+// Params 查询参数结构体
 type Params struct {
-	Page  int    `json:"page" form:"page" binding:"gte=0"`
-	Limit int    `json:"limit" form:"limit" binding:"gte=1"`
-	Sort  string `json:"sort,omitempty" form:"sort" binding:""`
+	Page  int    `json:"page" form:"page" binding:"gte=0"`      // 分页页码，默认从0开始
+	Limit int    `json:"limit" form:"limit" binding:"gte=1"`    // 每页条数，最小值为1
+	Sort  string `json:"sort,omitempty" form:"sort" binding:""` // 排序字段
 
-	Columns []Column `json:"columns,omitempty" form:"columns"` // not required
+	Columns []Column `json:"columns,omitempty" form:"columns"` // 查询列信息，非必填
 
-	// Deprecated: use Limit instead in sunshine version v1.8.6, will remove in the future
+	// Deprecated: 在sunshine版本v1.8.6中建议使用Limit代替Size，未来将移除
 	Size int `json:"size" form:"size"`
 }
 
-// Column query info
+// Column 查询列信息结构体
 type Column struct {
-	Name  string      `json:"name" form:"name"`   // column name
-	Exp   string      `json:"exp" form:"exp"`     // expressions, which default to = when the value is null, have =, !=, >, >=, <, <=, like, in
-	Value interface{} `json:"value" form:"value"` // column value
-	Logic string      `json:"logic" form:"logic"` // logical type, defaults to and when the value is null, with &(and), ||(or)
+	Name  string      `json:"name" form:"name"`   // 列名
+	Exp   string      `json:"exp" form:"exp"`     // 表达式，默认值为"=", 支持 =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
+	Value interface{} `json:"value" form:"value"` // 列值
+	Logic string      `json:"logic" form:"logic"` // 逻辑运算符，默认为"and"，支持 &(and), ||(or)
 }
 
+// checkValid 校验列信息是否合法
 func (c *Column) checkValid() error {
 	if c.Name == "" {
-		return fmt.Errorf("field 'name' cannot be empty")
+		return fmt.Errorf("字段 'name' 不能为空")
 	}
 	if c.Value == nil {
-		return fmt.Errorf("field 'value' cannot be nil")
+		v := expMap[strings.ToLower(c.Exp)]
+		if v == " IS NULL " || v == " IS NOT NULL " {
+			return nil
+		}
+		return fmt.Errorf("字段 'value' 不能为空")
 	}
 	return nil
 }
 
-// converting ExpType to sql expressions and LogicType to sql using characters
-func (c *Column) convert() error {
+// convert 将表达式类型转换为SQL表达式，并将逻辑运算符转换为SQL使用的字符
+func (c *Column) convert() (string, error) {
+	symbol := "?"
 	if c.Exp == "" {
 		c.Exp = Eq
 	}
 	if v, ok := expMap[strings.ToLower(c.Exp)]; ok { //nolint
 		c.Exp = v
-		if c.Exp == " LIKE " {
-			c.Value = fmt.Sprintf("%%%v%%", c.Value)
-		}
-		if c.Exp == " IN " {
-			val, ok := c.Value.(string)
-			if !ok {
-				return fmt.Errorf("invalid value type '%s'", c.Value)
+		switch c.Exp {
+		case " LIKE ":
+			val, ok1 := c.Value.(string)
+			if !ok1 {
+				return symbol, fmt.Errorf("无效的值类型 '%s'", c.Value)
 			}
-			var iVal []interface{}
+			l := len(val)
+			if l > 2 {
+				val2 := val[1 : l-1]
+				val2 = strings.ReplaceAll(val2, "%", "\\%")
+				val2 = strings.ReplaceAll(val2, "_", "\\_")
+				val = string(val[0]) + val2 + string(val[l-1])
+			}
+			if strings.HasPrefix(val, "%") ||
+				strings.HasPrefix(val, "_") ||
+				strings.HasSuffix(val, "%") ||
+				strings.HasSuffix(val, "_") {
+				c.Value = val
+			} else {
+				c.Value = "%" + val + "%"
+			}
+		case " IN ", " NOT IN ":
+			val, ok1 := c.Value.(string)
+			if !ok1 {
+				return symbol, fmt.Errorf("无效的值类型 '%s'", c.Value)
+			}
+			iVal := []interface{}{}
 			ss := strings.Split(val, ",")
 			for _, s := range ss {
 				iVal = append(iVal, s)
 			}
 			c.Value = iVal
+			symbol = "(?)"
+		case " IS NULL ", " IS NOT NULL ":
+			c.Value = nil
+			symbol = ""
 		}
 	} else {
-		return fmt.Errorf("unknown exp type '%s'", c.Exp)
+		return symbol, fmt.Errorf("不支持的表达式类型 '%s'", c.Exp)
 	}
 
 	if c.Logic == "" {
@@ -122,13 +162,13 @@ func (c *Column) convert() error {
 	if v, ok := logicMap[strings.ToLower(c.Logic)]; ok { //nolint
 		c.Logic = v
 	} else {
-		return fmt.Errorf("unknown logic type '%s'", c.Logic)
+		return symbol, fmt.Errorf("未知的逻辑类型 '%s'", c.Logic)
 	}
 
-	return nil
+	return symbol, nil
 }
 
-// ConvertToPage converted to page
+// ConvertToPage 转换为分页参数
 func (p *Params) ConvertToPage() (order string, limit int, offset int) { //nolint
 	page := NewPage(p.Page, p.Limit, p.Sort)
 	order = page.sort
@@ -137,11 +177,11 @@ func (p *Params) ConvertToPage() (order string, limit int, offset int) { //nolin
 	return //nolint
 }
 
-// ConvertToGormConditions conversion to gorm-compliant parameters based on the Columns parameter
-// ignore the logical type of the last column, whether it is a one-column or multi-column query
+// ConvertToGormConditions 将查询条件转换为 GORM 兼容的参数
+// 忽略最后一列的逻辑类型，无论是单列还是多列查询
 func (p *Params) ConvertToGormConditions() (string, []interface{}, error) {
 	str := ""
-	var args []interface{}
+	args := []interface{}{}
 	l := len(p.Columns)
 	if l == 0 {
 		return "", nil, nil
@@ -158,23 +198,20 @@ func (p *Params) ConvertToGormConditions() (string, []interface{}, error) {
 			return "", nil, err
 		}
 
-		err := column.convert()
+		symbol, err := column.convert()
 		if err != nil {
 			return "", nil, err
 		}
 
-		symbol := "?"
-		if column.Exp == " IN " {
-			symbol = "(?)"
-		}
-		if i == l-1 { // ignore the logical type of the last column
+		if i == l-1 { // 忽略最后一列的逻辑类型
 			str += column.Name + column.Exp + symbol
 		} else {
 			str += column.Name + column.Exp + symbol + column.Logic
 		}
-		args = append(args, column.Value)
-
-		// when multiple columns are the same, determine whether the use of IN
+		if column.Value != nil {
+			args = append(args, column.Value)
+		}
+		// 当多个列相同时，判断是否使用 IN
 		if isUseIN {
 			if field != column.Name {
 				isUseIN = false
@@ -194,15 +231,15 @@ func (p *Params) ConvertToGormConditions() (string, []interface{}, error) {
 	return str, args, nil
 }
 
-// Conditions query conditions
+// Conditions 查询条件结构体
 type Conditions struct {
-	Columns []Column `json:"columns" form:"columns" binding:"min=1"` // columns info
+	Columns []Column `json:"columns" form:"columns" binding:"min=1"` // 列信息
 }
 
-// CheckValid check valid
+// CheckValid 校验查询条件是否合法
 func (c *Conditions) CheckValid() error {
 	if len(c.Columns) == 0 {
-		return fmt.Errorf("field 'columns' cannot be empty")
+		return fmt.Errorf("字段 'columns' 不能为空")
 	}
 
 	for _, column := range c.Columns {
@@ -212,12 +249,12 @@ func (c *Conditions) CheckValid() error {
 		}
 		if column.Exp != "" {
 			if _, ok := expMap[column.Exp]; !ok {
-				return fmt.Errorf("unknown exp type '%s'", column.Exp)
+				return fmt.Errorf("未知的表达式类型 '%s'", column.Exp)
 			}
 		}
 		if column.Logic != "" {
 			if _, ok := logicMap[column.Logic]; !ok {
-				return fmt.Errorf("unknown logic type '%s'", column.Logic)
+				return fmt.Errorf("未知的逻辑类型 '%s'", column.Logic)
 			}
 		}
 	}
@@ -225,8 +262,8 @@ func (c *Conditions) CheckValid() error {
 	return nil
 }
 
-// ConvertToGorm conversion to gorm-compliant parameters based on the Columns parameter
-// ignore the logical type of the last column, whether it is a one-column or multi-column query
+// ConvertToGorm 将查询条件转换为 GORM 兼容的参数
+// 忽略最后一列的逻辑类型，无论是单列还是多列查询
 func (c *Conditions) ConvertToGorm() (string, []interface{}, error) {
 	p := &Params{Columns: c.Columns}
 	return p.ConvertToGormConditions()

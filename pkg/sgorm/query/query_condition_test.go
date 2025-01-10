@@ -141,13 +141,58 @@ func TestParams_ConvertToGormConditions(t *testing.T) {
 				columns: []Column{
 					{
 						Name:  "name",
-						Value: "Li",
+						Value: "foo",
 						Exp:   Like,
 					},
 				},
 			},
 			want:    "name LIKE ?",
-			want1:   []interface{}{"%Li%"},
+			want1:   []interface{}{"%foo%"},
+			wantErr: false,
+		},
+		{
+			name: "1 column like prefix",
+			args: args{
+				columns: []Column{
+					{
+						Name:  "name",
+						Value: "%foo",
+						Exp:   Like,
+					},
+				},
+			},
+			want:    "name LIKE ?",
+			want1:   []interface{}{"%foo"},
+			wantErr: false,
+		},
+		{
+			name: "1 column like suffix",
+			args: args{
+				columns: []Column{
+					{
+						Name:  "name",
+						Value: "foo%",
+						Exp:   Like,
+					},
+				},
+			},
+			want:    "name LIKE ?",
+			want1:   []interface{}{"foo%"},
+			wantErr: false,
+		},
+		{
+			name: "1 column like with %",
+			args: args{
+				columns: []Column{
+					{
+						Name:  "name",
+						Value: "f%o_o",
+						Exp:   Like,
+					},
+				},
+			},
+			want:    "name LIKE ?",
+			want1:   []interface{}{"%f\\%o\\_o%"},
 			wantErr: false,
 		},
 		{
@@ -163,6 +208,49 @@ func TestParams_ConvertToGormConditions(t *testing.T) {
 			},
 			want:    "name IN (?)",
 			want1:   []interface{}{[]interface{}{"ab", "cd", "ef"}},
+			wantErr: false,
+		},
+		{
+			name: "1 column NOT IN",
+			args: args{
+				columns: []Column{
+					{
+						Name:  "name",
+						Value: "ab,cd,ef",
+						Exp:   NotIN,
+					},
+				},
+			},
+			want:    "name NOT IN (?)",
+			want1:   []interface{}{[]interface{}{"ab", "cd", "ef"}},
+			wantErr: false,
+		},
+		{
+			name: "1 column IS NULL",
+			args: args{
+				columns: []Column{
+					{
+						Name: "name",
+						Exp:  IsNull,
+					},
+				},
+			},
+			want:    "name IS NULL ",
+			want1:   []interface{}{},
+			wantErr: false,
+		},
+		{
+			name: "1 column IS NOT NULL",
+			args: args{
+				columns: []Column{
+					{
+						Name: "name",
+						Exp:  IsNotNull,
+					},
+				},
+			},
+			want:    "name IS NOT NULL ",
+			want1:   []interface{}{},
 			wantErr: false,
 		},
 
@@ -444,14 +532,14 @@ func TestParams_ConvertToGormConditions(t *testing.T) {
 			}
 			got, got1, err := params.ConvertToGormConditions()
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ConvertToGormConditions() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ConvertToGormConditions() error = %v, wantErr = %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("ConvertToGormConditions() got = %v, want %v", got, tt.want)
+				t.Errorf("ConvertToGormConditions() got = %v, want = %v", got, tt.want)
 			}
 			if !reflect.DeepEqual(got1, tt.want1) {
-				t.Errorf("ConvertToGormConditions() got1 = %v, want %v", got1, tt.want1)
+				t.Errorf("ConvertToGormConditions() got1 = %v, want = %v", got1, tt.want1)
 			}
 
 			got = strings.Replace(got, "?", "%v", -1)
