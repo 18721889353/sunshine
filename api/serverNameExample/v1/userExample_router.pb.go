@@ -211,11 +211,11 @@ func checkCodeMessage(out interface{}) (code int, data interface{}, msg string, 
 	}
 
 	codeField := val.FieldByName("Code")
-	msgField := val.FieldByName("Msg")
+	msgField := val.FieldByName("Message")
 	dataField := val.FieldByName("Data")
 
 	if !msgField.IsValid() {
-		return 0, nil, "", fmt.Errorf("out does not contain Msg field")
+		return 0, nil, "", fmt.Errorf("out does not contain Message field")
 	}
 
 	if !dataField.IsValid() {
@@ -223,7 +223,7 @@ func checkCodeMessage(out interface{}) (code int, data interface{}, msg string, 
 	}
 
 	if codeField.IsValid() {
-		if codeField.Kind() != reflect.Int {
+		if codeField.Kind() != reflect.Int && codeField.Kind() != reflect.Int32 && codeField.Kind() != reflect.Int64 && codeField.Kind() != reflect.Int8 {
 			return 0, nil, "", fmt.Errorf("Code field is not of type int")
 		}
 		code = int(codeField.Int())
