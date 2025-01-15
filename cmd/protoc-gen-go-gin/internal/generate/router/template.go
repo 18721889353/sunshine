@@ -182,6 +182,49 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	return append(handlerFns, fn)
 }
 
+
+func checkCodeMessage(out interface{}) (code int, data interface{}, msg string, err error) {
+	val := reflect.ValueOf(out)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	if val.Kind() != reflect.Struct {
+		return 0, nil, "", fmt.Errorf("out is not a struct")
+	}
+
+	codeField := val.FieldByName("Code")
+	msgField := val.FieldByName("Msg")
+	dataField := val.FieldByName("Data")
+
+	if !msgField.IsValid() {
+		return 0, nil, "", fmt.Errorf("out does not contain Msg field")
+	}
+
+	if !dataField.IsValid() {
+		return 0, nil, "", fmt.Errorf("out does not contain Data field")
+	}
+
+	if codeField.IsValid() {
+		if codeField.Kind() != reflect.Int {
+			return 0, nil, "", fmt.Errorf("Code field is not of type int")
+		}
+		code = int(codeField.Int())
+	} else {
+		// 如果 Code 字段不存在，提供默认值
+		code = 200
+	}
+
+	if msgField.Kind() != reflect.String {
+		return 0, nil, "", fmt.Errorf("Msg field is not of type string")
+	}
+	msg = msgField.String()
+
+	data = dataField.Interface()
+
+	return code, data, msg, nil
+}
+
 {{range .Methods}}
 {{if eq .InvokeType 0}}{{if .Path}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
 	req := &{{.RequestImportPkgName}}{{.Request}}{}
@@ -235,7 +278,12 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		return
 	}
 
-	r.iResponse.Success2(c, out.Code ,out.Message, out.Data)
+	code, data, msg, err := checkCodeMessage(out)
+	if err != nil {
+		r.iResponse.Success(c, out)
+	} else {
+		r.iResponse.Success2(c, code, msg, data)
+	}
 }{{end}}{{end}}
 {{end}}
 `
