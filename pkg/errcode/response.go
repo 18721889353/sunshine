@@ -16,13 +16,14 @@ var SkipResponse = errors.New("skip response") //nolint
 
 // Responser 响应接口
 type Responser interface {
-	Success(ctx *gin.Context, data interface{}) // 成功响应
-	ParamError(ctx *gin.Context, err error)     // 参数错误响应
-	Error(ctx *gin.Context, err error) bool     // 错误响应，返回 true 表示已将错误代码转换为标准 HTTP 代码
+	Success(ctx *gin.Context, data interface{})                        // 成功响应
+	Success2(ctx *gin.Context, code int, msg string, data interface{}) // 成功响应
+	ParamError(ctx *gin.Context, err error)                            // 参数错误响应
+	Error(ctx *gin.Context, err error) bool                            // 错误响应，返回 true 表示已将错误代码转换为标准 HTTP 代码
 }
 
 // NewResponser 创建一个新的 Responser，如果 isFromRPC=true，表示从 RPC 返回，否则默认从 HTTP 返回
-func NewResponser(isFromRPC bool, httpErrors []*Error, rpcStatus []*RPCStatus) Responser {
+func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*RPCStatus) Responser {
 	httpErrorsMap := make(map[int]*Error)
 	rpcStatusMap := make(map[int]*RPCStatus)
 
@@ -44,6 +45,7 @@ func NewResponser(isFromRPC bool, httpErrors []*Error, rpcStatus []*RPCStatus) R
 		isFromRPC:  isFromRPC,
 		httpErrors: httpErrorsMap,
 		rpcStatus:  rpcStatusMap,
+		isMessage:  isMessage,
 	}
 }
 
@@ -52,20 +54,32 @@ type defaultResponse struct {
 	isFromRPC  bool               // 错误是否来自 gRPC，如果不是，默认来自 HTTP
 	httpErrors map[int]*Error     // HTTP 错误映射
 	rpcStatus  map[int]*RPCStatus // gRPC 状态映射
+	isMessage  bool               //返回消息是 message
 }
 
 // response 构建 JSON 响应
 func (resp *defaultResponse) response(c *gin.Context, respStatus, code int, msg string, data interface{}) {
-	c.JSON(respStatus, map[string]interface{}{
-		"code": code,
-		"msg":  msg,
-		"data": data,
-	})
+	if resp.isMessage {
+		c.JSON(respStatus, map[string]interface{}{
+			"code":    code,
+			"message": msg,
+			"data":    data,
+		})
+	} else {
+		c.JSON(respStatus, map[string]interface{}{
+			"code": code,
+			"msg":  msg,
+			"data": data,
+		})
+	}
 }
 
 // Success 成功响应
 func (resp *defaultResponse) Success(c *gin.Context, data interface{}) {
 	resp.response(c, http.StatusOK, 0, "ok", data)
+}
+func (resp *defaultResponse) Success2(c *gin.Context, code int, msg string, data interface{}) {
+	resp.response(c, http.StatusOK, code, msg, data)
 }
 
 // ParamError 参数错误响应
