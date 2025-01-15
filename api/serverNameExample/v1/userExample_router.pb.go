@@ -5,10 +5,12 @@ package v1
 import (
 	context "context"
 	errors "errors"
+	"fmt"
 	errcode "github.com/18721889353/sunshine/pkg/errcode"
 	middleware "github.com/18721889353/sunshine/pkg/gin/middleware"
 	gin "github.com/gin-gonic/gin"
 	zap "go.uber.org/zap"
+	"reflect"
 	strings "strings"
 )
 
@@ -189,9 +191,55 @@ func (r *userExampleRouter) Create_0(c *gin.Context) {
 		r.iResponse.Error(c, err)
 		return
 	}
+	code, data, msg, err := checkCodeMessage(out)
+	if err != nil {
+		r.iResponse.Success(c, out)
+	} else {
+		r.iResponse.Success2(c, code, msg, data)
+	}
 
-	r.iResponse.Success(c, out)
+}
 
+func checkCodeMessage(out interface{}) (code int, data interface{}, msg string, err error) {
+	val := reflect.ValueOf(out)
+	if val.Kind() == reflect.Ptr {
+		val = val.Elem()
+	}
+
+	if val.Kind() != reflect.Struct {
+		return 0, nil, "", fmt.Errorf("out is not a struct")
+	}
+
+	codeField := val.FieldByName("Code")
+	msgField := val.FieldByName("Msg")
+	dataField := val.FieldByName("Data")
+
+	if !msgField.IsValid() {
+		return 0, nil, "", fmt.Errorf("out does not contain Msg field")
+	}
+
+	if !dataField.IsValid() {
+		return 0, nil, "", fmt.Errorf("out does not contain Data field")
+	}
+
+	if codeField.IsValid() {
+		if codeField.Kind() != reflect.Int {
+			return 0, nil, "", fmt.Errorf("Code field is not of type int")
+		}
+		code = int(codeField.Int())
+	} else {
+		// 如果 Code 字段不存在，提供默认值
+		code = 200
+	}
+
+	if msgField.Kind() != reflect.String {
+		return 0, nil, "", fmt.Errorf("Msg field is not of type string")
+	}
+	msg = msgField.String()
+
+	data = dataField.Interface()
+
+	return code, data, msg, nil
 }
 
 func (r *userExampleRouter) DeleteByID_0(c *gin.Context) {
@@ -226,7 +274,12 @@ func (r *userExampleRouter) DeleteByID_0(c *gin.Context) {
 		return
 	}
 
-	r.iResponse.Success(c, out)
+	code, data, msg, err := checkCodeMessage(out)
+	if err != nil {
+		r.iResponse.Success(c, out)
+	} else {
+		r.iResponse.Success2(c, code, msg, data)
+	}
 }
 
 func (r *userExampleRouter) UpdateByID_0(c *gin.Context) {
@@ -261,7 +314,12 @@ func (r *userExampleRouter) UpdateByID_0(c *gin.Context) {
 		return
 	}
 
-	r.iResponse.Success(c, out)
+	code, data, msg, err := checkCodeMessage(out)
+	if err != nil {
+		r.iResponse.Success(c, out)
+	} else {
+		r.iResponse.Success2(c, code, msg, data)
+	}
 }
 
 func (r *userExampleRouter) GetByID_0(c *gin.Context) {
@@ -296,7 +354,12 @@ func (r *userExampleRouter) GetByID_0(c *gin.Context) {
 		return
 	}
 
-	r.iResponse.Success(c, out)
+	code, data, msg, err := checkCodeMessage(out)
+	if err != nil {
+		r.iResponse.Success(c, out)
+	} else {
+		r.iResponse.Success2(c, code, msg, data)
+	}
 }
 
 func (r *userExampleRouter) List_0(c *gin.Context) {
@@ -325,5 +388,10 @@ func (r *userExampleRouter) List_0(c *gin.Context) {
 		return
 	}
 
-	r.iResponse.Success(c, out)
+	code, data, msg, err := checkCodeMessage(out)
+	if err != nil {
+		r.iResponse.Success(c, out)
+	} else {
+		r.iResponse.Success2(c, code, msg, data)
+	}
 }
