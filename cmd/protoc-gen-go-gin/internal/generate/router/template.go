@@ -235,7 +235,7 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		return
 	}
 
-	r.iResponse.Success(c, out)
+	r.iResponse.Success2(c, out.Code ,out.Message, out.Data)
 }{{end}}{{end}}
 {{end}}
 `
