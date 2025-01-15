@@ -25,7 +25,7 @@ func runHTTPServer(isFromRPC bool) string {
 
 	httpErrors := []*Error{Forbidden, TooManyRequests, MethodNotAllowed}
 	rpcStatus := []*RPCStatus{StatusDeadlineExceeded, StatusPermissionDenied, StatusAlreadyExists}
-	resp := NewResponser(isFromRPC, httpErrors, rpcStatus)
+	resp := NewResponser(isFromRPC, isFromRPC, httpErrors, rpcStatus)
 
 	r.GET("/ping", func(c *gin.Context) {
 		resp.Success(c, "ping")

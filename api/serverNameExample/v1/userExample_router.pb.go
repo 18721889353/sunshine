@@ -5,9 +5,9 @@ package v1
 import (
 	context "context"
 	errors "errors"
-	gin "github.com/gin-gonic/gin"
 	errcode "github.com/18721889353/sunshine/pkg/errcode"
 	middleware "github.com/18721889353/sunshine/pkg/gin/middleware"
+	gin "github.com/gin-gonic/gin"
 	zap "go.uber.org/zap"
 	strings "strings"
 )
@@ -26,6 +26,7 @@ type UserExampleOption func(*userExampleOptions)
 
 type userExampleOptions struct {
 	isFromRPC  bool
+	isMessage  bool
 	responser  errcode.Responser
 	zapLog     *zap.Logger
 	httpErrors []*errcode.Error
@@ -48,6 +49,11 @@ func WithUserExampleHTTPResponse() UserExampleOption {
 func WithUserExampleRPCResponse() UserExampleOption {
 	return func(o *userExampleOptions) {
 		o.isFromRPC = true
+	}
+}
+func WithUserExampleMessage() UserExampleOption {
+	return func(o *userExampleOptions) {
+		o.isMessage = true
 	}
 }
 
@@ -92,7 +98,7 @@ func RegisterUserExampleRouter(
 	o.apply(opts...)
 
 	if o.responser == nil {
-		o.responser = errcode.NewResponser(o.isFromRPC, o.httpErrors, o.rpcStatus)
+		o.responser = errcode.NewResponser(o.isMessage, o.isFromRPC, o.httpErrors, o.rpcStatus)
 	}
 	if o.zapLog == nil {
 		o.zapLog, _ = zap.NewProduction()
@@ -185,6 +191,7 @@ func (r *userExampleRouter) Create_0(c *gin.Context) {
 	}
 
 	r.iResponse.Success(c, out)
+
 }
 
 func (r *userExampleRouter) DeleteByID_0(c *gin.Context) {

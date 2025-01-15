@@ -49,6 +49,7 @@ type {{$.Name}}Option func(*{{$.LowerName}}Options)
 
 type {{$.LowerName}}Options struct {
 	isFromRPC bool
+	isMessage bool
 	responser errcode.Responser
 	zapLog    *zap.Logger
 	httpErrors []*errcode.Error
@@ -71,6 +72,12 @@ func With{{$.Name}}HTTPResponse() {{$.Name}}Option {
 func With{{$.Name}}RPCResponse() {{$.Name}}Option {
 	return func(o *{{$.LowerName}}Options) {
 		o.isFromRPC = true
+	}
+}
+
+func With{{$.Name}}Message() {{$.Name}}Option {
+	return func(o *{{$.LowerName}}Options) {
+		o.isMessage = true
 	}
 }
 
@@ -115,7 +122,7 @@ func Register{{$.Name}}Router(
 	o.apply(opts...)
 
 	if o.responser == nil {
-		o.responser = errcode.NewResponser(o.isFromRPC, o.httpErrors, o.rpcStatus)
+		o.responser = errcode.NewResponser(o.isMessage,o.isFromRPC, o.httpErrors, o.rpcStatus)
 	}
 	if o.zapLog == nil {
 		o.zapLog,_ = zap.NewProduction()
