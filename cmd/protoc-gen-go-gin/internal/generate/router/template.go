@@ -182,14 +182,15 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	return append(handlerFns, fn)
 }
 
-func checkCodeMessage(out interface{}) (code int, data interface{}, msg string, err error) {
+
+func checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
 	val := reflect.ValueOf(out)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 	}
 
 	if val.Kind() != reflect.Struct {
-		return 0, nil, "", fmt.Errorf("out is not a struct")
+		return "0", nil, "", fmt.Errorf("out is not a struct")
 	}
 
 	codeField := val.FieldByName("Code")
@@ -197,25 +198,25 @@ func checkCodeMessage(out interface{}) (code int, data interface{}, msg string, 
 	dataField := val.FieldByName("Data")
 
 	if !msgField.IsValid() {
-		return 0, nil, "", fmt.Errorf("out does not contain Message field")
+		return "0", nil, "", fmt.Errorf("out does not contain Message field")
 	}
 
 	if !dataField.IsValid() {
-		return 0, nil, "", fmt.Errorf("out does not contain Data field")
+		return "0", nil, "", fmt.Errorf("out does not contain Data field")
 	}
 
 	if codeField.IsValid() {
-		if codeField.Kind() != reflect.Int && codeField.Kind() != reflect.Int32 && codeField.Kind() != reflect.Int64 && codeField.Kind() != reflect.Int8 {
-			return 0, nil, "", fmt.Errorf("Code field is not of type int")
+		if codeField.Kind() != reflect.String {
+			return "0", nil, "", fmt.Errorf("Code field is not of type int")
 		}
-		code = int(codeField.Int())
+		code = strconv.Itoa(int(codeField.Int()))
 	} else {
 		// 如果 Code 字段不存在，提供默认值
-		code = 200
+		code = "200"
 	}
 
 	if msgField.Kind() != reflect.String {
-		return 0, nil, "", fmt.Errorf("Msg field is not of type string")
+		return "0", nil, "", fmt.Errorf("Msg field is not of type string")
 	}
 	msg = msgField.String()
 

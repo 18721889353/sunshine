@@ -16,10 +16,10 @@ var SkipResponse = errors.New("skip response") //nolint
 
 // Responser 响应接口
 type Responser interface {
-	Success(ctx *gin.Context, data interface{})                        // 成功响应
-	Success2(ctx *gin.Context, code int, msg string, data interface{}) // 成功响应
-	ParamError(ctx *gin.Context, err error)                            // 参数错误响应
-	Error(ctx *gin.Context, err error) bool                            // 错误响应，返回 true 表示已将错误代码转换为标准 HTTP 代码
+	Success(ctx *gin.Context, data interface{})                    // 成功响应
+	Success2(ctx *gin.Context, code, msg string, data interface{}) // 成功响应
+	ParamError(ctx *gin.Context, err error)                        // 参数错误响应
+	Error(ctx *gin.Context, err error) bool                        // 错误响应，返回 true 表示已将错误代码转换为标准 HTTP 代码
 }
 
 // NewResponser 创建一个新的 Responser，如果 isFromRPC=true，表示从 RPC 返回，否则默认从 HTTP 返回
@@ -58,7 +58,7 @@ type defaultResponse struct {
 }
 
 // response 构建 JSON 响应
-func (resp *defaultResponse) response(c *gin.Context, respStatus, code int, msg string, data interface{}) {
+func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg string, data interface{}) {
 	if resp.isMessage {
 		c.JSON(respStatus, map[string]interface{}{
 			"code":    code,
@@ -76,15 +76,15 @@ func (resp *defaultResponse) response(c *gin.Context, respStatus, code int, msg 
 
 // Success 成功响应
 func (resp *defaultResponse) Success(c *gin.Context, data interface{}) {
-	resp.response(c, http.StatusOK, 0, "ok", data)
+	resp.response(c, http.StatusOK, "0", "ok", data)
 }
-func (resp *defaultResponse) Success2(c *gin.Context, code int, msg string, data interface{}) {
+func (resp *defaultResponse) Success2(c *gin.Context, code, msg string, data interface{}) {
 	resp.response(c, http.StatusOK, code, msg, data)
 }
 
 // ParamError 参数错误响应
 func (resp *defaultResponse) ParamError(c *gin.Context, _ error) {
-	resp.response(c, http.StatusOK, InvalidParams.Code(), InvalidParams.Msg(), nil)
+	resp.response(c, http.StatusOK, strconv.Itoa(InvalidParams.Code()), InvalidParams.Msg(), nil)
 }
 
 // Error 错误响应
@@ -107,10 +107,10 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		code, msg := parseCodeAndMsg(st.String())
 		if code == -1 {
 			// 不符合规范的错误
-			resp.response(c, http.StatusOK, -1, "unknown error", nil)
+			resp.response(c, http.StatusOK, "-1", "unknown error", nil)
 		} else {
 			// 使用 NewRPCStatus 创建的错误
-			resp.response(c, http.StatusOK, code, msg, nil)
+			resp.response(c, http.StatusOK, strconv.Itoa(code), msg, nil)
 		}
 		return false
 	}
@@ -118,10 +118,10 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	// 默认错误代码转换为 HTTP
 	switch st.Code() {
 	case codes.Internal, StatusInternalServerError.status.Code():
-		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), nil)
+		resp.response(c, http.StatusInternalServerError, strconv.Itoa(http.StatusInternalServerError), http.StatusText(http.StatusInternalServerError), nil)
 		return true
 	case codes.Unavailable, StatusServiceUnavailable.status.Code():
-		resp.response(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), nil)
+		resp.response(c, http.StatusServiceUnavailable, strconv.Itoa(http.StatusServiceUnavailable), http.StatusText(http.StatusServiceUnavailable), nil)
 		return true
 	}
 
@@ -129,7 +129,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	if strings.Contains(st.Message(), ToHTTPCodeLabel) {
 		code := convertToHTTPCode(st.Code())
 		msg := strings.ReplaceAll(st.Message(), ToHTTPCodeLabel, "")
-		resp.response(c, code, int(st.Code()), msg, nil)
+		resp.response(c, code, strconv.Itoa(int(st.Code())), msg, nil)
 		return true
 	}
 
@@ -139,7 +139,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	}
 
 	// 响应 200
-	resp.response(c, http.StatusOK, int(st.Code()), st.Message(), nil)
+	resp.response(c, http.StatusOK, strconv.Itoa(int(st.Code())), st.Message(), nil)
 
 	return false
 }
@@ -151,17 +151,17 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	// 默认错误代码转换为 HTTP
 	switch e.Code() {
 	case InternalServerError.Code(), http.StatusInternalServerError:
-		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), nil)
+		resp.response(c, http.StatusInternalServerError, strconv.Itoa(http.StatusInternalServerError), http.StatusText(http.StatusInternalServerError), nil)
 		return true
 	case ServiceUnavailable.Code(), http.StatusServiceUnavailable:
-		resp.response(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), nil)
+		resp.response(c, http.StatusServiceUnavailable, strconv.Itoa(http.StatusServiceUnavailable), http.StatusText(http.StatusServiceUnavailable), nil)
 		return true
 	}
 
 	// 用户请求返回标准 HTTP 代码，如果 e.ToHTTPCode() 不匹配，则返回 500
 	if e.needHTTPCode {
 		msg := strings.ReplaceAll(e.msg, ToHTTPCodeLabel, "")
-		resp.response(c, e.ToHTTPCode(), e.code, msg, nil)
+		resp.response(c, e.ToHTTPCode(), strconv.Itoa(e.code), msg, nil)
 		return true
 	}
 
@@ -171,7 +171,7 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	}
 
 	// 响应 200
-	resp.response(c, http.StatusOK, e.code, e.msg, nil)
+	resp.response(c, http.StatusOK, strconv.Itoa(e.code), e.msg, nil)
 	return false
 }
 
@@ -183,7 +183,7 @@ func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode i
 		if msg == "" {
 			msg = "unknown error"
 		}
-		resp.response(c, httpCode, httpCode, msg, nil)
+		resp.response(c, httpCode, strconv.Itoa(httpCode), msg, nil)
 		return true
 	}
 	return false
@@ -197,7 +197,7 @@ func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode 
 		if msg == "" {
 			msg = "unknown error"
 		}
-		resp.response(c, httpCode, httpCode, msg, nil)
+		resp.response(c, httpCode, strconv.Itoa(httpCode), msg, nil)
 		return true
 	}
 	return false
