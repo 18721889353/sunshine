@@ -84,7 +84,7 @@ func (resp *defaultResponse) Success2(c *gin.Context, code int, msg string, data
 
 // ParamError 参数错误响应
 func (resp *defaultResponse) ParamError(c *gin.Context, _ error) {
-	resp.response(c, http.StatusOK, InvalidParams.Code(), InvalidParams.Msg(), struct{}{})
+	resp.response(c, http.StatusOK, InvalidParams.Code(), InvalidParams.Msg(), nil)
 }
 
 // Error 错误响应
@@ -107,10 +107,10 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		code, msg := parseCodeAndMsg(st.String())
 		if code == -1 {
 			// 不符合规范的错误
-			resp.response(c, http.StatusOK, -1, "unknown error", struct{}{})
+			resp.response(c, http.StatusOK, -1, "unknown error", nil)
 		} else {
 			// 使用 NewRPCStatus 创建的错误
-			resp.response(c, http.StatusOK, code, msg, struct{}{})
+			resp.response(c, http.StatusOK, code, msg, nil)
 		}
 		return false
 	}
@@ -118,10 +118,10 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	// 默认错误代码转换为 HTTP
 	switch st.Code() {
 	case codes.Internal, StatusInternalServerError.status.Code():
-		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), struct{}{})
+		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), nil)
 		return true
 	case codes.Unavailable, StatusServiceUnavailable.status.Code():
-		resp.response(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), struct{}{})
+		resp.response(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), nil)
 		return true
 	}
 
@@ -129,7 +129,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	if strings.Contains(st.Message(), ToHTTPCodeLabel) {
 		code := convertToHTTPCode(st.Code())
 		msg := strings.ReplaceAll(st.Message(), ToHTTPCodeLabel, "")
-		resp.response(c, code, int(st.Code()), msg, struct{}{})
+		resp.response(c, code, int(st.Code()), msg, nil)
 		return true
 	}
 
@@ -139,7 +139,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	}
 
 	// 响应 200
-	resp.response(c, http.StatusOK, int(st.Code()), st.Message(), struct{}{})
+	resp.response(c, http.StatusOK, int(st.Code()), st.Message(), nil)
 
 	return false
 }
@@ -151,17 +151,17 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	// 默认错误代码转换为 HTTP
 	switch e.Code() {
 	case InternalServerError.Code(), http.StatusInternalServerError:
-		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), struct{}{})
+		resp.response(c, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError), nil)
 		return true
 	case ServiceUnavailable.Code(), http.StatusServiceUnavailable:
-		resp.response(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), struct{}{})
+		resp.response(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, http.StatusText(http.StatusServiceUnavailable), nil)
 		return true
 	}
 
 	// 用户请求返回标准 HTTP 代码，如果 e.ToHTTPCode() 不匹配，则返回 500
 	if e.needHTTPCode {
 		msg := strings.ReplaceAll(e.msg, ToHTTPCodeLabel, "")
-		resp.response(c, e.ToHTTPCode(), e.code, msg, struct{}{})
+		resp.response(c, e.ToHTTPCode(), e.code, msg, nil)
 		return true
 	}
 
@@ -171,7 +171,7 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	}
 
 	// 响应 200
-	resp.response(c, http.StatusOK, e.code, e.msg, struct{}{})
+	resp.response(c, http.StatusOK, e.code, e.msg, nil)
 	return false
 }
 
@@ -183,7 +183,7 @@ func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode i
 		if msg == "" {
 			msg = "unknown error"
 		}
-		resp.response(c, httpCode, httpCode, msg, struct{}{})
+		resp.response(c, httpCode, httpCode, msg, nil)
 		return true
 	}
 	return false
@@ -197,7 +197,7 @@ func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode 
 		if msg == "" {
 			msg = "unknown error"
 		}
-		resp.response(c, httpCode, httpCode, msg, struct{}{})
+		resp.response(c, httpCode, httpCode, msg, nil)
 		return true
 	}
 	return false
