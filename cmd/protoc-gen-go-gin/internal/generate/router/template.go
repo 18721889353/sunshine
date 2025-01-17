@@ -184,7 +184,7 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	return append(handlerFns, fn)
 }
 
-func checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
+func (r *{{$.LowerName}}Router)checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
 	val := reflect.ValueOf(out)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
@@ -279,7 +279,7 @@ func checkCodeMessage(out interface{}) (code string, data interface{}, msg strin
 		return
 	}
 
-	code, data, msg, err := checkCodeMessage(out)
+	code, data, msg, err := r.checkCodeMessage(out)
 	if err != nil {
 		r.iResponse.Success(c, out)
 	} else {
