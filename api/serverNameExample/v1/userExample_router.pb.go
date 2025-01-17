@@ -11,7 +11,6 @@ import (
 	gin "github.com/gin-gonic/gin"
 	zap "go.uber.org/zap"
 	"reflect"
-	"strconv"
 	strings "strings"
 )
 
@@ -227,7 +226,7 @@ func checkCodeMessage(out interface{}) (code string, data interface{}, msg strin
 		if codeField.Kind() != reflect.String {
 			return "0", nil, "", fmt.Errorf("Code field is not of type int")
 		}
-		code = strconv.Itoa(int(codeField.Int()))
+		code = codeField.String()
 	} else {
 		// 如果 Code 字段不存在，提供默认值
 		code = "200"
@@ -242,7 +241,6 @@ func checkCodeMessage(out interface{}) (code string, data interface{}, msg strin
 
 	return code, data, msg, nil
 }
-
 func (r *userExampleRouter) DeleteByID_0(c *gin.Context) {
 	req := &DeleteUserExampleByIDRequest{}
 	var err error
