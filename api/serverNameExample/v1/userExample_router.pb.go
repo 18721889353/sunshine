@@ -191,7 +191,7 @@ func (r *userExampleRouter) Create_0(c *gin.Context) {
 		r.iResponse.Error(c, err)
 		return
 	}
-	code, data, msg, err := checkCodeMessage(out)
+	code, data, msg, err := r.checkCodeMessage(out)
 	if err != nil {
 		r.iResponse.Success(c, out)
 	} else {
@@ -200,7 +200,7 @@ func (r *userExampleRouter) Create_0(c *gin.Context) {
 
 }
 
-func checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
+func (r *userExampleRouter) checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
 	val := reflect.ValueOf(out)
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
@@ -273,7 +273,7 @@ func (r *userExampleRouter) DeleteByID_0(c *gin.Context) {
 		return
 	}
 
-	code, data, msg, err := checkCodeMessage(out)
+	code, data, msg, err := r.checkCodeMessage(out)
 	if err != nil {
 		r.iResponse.Success(c, out)
 	} else {
@@ -313,7 +313,7 @@ func (r *userExampleRouter) UpdateByID_0(c *gin.Context) {
 		return
 	}
 
-	code, data, msg, err := checkCodeMessage(out)
+	code, data, msg, err := r.checkCodeMessage(out)
 	if err != nil {
 		r.iResponse.Success(c, out)
 	} else {
@@ -353,7 +353,7 @@ func (r *userExampleRouter) GetByID_0(c *gin.Context) {
 		return
 	}
 
-	code, data, msg, err := checkCodeMessage(out)
+	code, data, msg, err := r.checkCodeMessage(out)
 	if err != nil {
 		r.iResponse.Success(c, out)
 	} else {
@@ -387,7 +387,7 @@ func (r *userExampleRouter) List_0(c *gin.Context) {
 		return
 	}
 
-	code, data, msg, err := checkCodeMessage(out)
+	code, data, msg, err := r.checkCodeMessage(out)
 	if err != nil {
 		r.iResponse.Success(c, out)
 	} else {
