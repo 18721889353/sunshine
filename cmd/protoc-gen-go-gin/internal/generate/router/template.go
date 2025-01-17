@@ -25,6 +25,8 @@ package {{$.PackageName}}
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -182,7 +184,6 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	return append(handlerFns, fn)
 }
 
-
 func checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
 	val := reflect.ValueOf(out)
 	if val.Kind() == reflect.Ptr {
@@ -209,7 +210,7 @@ func checkCodeMessage(out interface{}) (code string, data interface{}, msg strin
 		if codeField.Kind() != reflect.String {
 			return "0", nil, "", fmt.Errorf("Code field is not of type int")
 		}
-		code = strconv.Itoa(int(codeField.Int()))
+		code = codeField.String()
 	} else {
 		// 如果 Code 字段不存在，提供默认值
 		code = "200"
