@@ -355,7 +355,7 @@ func (c *Consumer) initialize() error {
 
 	fields := logFields(c.QueueName, c.Exchange)
 	fields = append(fields, zap.String("autoAck", strconv.FormatBool(c.isAutoAck)))
-	pkgLogger.Info("[rabbitmq consumer] initialized", fields...)
+	//pkgLogger.Info("[rabbitmq consumer] initialized", fields...)
 	return nil
 }
 
@@ -408,7 +408,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				pkgLogger.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
-			pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
+			//pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
 			tracer := otel.Tracer("rabbitmq-Consume")
 
 			isContinueConsume := false
@@ -439,7 +439,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 							pkgLogger.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
+						//pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
 						// Wait for 60 seconds before retrying
 						time.Sleep(time.Second * 60)
 						continue
@@ -450,7 +450,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 							pkgLogger.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
+						//pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
 					atomic.AddInt64(&c.count, 1)
 					// 结束 span
@@ -515,7 +515,7 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 				pkgLogger.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
-			pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
+			//pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
 			tracer := otel.Tracer("rabbitmq-DeadConsume")
 
 			isContinueConsume := false
@@ -547,7 +547,7 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 							pkgLogger.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
+						//pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
 						continue
 					}
 					if !c.isAutoAck {
@@ -556,7 +556,7 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 							pkgLogger.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
+						//pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
 					// 结束 span
 					span.End()

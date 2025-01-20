@@ -131,7 +131,7 @@ func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 	if err != nil {
 		return nil, err
 	}
-	connection.zapLog.Info("[rabbitmq connection] connected successfully.")
+	//connection.zapLog.Info("[rabbitmq connection] connected successfully.")
 
 	connection.conn = conn
 	connection.blockChan = connection.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
@@ -186,7 +186,7 @@ func (c *Connection) monitor() {
 		select {
 		case <-c.exit:
 			_ = c.closeConn()
-			c.zapLog.Info("[rabbitmq connection] closed")
+			//c.zapLog.Info("[rabbitmq connection] closed")
 			return
 		case b := <-c.blockChan:
 			if b.Active {
@@ -208,7 +208,7 @@ func (c *Connection) monitor() {
 				c.zapLog.Warn("[rabbitmq connection] reconnect failed", zap.String("err", amqpErr.Error()), zap.Int("retryCount", retryCount))
 				continue
 			}
-			c.zapLog.Info("[rabbitmq connection] reconnected successfully.")
+			//c.zapLog.Info("[rabbitmq connection] reconnected successfully.")
 
 			// set new connection
 			c.mutex.Lock()

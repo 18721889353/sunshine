@@ -210,7 +210,7 @@ func NewProducer(exchange *Exchange, queueName string, connection *Connection, o
 		deliveryMode = amqp.Transient
 	}
 
-	connection.zapLog.Info("[rabbit producer] initialized", fields...)
+	//connection.zapLog.Info("[rabbit producer] initialized", fields...)
 
 	return &Producer{
 		QueueName:    queueName,
