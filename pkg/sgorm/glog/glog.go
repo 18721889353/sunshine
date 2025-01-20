@@ -3,6 +3,8 @@ package glog
 
 import (
 	"context"
+	"errors"
+	"gorm.io/gorm"
 	"strings"
 	"time"
 
@@ -90,7 +92,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 		fileLineField = zap.String("file_line", fileLine)
 	}
 
-	if err != nil {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		l.gLog.Warn("Gorm msg",
 			zap.Error(err),
 			zap.String("sql", sql),
