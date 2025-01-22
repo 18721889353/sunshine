@@ -9,6 +9,7 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/lestrrat-go/file-rotatelogs"
 	"strings"
 	"time"
 
@@ -124,14 +125,28 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 	} else { // json format
 		encoder = zapcore.NewJSONEncoder(encoderConfig)
 	}
+	var ws zapcore.WriteSyncer
+	if fo.isSaveDay {
+		logWriter, err := rotatelogs.New(
+			fo.filename+".%Y%m%d",                                        // Log file name with date format
+			rotatelogs.WithLinkName(fo.filename),                         // Symlink name
+			rotatelogs.WithMaxAge(time.Duration(fo.maxAge)*24*time.Hour), // Maximum age of log files
+			rotatelogs.WithRotationTime(24*time.Hour),                    // Rotate daily
+		)
+		if err != nil {
+			panic(err)
+		}
+		ws = zapcore.AddSync(logWriter)
+	} else {
+		ws = zapcore.AddSync(&lumberjack.Logger{
+			Filename:   fo.filename,      // file name
+			MaxSize:    fo.maxSize,       // maximum file size (MB)
+			MaxBackups: fo.maxBackups,    // maximum number of old files
+			MaxAge:     fo.maxAge,        // maximum number of days for old documents
+			Compress:   fo.isCompression, // whether to compress and archive old files
+		})
+	}
 
-	ws := zapcore.AddSync(&lumberjack.Logger{
-		Filename:   fo.filename,      // file name
-		MaxSize:    fo.maxSize,       // maximum file size (MB)
-		MaxBackups: fo.maxBackups,    // maximum number of old files
-		MaxAge:     fo.maxAge,        // maximum number of days for old documents
-		Compress:   fo.isCompression, // whether to compress and archive old files
-	})
 	core := zapcore.NewCore(encoder, ws, getLevelSize(levelName))
 
 	// add the function call information log to the log.
