@@ -29,6 +29,7 @@ require (
 	github.com/jinzhu/copier v0.4.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/juju/errors v1.0.0
+	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/nacos-group/nacos-sdk-go/v2 v2.2.7
 	github.com/natefinch/lumberjack v2.0.0+incompatible
@@ -156,11 +157,13 @@ require (
 	github.com/jinzhu/configor v1.2.1 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
+	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
+	github.com/lestrrat-go/strftime v1.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
