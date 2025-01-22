@@ -117,7 +117,7 @@ func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
 
 func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder   // modify Time Encoder
+	encoderConfig.EncodeTime = timeFormatter                // zapcore.ISO8601TimeEncoder   // modify Time Encoder
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // logging levels in the log file using upper case letters
 	var encoder zapcore.Encoder
 	if encoding == formatConsole { // console format
@@ -128,10 +128,13 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 	var ws zapcore.WriteSyncer
 	if fo.isSaveDay {
 		logWriter, err := rotatelogs.New(
-			fo.filename+".%Y%m%d",                                        // Log file name with date format
-			rotatelogs.WithLinkName(fo.filename),                         // Symlink name
+			fo.filename+".%Y%m%d",                // Log file name with date format
+			rotatelogs.WithLinkName(fo.filename), // Symlink name
+			// WithMaxAge和WithRotationCount二者只能设置一个，
+			// WithMaxAge设置文件清理前的最长保存时间，
+			// WithRotationCount设置文件清理前最多保存的个数。
 			rotatelogs.WithMaxAge(time.Duration(fo.maxAge)*24*time.Hour), // Maximum age of log files
-			rotatelogs.WithRotationTime(24*time.Hour),                    // Rotate daily
+			rotatelogs.WithRotationTime(24*time.Hour),                    //WithRotationTime设置日志分割的时间，这里设置为一小时分割一次
 		)
 		if err != nil {
 			panic(err)
