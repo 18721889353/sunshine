@@ -86,16 +86,14 @@ func Err(err error) Field {
 // Any type, if it is a composite type such as object, slice, map, etc., use Any
 func Any(key string, val interface{}) Field {
 
-	anyToJSON := zapAnyToJSON(key, val)
+	anyToJSON := zapAnyToJSON(val)
 	return zap.String(key, anyToJSON)
 	//return zap.Any(key, val)
 }
 
-func zapAnyToJSON(key string, val interface{}) string {
+func zapAnyToJSON(val interface{}) string {
 	// 创建一个空的 map 用于存储键值对
 	data := make(map[string]interface{})
-	// 将 zap.Any 的键值对添加到 map 中
-	data[key] = val
 	// 将 map 转换为 JSON 格式的字节数组
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
