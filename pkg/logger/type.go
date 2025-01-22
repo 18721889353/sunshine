@@ -92,10 +92,10 @@ func Any(key string, val interface{}) Field {
 }
 
 func zapAnyToJSON(val interface{}) string {
-	// 创建一个空的 map 用于存储键值对
-	data := make(map[string]interface{})
-	// 将 map 转换为 JSON 格式的字节数组
-	jsonBytes, err := json.Marshal(data)
+	if str, ok := val.(string); ok {
+		return str
+	}
+	jsonBytes, err := json.Marshal(val)
 	if err != nil {
 		return err.Error()
 	}
