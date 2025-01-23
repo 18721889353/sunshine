@@ -432,6 +432,8 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					if err != nil {
 						span.RecordError(err)
 						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						// Wait for 60 seconds before retrying
+						time.Sleep(time.Second * 60)
 						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(true); err != nil {
@@ -440,8 +442,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 							continue
 						}
 						//pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
-						// Wait for 60 seconds before retrying
-						time.Sleep(time.Second * 60)
+
 						continue
 					}
 					if !c.isAutoAck {
@@ -540,6 +541,8 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 					if err != nil {
 						span.RecordError(err)
 						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						// Wait for 60 seconds before retrying
+						time.Sleep(time.Second * 60)
 						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(false); err != nil {
