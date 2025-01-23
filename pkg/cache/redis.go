@@ -186,6 +186,9 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	// NOTE: don't handle the case where redis value is nil
 	// but leave it to the upstream for processing
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return err
+		}
 		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", fields...)
 		return err
@@ -288,6 +291,9 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	}
 	values, err := c.client.MGet(ctx, cacheKeys...).Result()
 	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return err
+		}
 		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.MGet error: %v, keys=%+v", err, cacheKeys)
