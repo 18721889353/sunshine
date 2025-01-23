@@ -74,7 +74,12 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	))
 	// 将签名添加为全局中间件
 	if config.Get().App.OpenSign {
-		r.Use(middleware.VerifySignatureMiddleware(config.Get().Sign.SignKey))
+		r.Use(
+			middleware.VerifySignatureMiddleware(
+				middleware.WithSignKey(config.Get().Sign.SignKey),
+				middleware.WithIgnoreUrl(config.Get().Sign.IgnoreUrls...),
+			),
+		)
 	}
 	// 将XSSMiddleware添加为全局中间件
 	if config.Get().App.OpenXSS {

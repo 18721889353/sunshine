@@ -113,16 +113,6 @@ type Sqlite struct {
 }
 
 type Mysql struct {
-	ConnMaxLifetime int      `yaml:"connMaxLifetime" json:"connMaxLifetime"`
-	Dsn             string   `yaml:"dsn" json:"dsn"`
-	EnableLog       bool     `yaml:"enableLog" json:"enableLog"`
-	MastersDsn      []string `yaml:"mastersDsn" json:"mastersDsn"`
-	MaxIdleConns    int      `yaml:"maxIdleConns" json:"maxIdleConns"`
-	MaxOpenConns    int      `yaml:"maxOpenConns" json:"maxOpenConns"`
-	SlavesDsn       []string `yaml:"slavesDsn" json:"slavesDsn"`
-}
-
-type Postgresql struct {
 	ConnMaxLifetime int    `yaml:"connMaxLifetime" json:"connMaxLifetime"`
 	Dsn             string `yaml:"dsn" json:"dsn"`
 	EnableLog       bool   `yaml:"enableLog" json:"enableLog"`
@@ -133,17 +123,17 @@ type Postgresql struct {
 type Redis struct {
 	DialTimeout  int    `yaml:"dialTimeout" json:"dialTimeout"`
 	Dsn          string `yaml:"dsn" json:"dsn"`
+	PoolSize     int    `yaml:"poolSize" json:"poolSize"`
 	ReadTimeout  int    `yaml:"readTimeout" json:"readTimeout"`
 	WriteTimeout int    `yaml:"writeTimeout" json:"writeTimeout"`
-	PoolSize     int    `yaml:"poolSize" json:"poolSize"`
 }
 
 type Database struct {
-	Driver     string     `yaml:"driver" json:"driver"`
-	Mongodb    Mongodb    `yaml:"mongodb" json:"mongodb"`
-	Mysql      Mysql      `yaml:"mysql" json:"mysql"`
-	Postgresql Postgresql `yaml:"postgresql" json:"postgresql"`
-	Sqlite     Sqlite     `yaml:"sqlite" json:"sqlite"`
+	Driver     string  `yaml:"driver" json:"driver"`
+	Mongodb    Mongodb `yaml:"mongodb" json:"mongodb"`
+	Mysql      Mysql   `yaml:"mysql" json:"mysql"`
+	Postgresql Mysql   `yaml:"postgresql" json:"postgresql"`
+	Sqlite     Sqlite  `yaml:"sqlite" json:"sqlite"`
 }
 
 type Mongodb struct {
@@ -168,6 +158,7 @@ type Jwt struct {
 type LogFileConfig struct {
 	Filename      string `yaml:"filename" json:"filename"`
 	IsCompression bool   `yaml:"isCompression" json:"isCompression"`
+	IsSaveDay     bool   `yaml:"isSaveDay" json:"isSaveDay"`
 	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
 	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
 	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
@@ -181,11 +172,12 @@ type Logger struct {
 	MaxLen        int           `yaml:"maxLen" json:"maxLen"`
 }
 
+type Sign struct {
+	IgnoreUrls []string `yaml:"ignoreUrls" json:"ignoreUrls"`
+	SignKey    string   `yaml:"signKey" json:"signKey"`
+}
+
 type HTTP struct {
 	Port    int `yaml:"port" json:"port"`
 	Timeout int `yaml:"timeout" json:"timeout"`
-}
-
-type Sign struct {
-	SignKey string `yaml:"signKey" json:"signKey"`
 }
