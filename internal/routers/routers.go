@@ -76,7 +76,12 @@ func NewRouter() *gin.Engine {
 	))
 	// 将签名添加为全局中间件
 	if config.Get().App.OpenSign {
-		r.Use(middleware.VerifySignatureMiddleware(config.Get().Sign.SignKey))
+		r.Use(
+			middleware.VerifySignatureMiddleware(
+				middleware.WithSignKey(config.Get().Sign.SignKey),
+				middleware.WithIgnoreUrl(config.Get().Sign.IgnoreUrls...),
+			),
+		)
 	}
 	// 将XSSMiddleware添加为全局中间件
 	if config.Get().App.OpenXSS {
@@ -108,7 +113,7 @@ func NewRouter() *gin.Engine {
 	if config.Get().App.EnableTrace {
 		r.Use(middleware.Tracing(config.Get().App.Name))
 	}
-	
+
 	// register routers, middleware support
 	registerRouters(r, "/api/v1", apiV1RouterFns)
 	// if you have other group routes you can add them here

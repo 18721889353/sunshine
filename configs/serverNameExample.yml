@@ -78,7 +78,7 @@ logger:
   maxLen: 102400            # Maximum size of a single log
   logFileConfig: # Effective when isSave=true
     filename: "out.log"    # File name (default is out.log)
-    isSaveDay: true        #是否按天保存
+    isSaveDay: false        #是否按天保存
     maxSize: 20            # Maximum file size (MB, default is 10MB)
     maxBackups: 50         # Maximum number of old files to retain (default is 100)
     maxAge: 15             # Maximum number of days to retain old files (default is 30 days)
@@ -154,6 +154,8 @@ etcd:
 
 sign:
   signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"
+  ignoreUrls:
+    - "/api/v1/test" #忽略签名的请求连接
 
 jwt:
   expire: 120   #Minute

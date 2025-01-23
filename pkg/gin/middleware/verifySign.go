@@ -16,11 +16,51 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func VerifySignatureMiddleware(signKey string) gin.HandlerFunc {
+var defaultIgnoreUrl = map[string]struct{}{}
+
+type SignOption func(*signOptions)
+
+func defaultSignOptions() *signOptions {
+	return &signOptions{
+		ignoreUrls: defaultIgnoreUrl,
+		signKey:    "",
+	}
+}
+
+type signOptions struct {
+	ignoreUrls map[string]struct{}
+	signKey    string
+}
+
+func (o *signOptions) apply(opts ...SignOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+func WithIgnoreUrl(urls ...string) SignOption {
+	return func(o *signOptions) {
+		for _, url := range urls {
+			o.ignoreUrls[url] = struct{}{}
+		}
+	}
+}
+func WithSignKey(signKey string) SignOption {
+	return func(o *signOptions) {
+		o.signKey = signKey
+	}
+}
+
+func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
+	o := defaultSignOptions()
+	o.apply(opts...)
 	return func(ctx *gin.Context) {
+		if _, ok := o.ignoreUrls[ctx.Request.URL.Path]; ok {
+			ctx.Next()
+			return
+		}
 		//if ctx.Request.Method != http.MethodGet && ctx.Request.Method != http.MethodDelete {
 		//验证签名规则
-		err := verifySign(ctx, signKey)
+		err := verifySign(ctx, o.signKey)
 		if err != nil {
 
 			response.Out(ctx, errcode.InvalidParams.WithDetails(err.Error()))
