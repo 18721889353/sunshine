@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"reflect"
 	"strings"
 	"time"
@@ -384,17 +385,5 @@ func BuildCacheKey(keyPrefix string, key string) (string, error) {
 }
 
 func requestIDField(ctx context.Context, requestIDKey string) zap.Field {
-	if requestIDKey == "" {
-		return zap.Skip()
-	}
-
-	var field zap.Field
-	if requestIDKey != "" {
-		if v, ok := ctx.Value(requestIDKey).(string); ok {
-			field = zap.String(requestIDKey, v)
-		} else {
-			field = zap.Skip()
-		}
-	}
-	return field
+	return zap.String(requestIDKey, metautils.ExtractIncoming(ctx).Get(requestIDKey))
 }
