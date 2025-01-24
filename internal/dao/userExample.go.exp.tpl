@@ -12,9 +12,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
 
-	"github.com/18721889353/sunshine/internal/cache"
-	"github.com/18721889353/sunshine/internal/database"
-	"github.com/18721889353/sunshine/internal/model"
 )
 
 var _ {{.TableNameCamel}}Dao = (*{{.TableNameCamelFCL}}Dao)(nil)
@@ -297,13 +294,56 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query
 	if err != nil {
 		return nil, err
 	}
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	if d.cache != nil {
+		// get from cache
+		id, err := d.cache.GetIdByKey(ctx, key)
+		if err == nil {
+			//通过主键获取数据
+			record, err := d.GetByID(ctx, id)
+			if err == nil {
+				return record, nil
+			} else {
+				if !errors.Is(err, database.ErrCacheNotFound) {
+					logger.Warn("d.GetByID error", logger.Err(err), logger.Any("id", id), interceptor.ServerCtxRequestIDField(ctx))
+				}
+			}
+		} else {
+			if !errors.Is(err, database.ErrCacheNotFound) {
+				logger.Warn("d.cache.GetIdByKey error", logger.Err(err), logger.Any("key", key), interceptor.ServerCtxRequestIDField(ctx))
+			}
+		}
+	}
 
-	table := &model.{{.TableNameCamel}}{}
-	err = d.db.WithContext(ctx).Where(queryStr, args...).First(table).Error
+	// 使用 singleflight 合并相同的查询请求
+	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+		table := &model.{{.TableNameCamel}}{}
+		err = d.db.WithContext(ctx).Where(queryStr, args...).First(&table).Error
+		if err != nil {
+			if errors.Is(err, database.ErrRecordNotFound) {
+				if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
+					logger.Warn("cache.SetPlaceholder error", logger.Err(err), logger.Any("key", key), interceptor.ServerCtxRequestIDField(ctx))
+				}
+				return nil, database.ErrRecordNotFound
+			}
+			return nil, err
+		}
+		//保存数据的主键id
+		if err = d.cache.SetIdByKey(ctx, key, table.ID, cache.CpFdOrderExpireTime); err != nil {
+			logger.Warn("cache.Set error", logger.Err(err), logger.Any("key", key), interceptor.ServerCtxRequestIDField(ctx))
+		}
+		return table, nil
+	})
+	if d.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-
+	table, ok := val.(*model.{{.TableNameCamel}})
+	if !ok {
+		return nil, database.ErrRecordNotFound
+	}
 	return table, nil
 }
 
