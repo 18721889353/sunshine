@@ -30,12 +30,17 @@ type {{.TableNameCamel}}Cache interface {
 	GetLock(ctx context.Context, key string, options ...redsync.Option) error
 	ReleaseLock(ctx context.Context) error
 	Set(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}, data *model.{{.TableNameCamel}}, duration time.Duration) error
+	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
 	Get(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error)
+	GetIdByKey(ctx context.Context, key string) (id uint64, error error)
 	MultiGet(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
 	MultiSet(ctx context.Context, data []*model.{{.TableNameCamel}}, duration time.Duration) error
 	Del(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
+	DelByKey(ctx context.Context, key string) error
 	SetPlaceholder(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
+	SetPlaceholderByKey(ctx context.Context, key string) error
 	IsPlaceholderErr(err error) bool
+
 }
 
 // {{.TableNameCamelFCL}}Cache define a cache struct
@@ -66,6 +71,7 @@ func (c *{{.TableNameCamelFCL}}Cache) getLockCacheKey(key string) string {
 	return fmt.Sprintf("%s%v", {{.TableNameCamelFCL}}CachePrefixKey, key)
 }
 
+
 func (c *{{.TableNameCamelFCL}}Cache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
 	lockCacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLoopLock(ctx, lockCacheKey, options...)
@@ -85,6 +91,11 @@ func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey({{.ColumnNa
 	{{if .IsStringType}}return {{.TableNameCamelFCL}}CachePrefixKey + {{.ColumnNameCamelFCL}}{{else}}return {{.TableNameCamelFCL}}CachePrefixKey + utils.{{.GoTypeFCU}}ToStr({{.ColumnNameCamelFCL}}){{end}}
 }
 
+func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKeyString(key string) string {
+	return {{.TableNameCamelFCL}}CachePrefixKey + key
+}
+
+
 // Set write to cache
 func (c *{{.TableNameCamelFCL}}Cache) Set(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}, data *model.{{.TableNameCamel}}, duration time.Duration) error {
 	if data == nil {
@@ -92,6 +103,18 @@ func (c *{{.TableNameCamelFCL}}Cache) Set(ctx context.Context, {{.ColumnNameCame
 	}
 	cacheKey := c.Get{{.TableNameCamel}}CacheKey({{.ColumnNameCamelFCL}})
 	err := c.cache.Set(ctx, cacheKey, data, duration)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *{{.TableNameCamelFCL}}Cache) SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
+	if key == "" || id == 0 {
+		return nil
+	}
+	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
+	err := c.cache.Set(ctx, cacheKey, &id, duration)
 	if err != nil {
 		return err
 	}
@@ -107,6 +130,15 @@ func (c *{{.TableNameCamelFCL}}Cache) Get(ctx context.Context, {{.ColumnNameCame
 		return nil, err
 	}
 	return data, nil
+}
+
+func (c *{{.TableNameCamelFCL}}Cache) GetIdByKey(ctx context.Context, key string) (id uint64, err error) {
+	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
+	err = c.cache.Get(ctx, cacheKey, &id)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // MultiSet multiple set cache
@@ -159,11 +191,23 @@ func (c *{{.TableNameCamelFCL}}Cache) Del(ctx context.Context, {{.ColumnNameCame
 	}
 	return nil
 }
+func (c *{{.TableNameCamelFCL}}Cache) DelByKey(ctx context.Context, key string) error {
+	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
+	err := c.cache.Del(ctx, cacheKey)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 // SetPlaceholder set placeholder value to cache
 func (c *{{.TableNameCamelFCL}}Cache) SetPlaceholder(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKey({{.ColumnNameCamelFCL}})
 	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
+}
+func (c *{{.TableNameCamelFCL}}Cache) SetPlaceholderByKey(ctx context.Context, key string) error {
+	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
+    return c.cache.SetCacheWithNotFound(ctx, cacheKey)
 }
 
 // IsPlaceholderErr check if cache is placeholder error

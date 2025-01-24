@@ -31,11 +31,15 @@ type UserExampleCache interface {
 	GetLock(ctx context.Context, key string, options ...redsync.Option) error
 	ReleaseLock(ctx context.Context) error
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
+	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
 	Get(ctx context.Context, id uint64) (*model.UserExample, error)
+	GetIdByKey(ctx context.Context, key string) (id uint64, error error)
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	MultiSet(ctx context.Context, data []*model.UserExample, duration time.Duration) error
 	Del(ctx context.Context, id uint64) error
+	DelByKey(ctx context.Context, key string) error
 	SetPlaceholder(ctx context.Context, id uint64) error
+	SetPlaceholderByKey(ctx context.Context, key string) error
 	IsPlaceholderErr(err error) bool
 }
 
@@ -64,6 +68,9 @@ func NewUserExampleCache(cacheType *database.CacheType) UserExampleCache {
 // GetUserExampleCacheKey cache key
 func (c *userExampleCache) GetUserExampleCacheKey(id uint64) string {
 	return userExampleCachePrefixKey + utils.Uint64ToStr(id)
+}
+func (c *userExampleCache) GetUserExampleCacheKeyString(key string) string {
+	return userExampleCachePrefixKey + key
 }
 
 func (c *userExampleCache) getLockCacheKey(key string) string {
@@ -95,6 +102,17 @@ func (c *userExampleCache) Set(ctx context.Context, id uint64, data *model.UserE
 	}
 	return nil
 }
+func (c *userExampleCache) SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
+	if key == "" || id == 0 {
+		return nil
+	}
+	cacheKey := c.GetUserExampleCacheKeyString(key)
+	err := c.cache.Set(ctx, cacheKey, &id, duration)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 // Get cache value
 func (c *userExampleCache) Get(ctx context.Context, id uint64) (*model.UserExample, error) {
@@ -105,6 +123,14 @@ func (c *userExampleCache) Get(ctx context.Context, id uint64) (*model.UserExamp
 		return nil, err
 	}
 	return data, nil
+}
+func (c *userExampleCache) GetIdByKey(ctx context.Context, key string) (id uint64, err error) {
+	cacheKey := c.GetUserExampleCacheKeyString(key)
+	err = c.cache.Get(ctx, cacheKey, &id)
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // MultiSet multiple set cache
@@ -157,10 +183,22 @@ func (c *userExampleCache) Del(ctx context.Context, id uint64) error {
 	}
 	return nil
 }
+func (c *userExampleCache) DelByKey(ctx context.Context, key string) error {
+	cacheKey := c.GetUserExampleCacheKeyString(key)
+	err := c.cache.Del(ctx, cacheKey)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
 // SetPlaceholder set placeholder value to cache
 func (c *userExampleCache) SetPlaceholder(ctx context.Context, id uint64) error {
 	cacheKey := c.GetUserExampleCacheKey(id)
+	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
+}
+func (c *userExampleCache) SetPlaceholderByKey(ctx context.Context, key string) error {
+	cacheKey := c.GetUserExampleCacheKeyString(key)
 	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
 }
 
