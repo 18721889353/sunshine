@@ -142,13 +142,14 @@ func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 	o.apply(opts...)
 
 	connection := &Connection{
-		url:           url,
-		reconnectTime: o.reconnectTime,
-		tlsConfig:     o.tlsConfig,
-		dialTimeout:   o.dialTimeout,
-		heartbeat:     o.heartbeat,
-		exit:          make(chan struct{}),
-		zapLog:        o.zapLog,
+		url:             url,
+		reconnectTime:   o.reconnectTime,
+		tlsConfig:       o.tlsConfig,
+		dialTimeout:     o.dialTimeout,
+		heartbeat:       o.heartbeat,
+		deadlineTimeout: o.deadlineTimeout,
+		exit:            make(chan struct{}),
+		zapLog:          o.zapLog,
 	}
 
 	conn, err := connect(connection)
@@ -177,7 +178,6 @@ func connect(c *Connection) (*amqp.Connection, error) {
 		conn *amqp.Connection
 		err  error
 	)
-
 	if strings.HasPrefix(url, "amqps://") {
 		if tlsConfig == nil {
 			return nil, errors.New("tls not set, e.g. NewConnection(url, WithTLSConfig(tlsConfig))")
