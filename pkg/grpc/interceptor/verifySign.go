@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/18721889353/sunshine/pkg/gocrypto"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"sort"
 	"strconv"
@@ -15,21 +16,21 @@ import (
 	"time"
 )
 
-var signIgnoreMethods = map[string]struct{}{}
-
-// SignOption setting the Sign Field
+// SignOption 设置签名字段
 type SignOption func(*signOption)
 
-// signOption settings
+// signOption 设置项
 type signOption struct {
-	signKey       string
-	ignoreMethods map[string]struct{}
+	signKey         string
+	ignoreMethods   map[string]struct{}
+	signExpiredTime time.Duration
 }
 
 func defaultSignOptions() *signOption {
 	return &signOption{
-		signKey:       "sun",
-		ignoreMethods: make(map[string]struct{}), // ways to ignore forensics
+		signKey:         "sun",
+		ignoreMethods:   make(map[string]struct{}), // 忽略的方法
+		signExpiredTime: time.Second * 5,
 	}
 }
 
@@ -39,10 +40,9 @@ func (o *signOption) apply(opts ...SignOption) {
 	}
 }
 
-// WithSIgnIgnoreMethods ways to ignore forensics
-// fullMethodName format: /packageName.serviceName/methodName,
-// example /api.userExample.v1.userExampleService/GetByID
-
+// WithSignIgnoreMethods 设置忽略签名验证的方法
+// fullMethodName 格式: /packageName.serviceName/methodName,
+// 示例 /api.userExample.v1.userExampleService/GetByID
 func WithSignIgnoreMethods(fullMethodNames ...string) SignOption {
 	return func(o *signOption) {
 		for _, method := range fullMethodNames {
@@ -57,22 +57,26 @@ func WithSignKey(signKey string) SignOption {
 	}
 }
 
+func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
+	return func(o *signOption) {
+		o.signExpiredTime = signExpiredTime
+	}
+}
+
 // VerifySignatureInterceptor 是一个 unary 拦截器，用于验证签名
 func VerifySignatureInterceptor(opts ...SignOption) grpc.UnaryServerInterceptor {
 	o := defaultSignOptions()
 	o.apply(opts...)
-	signKey := o.signKey
-	signIgnoreMethods = o.ignoreMethods
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		var newCtx context.Context
 		var err error
 
-		if _, ok := signIgnoreMethods[info.FullMethod]; ok {
+		if _, ok := o.ignoreMethods[info.FullMethod]; ok {
 			newCtx = ctx
 		} else {
 			// 验证签名规则
-			newCtx, err = verifySign(ctx, req, signKey)
+			newCtx, err = verifySign(ctx, req, o)
 			if err != nil {
 				return nil, err
 			}
@@ -82,88 +86,93 @@ func VerifySignatureInterceptor(opts ...SignOption) grpc.UnaryServerInterceptor 
 }
 
 // verifySign 验证签名
-func verifySign(ctx context.Context, req interface{}, signKey string) (context.Context, error) {
-	// 从 metadata 中获取 sign 和 timestamp
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return ctx, status.Errorf(codes.Internal, "missing metadata")
+func verifySign(ctx context.Context, req interface{}, o *signOption) (context.Context, error) {
+	sign := metautils.ExtractIncoming(ctx).Get("sign")
+	timestamp := metautils.ExtractIncoming(ctx).Get("timestamp")
+	nonce_str := metautils.ExtractIncoming(ctx).Get("nonce_str")
+
+	// 将请求数据转换为 JSON 格式
+	jsonBody, err := json.Marshal(req)
+	if err != nil {
+		return ctx, status.Errorf(codes.InvalidArgument, "failed to marshal request: %v", err)
 	}
 
-	sign := getMetadataValue(md, "sign")
-	timestamp := getMetadataValue(md, "timestamp")
+	var mapData map[string]interface{}
+	err = json.Unmarshal(jsonBody, &mapData)
+	if err != nil {
+		return ctx, status.Errorf(codes.InvalidArgument, "failed to unmarshal request: %v", err)
+	}
+
+	// 处理 float64 类型的值，确保它们被正确解析为字符串
+	for key, value := range mapData {
+		if intValue, ok := value.(float64); ok {
+			mapData[key] = strconv.FormatFloat(intValue, 'f', -1, 64)
+		}
+	}
+
+	if nonce_str != "" && mapData["nonce_str"] == nil {
+		mapData["nonce_str"] = nonce_str
+	}
+	if timestamp != "" && mapData["timestamp"] == nil {
+		mapData["timestamp"] = timestamp
+	}
+	if sign != "" && mapData["sign"] == nil {
+		mapData["sign"] = sign
+	}
 
 	// 验证签名
-	if sign == "debug" {
+	if mapData["sign"].(string) == "debug" {
 		return ctx, nil
 	}
-	if sign == "" {
+	if mapData["sign"] == nil || mapData["sign"].(string) == "" {
 		return ctx, status.Errorf(codes.InvalidArgument, "sign is missing")
 	}
 
-	if timestamp == "" {
+	if mapData["timestamp"] == nil || mapData["timestamp"].(string) == "" {
 		return ctx, status.Errorf(codes.InvalidArgument, "timestamp is missing")
 	}
 
-	// 将请求数据转换为 JSON 格式
-	body, err := json.Marshal(req)
-	if err != nil {
-		return ctx, status.Errorf(codes.Internal, "failed to marshal request: %v", err)
-	}
-
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(body, &jsonData)
-	if err != nil {
-		return ctx, status.Errorf(codes.Internal, "failed to unmarshal request: %v", err)
-	}
-
-	// 添加 timestamp 到 jsonData
-	jsonData["timestamp"] = timestamp
-
 	// 生成签名
-	expectedSign := createSign(jsonData, signKey)
+	expectedSign := createSign(ctx, mapData, o.signKey)
 
 	// 验证签名
 	if sign != expectedSign {
-		return ctx, status.Errorf(codes.PermissionDenied, "invalid sign")
+		return ctx, status.Errorf(codes.InvalidArgument, "invalid sign")
 	}
 
-	// 验证过期时间
-	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		return ctx, status.Errorf(codes.InvalidArgument, "invalid timestamp format")
-	}
+	if o.signExpiredTime > 0 {
+		// 验证过期时间
+		tsInt, err := strconv.ParseInt(timestamp, 10, 64)
+		if err != nil {
+			return ctx, status.Errorf(codes.InvalidArgument, "invalid timestamp format")
+		}
 
-	// 假设签名有效期为 5 分钟
-	if time.Now().Unix()-tsInt > 300 {
-		return ctx, status.Errorf(codes.PermissionDenied, "signature expired")
+		// 假设签名有效期为 5 分钟
+		if time.Now().Unix()-tsInt > int64(o.signExpiredTime.Seconds()) {
+			return ctx, status.Errorf(codes.InvalidArgument, "signature expired")
+		}
 	}
 
 	return ctx, nil
 }
 
-// 辅助函数：从 metadata 中获取指定键的值
-func getMetadataValue(md metadata.MD, key string) string {
-	values := md.Get(key)
-	if len(values) == 0 {
-		return ""
-	}
-	return values[0]
+// 辅助函数：生成签名
+func createSign(ctx context.Context, params map[string]interface{}, signKey string) string {
+	key := strings.Trim(createEncryptStr(params), "&")
+	logger.Info("grpc拦截器拼接的key", logger.String("key", key), ServerCtxRequestIDField(ctx))
+	key = key + "&key=" + signKey
+	// 自定义 MD5 组合
+	return strings.ToUpper(gocrypto.Md5([]byte(key)))
 }
 
 // 辅助函数：生成签名
-func createSign(params map[string]interface{}, signKey string) string {
-	// 自定义 MD5 组合
-	return strings.ToUpper(gocrypto.Md5([]byte(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)))
-}
-
-// 辅助函数：生成加密字符串
 func createEncryptStr(params map[string]interface{}) string {
-	var str string
+	var strBuilder strings.Builder
 	var sortIn func(obj map[string]interface{})
 	sortIn = func(obj map[string]interface{}) {
 		keys := make([]string, 0, len(obj))
-		for k := range obj {
-			if obj[k] != false && obj[k] != "" && obj[k] != nil {
+		for k, v := range obj {
+			if v != false && v != "" && v != nil {
 				keys = append(keys, k)
 			}
 		}
@@ -183,10 +192,14 @@ func createEncryptStr(params map[string]interface{}) string {
 					}
 				}
 			default:
-				str += fmt.Sprintf("%s=%v&", k, obj[k])
+				strBuilder.WriteString(fmt.Sprintf("%s=%v&", k, v))
 			}
 		}
 	}
 	sortIn(params)
-	return strings.TrimRight(str, "&")
+	result := strBuilder.String()
+	if len(result) > 0 {
+		result = result[:len(result)-1] // Remove the trailing '&'
+	}
+	return result
 }

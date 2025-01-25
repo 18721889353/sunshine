@@ -197,6 +197,16 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		))
 	}
 
+	if config.Get().App.OpenSign {
+		unaryServerInterceptors = append(
+			unaryServerInterceptors, interceptor.VerifySignatureInterceptor(
+				interceptor.WithSignKey(config.Get().Sign.SignKey),
+				interceptor.WithSignIgnoreMethods(config.Get().Sign.IgnoreUrls.Grpc...),
+				interceptor.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
+			),
+		)
+	}
+
 	// metrics interceptor
 	if config.Get().App.EnableMetrics {
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerMetrics())

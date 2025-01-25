@@ -172,9 +172,15 @@ type Logger struct {
 	MaxLen        int           `yaml:"maxLen" json:"maxLen"`
 }
 
+type IgnoreUrls struct {
+	Grpc []string `yaml:"grpc" json:"grpc"`
+	HTTP []string `yaml:"http" json:"http"`
+}
+
 type Sign struct {
-	IgnoreUrls []string `yaml:"ignoreUrls" json:"ignoreUrls"`
-	SignKey    string   `yaml:"signKey" json:"signKey"`
+	IgnoreUrls      IgnoreUrls `yaml:"ignoreUrls" json:"ignoreUrls"`
+	SignExpiredTime int        `yaml:"signExpiredTime" json:"signExpiredTime"`
+	SignKey         string     `yaml:"signKey" json:"signKey"`
 }
 
 type HTTP struct {

@@ -153,9 +153,14 @@ etcd:
 
 
 sign:
+  signExpiredTime: 10 #签名过期时间秒
   signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"
   ignoreUrls:
-    - "/api/v1/test" #忽略签名的请求连接
+    http:
+      - "/api/fd_v1/test"
+    grpc:
+      - "/api.feedovService.v1.feedovService/test"
+
 
 jwt:
   expire: 120   #Minute

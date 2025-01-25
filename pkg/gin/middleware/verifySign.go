@@ -2,13 +2,17 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"go.uber.org/zap"
 	"io"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
@@ -22,14 +26,16 @@ type SignOption func(*signOptions)
 
 func defaultSignOptions() *signOptions {
 	return &signOptions{
-		ignoreUrls: defaultIgnoreUrl,
-		signKey:    "",
+		ignoreUrls:      defaultIgnoreUrl,
+		signKey:         "",
+		signExpiredTime: time.Second * 5,
 	}
 }
 
 type signOptions struct {
-	ignoreUrls map[string]struct{}
-	signKey    string
+	ignoreUrls      map[string]struct{}
+	signKey         string
+	signExpiredTime time.Duration
 }
 
 func (o *signOptions) apply(opts ...SignOption) {
@@ -49,6 +55,11 @@ func WithSignKey(signKey string) SignOption {
 		o.signKey = signKey
 	}
 }
+func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
+	return func(o *signOptions) {
+		o.signExpiredTime = signExpiredTime
+	}
+}
 
 func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 	o := defaultSignOptions()
@@ -60,7 +71,7 @@ func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 		}
 		//if ctx.Request.Method != http.MethodGet && ctx.Request.Method != http.MethodDelete {
 		//验证签名规则
-		err := verifySign(ctx, o.signKey)
+		err := verifySign(ctx, o)
 		if err != nil {
 
 			response.Out(ctx, errcode.InvalidParams.WithDetails(err.Error()))
@@ -73,7 +84,7 @@ func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 }
 
 // 验证签名
-func verifySign(ctx *gin.Context, signKey string) error {
+func verifySign(ctx *gin.Context, o *signOptions) error {
 	// 根据请求方法获取请求数据
 	var body []byte
 	var err error
@@ -119,36 +130,45 @@ func verifySign(ctx *gin.Context, signKey string) error {
 		return errors.New("timestamp error")
 	}
 
-	// 验证过期时间
-	//currentTimestamp := time.Now().Unix()
-	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		return errors.New("timestamp error")
+	if o.signExpiredTime > 0 {
+		// 验证过期时间
+		currentTimestamp := time.Now().Unix()
+		tsInt, err := strconv.ParseInt(timestamp, 10, 64)
+		if err != nil {
+			return errors.New("timestamp error")
+		}
+		jsonData["timestamp"] = tsInt
+		if tsInt > currentTimestamp || currentTimestamp-tsInt >= 60 {
+			return errors.New("timestamp expired")
+		}
 	}
-	jsonData["timestamp"] = tsInt
-	//if tsInt > currentTimestamp || currentTimestamp-tsInt >= 60 {
-	//	return errors.New("timestamp expired")
-	//}
 
-	if sign == "" || sign != createSign(jsonData, signKey) {
+	if sign == "" || sign != createSign(ctx, jsonData, o.signKey) {
 		return errors.New("sign error")
 	}
 	return nil
 }
 
-func createSign(params map[string]interface{}, signKey string) string {
-	// 自定义 MD5 组合
-	//dump.P(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)
-	return strings.ToUpper(gocrypto.Md5([]byte(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)))
-}
+//func createSign(params map[string]interface{}, signKey string) string {
+//	// 自定义 MD5 组合
+//	//dump.P(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)
+//	return strings.ToUpper(gocrypto.Md5([]byte(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)))
+//}
 
+func createSign(ctx context.Context, params map[string]interface{}, signKey string) string {
+	key := strings.Trim(createEncryptStr(params), "&")
+	logger.Info("gin中间件拼接的key", logger.String("key", key), zap.String("request_id", fmt.Sprintf("%s", ctx.Value("request_id"))))
+	key = key + "&key=" + signKey
+	// 自定义 MD5 组合
+	return strings.ToUpper(gocrypto.Md5([]byte(key)))
+}
 func createEncryptStr(params map[string]interface{}) string {
-	var str string
+	var strBuilder strings.Builder
 	var sortIn func(obj map[string]interface{})
 	sortIn = func(obj map[string]interface{}) {
 		keys := make([]string, 0, len(obj))
-		for k := range obj {
-			if obj[k] != false && obj[k] != "" && obj[k] != nil {
+		for k, v := range obj {
+			if v != false && v != "" && v != nil {
 				keys = append(keys, k)
 			}
 		}
@@ -168,10 +188,14 @@ func createEncryptStr(params map[string]interface{}) string {
 					}
 				}
 			default:
-				str += fmt.Sprintf("%s=%v&", k, obj[k])
+				strBuilder.WriteString(fmt.Sprintf("%s=%v&", k, v))
 			}
 		}
 	}
 	sortIn(params)
-	return strings.TrimRight(str, "&")
+	result := strBuilder.String()
+	if len(result) > 0 {
+		result = result[:len(result)-1] // Remove the trailing '&'
+	}
+	return result
 }
