@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"go.uber.org/zap/zapcore"
@@ -134,9 +135,32 @@ func toJSON(fields []zap.Field) string {
 	}
 
 	// 将 map 转换为 JSON 格式的字符串
-	jsonBytes, err := json.Marshal(keyValuePairs)
-	if err != nil {
+	//jsonBytes, err := json.Marshal(keyValuePairs)
+	//if err != nil {
+	//	return fmt.Sprintf(`{"error": "%s"}`, err)
+	//}
+	//bf := bytes.NewBuffer([]byte{})
+	//encoder := json.NewEncoder(bf)
+	//encoder.SetEscapeHTML(false)
+	//encoder.Encode(keyValuePairs)
+	//fmt.Println(string(jsonBytes),"44444")
+	//fmt.Println(bf.String(),"555555555")
+
+	// 创建一个缓冲区来存储编码后的 JSON 数据
+	var buf bytes.Buffer
+
+	// 创建一个 JSON 编码器
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false) // 禁用 HTML 转义
+
+	// 编码 map 为 JSON 字符串
+	if err := encoder.Encode(keyValuePairs); err != nil {
 		return fmt.Sprintf(`{"error": "%s"}`, err)
 	}
-	return string(jsonBytes)
+	// 获取编码后的 JSON 数据
+	jsonData := buf.Bytes()
+
+	// 去除末尾的换行符
+	jsonData = bytes.TrimRight(jsonData, "\n")
+	return string(jsonData)
 }
