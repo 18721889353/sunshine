@@ -104,15 +104,21 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 	//// 重置请求体，以便后续中间件和处理程序能够读取它
 	//ctx.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 
-	var jsonData map[string]interface{}
-	err = json.Unmarshal(body, &jsonData)
+	var mapData map[string]interface{}
+	err = json.Unmarshal(body, &mapData)
 	if err != nil {
 		return err
+	}
+	// 处理 float64 类型的值，确保它们被正确解析为字符串
+	for key, value := range mapData {
+		if intValue, ok := value.(float64); ok {
+			mapData[key] = strconv.FormatFloat(intValue, 'f', -1, 64)
+		}
 	}
 
 	sign := ""      //表示签名加密串，用来验证数据的完整性，防止数据篡改
 	timestamp := "" //表示时间戳，用来验证接口的时效性。
-	if value, ok := jsonData["sign"].(string); ok {
+	if value, ok := mapData["sign"].(string); ok {
 		sign = value
 	} else {
 		return errors.New("sign not empty")
@@ -122,9 +128,9 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 		return nil
 	}
 
-	if value, ok := jsonData["timestamp"].(string); ok {
+	if value, ok := mapData["timestamp"].(string); ok {
 		timestamp = value
-	} else if value, ok := jsonData["timestamp"].(float64); ok {
+	} else if value, ok := mapData["timestamp"].(float64); ok {
 		timestamp = strconv.FormatFloat(value, 'f', -1, 64)
 	} else {
 		return errors.New("timestamp error")
@@ -137,13 +143,13 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 		if err != nil {
 			return errors.New("timestamp error")
 		}
-		jsonData["timestamp"] = tsInt
+		mapData["timestamp"] = tsInt
 		if tsInt > currentTimestamp || currentTimestamp-tsInt >= 60 {
 			return errors.New("timestamp expired")
 		}
 	}
 
-	if sign == "" || sign != createSign(ctx, jsonData, o.signKey) {
+	if sign == "" || sign != createSign(ctx, mapData, o.signKey) {
 		return errors.New("sign error")
 	}
 	return nil
