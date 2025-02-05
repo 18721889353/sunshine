@@ -36,7 +36,6 @@ func UnaryClientLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryClientInter
 			reqIDField = zap.Skip()
 		}
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("type", "unary"),
 			zap.String("method", method),
 			pkgLogger.Any("request", req),
@@ -48,7 +47,6 @@ func UnaryClientLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryClientInter
 		err := invoker(ctx, method, req, reply, cc, opts...)
 
 		fields = []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "unary"),
 			zap.String("method", method),
@@ -92,7 +90,6 @@ func StreamClientLog(logger *zap.Logger, opts ...LogOption) grpc.StreamClientInt
 		clientStream, err := streamer(ctx, desc, cc, method, opts...)
 
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "stream"),
 			zap.String("method", method),
@@ -206,7 +203,6 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 		requestID := ServerCtxRequestID(ctx)
 
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
 			pkgLogger.Any("request", req),
@@ -224,7 +220,6 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			data = append(data[:o.maxLength], []byte("......")...)
 		}
 		fields = []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
@@ -269,7 +264,6 @@ func UnaryServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServe
 		resp, err := handler(ctx, req)
 
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "unary"),
 			zap.String("method", info.FullMethod),
@@ -312,7 +306,6 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		requestID := ServerCtxRequestID(stream.Context())
 
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("type", "stream"),
 			zap.String("method", info.FullMethod),
 		}
@@ -326,7 +319,6 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		err := handler(srv, stream)
 
 		fields = []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "stream"),
 			zap.String("method", info.FullMethod),
@@ -368,7 +360,6 @@ func StreamServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.StreamSer
 		err := handler(srv, stream)
 
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("code", status.Code(err).String()),
 			zap.String("type", "stream"),
 			zap.String("method", info.FullMethod),

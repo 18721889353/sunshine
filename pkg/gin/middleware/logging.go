@@ -170,7 +170,6 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		_, _ = buf.ReadFrom(c.Request.Body)
 
 		fields := []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("method", c.Request.Method),
 			zap.String("url", c.Request.URL.String()),
 		}
@@ -208,7 +207,6 @@ func Logging(opts ...Option) gin.HandlerFunc {
 
 		// print return message after processing
 		fields = []zap.Field{
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.Int("code", c.Writer.Status()),
 			zap.String("method", c.Request.Method),
 			zap.String("url", c.Request.URL.Path),

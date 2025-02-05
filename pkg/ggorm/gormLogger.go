@@ -84,7 +84,6 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 
 	if err != nil {
 		pkgLogger.Warn("Gorm msg",
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.Error(err),
 			zap.String("sql", sql),
 			rowsField,
@@ -98,7 +97,6 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 
 	if l.logLevel >= logger.Info {
 		pkgLogger.Info("Gorm msg",
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("sql", sql),
 			rowsField,
 			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
@@ -111,7 +109,6 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 
 	if l.logLevel >= logger.Warn {
 		pkgLogger.Warn("Gorm msg",
-			zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 			zap.String("sql", sql),
 			rowsField,
 			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
