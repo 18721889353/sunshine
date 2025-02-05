@@ -210,8 +210,8 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+" request UnaryServerLog"))
-		pkgLogger.Info(`<<<<`, fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+" <<<<"))
+		pkgLogger.Info(`grpc interceptor UnaryServerLog`, fields...)
 
 		resp, err := handler(ctx, req)
 
@@ -232,8 +232,8 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+" response UnaryServerLog"))
-		pkgLogger.Info(`>>>>`, fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+" >>>>"))
+		pkgLogger.Info(`grpc interceptor UnaryServerLog`, fields...)
 
 		return resp, err
 	}
@@ -312,9 +312,9 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		fields = append(fields, zap.String("log_from", "gw StreamServerLog"))
+		fields = append(fields, zap.String("log_from", " <<<<"))
 
-		pkgLogger.Info(`<<<<`, fields...)
+		pkgLogger.Info(`grpc interceptor StreamServerLog`, fields...)
 
 		err := handler(srv, stream)
 
@@ -328,8 +328,8 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		if requestID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+` >>>> StreamServerLog`))
-		pkgLogger.Info(`>>>>`, fields...)
+		fields = append(fields, zap.String("log_from", o.logFrom+` >>>>`))
+		pkgLogger.Info(`grpc interceptor StreamServerLog`, fields...)
 
 		return err
 	}
