@@ -20,21 +20,22 @@ func Debug(msg string, fields ...Field) {
 // Info level information
 func Info(msg string, fields ...Field) {
 	//getLogger().Info(msg, fields...)
-	fields = append(fields, zap.String("log_msg", msg))
+	fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
 	getLogger().Info(toJSON(fields))
 }
 
 // Warn level information
 func Warn(msg string, fields ...Field) {
 	//getLogger().Warn(msg, fields...)
-	fields = append(fields, zap.String("log_msg", msg))
+	fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
 	getLogger().Warn(toJSON(fields))
 }
 
 // Error level information
 func Error(msg string, fields ...Field) {
+
 	//getLogger().Error(msg, fields...)
-	fields = append(fields, zap.String("log_msg", msg))
+	fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
 	getLogger().Error(toJSON(fields))
 
 }
@@ -42,14 +43,14 @@ func Error(msg string, fields ...Field) {
 // Panic level information
 func Panic(msg string, fields ...Field) {
 	//getLogger().Panic(msg, fields...)
-	fields = append(fields, zap.String("log_msg", msg))
+	fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
 	getLogger().Panic(toJSON(fields))
 }
 
 // Fatal level information
 func Fatal(msg string, fields ...Field) {
 	//getLogger().Fatal(msg, fields...)
-	fields = append(fields, zap.String("log_msg", msg))
+	fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
 	getLogger().Fatal(toJSON(fields))
 }
 

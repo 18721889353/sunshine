@@ -54,10 +54,8 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
 	// 构建日志字段
-	currentTime := begin.Format("2006-01-02 15:04:05.000000000")
 	requestID := requestIDField(ctx, "request_id")
 	logFields := []zap.Field{
-		zap.String("current_time", currentTime),
 		requestID,
 		zap.String("log_from", "Cache msg GetLoopLock"),
 	}
@@ -82,10 +80,8 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
 	// 构建日志字段
-	currentTime := begin.Format("2006-01-02 15:04:05.000000000")
 	requestID := requestIDField(ctx, "request_id")
 	logFields := []zap.Field{
-		zap.String("current_time", currentTime),
 		requestID,
 		zap.String("log_from", "Cache msg RedisLock"),
 	}
@@ -109,10 +105,8 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 func (c *redisCache) ReleaseLock(ctx context.Context) error {
 	begin := time.Now()
 	// 构建日志字段
-	currentTime := begin.Format("2006-01-02 15:04:05.000000000")
 	requestID := requestIDField(ctx, "request_id")
 	logFields := []zap.Field{
-		zap.String("current_time", currentTime),
 		requestID,
 		zap.String("log_from", "Cache msg ReleaseLock"),
 	}
@@ -133,7 +127,6 @@ func (c *redisCache) ReleaseLock(ctx context.Context) error {
 func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) error {
 	begin := time.Now()
 	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg Set"),
 	}
@@ -171,7 +164,6 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error {
 	begin := time.Now()
 	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg Get"),
 	}
@@ -217,7 +209,6 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expireTime time.Duration) error {
 	begin := time.Now()
 	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg MultiSet"),
 	}
@@ -274,7 +265,6 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interface{}) error {
 	begin := time.Now()
 	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg MultiGet"),
 	}
@@ -324,7 +314,6 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 	begin := time.Now()
 	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg Del"),
 	}
@@ -357,7 +346,6 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) error {
 	begin := time.Now()
 	fields := []zap.Field{
-		zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg SetCacheWithNotFound"),
 	}

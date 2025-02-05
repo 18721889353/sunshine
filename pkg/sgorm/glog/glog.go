@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 	"go.uber.org/zap"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
@@ -47,7 +48,7 @@ func (l *gormLogger) LogMode(level logger.LogLevel) logger.Interface {
 func (l *gormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.logLevel >= logger.Info {
 		msg = strings.ReplaceAll(msg, "%v", "")
-		l.gLog.Info(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
+		pkgLogger.Info(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
 	}
 }
 
@@ -55,7 +56,7 @@ func (l *gormLogger) Info(ctx context.Context, msg string, data ...interface{}) 
 func (l *gormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.logLevel >= logger.Warn {
 		msg = strings.ReplaceAll(msg, "%v", "")
-		l.gLog.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
+		pkgLogger.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
 	}
 }
 
@@ -63,7 +64,7 @@ func (l *gormLogger) Warn(ctx context.Context, msg string, data ...interface{}) 
 func (l *gormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.logLevel >= logger.Error {
 		msg = strings.ReplaceAll(msg, "%v", "")
-		l.gLog.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
+		pkgLogger.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
 	}
 }
 
@@ -93,35 +94,38 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 	}
 
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		l.gLog.Warn("Gorm msg",
+		pkgLogger.Warn("Gorm msg",
 			zap.Error(err),
 			zap.String("sql", sql),
 			rowsField,
 			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
+			zap.String("log_from", "sgorm msg Trace"),
 		)
 		return
 	}
 
 	if l.logLevel >= logger.Info {
-		l.gLog.Info("Gorm msg",
+		pkgLogger.Info("Gorm msg",
 			zap.String("sql", sql),
 			rowsField,
 			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
+			zap.String("log_from", "sgorm msg Trace"),
 		)
 		return
 	}
 
 	if l.logLevel >= logger.Warn {
-		l.gLog.Warn("Gorm msg",
+		pkgLogger.Warn("Gorm msg",
 			zap.String("sql", sql),
 			rowsField,
 			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
+			zap.String("log_from", "sgorm msg Trace"),
 		)
 	}
 }
