@@ -194,7 +194,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+` <<<<`))
 
-		zapLog.Info(`<<<<`, fields...)
+		zapLog.Info(`gin middleware Logging`, fields...)
 
 		c.Request.Body = io.NopCloser(&buf)
 
@@ -219,7 +219,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+` >>>>`))
-		zapLog.Info(`>>>>`, fields...)
+		zapLog.Info(`gin middleware Logging`, fields...)
 	}
 }
 
