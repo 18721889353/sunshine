@@ -4,6 +4,7 @@ package glog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"strings"
 	"time"
@@ -98,7 +99,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 			zap.Error(err),
 			zap.String("sql", sql),
 			rowsField,
-			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
+			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
 			zap.String("log_from", "sgorm msg Trace"),
@@ -110,7 +111,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 		pkgLogger.Info("Gorm msg",
 			zap.String("sql", sql),
 			rowsField,
-			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
+			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
 			zap.String("log_from", "sgorm msg Trace"),
@@ -122,7 +123,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 		pkgLogger.Warn("Gorm msg",
 			zap.String("sql", sql),
 			rowsField,
-			zap.Float64("ms", float64(elapsed.Nanoseconds())/1e6),
+			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
 			fileLineField,
 			requestIDField(ctx, l.requestIDKey),
 			zap.String("log_from", "sgorm msg Trace"),
