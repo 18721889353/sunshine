@@ -95,7 +95,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 	}
 
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		pkgLogger.Warn("Gorm msg",
+		pkgLogger.Error("Gorm msg",
 			zap.Error(err),
 			zap.String("sql", sql),
 			rowsField,
