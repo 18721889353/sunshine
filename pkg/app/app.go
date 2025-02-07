@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
+	"os/user"
 	"strconv"
 	"syscall"
 	"time"
@@ -91,7 +92,7 @@ func (a *App) watch(ctx context.Context) error {
 					return err // 如果停止服务时出错，返回错误
 				}
 				fmt.Println("应用已成功停止") // 打印停止成功的消息
-				writePIDToFile(fmt.Sprintf("结束时间%v 应用已成功停止\n", time.Now().Format(time.DateTime)))
+				writePIDToFile(fmt.Sprintf("结束时间%v 应用已成功停止", time.Now().Format(time.DateTime)))
 				return nil
 			}
 		}
@@ -109,11 +110,12 @@ func (a *App) stop() error {
 }
 
 // writePIDToFile 将启动关闭信息写入文件
-func writePIDToFile(msg string) error {
+func writePIDToFile(msg string) {
+
 	filePath := "sun.txt"
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open file %s: %v", filePath, err)
+		logger.Warnf("failed to open file %s: %v", filePath, err)
 	}
 	defer func(file *os.File) {
 		err := file.Close()
@@ -122,9 +124,15 @@ func writePIDToFile(msg string) error {
 		}
 	}(file)
 
+	currentUser, err := user.Current()
+	username := "未知用户"
+	if err == nil {
+		username = currentUser.Username
+	}
+	msg = msg + " 操作人:" + username
+
 	_, err = fmt.Fprintf(file, "%v\n", msg)
 	if err != nil {
-		return fmt.Errorf("failed to write msg to file %s: %v", filePath, err)
+		logger.Warnf("failed to write msg to file %s: %v", filePath, err)
 	}
-	return nil
 }
