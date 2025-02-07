@@ -4,12 +4,14 @@ package app
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
-	"golang.org/x/sync/errgroup"
-
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/prof"
 )
 
@@ -39,6 +41,8 @@ func New(servers []IServer, closes []Close) *App {
 
 // Run 启动所有服务，并监控信号以停止应用。
 func (a *App) Run() {
+
+	writePIDToFile(fmt.Sprintf("启动时间:%v 进程id:%v", time.Now().Format(time.DateTime), strconv.Itoa(os.Getpid())))
 	// 创建一个上下文，当任何一个 goroutine 返回错误时，该上下文将被取消。
 	eg, ctx := errgroup.WithContext(context.Background())
 
@@ -47,7 +51,8 @@ func (a *App) Run() {
 		s := server
 		eg.Go(func() error {
 			fmt.Println(s.String()) // 打印服务名称
-			return s.Start()        // 启动服务
+			writePIDToFile(s.String())
+			return s.Start() // 启动服务
 		})
 	}
 
@@ -76,6 +81,8 @@ func (a *App) watch(ctx context.Context) error {
 
 		case sigType := <-sig: // 系统通知信号
 			fmt.Printf("收到系统通知信号: %s\n", sigType.String()) // 打印接收到的信号
+
+			writePIDToFile(fmt.Sprintf("收到系统通知信号: %s", sigType.String()))
 			switch sigType {
 			case syscall.SIGTRAP:
 				profile.StartOrStop() // 开始或停止采样性能分析
@@ -84,6 +91,7 @@ func (a *App) watch(ctx context.Context) error {
 					return err // 如果停止服务时出错，返回错误
 				}
 				fmt.Println("应用已成功停止") // 打印停止成功的消息
+				writePIDToFile(fmt.Sprintf("结束时间%v 应用已成功停止\n", time.Now().Format(time.DateTime)))
 				return nil
 			}
 		}
@@ -96,6 +104,27 @@ func (a *App) stop() error {
 		if err := closeFn(); err != nil {
 			return err // 如果关闭资源时出错，返回错误
 		}
+	}
+	return nil
+}
+
+// writePIDToFile 将启动关闭信息写入文件
+func writePIDToFile(msg string) error {
+	filePath := "sun.txt"
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %v", filePath, err)
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			logger.Warnf("Failed to open file %s: %v", filePath, err)
+		}
+	}(file)
+
+	_, err = fmt.Fprintf(file, "%v\n", msg)
+	if err != nil {
+		return fmt.Errorf("failed to write msg to file %s: %v", filePath, err)
 	}
 	return nil
 }
