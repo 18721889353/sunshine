@@ -154,6 +154,8 @@ func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 
 	conn, err := connect(connection)
 	if err != nil {
+		connection.zapLog.Error("[rabbitmq connection] connection error", zap.String("err", err.Error()))
+
 		return nil, err
 	}
 	//connection.zapLog.Info("[rabbitmq connection] connected successfully.")
@@ -229,9 +231,9 @@ func (c *Connection) monitor() {
 			return
 		case b := <-c.blockChan:
 			if b.Active {
-				c.zapLog.Warn("[rabbitmq connection] TCP blocked: " + b.Reason)
+				c.zapLog.Error("[rabbitmq connection] TCP blocked: " + b.Reason)
 			} else {
-				c.zapLog.Warn("[rabbitmq connection] TCP unblocked")
+				c.zapLog.Error("[rabbitmq connection] TCP unblocked")
 			}
 		case closeChanErr := <-c.closeChan:
 			c.mutex.Lock()
@@ -239,13 +241,17 @@ func (c *Connection) monitor() {
 			c.mutex.Unlock()
 
 			retryCount++
-			c.zapLog.Warn("[rabbitmq connection] lost connection error", zap.String("err", closeChanErr.Error()), zap.Int("retryCount", retryCount))
-			c.zapLog.Warn(reconnectTip)
+			if closeChanErr != nil {
+				c.zapLog.Error("[rabbitmq connection] lost connection error", zap.String("err", closeChanErr.Error()), zap.Int("retryCount", retryCount))
+			} else {
+				c.zapLog.Error("[rabbitmq connection] lost connection error", zap.Int("retryCount", retryCount))
+			}
+			c.zapLog.Error(reconnectTip)
 			time.Sleep(c.reconnectTime) // wait for reconnect
 
 			amqpConn, amqpErr := connect(c)
 			if amqpErr != nil {
-				c.zapLog.Warn("[rabbitmq connection] reconnect error", zap.String("err", amqpErr.Error()), zap.Int("retryCount", retryCount))
+				c.zapLog.Error("[rabbitmq connection] reconnect error", zap.String("err", amqpErr.Error()), zap.Int("retryCount", retryCount))
 				continue
 			}
 			//c.zapLog.Info("[rabbitmq connection] reconnected successfully.")
