@@ -71,7 +71,7 @@ func New{{.Name}}Handler() {{.ProtoPkgName}}.{{.Name}}Logicer {
 
 {{if eq .InvokeType 0}}{{if .Path}}{{.Comment}}
 func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (*{{.ReplyImportPkgName}}.{{.Reply}}, error) {
-	panic("implement me")
+    panic("{{.Prompt}}")
 
 	// fill in the business logic code here
 	// example:
