@@ -52,6 +52,7 @@ func NewRootCMD() *cobra.Command {
 		PatchCommand(),           // 补丁命令
 		GenGraphCommand(),        // 生成图命令
 		TemplateCommand(),        // 模板命令
+		AssistantCommand(),
 	)
 
 	return cmd

@@ -19,6 +19,7 @@ type ServiceMethod struct {
 	Reply         string   // e.g. CreateReply
 	ReplyFields   []*Field
 	Comment       string // e.g. Create a record
+	Prompt        string // from comments, used in AI assistant
 	InvokeType    int    // 0:unary, 1: client-side streaming, 2: server-side streaming, 3: bidirectional streaming
 
 	ServiceName      string // Greeter
@@ -91,13 +92,15 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 			importPkgMap[replyImportPkgName] = replyImportPkgName + " " + m.Output.GoIdent.GoImportPath.String()
 		}
 
+		comment := getMethodComment(m)
 		methods = append(methods, &ServiceMethod{
 			MethodName:    m.GoName,
 			Request:       m.Input.GoIdent.GoName,
 			RequestFields: getFields(m.Input),
 			Reply:         m.Output.GoIdent.GoName,
 			ReplyFields:   getFields(m.Output),
-			Comment:       getMethodComment(m),
+			Comment:       comment,
+			Prompt:        getPrompt(m, comment),
 			InvokeType:    getInvokeType(m.Desc.IsStreamingClient(), m.Desc.IsStreamingServer()),
 
 			ServiceName:      s.GoName,
@@ -162,6 +165,17 @@ func getMethodComment(m *protogen.Method) string {
 	return commentPrefix + "......"
 }
 
+func getPrompt(m *protogen.Method, comment string) string {
+	if strings.HasSuffix(comment, "......") {
+		return "prompt: implement me"
+	}
+	prompt := strings.TrimPrefix(comment, "// "+m.GoName)
+	prompt = strings.TrimSpace(prompt)
+	prompt = strings.ReplaceAll(prompt, "\n//", " ")
+	prompt = strings.ReplaceAll(prompt, "\r//", " ")
+	prompt = strings.ReplaceAll(prompt, "\r\n//", " ")
+	return "prompt: " + prompt
+}
 func getComment(commentSet protogen.CommentSet) string {
 	comment1 := getCommentStr(commentSet.Leading.String())
 	comment2 := getCommentStr(commentSet.Trailing.String())

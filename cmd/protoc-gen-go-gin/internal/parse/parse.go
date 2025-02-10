@@ -42,6 +42,7 @@ type ServiceMethod struct {
 	Reply         string // 响应消息类型，例如 CreateReply
 	ReplyFields   []*Field
 	Comment       string // 注释，例如 Create a record
+	Prompt        string // from comments, used in AI assistant
 	InvokeType    int    // 调用类型: 0-单次调用, 1-客户端流式, 2-服务端流式, 3-双向流式
 
 	ServiceName         string // 服务名称，例如 Greeter
@@ -120,13 +121,15 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 			importPkgMap[replyImportPkgName] = replyImportPkgName + " " + m.Output.GoIdent.GoImportPath.String()
 		}
 
+		comment := getMethodComment(m)
 		methods = append(methods, &ServiceMethod{
 			MethodName:    m.GoName,
 			Request:       m.Input.GoIdent.GoName,
 			RequestFields: getFields(m.Input),
 			Reply:         m.Output.GoIdent.GoName,
 			ReplyFields:   getFields(m.Output),
-			Comment:       getMethodComment(m),
+			Comment:       comment,
+			Prompt:        getPrompt(m, comment),
 			InvokeType:    getInvokeType(m.Desc.IsStreamingClient(), m.Desc.IsStreamingServer()),
 
 			ServiceName:         s.GoName,
@@ -248,6 +251,18 @@ func getMethodComment(m *protogen.Method) string {
 	}
 
 	return commentPrefix + "......"
+}
+
+func getPrompt(m *protogen.Method, comment string) string {
+	if strings.HasSuffix(comment, "......") {
+		return "prompt: implement me"
+	}
+	prompt := strings.TrimPrefix(comment, "// "+m.GoName)
+	prompt = strings.TrimSpace(prompt)
+	prompt = strings.ReplaceAll(prompt, "\n//", " ")
+	prompt = strings.ReplaceAll(prompt, "\r//", " ")
+	prompt = strings.ReplaceAll(prompt, "\r\n//", " ")
+	return "prompt: " + prompt
 }
 
 // getFieldComment 获取字段的注释

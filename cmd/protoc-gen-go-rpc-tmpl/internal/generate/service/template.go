@@ -80,7 +80,7 @@ func New{{.Name}}Server() {{.ProtoPkgName}}.{{.Name}}Server {
 {{if eq .InvokeType 1}}
 {{.Comment}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}.{{.ServiceName}}_{{.MethodName}}Server) error {
-	panic("implement me")
+	panic("{{.Prompt}}")
 
 	// fill in the business logic code here
 	// example:
@@ -118,7 +118,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 {{else if eq .InvokeType 2}}
 {{.Comment}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{{.Request}}, stream {{.ReplyImportPkgName}}.{{.ServiceName}}_{{.MethodName}}Server) error {
-	panic("implement me")
+	panic("{{.Prompt}}")
 
 	// fill in the business logic code here
 	// example:
@@ -155,7 +155,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 {{else if eq .InvokeType 3}}
 {{.Comment}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}.{{.ServiceName}}_{{.MethodName}}Server) error {
-	panic("implement me")
+	panic("{{.Prompt}}")
 
 	// fill in the business logic code here
 	// example:
@@ -199,7 +199,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 {{else}}
 {{.Comment}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (*{{.ReplyImportPkgName}}.{{.Reply}}, error) {
-	panic("implement me")
+	panic("{{.Prompt}}")
 
 	// fill in the business logic code here
 	// example:
