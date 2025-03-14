@@ -20,6 +20,7 @@ const (
 type jwtOptions struct {
 	isSwitchHTTPCode bool
 	verify           VerifyFn // verify function, only use in Auth
+	ignoreMethods    map[string]struct{}
 }
 
 // JwtOption set the jwt options.
@@ -35,6 +36,7 @@ func defaultJwtOptions() *jwtOptions {
 	return &jwtOptions{
 		isSwitchHTTPCode: false,
 		verify:           nil,
+		ignoreMethods:    make(map[string]struct{}), // 忽略的方法
 	}
 }
 
@@ -60,6 +62,17 @@ func responseUnauthorized(c *gin.Context, isSwitchHTTPCode bool) {
 	}
 }
 
+// WithJwtIgnoreMethods 设置忽略jwt的方法
+// fullMethodName 格式: /packageName.serviceName/methodName,
+// 示例 /api.userExample.v1.userExampleService/GetByID
+func WithJwtIgnoreMethods(fullMethodNames ...string) JwtOption {
+	return func(o *jwtOptions) {
+		for _, method := range fullMethodNames {
+			o.ignoreMethods[method] = struct{}{}
+		}
+	}
+}
+
 // -------------------------------------------------------------------------------------------
 
 // VerifyFn verify function, tokenTail10 is the last 10 characters of the token.
@@ -69,7 +82,6 @@ type VerifyFn func(claims *jwt.Claims, tokenTail10 string, c *gin.Context) error
 func Auth(opts ...JwtOption) gin.HandlerFunc {
 	o := defaultJwtOptions()
 	o.apply(opts...)
-
 	return func(c *gin.Context) {
 		reqID := ""
 		fields := []zap.Field{
@@ -83,41 +95,43 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 				fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 			}
 		}
-
-		authorization := c.GetHeader(HeaderAuthorizationKey)
-		if len(authorization) < 150 {
-			fields = append(fields, zap.String(HeaderAuthorizationKey, authorization))
-			logger.Warn("authorization is illegal", fields...)
-			responseUnauthorized(c, o.isSwitchHTTPCode)
-			c.Abort()
-			return
-		}
-
-		token := authorization[7:] // remove Bearer prefix
-		claims, err := jwt.ParseToken(token)
-		if err != nil {
-			fields = append(fields, zap.String("token", token), zap.Error(err))
-			logger.Warn("ParseToken error", fields...)
-			responseUnauthorized(c, o.isSwitchHTTPCode)
-			c.Abort()
-			return
-		}
-
-		if o.verify != nil {
-			tokenTail10 := token[len(token)-10:]
-			if err = o.verify(claims, tokenTail10, c); err != nil {
-				fields = append(fields, zap.Error(err), logger.String("uid", claims.UID), logger.String("name", claims.Name))
-				logger.Warn("verify error", fields...)
+		if _, ok := o.ignoreMethods[c.Request.URL.String()]; ok {
+			c.Next()
+		} else {
+			authorization := c.GetHeader(HeaderAuthorizationKey)
+			if len(authorization) < 150 {
+				fields = append(fields, zap.String(HeaderAuthorizationKey, authorization))
+				logger.Warn("authorization is illegal", fields...)
 				responseUnauthorized(c, o.isSwitchHTTPCode)
 				c.Abort()
 				return
 			}
-		} else {
-			c.Set("uid", claims.UID)
-			c.Set("name", claims.Name)
-		}
 
-		c.Next()
+			token := authorization[7:] // remove Bearer prefix
+			claims, err := jwt.ParseToken(token)
+			if err != nil {
+				fields = append(fields, zap.String("token", token), zap.Error(err))
+				logger.Warn("ParseToken error", fields...)
+				responseUnauthorized(c, o.isSwitchHTTPCode)
+				c.Abort()
+				return
+			}
+
+			if o.verify != nil {
+				tokenTail10 := token[len(token)-10:]
+				if err = o.verify(claims, tokenTail10, c); err != nil {
+					fields = append(fields, zap.Error(err), logger.String("uid", claims.UID), logger.String("name", claims.Name))
+					logger.Warn("verify error", fields...)
+					responseUnauthorized(c, o.isSwitchHTTPCode)
+					c.Abort()
+					return
+				}
+			} else {
+				c.Set("uid", claims.UID)
+				c.Set("name", claims.Name)
+			}
+			c.Next()
+		}
 	}
 }
 

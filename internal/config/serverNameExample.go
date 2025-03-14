@@ -148,11 +148,11 @@ type Grpc struct {
 }
 
 type Jwt struct {
-	Expire        int      `yaml:"expire" json:"expire"`
-	IgnoreMethods []string `yaml:"ignoreMethods" json:"ignoreMethods"`
-	Issuer        string   `yaml:"issuer" json:"issuer"`
-	SigningKey    string   `yaml:"signingKey" json:"signingKey"`
-	SigningMethod string   `yaml:"signingMethod" json:"signingMethod"`
+	Expire        int           `yaml:"expire" json:"expire"`
+	IgnoreMethods IgnoreMethods `yaml:"ignoreMethods" json:"ignoreMethods"`
+	Issuer        string        `yaml:"issuer" json:"issuer"`
+	SigningKey    string        `yaml:"signingKey" json:"signingKey"`
+	SigningMethod string        `yaml:"signingMethod" json:"signingMethod"`
 }
 
 type LogFileConfig struct {
@@ -172,15 +172,15 @@ type Logger struct {
 	MaxLen        int           `yaml:"maxLen" json:"maxLen"`
 }
 
-type IgnoreUrls struct {
+type IgnoreMethods struct {
 	Grpc []string `yaml:"grpc" json:"grpc"`
 	HTTP []string `yaml:"http" json:"http"`
 }
 
 type Sign struct {
-	IgnoreUrls      IgnoreUrls `yaml:"ignoreUrls" json:"ignoreUrls"`
-	SignExpiredTime int        `yaml:"signExpiredTime" json:"signExpiredTime"`
-	SignKey         string     `yaml:"signKey" json:"signKey"`
+	IgnoreUrls      IgnoreMethods `yaml:"ignoreUrls" json:"ignoreUrls"`
+	SignExpiredTime int           `yaml:"signExpiredTime" json:"signExpiredTime"`
+	SignKey         string        `yaml:"signKey" json:"signKey"`
 }
 
 type HTTP struct {
