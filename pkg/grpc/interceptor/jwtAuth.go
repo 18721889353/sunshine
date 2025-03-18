@@ -73,10 +73,10 @@ func GetAuthCtxKey() string {
 }
 
 // StandardVerifyFn verify function, tokenTail32 is the last 32 characters of the token.
-type StandardVerifyFn = func(claims *jwt.Claims, tokenTail32 string) error
+type StandardVerifyFn = func(claims *jwt.Claims, tokenTail32 string, ctx context.Context) error
 
 // CustomVerifyFn verify custom function, tokenTail32 is the last 32 characters of the token.
-type CustomVerifyFn = func(claims *jwt.CustomClaims, tokenTail32 string) error
+type CustomVerifyFn = func(claims *jwt.CustomClaims, tokenTail32 string, ctx context.Context) error
 
 type verifyOptions struct {
 	verifyType       int // 1: use StandardVerifyFn, 2:use CustomVerifyFn
@@ -193,7 +193,7 @@ func jwtVerify(ctx context.Context, opt *verifyOptions) (context.Context, error)
 		}
 		if opt.customVerifyFn != nil {
 			tokenTail32 := token[len(token)-16:]
-			err = opt.customVerifyFn(claims, tokenTail32)
+			err = opt.customVerifyFn(claims, tokenTail32, ctx)
 			if err != nil {
 				return ctx, status.Errorf(codes.Unauthenticated, "%v", err)
 			}
@@ -210,7 +210,7 @@ func jwtVerify(ctx context.Context, opt *verifyOptions) (context.Context, error)
 	}
 	if opt.standardVerifyFn != nil {
 		tokenTail32 := token[len(token)-16:]
-		err = opt.standardVerifyFn(claims, tokenTail32)
+		err = opt.standardVerifyFn(claims, tokenTail32, ctx)
 		if err != nil {
 			return ctx, status.Errorf(codes.Unauthenticated, "%v", err)
 		}
