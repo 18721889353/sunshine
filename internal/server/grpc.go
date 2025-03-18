@@ -193,7 +193,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 			//interceptor.WithStandardVerify(standardVerifyFn), // standard verify (default), you can set standardVerifyFn to nil if you don't need it
 			//interceptor.WithCustomVerify(customVerifyFn), // custom verify
 			// set ignore rpc methods(full path) for jwt token
-			interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods...),
+			interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods.Grpc...),
 		))
 	}
 
