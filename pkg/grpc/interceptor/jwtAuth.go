@@ -2,6 +2,8 @@ package interceptor
 
 import (
 	"context"
+	"github.com/18721889353/sunshine/pkg/utils"
+	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
@@ -283,4 +285,15 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 		wrapped.WrappedContext = newCtx
 		return handler(srv, wrapped)
 	}
+}
+
+func GetUidByCtx(ctx context.Context) (uid uint64, err error) {
+	var claims *jwt.Claims
+	authorization := metautils.ExtractIncoming(ctx).Get("Authorization")
+	token := authorization[7:] // remove Bearer prefix
+	claims, err = jwt.ParseToken(token)
+	if err != nil {
+		return uid, err
+	}
+	return utils.StrToUint64(claims.UID), err
 }
