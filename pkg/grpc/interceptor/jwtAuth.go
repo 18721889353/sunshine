@@ -246,6 +246,8 @@ func UnaryServerJwtAuth(opts ...AuthOption) grpc.UnaryServerInterceptor {
 		var newCtx context.Context
 		var err error
 
+		ctx = metautils.ExtractIncoming(ctx).Add("grpc-full-method", info.FullMethod).ToIncoming(ctx)
+
 		if _, ok := authIgnoreMethods[info.FullMethod]; ok {
 			newCtx = ctx
 		} else {
