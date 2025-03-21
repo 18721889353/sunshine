@@ -59,7 +59,21 @@ func NewServerNameExampleRPCConn() {
 
 	// using service discovery
 	if cfg.App.RegistryDiscoveryType != "" {
-		discoverOption, discoveryEndpoint := discoverService(cfg, grpcClientCfg)
+		var (
+			discoveryEndpoint string
+			discoverOption    grpccli.Option
+		)
+		switch grpcClientCfg.RegistryDiscoveryType {
+		case "etcd":
+			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName
+			cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*5))
+			if err != nil {
+				panic(fmt.Sprintf("etcdcli.Init error: %v, addr: %v", err, cfg.Etcd.Addrs))
+			}
+			iDiscovery := etcd.New(cli)
+			discoverOption = grpccli.WithDiscovery(iDiscovery)
+		}
+
 		if discoverOption != nil {
 			isUseDiscover = true
 			endpoint = discoveryEndpoint
@@ -128,24 +142,4 @@ func CloseServerNameExampleRPCConn() error {
 	}
 
 	return serverNameExampleConn.Close()
-}
-
-// discovery service with etcd
-func discoverService(cfg *config.Config, grpcClientCfg config.GrpcClient) (grpccli.Option, string) {
-	var (
-		endpoint      string
-		grpcCliOption grpccli.Option
-	)
-	switch grpcClientCfg.RegistryDiscoveryType {
-	case "etcd":
-		endpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName
-		cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*5))
-		if err != nil {
-			panic(fmt.Sprintf("etcdcli.Init error: %v, addr: %v", err, cfg.Etcd.Addrs))
-		}
-		iDiscovery := etcd.New(cli)
-		grpcCliOption = grpccli.WithDiscovery(iDiscovery)
-	}
-
-	return grpcCliOption, endpoint
 }
