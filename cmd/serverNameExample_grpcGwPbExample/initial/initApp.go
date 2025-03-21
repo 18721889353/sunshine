@@ -119,14 +119,14 @@ func InitApp() {
 	}
 
 	// initializing database
-	if cfg.Database.Driver == "mysql" {
-		database.InitDB()
-		logger.Infof("[%s] was initialized", cfg.Database.Driver)
-	}
-	if cfg.App.CacheType == "redis" {
-		database.InitCache(cfg.App.CacheType)
-		logger.Infof("[%s] was initialized", cfg.App.CacheType)
-	}
+	//if cfg.Database.Driver == "mysql" {
+	//	database.InitDB()
+	//	logger.Infof("[%s] was initialized", cfg.Database.Driver)
+	//}
+	//if cfg.App.CacheType == "redis" {
+	//	database.InitCache(cfg.App.CacheType)
+	//	logger.Infof("[%s] was initialized", cfg.App.CacheType)
+	//}
 	if int64(cfg.App.MachineID) > 0 {
 		database.GetSnowNode()
 		logger.Info("init SnowNode  succeeded")
