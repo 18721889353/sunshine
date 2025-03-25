@@ -172,7 +172,15 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		fields := []zap.Field{
 			zap.String("method", c.Request.Method),
 			zap.String("url", c.Request.URL.String()),
+			zap.String("userAgent", c.Request.UserAgent()),
 		}
+		// Add request headers to log fields
+		headers := make(map[string]string)
+		for k, v := range c.Request.Header {
+			headers[k] = fmt.Sprint(v)
+		}
+		fields = append(fields, zap.Any("headers", headers))
+
 		if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch || c.Request.Method == http.MethodDelete {
 			fields = append(fields,
 				zap.Int("size", buf.Len()),
