@@ -3,7 +3,6 @@ module github.com/18721889353/sunshine
 go 1.22
 
 require (
-	gitee.com/yzsunjianguo/common_pkg v1.0.1
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/IBM/sarama v1.43.3
 	github.com/alicebob/miniredis/v2 v2.33.0
@@ -18,7 +17,7 @@ require (
 	github.com/go-redsync/redsync/v4 v4.13.0
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gogf/gf/v2 v2.9.0
-	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang/snappy v0.0.4
 	github.com/gookit/color v1.5.4
 	github.com/gookit/goutil v0.6.16
