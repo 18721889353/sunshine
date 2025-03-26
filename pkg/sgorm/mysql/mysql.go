@@ -20,8 +20,8 @@ import (
 )
 
 // keepAlive 定期检测数据库连接
-func keepAlive(db *sql.DB) {
-	ticker := time.NewTicker(30 * time.Second) // 每 30 秒检测一次
+func keepAlive(db *sql.DB, o *options) {
+	ticker := time.NewTicker(o.connMaxLifetime) // 每 60 秒检测一次
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -72,7 +72,7 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
-	go keepAlive(sqlDB)
+	go keepAlive(sqlDB, o)
 
 	return db, nil
 }
