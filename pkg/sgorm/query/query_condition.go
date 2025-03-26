@@ -125,21 +125,26 @@ func (c *Column) convert() (string, error) {
 			if !ok1 {
 				return symbol, fmt.Errorf("invalid value type '%s'", c.Value)
 			}
-			l := len(val)
+			// 转换为rune数组处理unicode字符
+			runes := []rune(val)
+			if len(runes) == 0 {
+				return symbol, fmt.Errorf("empty string value")
+			}
+			l := len(runes)
 			if l > 2 {
-				val2 := val[1 : l-1]
-				val2 = strings.ReplaceAll(val2, "%", "\\%")
-				val2 = strings.ReplaceAll(val2, "_", "\\_")
-				val = string(val[0]) + val2 + string(val[l-1])
+				middle := string(runes[1 : len(runes)-1])
+				middle = strings.ReplaceAll(middle, "%", "\\%")
+				middle = strings.ReplaceAll(middle, "_", "\\_")
+				val = string(runes[0]) + middle + string(runes[len(runes)-1])
 			}
-			if strings.HasPrefix(val, "%") ||
-				strings.HasPrefix(val, "_") ||
-				strings.HasSuffix(val, "%") ||
-				strings.HasSuffix(val, "_") {
-				c.Value = val
-			} else {
-				c.Value = "%" + val + "%"
+			// 判断首尾字符时需要转换为string处理
+			firstChar := string(runes[0])
+			lastChar := string(runes[len(runes)-1])
+			if !(firstChar == "%" || firstChar == "_") &&
+				!(lastChar == "%" || lastChar == "_") {
+				val = "%" + val + "%"
 			}
+			c.Value = val
 		case " IN ", " NOT IN ":
 			val, ok1 := c.Value.(string)
 			if !ok1 {
