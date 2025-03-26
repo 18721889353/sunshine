@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	mysqlDriver "gorm.io/driver/mysql"
@@ -17,6 +18,18 @@ import (
 	"github.com/18721889353/sunshine/pkg/sgorm/dbclose"
 	"github.com/18721889353/sunshine/pkg/sgorm/glog"
 )
+
+// keepAlive 定期检测数据库连接
+func keepAlive(db *sql.DB) {
+	ticker := time.NewTicker(30 * time.Second) // 每 30 秒检测一次
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := db.Ping(); err != nil {
+			fmt.Println(err)
+		}
+	}
+}
 
 // Init mysql
 func Init(dsn string, opts ...Option) (*gorm.DB, error) {
@@ -36,7 +49,6 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 		return nil, err
 	}
 	db.Set("gorm:table_options", "CHARSET=utf8mb4") // automatic appending of table suffixes when creating tables
-
 	// register trace plugin
 	if o.enableTrace {
 		err = db.Use(otelgorm.NewPlugin())
@@ -60,6 +72,7 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
+	go keepAlive(sqlDB)
 
 	return db, nil
 }
