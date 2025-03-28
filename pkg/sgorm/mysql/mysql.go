@@ -21,13 +21,14 @@ import (
 
 // keepAlive 定期检测数据库连接
 func keepAlive(db *sql.DB, o *options) {
-	ticker := time.NewTicker(o.connMaxLifetime) // 每 60 秒检测一次
+	ticker := time.NewTicker(time.Second * 5) // 每 60 秒检测一次
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if err := db.Ping(); err != nil {
-			fmt.Println(err)
-		}
+		fmt.Println(db.Stats(), time.Now().Format(time.DateTime))
+		//if err := db.Ping(); err != nil {
+		//	fmt.Println(err)
+		//}
 	}
 }
 
@@ -72,7 +73,7 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
-	go keepAlive(sqlDB, o)
+	//go keepAlive(sqlDB, o)
 
 	return db, nil
 }
@@ -120,15 +121,47 @@ func gormConfig(o *options) *gorm.Config {
 func rwSeparationPlugin(o *options) gorm.Plugin {
 	slaves := []gorm.Dialector{}
 	for _, dsn := range o.slavesDsn {
+		sqlDB, err := sql.Open("mysql", dsn)
+		if err != nil {
+			log.Fatalf("Failed to open slave database: %v", err)
+		}
+		// 设置连接池参数
+		sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
+		sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
+		sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
+		db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
+		if err != nil {
+			fmt.Println("slave gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o)) err ", err)
+		}
+		conn, err := db.DB()
+		if err != nil {
+			fmt.Println("slave db.DB() err", err)
+		}
 		slaves = append(slaves, mysqlDriver.New(mysqlDriver.Config{
-			DSN: dsn,
+			Conn: conn,
 		}))
 	}
 
 	masters := []gorm.Dialector{}
 	for _, dsn := range o.mastersDsn {
+		sqlDB, err := sql.Open("mysql", dsn)
+		if err != nil {
+			log.Fatalf("Failed to open master database: %v", err)
+		}
+		// 设置连接池参数
+		sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
+		sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
+		sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
+		db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
+		if err != nil {
+			fmt.Println("master gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o)) err ", err)
+		}
+		conn, err := db.DB()
+		if err != nil {
+			fmt.Println("master db.DB() err", err)
+		}
 		masters = append(masters, mysqlDriver.New(mysqlDriver.Config{
-			DSN: dsn,
+			Conn: conn,
 		}))
 	}
 
