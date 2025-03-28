@@ -4,60 +4,27 @@ package mysql
 import (
 	"database/sql"
 	"fmt"
-	"log"
-	"os"
-	"time"
-
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	mysqlDriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 	"gorm.io/plugin/dbresolver"
+	"log"
+	"os"
 
 	"github.com/18721889353/sunshine/pkg/sgorm/dbclose"
 	"github.com/18721889353/sunshine/pkg/sgorm/glog"
 )
 
-// keepAlive 定期检测数据库连接
-func keepAlive(db *sql.DB, o *options) {
-	ticker := time.NewTicker(time.Second * 5) // 每 60 秒检测一次
-	defer ticker.Stop()
-
-	for range ticker.C {
-		fmt.Println(db.Stats(), time.Now().Format(time.DateTime))
-		//if err := db.Ping(); err != nil {
-		//	fmt.Println(err)
-		//}
-	}
-}
-
 // Init mysql
 func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 	o := defaultOptions()
 	o.apply(opts...)
-
-	sqlDB, err := sql.Open("mysql", dsn)
+	db, err := getDb(dsn, o)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("getDb, err: %v", err)
 	}
-	sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
-	sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
-	sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
-
-	db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
-	if err != nil {
-		return nil, err
-	}
-	db.Set("gorm:table_options", "CHARSET=utf8mb4") // automatic appending of table suffixes when creating tables
-	// register trace plugin
-	if o.enableTrace {
-		err = db.Use(otelgorm.NewPlugin())
-		if err != nil {
-			return nil, fmt.Errorf("using gorm opentelemetry, err: %v", err)
-		}
-	}
-
 	// register read-write separation plugin
 	if len(o.slavesDsn) > 0 {
 		err = db.Use(rwSeparationPlugin(o))
@@ -65,16 +32,6 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 			return nil, err
 		}
 	}
-
-	// register plugins
-	for _, plugin := range o.plugins {
-		err = db.Use(plugin)
-		if err != nil {
-			return nil, err
-		}
-	}
-	//go keepAlive(sqlDB, o)
-
 	return db, nil
 }
 
@@ -118,20 +75,44 @@ func gormConfig(o *options) *gorm.Config {
 	return config
 }
 
+func getDb(dsn string, o *options) (*gorm.DB, error) {
+
+	sqlDB, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
+	sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
+	sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
+
+	db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
+	if err != nil {
+		return nil, err
+	}
+	db.Set("gorm:table_options", "CHARSET=utf8mb4") // automatic appending of table suffixes when creating tables
+	// register trace plugin
+	if o.enableTrace {
+		err = db.Use(otelgorm.NewPlugin())
+		if err != nil {
+			return nil, fmt.Errorf("using gorm opentelemetry, err: %v", err)
+		}
+	}
+	// register plugins
+	for _, plugin := range o.plugins {
+		err = db.Use(plugin)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return db, nil
+}
+
 func rwSeparationPlugin(o *options) gorm.Plugin {
 	slaves := []gorm.Dialector{}
 	for _, dsn := range o.slavesDsn {
-		sqlDB, err := sql.Open("mysql", dsn)
+		db, err := getDb(dsn, o)
 		if err != nil {
-			log.Fatalf("Failed to open slave database: %v", err)
-		}
-		// 设置连接池参数
-		sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
-		sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
-		sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
-		db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
-		if err != nil {
-			fmt.Println("slave gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o)) err ", err)
+			fmt.Println("slave getDb err", err)
 		}
 		conn, err := db.DB()
 		if err != nil {
@@ -144,17 +125,9 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 
 	masters := []gorm.Dialector{}
 	for _, dsn := range o.mastersDsn {
-		sqlDB, err := sql.Open("mysql", dsn)
+		db, err := getDb(dsn, o)
 		if err != nil {
-			log.Fatalf("Failed to open master database: %v", err)
-		}
-		// 设置连接池参数
-		sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
-		sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
-		sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
-		db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
-		if err != nil {
-			fmt.Println("master gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o)) err ", err)
+			fmt.Println("slave getDb err", err)
 		}
 		conn, err := db.DB()
 		if err != nil {
