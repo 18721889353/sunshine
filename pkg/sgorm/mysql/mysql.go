@@ -112,11 +112,11 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 	for _, dsn := range o.slavesDsn {
 		db, err := getDb(dsn, o)
 		if err != nil {
-			fmt.Println("slave getDb err", err)
+			log.Fatalf("Failed to initialize slave database with DSN %s: %v", dsn, err)
 		}
 		conn, err := db.DB()
 		if err != nil {
-			fmt.Println("slave db.DB() err", err)
+			log.Fatalf("Failed to get underlying sql.DB for slave with DSN %s: %v", dsn, err)
 		}
 		slaves = append(slaves, mysqlDriver.New(mysqlDriver.Config{
 			Conn: conn,
@@ -127,11 +127,11 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 	for _, dsn := range o.mastersDsn {
 		db, err := getDb(dsn, o)
 		if err != nil {
-			fmt.Println("slave getDb err", err)
+			log.Fatalf("Failed to initialize master database with DSN %s: %v", dsn, err)
 		}
 		conn, err := db.DB()
 		if err != nil {
-			fmt.Println("master db.DB() err", err)
+			log.Fatalf("Failed to get underlying sql.DB for master with DSN %s: %v", dsn, err)
 		}
 		masters = append(masters, mysqlDriver.New(mysqlDriver.Config{
 			Conn: conn,
