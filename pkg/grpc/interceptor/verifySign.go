@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/18721889353/sunshine/pkg/gocrypto"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // SignOption 设置签名字段
@@ -185,12 +186,17 @@ func createEncryptStr(params map[string]interface{}) string {
 			case map[string]interface{}:
 				sortIn(v)
 			case []interface{}:
+				// 处理 []interface{} 类型
+				var items []string
 				for _, s := range v {
 					switch sv := s.(type) {
 					case map[string]interface{}:
 						sortIn(sv)
+					default:
+						items = append(items, fmt.Sprintf("%v", sv))
 					}
 				}
+				strBuilder.WriteString(fmt.Sprintf("%s=%s&", k, strings.Join(items, ",")))
 			default:
 				strBuilder.WriteString(fmt.Sprintf("%s=%v&", k, v))
 			}
