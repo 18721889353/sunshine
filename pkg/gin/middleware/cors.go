@@ -78,8 +78,8 @@ func WithMaxAge(maxAge time.Duration) CorsOption {
 	}
 }
 
-// NewCors creates a new CORS middleware with options.
-func NewCors(opts ...CorsOption) gin.HandlerFunc {
+// Cors creates a new CORS middleware with options.
+func Cors(opts ...CorsOption) gin.HandlerFunc {
 	o := defaultCorsConfig()
 	o.apply(opts...)
 	return cors.New(cors.Config{

@@ -44,7 +44,7 @@ type {{.TableNameCamelFCL}}Dao struct {
 // New{{.TableNameCamel}}Dao creating the dao interface
 func New{{.TableNameCamel}}Dao(db *gorm.DB, xCache cache.{{.TableNameCamel}}Cache) {{.TableNameCamel}}Dao {
 	if xCache == nil {
-		return &{{.TableNameCamelFCL}}Dao{db: db}
+		return &{{.TableNameCamelFCL}}Dao{db: db,sfg: new(singleflight.Group)}
 	}
 	return &{{.TableNameCamelFCL}}Dao{
 		db:    db,
