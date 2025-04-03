@@ -41,7 +41,7 @@ type userExampleDao struct {
 // NewUserExampleDao creating the dao interface
 func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDao {
 	if xCache == nil {
-		return &userExampleDao{db: db}
+		return &userExampleDao{db: db, sfg: new(singleflight.Group)}
 	}
 	return &userExampleDao{
 		db:    db,

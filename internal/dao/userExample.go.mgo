@@ -40,7 +40,7 @@ type userExampleDao struct {
 // NewUserExampleDao creating the dao interface
 func NewUserExampleDao(collection *mongo.Collection, xCache cache.UserExampleCache) UserExampleDao {
 	if xCache == nil {
-		return &userExampleDao{collection: collection}
+		return &userExampleDao{collection: collection,sfg: new(singleflight.Group)}
 	}
 	return &userExampleDao{
 		collection: collection,
