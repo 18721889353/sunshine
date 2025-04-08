@@ -11,8 +11,40 @@ import (
 	"github.com/microcosm-cc/bluemonday"
 )
 
-func XSSCrossMiddleware() gin.HandlerFunc {
+type XssOptions func(*xssOptions)
+
+func defaultXssOptions() *xssOptions {
+	return &xssOptions{
+		ignoreUrls: map[string]struct{}{},
+	}
+}
+
+type xssOptions struct {
+	ignoreUrls map[string]struct{}
+}
+
+func (o *xssOptions) apply(opts ...XssOptions) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+func WithIgnoreXssUrl(urls ...string) XssOptions {
+	return func(o *xssOptions) {
+		for _, url := range urls {
+			o.ignoreUrls[url] = struct{}{}
+		}
+	}
+}
+
+func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
+	o := defaultXssOptions()
+	o.apply(opts...)
 	return func(ctx *gin.Context) {
+		if _, ok := o.ignoreUrls[ctx.Request.URL.Path]; ok {
+			ctx.Next()
+			return
+		}
 		if err := xssCross(ctx); err != nil {
 			response.Out(ctx, errcode.InvalidParams.WithOutMsg(err.Error()))
 			ctx.Abort()
