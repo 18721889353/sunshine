@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/go-redsync/redsync/v4"
 	"strings"
 	"time"
+
+	"github.com/go-redsync/redsync/v4"
 
 	"github.com/18721889353/sunshine/pkg/cache"
 	"github.com/18721889353/sunshine/pkg/encoding"
@@ -37,6 +38,7 @@ type UserExampleCache interface {
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	MultiSet(ctx context.Context, data []*model.UserExample, duration time.Duration) error
 	Del(ctx context.Context, id uint64) error
+	DelByPrefix(ctx context.Context, prefix string) error
 	DelByKey(ctx context.Context, key string) error
 	SetPlaceholder(ctx context.Context, id uint64) error
 	SetPlaceholderByKey(ctx context.Context, key string) error
@@ -178,6 +180,14 @@ func (c *userExampleCache) MultiGet(ctx context.Context, ids []uint64) (map[uint
 func (c *userExampleCache) Del(ctx context.Context, id uint64) error {
 	cacheKey := c.GetUserExampleCacheKey(id)
 	err := c.cache.Del(ctx, cacheKey)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *userExampleCache) DelByPrefix(ctx context.Context, prefix string) error {
+	err := c.cache.DelByPrefix(ctx, prefix)
 	if err != nil {
 		return err
 	}

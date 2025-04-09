@@ -36,6 +36,7 @@ type {{.TableNameCamel}}Cache interface {
 	MultiGet(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
 	MultiSet(ctx context.Context, data []*model.{{.TableNameCamel}}, duration time.Duration) error
 	Del(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
+	DelByPrefix(ctx context.Context, prefix string) error
 	DelByKey(ctx context.Context, key string) error
 	SetPlaceholder(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
 	SetPlaceholderByKey(ctx context.Context, key string) error
@@ -191,6 +192,15 @@ func (c *{{.TableNameCamelFCL}}Cache) Del(ctx context.Context, {{.ColumnNameCame
 	}
 	return nil
 }
+
+func (c *{{.TableNameCamelFCL}}Cache) DelByPrefix(ctx context.Context, prefix string) error {
+	err := c.cache.DelByPrefix(ctx, prefix)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *{{.TableNameCamelFCL}}Cache) DelByKey(ctx context.Context, key string) error {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
 	err := c.cache.Del(ctx, cacheKey)

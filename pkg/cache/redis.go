@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 
 	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 	"github.com/go-redsync/redsync/v4"
@@ -338,6 +339,45 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 		return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, cacheKeys)
 	}
 	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+	pkgLogger.Info("Cache msg", fields...)
+	return nil
+}
+
+// DelByPrefix deletes all keys that start with the given prefix
+func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
+	begin := time.Now()
+	fields := []zap.Field{
+		requestIDField(ctx, "request_id"),
+		zap.String("log_from", "Cache msg DelByPrefix"),
+		zap.String("prefix", prefix),
+	}
+
+	var cursor uint64
+	var n int
+	for {
+		var keys []string
+		var err error
+		keys, cursor, err = c.client.Scan(ctx, cursor, prefix+":*", 100).Result()
+		if err != nil {
+			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+			pkgLogger.Warn("Cache msg", fields...)
+			return fmt.Errorf("c.client.Scan error: %v, prefix=%s", err, prefix)
+		}
+		n += len(keys)
+		if len(keys) > 0 {
+			err = c.client.Del(ctx, keys...).Err()
+			if err != nil {
+				fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+				pkgLogger.Warn("Cache msg", fields...)
+				return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, keys)
+			}
+		}
+		if cursor == 0 {
+			break
+		}
+	}
+
+	fields = append(fields, zap.Int("deleted_keys", n), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 	pkgLogger.Info("Cache msg", fields...)
 	return nil
 }

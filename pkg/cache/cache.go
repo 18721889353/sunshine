@@ -4,8 +4,9 @@ package cache
 import (
 	"context"
 	"errors"
-	"github.com/go-redsync/redsync/v4"
 	"time"
+
+	"github.com/go-redsync/redsync/v4"
 )
 
 var (
@@ -34,6 +35,7 @@ type Cache interface {
 	MultiSet(ctx context.Context, valMap map[string]interface{}, expireTime time.Duration) error
 	MultiGet(ctx context.Context, keys []string, valueMap interface{}) error
 	Del(ctx context.Context, keys ...string) error
+	DelByPrefix(ctx context.Context, prefix string) error
 	SetCacheWithNotFound(ctx context.Context, key string) error
 }
 
@@ -71,6 +73,11 @@ func MultiGet(ctx context.Context, keys []string, valueMap interface{}) error {
 // Del multiple delete data
 func Del(ctx context.Context, keys ...string) error {
 	return DefaultClient.Del(ctx, keys...)
+}
+
+// DelByPrefix multiple delete data
+func DelByPrefix(ctx context.Context, prefix string) error {
+	return DefaultClient.DelByPrefix(ctx, prefix)
 }
 
 // SetCacheWithNotFound .
