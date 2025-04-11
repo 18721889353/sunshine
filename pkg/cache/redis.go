@@ -65,12 +65,15 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
 	err := c.mutex.LockContext(ctx)
 	if err != nil {
-		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%.6f", time.Since(begin).Seconds()*1000)))
+		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", logFields...)
 		return err
 	} else {
-		logFields = append(logFields, zap.String("ms", fmt.Sprintf("%.6f", time.Since(begin).Seconds()*1000)))
-		pkgLogger.Info("Cache msg", logFields...)
+		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+		if elapsed > 2 {
+			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+			pkgLogger.Info("Cache msg", logFields...)
+		}
 		return nil
 	}
 }
@@ -90,14 +93,16 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	// TryLock 尝试获取锁而不阻塞
 	err := c.mutex.TryLockContext(ctx)
 	if err != nil {
-		logFields = append(logFields, pkgLogger.Err(err), zap.Float64("ms", time.Since(begin).Seconds()*1000))
+		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", logFields...)
 		return err
 	} else {
-		logFields = append(logFields, zap.Float64("ms", time.Since(begin).Seconds()*1000))
-		pkgLogger.Info("Cache msg", logFields...)
+		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+		if elapsed > 2 {
+			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+			pkgLogger.Info("Cache msg", logFields...)
+		}
 		return nil
-
 	}
 
 }
@@ -114,12 +119,15 @@ func (c *redisCache) ReleaseLock(ctx context.Context) error {
 	// 解锁操作
 	_, err := c.mutex.UnlockContext(ctx)
 	if err != nil {
-		logFields = append(logFields, pkgLogger.Err(err), zap.Float64("ms", time.Since(begin).Seconds()*1000))
+		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		pkgLogger.Warn("Cache msg", logFields...)
 		return err
 	} else {
-		logFields = append(logFields, zap.Float64("ms", time.Since(begin).Seconds()*1000))
-		pkgLogger.Info("Cache msg", logFields...)
+		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+		if elapsed > 2 {
+			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+			pkgLogger.Info("Cache msg", logFields...)
+		}
 		return nil
 	}
 }
@@ -155,8 +163,11 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 		return fmt.Errorf("c.client.Set error: %v, cacheKey=%s", err, cacheKey)
 	}
 
-	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 2 {
+		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		pkgLogger.Info("Cache msg", fields...)
+	}
 
 	return nil
 }
@@ -201,8 +212,12 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 		return fmt.Errorf("encoding.Unmarshal error: %v, key=%s, cacheKey=%s, type=%v, json=%+v ",
 			err, key, cacheKey, reflect.TypeOf(val), string(bytes))
 	}
-	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
+
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 2 {
+		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		pkgLogger.Info("Cache msg", fields...)
+	}
 	return nil
 }
 
@@ -257,8 +272,12 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("pipeline.Exec error: %v", err)
 	}
-	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
+
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 2 {
+		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		pkgLogger.Info("Cache msg", fields...)
+	}
 	return nil
 }
 
@@ -306,8 +325,12 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 		}
 		valueMap.SetMapIndex(reflect.ValueOf(cacheKeys[i]), reflect.ValueOf(object))
 	}
-	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
+
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 2 {
+		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		pkgLogger.Info("Cache msg", fields...)
+	}
 	return nil
 }
 
@@ -338,8 +361,12 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 		pkgLogger.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, cacheKeys)
 	}
-	fields = append(fields, zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
+
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 2 {
+		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		pkgLogger.Info("Cache msg", fields...)
+	}
 	return nil
 }
 
@@ -377,8 +404,11 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
 		}
 	}
 
-	fields = append(fields, zap.Int("deleted_keys", n), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-	pkgLogger.Info("Cache msg", fields...)
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 2 {
+		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		pkgLogger.Info("Cache msg", fields...)
+	}
 	return nil
 }
 
