@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -182,10 +183,21 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		fields = append(fields, zap.Any("headers", headers))
 
 		if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch || c.Request.Method == http.MethodDelete {
-			fields = append(fields,
-				zap.Int("size", buf.Len()),
-				zap.ByteString("body", getRequestBody(&buf, o.maxLength)),
-			)
+			// 获取请求内容类型
+			contentType := c.Request.Header.Get("Content-Type")
+			if !strings.HasPrefix(contentType, "multipart/form-data") {
+				// 检查请求体大小
+				if buf.Len() <= o.maxLength {
+					fields = append(fields,
+						zap.Int("size", buf.Len()),
+						zap.ByteString("body", getRequestBody(&buf, o.maxLength)),
+					)
+				} else {
+					fields = append(fields, zap.Int("size", buf.Len()), zap.String("body", "request body too large to log"))
+				}
+			} else {
+				fields = append(fields, zap.String("body", "form-data not logged"))
+			}
 		}
 
 		reqID := ""
