@@ -1,730 +1,120 @@
 package httpcli
 
 import (
-	"bytes"
+	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-
-	"github.com/18721889353/sunshine/pkg/utils"
 )
 
-type myBody struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+type User struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
-func runGoHTTPServer() string {
-	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
+func TestHTTPClient(t *testing.T) {
 
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
-	oKFun := func(c *gin.Context) {
-		uid := c.Query("uid")
-		fmt.Printf("request parameters: uid=%s\n", uid)
-		c.JSON(200, StdResult{
-			Code: 0,
-			Msg:  "ok",
-			Data: fmt.Sprintf("uid=%v", uid),
-		})
-	}
-	errFun := func(c *gin.Context) {
-		uid := c.Query("uid")
-		fmt.Printf("request parameters: uid=%s\n", uid)
-		c.JSON(401, StdResult{
-			Code: 401,
-			Msg:  "authorization failure",
-			Data: fmt.Sprintf("uid=%v", uid),
-		})
+	customTransport := &http.Transport{
+		MaxIdleConns:          100,              // 总的最大空闲连接数
+		MaxIdleConnsPerHost:   10,               // 每个主机的最大空闲连接数
+		IdleConnTimeout:       90 * time.Second, // 空闲连接超时时间
+		TLSHandshakeTimeout:   10 * time.Second, // TLS 握手超时时间
+		ExpectContinueTimeout: 1 * time.Second,  // Expect: 100-continue 超时时间
 	}
 
-	oKPFun := func(c *gin.Context) {
-		var body myBody
-		c.BindJSON(&body)
-		fmt.Println("body data:", body)
-		c.JSON(200, StdResult{
-			Code: 0,
-			Msg:  "ok",
-			Data: body,
-		})
-	}
-	errPFun := func(c *gin.Context) {
-		var body myBody
-		c.BindJSON(&body)
-		fmt.Println("body data:", body)
-		c.JSON(401, StdResult{
-			Code: 401,
-			Msg:  "authorization failure",
-			Data: nil,
-		})
+	// 创建普通客户端
+	client := New(
+		WithBaseURL("https://jsonplaceholder.typicode.com"),
+		WithTimeout(5*time.Second),
+		WithTransport(customTransport),
+	)
+
+	// GET请求示例
+	var getUser User
+	resp, err := client.Request(context.Background()).
+		SetResult(&getUser).
+		Get("/users/1")
+	if err != nil {
+		t.Fatalf("GET request failed: %v", err)
 	}
 
-	r.GET("/get", oKFun)
-	r.GET("/get_err", errFun)
-	r.DELETE("/delete", oKFun)
-	r.DELETE("/delete_err", errFun)
-	r.POST("/post", oKPFun)
-	r.POST("/post_err", errPFun)
-	r.PUT("/put", oKPFun)
-	r.PUT("/put_err", errPFun)
-	r.PATCH("/patch", oKPFun)
-	r.PATCH("/patch_err", errPFun)
+	if resp.IsSuccess() {
+		fmt.Printf("User: %+v\n", getUser)
+	}
 
-	go func() {
-		err := r.Run(serverAddr)
-		if err != nil {
-			panic(err)
+	// POST请求示例
+	newUser := User{Name: "John Doe"}
+	var createdUser User
+	resp, err = client.Request(context.Background()).
+		SetBody(newUser).
+		SetResult(&createdUser).
+		Post("/users")
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+
+	if resp.IsSuccess() {
+		fmt.Printf("Created user: %+v\n", createdUser)
+	}
+}
+
+func TestHTTPSClientWithTLS(t *testing.T) {
+	// 创建带TLS验证的客户端
+	client := New(
+		WithBaseURL("https://api.example.com"),
+		WithRootCA("path/to/ca.crt"),
+		WithClientCert("path/to/client.crt", "path/to/client.key"),
+		WithTimeout(10*time.Second),
+	)
+
+	// 发送安全请求
+	resp, err := client.Request(context.Background()).
+		SetHeader("X-Request-ID", "12345").
+		Get("/secure-endpoint")
+	if err != nil {
+		t.Fatalf("Secure request failed: %v", err)
+	}
+
+	fmt.Printf("Response status: %d\n", resp.StatusCode())
+}
+
+func TestErrorHandling(t *testing.T) {
+	client := New(
+		WithBaseURL("https://jsonplaceholder.typicode.com"),
+	)
+
+	// 请求不存在的资源
+	_, err := client.Request(context.Background()).
+		Get("/nonexistent")
+	if err != nil {
+		var httpErr *ErrorResponse
+		if errors.As(err, &httpErr) {
+			log.Printf("HTTP error: %d - %s", httpErr.StatusCode, httpErr.Message)
+			log.Printf("Response body: %s", string(httpErr.Body))
+		} else {
+			t.Fatalf("Unexpected error type: %v", err)
 		}
-	}()
-
-	time.Sleep(time.Millisecond * 200)
-	return requestAddr
-}
-
-// ------------------------------------------------------------------------------------------
-
-func TestGetStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := New()
-	req.SetURL(requestAddr + "/get")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetParams(KV{
-		"name": "foo",
-	})
-
-	resp, err := req.GET()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-func TestDeleteStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := New()
-	req.SetURL(requestAddr + "/delete")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetParams(KV{
-		"uid": 123,
-	})
-
-	resp, err := req.DELETE()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-func TestPostStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := New()
-	req.SetURL(requestAddr + "/post")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetBody(&myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-
-	resp, err := req.POST()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-func TestPutStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := New()
-	req.SetURL(requestAddr + "/put")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetBody(&myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-
-	resp, err := req.PUT()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-func TestPatchStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := New()
-	req.SetURL(requestAddr + "/patch")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetBody(&myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-
-	resp, err := req.PATCH()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-// ------------------------------------------------------------------------------------------
-
-func TestGet(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result  interface{}
-		url     string
-		params  map[string]interface{}
-		headers map[string]string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantErr    bool
-		wantResult *StdResult
-	}{
-		{
-			name: "get success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/get",
-				params: KV{"uid": 123},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantErr: false,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: "uid=123",
-			},
-		},
-		{
-			name: "get err",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/get_err",
-				params: KV{"uid": 123},
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-		},
-		{
-			name: "get not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := Get(tt.args.result, tt.args.url, WithParams(tt.args.params), WithHeaders(tt.args.headers))
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Get() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
 	}
 }
 
-func TestDelete(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result  interface{}
-		url     string
-		params  KV
-		headers map[string]string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantErr    bool
-		wantResult *StdResult
-	}{
-		{
-			name: "delete success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/delete",
-				params: KV{"uid": 123},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantErr: false,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: "uid=123",
-			},
-		},
-		{
-			name: "delete err",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/delete_err",
-				params: KV{"uid": 123},
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-		},
-		{
-			name: "delete not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
+func TestCustomTLSConfig(t *testing.T) {
+	// 自定义TLS配置
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := Delete(tt.args.result, tt.args.url, WithParams(tt.args.params), WithHeaders(tt.args.headers))
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Delete() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
-	}
-}
+	_ = New(
+		WithBaseURL("https://api.example.com"),
+		WithTLSConfig(tlsConfig),
+	)
 
-func TestPost(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result  interface{}
-		url     string
-		body    interface{}
-		headers map[string]string
-		timeout time.Duration
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult *StdResult
-		wantErr    bool
-	}{
-		{
-			name: "post success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/post",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-				timeout: time.Second,
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: nil,
-			},
-			wantErr: false,
-		},
-		{
-			name: "post error",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/post_err",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "post not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := Post(tt.args.result, tt.args.url, tt.args.body, WithHeaders(tt.args.headers), WithTimeout(tt.args.timeout))
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Post() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
-	}
-}
-
-func TestPut(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result  interface{}
-		url     string
-		body    interface{}
-		headers map[string]string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult *StdResult
-		wantErr    bool
-	}{
-		{
-			name: "put success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/put",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: nil,
-			},
-			wantErr: false,
-		},
-		{
-			name: "put error",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/put_err",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "post not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Put(tt.args.result, tt.args.url, tt.args.body, WithHeaders(tt.args.headers)); (err != nil) != tt.wantErr {
-				t.Errorf("Put() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
-	}
-}
-
-func TestPatch(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result  interface{}
-		url     string
-		body    interface{}
-		headers map[string]string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult *StdResult
-		wantErr    bool
-	}{
-		{
-			name: "patch success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/patch",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: nil,
-			},
-			wantErr: false,
-		},
-		{
-			name: "patch error",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/patch_err",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-				headers: map[string]string{
-					"Authorization": "Bearer token",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "post not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Patch(tt.args.result, tt.args.url, tt.args.body, WithHeaders(tt.args.headers)); (err != nil) != tt.wantErr {
-				t.Errorf("Put() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
-	}
-}
-
-func TestRequest_Reset(t *testing.T) {
-	req := &Request{
-		method: http.MethodGet,
-	}
-	req.Reset()
-	assert.Equal(t, "", req.method)
-}
-
-func TestRequest_Do(t *testing.T) {
-	req := &Request{
-		method: http.MethodGet,
-		url:    "http://",
-	}
-
-	_, err := req.Do(http.MethodOptions, "")
-	assert.Error(t, err)
-
-	_, err = req.Do(http.MethodGet, map[string]interface{}{"foo": "bar"})
-	assert.Error(t, err)
-	_, err = req.Do(http.MethodDelete, "foo=bar")
-	assert.Error(t, err)
-
-	_, err = req.Do(http.MethodPost, &myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-	assert.Error(t, err)
-
-	_, err = req.Response()
-	assert.Error(t, err)
-
-	err = requestErr(err)
-	assert.Error(t, err)
-
-	err = jsonParseErr(err)
-	assert.Error(t, err)
-}
-
-func TestResponse_BodyString(t *testing.T) {
-	resp := &Response{
-		Response: nil,
-		err:      nil,
-	}
-
-	_, err := resp.BodyString()
-	assert.Error(t, err)
-
-	resp.err = errors.New("error test")
-	_, err = resp.BodyString()
-	assert.Error(t, err)
-
-	err = resp.Error()
-	assert.Error(t, err)
-}
-
-func TestError(t *testing.T) {
-	req := New()
-	req.SetParam("foo", "bar")
-	req.SetParam("foo3", make(chan string))
-	req.SetParams(map[string]interface{}{"foo2": "bar2"})
-	req.SetBody("foo")
-	req.SetTimeout(time.Second * 10)
-	req.CustomRequest(func(req *http.Request, data *bytes.Buffer) {
-		fmt.Println("customRequest")
-	})
-	req.SetURL("http://127.0.0.1:0")
-
-	resp, err := req.pull()
-	assert.Error(t, err)
-
-	req.method = http.MethodPost
-	resp, err = req.push()
-	assert.Error(t, err)
-
-	_, err = resp.ReadBody()
-	assert.Error(t, err)
-
-	err = resp.BindJSON(nil)
-	assert.Error(t, err)
-
-	err = notOKErr(resp)
-	assert.Error(t, err)
-
-	err = do(http.MethodPost, nil, "", nil, nil, nil, 0)
-	assert.Error(t, err)
-	err = do(http.MethodPost, &StdResult{}, "http://127.0.0.1:0", nil, KV{"foo": "bar"}, nil, 0)
-	assert.Error(t, err)
-
-	err = gDo(http.MethodGet, nil, "http://127.0.0.1:0", nil, nil, 0)
-	assert.Error(t, err)
+	// 发送请求...
 }

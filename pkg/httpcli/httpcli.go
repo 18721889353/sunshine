@@ -1,500 +1,327 @@
-// Package httpcli is http request client, which only supports return json format.
 package httpcli
 
 import (
-	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
-	"strings"
+	"os"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
-const defaultTimeout = 30 * time.Second
-
-// Request HTTP request
-type Request struct {
-	customRequest func(req *http.Request, data *bytes.Buffer) // used to define HEADER, e.g. to add sign, etc.
-	url           string
-	params        map[string]interface{} // parameters after URL
-	body          string                 // Body data
-	bodyJSON      interface{}            // JSON marshal body data
-	timeout       time.Duration          // Client timeout
-	headers       map[string]string
-
-	request  *http.Request
-	response *Response
-	method   string
-	err      error
+// Client 封装了resty客户端
+type Client struct {
+	cli *resty.Client
 }
 
-// Response HTTP response
+// Response 封装响应
 type Response struct {
-	*http.Response
-	err error
+	resp *resty.Response
 }
 
-// -----------------------------------  Request way 1 -----------------------------------
-
-// New create a new Request
-func New() *Request {
-	return &Request{}
+// Request 请求构建器
+type Request struct {
+	req *resty.Request
 }
 
-// Reset set all fields to default value, use at pool
-func (req *Request) Reset() {
-	req.params = nil
-	req.body = ""
-	req.bodyJSON = nil
-	req.timeout = 0
-	req.headers = nil
-
-	req.request = nil
-	req.response = nil
-	req.method = ""
-	req.err = nil
+// ErrorResponse 错误响应结构
+type ErrorResponse struct {
+	StatusCode int
+	Message    string
+	Body       []byte
 }
 
-// SetURL set URL
-func (req *Request) SetURL(path string) *Request {
-	req.url = path
-	return req
-}
+// Option 客户端配置选项
+type Option func(*Client)
 
-// SetParams parameters after setting the URL
-func (req *Request) SetParams(params map[string]interface{}) *Request {
-	if req.params == nil {
-		req.params = params
-	} else {
-		for k, v := range params {
-			req.params[k] = v
-		}
-	}
-	return req
-}
+// New 创建新的HTTP客户端
+func New(opts ...Option) *Client {
+	client := resty.New()
+	c := &Client{cli: client}
 
-// SetParam parameters after setting the URL
-func (req *Request) SetParam(k string, v interface{}) *Request {
-	if req.params == nil {
-		req.params = make(map[string]interface{})
-	}
-	req.params[k] = v
-	return req
-}
+	// 默认配置
+	c.cli.SetTimeout(30 * time.Second)
+	c.cli.SetRetryCount(2)
+	c.cli.SetRetryWaitTime(1 * time.Second)
+	c.cli.SetRetryMaxWaitTime(3 * time.Second)
+	c.cli.SetRedirectPolicy(resty.NoRedirectPolicy())
+	c.cli.SetContentLength(true)
 
-// SetBody set body data, support string and []byte, if it is not string, it will be json marshal.
-func (req *Request) SetBody(body interface{}) *Request {
-	switch v := body.(type) {
-	case string:
-		req.body = v
-	case []byte:
-		req.body = string(v)
-	default:
-		req.bodyJSON = body
-	}
-	return req
-}
-
-// SetTimeout set timeout
-func (req *Request) SetTimeout(t time.Duration) *Request {
-	req.timeout = t
-	return req
-}
-
-// SetContentType set ContentType
-func (req *Request) SetContentType(a string) *Request {
-	req.SetHeader("Content-Type", a)
-	return req
-}
-
-// SetHeader set the value of the request header
-func (req *Request) SetHeader(k, v string) *Request {
-	if req.headers == nil {
-		req.headers = make(map[string]string)
-	}
-	req.headers[k] = v
-	return req
-}
-
-// SetHeaders set the value of Request Headers
-func (req *Request) SetHeaders(headers map[string]string) *Request {
-	if req.headers == nil {
-		req.headers = make(map[string]string)
-	}
-	for k, v := range headers {
-		req.headers[k] = v
-	}
-	return req
-}
-
-// CustomRequest customize request, e.g. add sign, set header, etc.
-func (req *Request) CustomRequest(f func(req *http.Request, data *bytes.Buffer)) *Request {
-	req.customRequest = f
-	return req
-}
-
-// GET send a GET request
-func (req *Request) GET() (*Response, error) {
-	req.method = http.MethodGet
-	return req.pull()
-}
-
-// DELETE send a DELETE request
-func (req *Request) DELETE() (*Response, error) {
-	req.method = http.MethodDelete
-	return req.pull()
-}
-
-// POST send a POST request
-func (req *Request) POST() (*Response, error) {
-	req.method = http.MethodPost
-	return req.push()
-}
-
-// PUT send a PUT request
-func (req *Request) PUT() (*Response, error) {
-	req.method = http.MethodPut
-	return req.push()
-}
-
-// PATCH send PATCH requests
-func (req *Request) PATCH() (*Response, error) {
-	req.method = http.MethodPatch
-	return req.push()
-}
-
-// Do a request
-func (req *Request) Do(method string, data interface{}) (*Response, error) {
-	req.method = method
-
-	switch method {
-	case http.MethodGet, http.MethodDelete:
-		if data != nil {
-			if params, ok := data.(map[string]interface{}); ok { //nolint
-				req.SetParams(params)
-			} else {
-				req.err = errors.New("params is not a map[string]interface{}")
-				return nil, req.err
-			}
-		}
-
-		return req.pull()
-
-	case http.MethodPost, http.MethodPut, http.MethodPatch:
-		if data != nil {
-			req.SetBody(data)
-		}
-
-		return req.push()
-	}
-
-	req.err = errors.New("unknow method " + method)
-	return nil, req.err
-}
-
-func (req *Request) pull() (*Response, error) {
-	val := ""
-	if len(req.params) > 0 {
-		values := url.Values{}
-		for k, v := range req.params {
-			values.Add(k, fmt.Sprintf("%v", v))
-		}
-		val += values.Encode()
-	}
-
-	if val != "" {
-		if strings.Contains(req.url, "?") {
-			req.url += "&" + val
-		} else {
-			req.url += "?" + val
-		}
-	}
-
-	var buf *bytes.Buffer
-	if req.customRequest != nil {
-		buf = bytes.NewBufferString(val)
-	}
-
-	return req.send(nil, buf)
-}
-
-func (req *Request) push() (*Response, error) {
-	var buf *bytes.Buffer
-
-	if req.bodyJSON != nil {
-		body, err := json.Marshal(req.bodyJSON)
-		if err != nil {
-			req.err = err
-			return nil, req.err
-		}
-		buf = bytes.NewBuffer(body)
-	} else {
-		buf = bytes.NewBufferString(req.body)
-	}
-
-	return req.send(buf, buf)
-}
-
-func (req *Request) send(body io.Reader, buf *bytes.Buffer) (*Response, error) {
-	req.request, req.err = http.NewRequest(req.method, req.url, body)
-	if req.err != nil {
-		return nil, req.err
-	}
-
-	if req.customRequest != nil {
-		req.customRequest(req.request, buf)
-	}
-
-	if req.headers != nil {
-		for k, v := range req.headers {
-			req.request.Header.Add(k, v)
-		}
-	}
-
-	if req.timeout < 1 {
-		req.timeout = defaultTimeout
-	}
-
-	client := http.Client{Timeout: req.timeout}
-	resp := new(Response)
-	resp.Response, resp.err = client.Do(req.request)
-
-	req.response = resp
-	req.err = resp.err
-
-	return resp, resp.err
-}
-
-// Response return response
-func (req *Request) Response() (*Response, error) {
-	if req.err != nil {
-		return nil, req.err
-	}
-	return req.response, req.response.Error()
-}
-
-// -----------------------------------  Response -----------------------------------
-
-// Error return err
-func (resp *Response) Error() error {
-	return resp.err
-}
-
-// BodyString returns the body data of the HttpResponse
-func (resp *Response) BodyString() (string, error) {
-	if resp.err != nil {
-		return "", resp.err
-	}
-	body, err := resp.ReadBody()
-	return string(body), err
-}
-
-// ReadBody returns the body data of the HttpResponse
-func (resp *Response) ReadBody() ([]byte, error) {
-	if resp.err != nil {
-		return []byte{}, resp.err
-	}
-
-	if resp.Response == nil {
-		return []byte{}, errors.New("nil")
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	resp.Body = io.NopCloser(bytes.NewBuffer(body))
-	return body, nil
-}
-
-// BindJSON parses the response's body as JSON
-func (resp *Response) BindJSON(v interface{}) error {
-	if resp.err != nil {
-		return resp.err
-	}
-	body, err := resp.ReadBody()
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(body, v)
-}
-
-// -----------------------------------  Request way 2 -----------------------------------
-
-// Option set options.
-type Option func(*options)
-
-type options struct {
-	params  map[string]interface{}
-	headers map[string]string
-	timeout time.Duration
-}
-
-func (o *options) apply(opts ...Option) {
+	// 应用自定义配置
 	for _, opt := range opts {
-		opt(o)
+		opt(c)
+	}
+
+	return c
+}
+
+// ========== 客户端配置选项 ==========
+
+// WithTimeout 设置超时时间
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *Client) {
+		c.cli.SetTimeout(timeout)
 	}
 }
 
-func defaultOptions() *options {
-	return &options{}
-}
-
-// WithParams set params
-func WithParams(params map[string]interface{}) Option {
-	return func(o *options) {
-		if o.params != nil {
-			o.params = params
-		}
+// WithTransport 设置自定义 Transport
+func WithTransport(transport *http.Transport) Option {
+	return func(c *Client) {
+		c.cli.SetTransport(transport)
 	}
 }
 
-// WithHeaders set headers
+// WithRetry 设置重试策略
+func WithRetry(count int, waitTime, maxWaitTime time.Duration) Option {
+	return func(c *Client) {
+		c.cli.SetRetryCount(count)
+		c.cli.SetRetryWaitTime(waitTime)
+		c.cli.SetRetryMaxWaitTime(maxWaitTime)
+	}
+}
+
+// WithBaseURL 设置基础URL
+func WithBaseURL(baseURL string) Option {
+	return func(c *Client) {
+		c.cli.SetBaseURL(baseURL)
+	}
+}
+
+// WithHeaders 设置公共请求头
 func WithHeaders(headers map[string]string) Option {
-	return func(o *options) {
-		if o.headers != nil {
-			o.headers = headers
+	return func(c *Client) {
+		c.cli.SetHeaders(headers)
+	}
+}
+
+// WithDebug 启用调试模式
+func WithDebug(enable bool) Option {
+	return func(c *Client) {
+		c.cli.SetDebug(enable)
+	}
+}
+
+// WithTLSConfig 设置TLS配置
+func WithTLSConfig(tlsConfig *tls.Config) Option {
+	return func(c *Client) {
+		c.cli.SetTLSClientConfig(tlsConfig)
+	}
+}
+
+// WithRootCA 从文件加载根证书
+func WithRootCA(caCertPath string) Option {
+	return func(c *Client) {
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read CA cert: %v", err))
+		}
+
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			panic("failed to parse CA certificate")
+		}
+
+		tlsConfig := &tls.Config{
+			RootCAs: caCertPool,
+		}
+
+		c.cli.SetTLSClientConfig(tlsConfig)
+	}
+}
+
+// WithClientCert 加载客户端证书和私钥
+func WithClientCert(certPath, keyPath string) Option {
+	return func(c *Client) {
+		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			panic(fmt.Sprintf("failed to load client cert: %v", err))
+		}
+
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+
+		c.cli.SetTLSClientConfig(tlsConfig)
+	}
+}
+
+// WithInsecureSkipVerify 跳过证书验证（仅用于测试环境）
+func WithInsecureSkipVerify() Option {
+	return func(c *Client) {
+		c.cli.SetTLSClientConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+	}
+}
+
+// WithProxy 设置代理
+func WithProxy(proxyURL string) Option {
+	return func(c *Client) {
+		c.cli.SetProxy(proxyURL)
+	}
+}
+
+// WithCookieJar 启用Cookie管理
+func WithCookieJar() Option {
+	return func(c *Client) {
+		c.cli.SetCookieJar(http.DefaultClient.Jar)
+	}
+}
+
+// ========== 请求构建方法 ==========
+
+// Request 创建新请求
+func (c *Client) Request(ctx context.Context) *Request {
+	return &Request{
+		req: c.cli.R().SetContext(ctx),
+	}
+}
+
+// SetHeader 设置请求头
+func (r *Request) SetHeader(key, value string) *Request {
+	r.req.SetHeader(key, value)
+	return r
+}
+
+// SetHeaders 批量设置请求头
+func (r *Request) SetHeaders(headers map[string]string) *Request {
+	r.req.SetHeaders(headers)
+	return r
+}
+
+// SetQueryParam 设置查询参数
+func (r *Request) SetQueryParam(key, value string) *Request {
+	r.req.SetQueryParam(key, value)
+	return r
+}
+
+// SetQueryParams 批量设置查询参数
+func (r *Request) SetQueryParams(params map[string]string) *Request {
+	r.req.SetQueryParams(params)
+	return r
+}
+
+// SetBody 设置请求体
+func (r *Request) SetBody(body interface{}) *Request {
+	r.req.SetBody(body)
+	return r
+}
+
+// SetResult 设置响应结果解析目标
+func (r *Request) SetResult(result interface{}) *Request {
+	r.req.SetResult(result)
+	return r
+}
+
+// SetError 设置错误解析目标
+func (r *Request) SetError(err interface{}) *Request {
+	r.req.SetError(err)
+	return r
+}
+
+// SetAuthToken 设置Bearer Token
+func (r *Request) SetAuthToken(token string) *Request {
+	r.req.SetAuthToken(token)
+	return r
+}
+
+// ========== HTTP方法 ==========
+
+// Get 发送GET请求
+func (r *Request) Get(url string) (*Response, error) {
+	return r.do("GET", url)
+}
+
+// Post 发送POST请求
+func (r *Request) Post(url string) (*Response, error) {
+	return r.do("POST", url)
+}
+
+// Put 发送PUT请求
+func (r *Request) Put(url string) (*Response, error) {
+	return r.do("PUT", url)
+}
+
+// Delete 发送DELETE请求
+func (r *Request) Delete(url string) (*Response, error) {
+	return r.do("DELETE", url)
+}
+
+// Patch 发送PATCH请求
+func (r *Request) Patch(url string) (*Response, error) {
+	return r.do("PATCH", url)
+}
+
+// do 执行请求
+func (r *Request) do(method, url string) (*Response, error) {
+	resp, err := r.req.Execute(method, url)
+	if err != nil {
+		return nil, fmt.Errorf("http request failed: %w", err)
+	}
+
+	if resp.IsError() {
+		return &Response{resp: resp}, &ErrorResponse{
+			StatusCode: resp.StatusCode(),
+			Message:    resp.Status(),
+			Body:       resp.Body(),
 		}
 	}
+
+	return &Response{resp: resp}, nil
 }
 
-// WithTimeout set timeout
-func WithTimeout(t time.Duration) Option {
-	return func(o *options) {
-		o.timeout = t
-	}
+// ========== 响应处理方法 ==========
+
+// StatusCode 获取状态码
+func (r *Response) StatusCode() int {
+	return r.resp.StatusCode()
 }
 
-// Get request, return custom json format
-func Get(result interface{}, urlStr string, opts ...Option) error {
-	o := defaultOptions()
-	o.apply(opts...)
-	return gDo("GET", result, urlStr, o.params, o.headers, o.timeout)
+// Body 获取原始响应体
+func (r *Response) Body() []byte {
+	return r.resp.Body()
 }
 
-// Delete request, return custom json format
-func Delete(result interface{}, urlStr string, opts ...Option) error {
-	o := defaultOptions()
-	o.apply(opts...)
-	return gDo("DELETE", result, urlStr, o.params, o.headers, o.timeout)
+// String 获取字符串格式响应体
+func (r *Response) String() string {
+	return r.resp.String()
 }
 
-// Post request, return custom json format
-func Post(result interface{}, urlStr string, body interface{}, opts ...Option) error {
-	o := defaultOptions()
-	o.apply(opts...)
-	return do("POST", result, urlStr, body, o.params, o.headers, o.timeout)
+// UnmarshalJSON 解析JSON响应体
+func (r *Response) UnmarshalJSON(v interface{}) error {
+	return json.Unmarshal(r.resp.Body(), v)
 }
 
-// Put request, return custom json format
-func Put(result interface{}, urlStr string, body interface{}, opts ...Option) error {
-	o := defaultOptions()
-	o.apply(opts...)
-	return do("PUT", result, urlStr, body, o.params, o.headers, o.timeout)
+// IsSuccess 判断请求是否成功
+func (r *Response) IsSuccess() bool {
+	return r.resp.IsSuccess()
 }
 
-// Patch request, return custom json format
-func Patch(result interface{}, urlStr string, body interface{}, opts ...Option) error {
-	o := defaultOptions()
-	o.apply(opts...)
-	return do("PATCH", result, urlStr, body, o.params, o.headers, o.timeout)
+// IsError 判断请求是否失败
+func (r *Response) IsError() bool {
+	return r.resp.IsError()
 }
 
-var requestErr = func(err error) error { return fmt.Errorf("request error, err=%v", err) }
-var jsonParseErr = func(err error) error { return fmt.Errorf("json parsing error, err=%v", err) }
-var notOKErr = func(resp *Response) error {
-	body, err := resp.ReadBody()
-	if err != nil {
-		return err
-	}
-	if len(body) > 500 {
-		body = append(body[:500], []byte(" ......")...)
-	}
-	return fmt.Errorf("statusCode=%d, body=%s", resp.StatusCode, body)
+// Headers 获取响应头
+func (r *Response) Headers() http.Header {
+	return r.resp.Header()
 }
 
-func do(method string, result interface{}, urlStr string, body interface{}, params KV, headers map[string]string, timeout time.Duration) error {
-	if result == nil {
-		return fmt.Errorf("'result' can not be nil")
-	}
-
-	req := &Request{}
-	req.SetURL(urlStr)
-	req.SetContentType("application/json")
-	req.SetParams(params)
-	req.SetHeaders(headers)
-	req.SetBody(body)
-	req.SetTimeout(timeout)
-
-	var resp *Response
-	var err error
-	switch method {
-	case "POST":
-		resp, err = req.POST()
-	case "PUT":
-		resp, err = req.PUT()
-	case "PATCH":
-		resp, err = req.PATCH()
-	}
-	if err != nil {
-		return requestErr(err)
-	}
-	defer resp.Body.Close() //nolint
-
-	if resp.StatusCode != 200 {
-		return notOKErr(resp)
-	}
-
-	err = resp.BindJSON(result)
-	if err != nil {
-		return jsonParseErr(err)
-	}
-
-	return nil
+// Error 实现error接口
+func (e *ErrorResponse) Error() string {
+	return fmt.Sprintf("http error: %d - %s", e.StatusCode, e.Message)
 }
 
-func gDo(method string, result interface{}, urlStr string, params KV, headers map[string]string, timeout time.Duration) error {
-	req := &Request{}
-	req.SetURL(urlStr)
-	req.SetParams(params)
-	req.SetHeaders(headers)
-	req.SetTimeout(timeout)
-
-	var resp *Response
-	var err error
-	switch method {
-	case "GET":
-		resp, err = req.GET()
-	case "DELETE":
-		resp, err = req.DELETE()
+// Is 错误比较
+func (e *ErrorResponse) Is(target error) bool {
+	var err *ErrorResponse
+	if errors.As(target, &err) {
+		return e.StatusCode == err.StatusCode
 	}
-	if err != nil {
-		return requestErr(err)
-	}
-	defer resp.Body.Close() //nolint
-
-	if resp.StatusCode != 200 {
-		return notOKErr(resp)
-	}
-
-	err = resp.BindJSON(result)
-	if err != nil {
-		return jsonParseErr(err)
-	}
-
-	return nil
+	return false
 }
-
-// StdResult standard return data
-type StdResult struct {
-	Code int         `json:"code"`
-	Msg  string      `json:"msg"`
-	Data interface{} `json:"data,omitempty"`
-}
-
-// KV string:interface{}
-type KV = map[string]interface{}
