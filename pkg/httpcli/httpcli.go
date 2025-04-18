@@ -7,11 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/go-resty/resty/v2"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // Client 封装了resty客户端

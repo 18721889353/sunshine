@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/tidwall/gjson"
 	"log"
 	"net/http"
 	"testing"
@@ -20,7 +21,7 @@ func TestHTTPClient(t *testing.T) {
 
 	customTransport := &http.Transport{
 		MaxIdleConns:          100,              // 总的最大空闲连接数
-		MaxIdleConnsPerHost:   10,               // 每个主机的最大空闲连接数
+		MaxIdleConnsPerHost:   0,                // 每个主机的最大空闲连接数
 		IdleConnTimeout:       90 * time.Second, // 空闲连接超时时间
 		TLSHandshakeTimeout:   10 * time.Second, // TLS 握手超时时间
 		ExpectContinueTimeout: 1 * time.Second,  // Expect: 100-continue 超时时间
@@ -28,38 +29,46 @@ func TestHTTPClient(t *testing.T) {
 
 	// 创建普通客户端
 	client := New(
-		WithBaseURL("https://jsonplaceholder.typicode.com"),
+		WithBaseURL("http://127.0.0.1"),
 		WithTimeout(5*time.Second),
 		WithTransport(customTransport),
 	)
 
-	// GET请求示例
-	var getUser User
-	resp, err := client.Request(context.Background()).
-		SetResult(&getUser).
-		Get("/users/1")
-	if err != nil {
-		t.Fatalf("GET request failed: %v", err)
-	}
-
-	if resp.IsSuccess() {
-		fmt.Printf("User: %+v\n", getUser)
-	}
+	//// GET请求示例
+	//var getUser User
+	//resp, err := client.Request(context.Background()).
+	//	SetResult(&getUser).
+	//	Get("/api/v1/auth/login")
+	//if err != nil {
+	//	t.Fatalf("GET request failed: %v", err)
+	//}
+	//
+	//if resp.IsSuccess() {
+	//	fmt.Printf("User: %+v\n", getUser)
+	//}
 
 	// POST请求示例
-	newUser := User{Name: "John Doe"}
-	var createdUser User
-	resp, err = client.Request(context.Background()).
+	newUser := map[string]interface{}{
+		"username":    "admin",
+		"password":    "123456",
+		"captchaKey":  "fXJ1mBnUG3dc87SBhhUU",
+		"captchaCode": "debug",
+		"timestamp":   "1712626580",
+		"nonce_str":   "a3998809da7aed4470d814cdb065314b",
+		"sign":        "debug",
+	}
+	//【有道云笔记】gjson
+	//https://note.youdao.com/s/A9otNX4c
+	resp, err := client.Request(context.Background()).
 		SetBody(newUser).
-		SetResult(&createdUser).
-		Post("/users")
-	if err != nil {
-		t.Fatalf("POST request failed: %v", err)
-	}
+		Post("/api/v1/auth/login")
+	code := gjson.Get(resp.String(), "data.accessToken")
+	fmt.Println(resp, code, err)
+	//fmt.Printf("resp: %+v err:%v\n", resp, err)
 
-	if resp.IsSuccess() {
-		fmt.Printf("Created user: %+v\n", createdUser)
-	}
+	//if resp.IsSuccess() {
+	//	fmt.Printf("Created user: %+v\n", createdUser)
+	//}
 }
 
 func TestHTTPSClientWithTLS(t *testing.T) {
