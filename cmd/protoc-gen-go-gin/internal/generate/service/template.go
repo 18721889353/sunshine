@@ -141,6 +141,7 @@ func {{.LowerName}}Router(
 	iService {{.ProtoPkgName}}.{{.Name}}Logicer) {
 	ctxFn := func(c *gin.Context) context.Context {
 		md := metadata.New(map[string]string{
+			"agent":                           c.Request.UserAgent(),
 			// set metadata to be passed from http to rpc
 			"clientIP":                        c.ClientIP(), //在这里获取client ip
 			middleware.ContextRequestIDKey: middleware.GCtxRequestID(c), // request_id

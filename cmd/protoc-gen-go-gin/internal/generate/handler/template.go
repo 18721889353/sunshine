@@ -266,6 +266,7 @@ func {{.LowerName}}Router(
 	iService {{.ProtoPkgName}}.{{.Name}}Logicer) {
 	ctxFn := func(c *gin.Context) context.Context {
 		md := metadata.New(map[string]string{
+			"agent":                           c.Request.UserAgent(),
 			middleware.ContextRequestIDKey: middleware.GCtxRequestID(c), // request_id
 			"clientIP":                        c.ClientIP(), //在这里获取client ip
 			middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey),  // authorization
