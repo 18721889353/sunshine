@@ -279,12 +279,8 @@ func (r *{{$.LowerName}}Router)checkCodeMessage(out interface{}) (code string, d
 		return
 	}
 
-	code, data, msg, err := r.checkCodeMessage(out)
-	if err != nil {
-		r.iResponse.Success(c, out)
-	} else {
-		r.iResponse.Success2(c, code, msg, data)
-	}
+	r.iResponse.Success(c, out)
+
 }{{end}}{{end}}
 {{end}}
 `
