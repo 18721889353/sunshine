@@ -18,6 +18,7 @@ type CorsConfig struct {
 	ExposeHeaders    []string
 	AllowCredentials bool
 	MaxAge           time.Duration
+	XFrameOptions    string // 新增字段
 }
 
 func defaultCorsConfig() *CorsConfig {
@@ -28,8 +29,10 @@ func defaultCorsConfig() *CorsConfig {
 		ExposeHeaders:    []string{"Content-Length", "text/plain", "Authorization", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
+		XFrameOptions:    "DENY", // 默认值为 DENY
 	}
 }
+
 func (o *CorsConfig) apply(opts ...CorsOption) {
 	for _, opt := range opts {
 		opt(o)
@@ -78,16 +81,26 @@ func WithMaxAge(maxAge time.Duration) CorsOption {
 	}
 }
 
+// WithXFrameOptions sets the X-Frame-Options header.
+func WithXFrameOptions(xFrameOptions string) CorsOption {
+	return func(o *CorsConfig) {
+		o.XFrameOptions = xFrameOptions
+	}
+}
+
 // Cors creates a new CORS middleware with options.
 func Cors(opts ...CorsOption) gin.HandlerFunc {
 	o := defaultCorsConfig()
 	o.apply(opts...)
-	return cors.New(cors.Config{
-		AllowOrigins:     o.AllowOrigins,
-		AllowMethods:     o.AllowMethods,
-		AllowHeaders:     o.AllowHeaders,
-		ExposeHeaders:    o.ExposeHeaders,
-		AllowCredentials: o.AllowCredentials,
-		MaxAge:           o.MaxAge,
-	})
+	return func(c *gin.Context) {
+		c.Header("X-Frame-Options", o.XFrameOptions) // 设置 X-Frame-Options 头
+		cors.New(cors.Config{
+			AllowOrigins:     o.AllowOrigins,
+			AllowMethods:     o.AllowMethods,
+			AllowHeaders:     o.AllowHeaders,
+			ExposeHeaders:    o.ExposeHeaders,
+			AllowCredentials: o.AllowCredentials,
+			MaxAge:           o.MaxAge,
+		})(c)
+	}
 }
