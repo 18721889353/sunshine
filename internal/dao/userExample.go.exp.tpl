@@ -26,7 +26,8 @@ type {{.TableNameCamel}}Dao interface {
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.{{.TableNameCamel}}, int64, error)
 
 	DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error
-	GetByCondition(ctx context.Context, condition *query.Conditions) (*model.{{.TableNameCamel}}, error)
+	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
+
 	GetBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
 	GetByLast{{.ColumnNameCamel}}(ctx context.Context, last{{.ColumnNameCamel}} {{.GoType}}, limit int, sort string) ([]*model.{{.TableNameCamel}}, error)
 
@@ -289,62 +290,77 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNamePluralCamel}}(ctx conte
 //			Value: "male",
 //		},
 //	}
-func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query.Conditions) (*model.{{.TableNameCamel}}, error) {
-	queryStr, args, err := c.ConvertToGorm()
+func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query.Conditions) (ids []uint64, err error)  {
+queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, err
 	}
+	var tables []*model.{{.TableNameCamel}}{}
 	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
-	if d.cache != nil {
-		// get from cache
-		id, err := d.cache.GetIdByKey(ctx, key)
-		if err == nil {
-			//通过主键获取数据
-			record, err := d.GetByID(ctx, id)
-			if err == nil {
-				return record, nil
-			} else {
-				if !errors.Is(err, database.ErrCacheNotFound) {
-					logger.Warn("d.GetByID error", logger.Err(err), logger.Any("id", id), interceptor.ServerCtxRequestIDField(ctx))
-				}
+	if d.cache == nil {
+		// for the same id, prevent high concurrent simultaneous access to database
+		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
+			if err != nil {
+				return nil, err
 			}
-		} else {
-			if !errors.Is(err, database.ErrCacheNotFound) {
-				logger.Warn("d.cache.GetIdByKey error", logger.Err(err), logger.Any("key", key), interceptor.ServerCtxRequestIDField(ctx))
+			for _, table := range tables {
+				ids = append(ids, table.ID)
 			}
-		}
-	}
-
-	// 使用 singleflight 合并相同的查询请求
-	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-		table := &model.{{.TableNameCamel}}{}
-		err = d.db.WithContext(ctx).Where(queryStr, args...).First(&table).Error
+			return ids, nil
+		})
 		if err != nil {
-			if errors.Is(err, database.ErrRecordNotFound) {
-				if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
-					logger.Warn("cache.SetPlaceholder error", logger.Err(err), logger.Any("key", key), interceptor.ServerCtxRequestIDField(ctx))
-				}
-				return nil, database.ErrRecordNotFound
-			}
 			return nil, err
 		}
-		//保存数据的主键id
-		if err = d.cache.SetIdByKey(ctx, key, table.ID, cache.CpFdOrderExpireTime); err != nil {
-			logger.Warn("cache.Set error", logger.Err(err), logger.Any("key", key), interceptor.ServerCtxRequestIDField(ctx))
+		ids, ok := val.([]uint64)
+		if !ok {
+			return nil, database.ErrRecordNotFound
 		}
-		return table, nil
-	})
+		return ids, nil
+	}
+
+	// get from cache
+	ids, err = d.cache.GetIdsByKey(ctx, key)
+	if err == nil {
+		return ids, nil
+	}
+	// get from database
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// for the same id, prevent high concurrent simultaneous access to database
+		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
+			if err != nil {
+				// set placeholder cache to prevent cache penetration, default expiration time 10 minutes
+				if errors.Is(err, database.ErrRecordNotFound) {
+					if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
+						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(err), logger.Any("key", key))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, err
+			}
+			for _, table := range tables {
+				ids = append(ids, table.ID)
+			}
+			// set cache
+			if err = d.cache.SetIdsByKey(ctx, key, ids, cache.{{.TableNameCamel}}ExpireTime); err != nil {
+				logger.Warn("cache.Set error", logger.Err(err), logger.Any("ids", ids))
+			}
+			return ids, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids, ok := val.([]uint64)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return ids, nil
+	}
 	if d.cache.IsPlaceholderErr(err) {
 		return nil, database.ErrRecordNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	table, ok := val.(*model.{{.TableNameCamel}})
-	if !ok {
-		return nil, database.ErrRecordNotFound
-	}
-	return table, nil
+	return nil, err
 }
 
 // GetBy{{.ColumnNamePluralCamel}} get records by batch {{.ColumnNameCamelFCL}}
