@@ -29,15 +29,22 @@ type {{.TableNameCamel}}Cache interface {
     GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
 	GetLock(ctx context.Context, key string, options ...redsync.Option) error
 	ReleaseLock(ctx context.Context) error
+
 	Set(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}, data *model.{{.TableNameCamel}}, duration time.Duration) error
 	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
+	SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
+
 	Get(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error)
-	GetIdByKey(ctx context.Context, key string) (id uint64, error error)
+	GetIdByKey(ctx context.Context, key string) (id uint64, err error)
+	GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error)
+
 	MultiGet(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
 	MultiSet(ctx context.Context, data []*model.{{.TableNameCamel}}, duration time.Duration) error
+
 	Del(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
 	DelByPrefix(ctx context.Context, prefix string) error
 	DelByKey(ctx context.Context, key string) error
+
 	SetPlaceholder(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
 	SetPlaceholderByKey(ctx context.Context, key string) error
 	IsPlaceholderErr(err error) bool
@@ -122,6 +129,18 @@ func (c *{{.TableNameCamelFCL}}Cache) SetIdByKey(ctx context.Context, key string
 	return nil
 }
 
+func (c *{{.TableNameCamelFCL}}Cache) SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error {
+	if key == "" || ids == nil {
+		return nil
+	}
+	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
+	err := c.cache.Set(ctx, cacheKey, &ids, duration)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Get cache value
 func (c *{{.TableNameCamelFCL}}Cache) Get(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error) {
 	var data *model.{{.TableNameCamel}}
@@ -140,6 +159,15 @@ func (c *{{.TableNameCamelFCL}}Cache) GetIdByKey(ctx context.Context, key string
 		return 0, err
 	}
 	return id, nil
+}
+
+func (c *{{.TableNameCamelFCL}}Cache) GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error) {
+	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
+	err = c.cache.Get(ctx, cacheKey, &ids)
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // MultiSet multiple set cache
