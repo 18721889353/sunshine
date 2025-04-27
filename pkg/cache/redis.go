@@ -384,7 +384,7 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
 	for {
 		var keys []string
 		var err error
-		keys, cursor, err = c.client.Scan(ctx, cursor, prefix+":*", 100).Result()
+		keys, cursor, err = c.client.Scan(ctx, cursor, prefix+"*", 100).Result()
 		if err != nil {
 			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 			pkgLogger.Warn("Cache msg", fields...)
