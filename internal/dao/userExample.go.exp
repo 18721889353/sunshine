@@ -29,7 +29,8 @@ type UserExampleDao interface {
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error)
 
 	DeleteByIDs(ctx context.Context, ids []uint64) error
-	GetByCondition(ctx context.Context, condition *query.Conditions) (*model.UserExample, error)
+	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
+
 	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error)
 
@@ -282,19 +283,77 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 //			Value: "male",
 //		},
 //	}
-func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions) (*model.UserExample, error) {
-	queryStr, args, err := c.ConvertToGorm()
+func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions) (ids []uint64, err error) {
+queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, err
 	}
-
-	table := &model.UserExample{}
-	err = d.db.WithContext(ctx).Where(queryStr, args...).First(table).Error
-	if err != nil {
-		return nil, err
+	var tables []*model.UserExample
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	if d.cache == nil {
+		// for the same id, prevent high concurrent simultaneous access to database
+		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
+			if err != nil {
+				return nil, err
+			}
+			for _, table := range tables {
+				ids = append(ids, table.ID)
+			}
+			return ids, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids, ok := val.([]uint64)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return ids, nil
 	}
 
-	return table, nil
+	// get from cache
+	ids, err = d.cache.GetIdsByKey(ctx, key)
+	if err == nil {
+		return ids, nil
+	}
+	// get from database
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// for the same id, prevent high concurrent simultaneous access to database
+		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
+			if err != nil {
+				// set placeholder cache to prevent cache penetration, default expiration time 10 minutes
+				if errors.Is(err, database.ErrRecordNotFound) {
+					if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
+						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(err), logger.Any("key", key))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, err
+			}
+			for _, table := range tables {
+				ids = append(ids, table.ID)
+			}
+			// set cache
+			if err = d.cache.SetIdsByKey(ctx, key, ids, cache.UserExampleExpireTime); err != nil {
+				logger.Warn("cache.Set error", logger.Err(err), logger.Any("ids", ids))
+			}
+			return ids, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids, ok := val.([]uint64)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return ids, nil
+	}
+	if d.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+	return nil, err
 }
 
 // GetByIDs get records by batch id
