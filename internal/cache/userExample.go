@@ -31,15 +31,22 @@ type UserExampleCache interface {
 	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
 	GetLock(ctx context.Context, key string, options ...redsync.Option) error
 	ReleaseLock(ctx context.Context) error
+
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
 	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
+	SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
+
 	Get(ctx context.Context, id uint64) (*model.UserExample, error)
-	GetIdByKey(ctx context.Context, key string) (id uint64, error error)
+	GetIdByKey(ctx context.Context, key string) (id uint64, err error)
+	GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error)
+
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	MultiSet(ctx context.Context, data []*model.UserExample, duration time.Duration) error
+
 	Del(ctx context.Context, id uint64) error
 	DelByPrefix(ctx context.Context, prefix string) error
 	DelByKey(ctx context.Context, key string) error
+
 	SetPlaceholder(ctx context.Context, id uint64) error
 	SetPlaceholderByKey(ctx context.Context, key string) error
 	IsPlaceholderErr(err error) bool
@@ -116,6 +123,18 @@ func (c *userExampleCache) SetIdByKey(ctx context.Context, key string, id uint64
 	return nil
 }
 
+func (c *userExampleCache) SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error {
+	if key == "" || ids == nil {
+		return nil
+	}
+	cacheKey := c.GetUserExampleCacheKeyString(key)
+	err := c.cache.Set(ctx, cacheKey, &ids, duration)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // Get cache value
 func (c *userExampleCache) Get(ctx context.Context, id uint64) (*model.UserExample, error) {
 	var data *model.UserExample
@@ -133,6 +152,15 @@ func (c *userExampleCache) GetIdByKey(ctx context.Context, key string) (id uint6
 		return 0, err
 	}
 	return id, nil
+}
+
+func (c *userExampleCache) GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error) {
+	cacheKey := c.GetUserExampleCacheKeyString(key)
+	err = c.cache.Get(ctx, cacheKey, &ids)
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // MultiSet multiple set cache
