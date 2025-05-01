@@ -65,9 +65,9 @@ func New{{.TableNameCamel}}Dao(db *gorm.DB, xCache cache.{{.TableNameCamel}}Cach
 
 func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
 	if d.cache != nil {
-		if id == 0 || id == -1 {
+		if id == 0 || id == 88888888 {
 			defer func() {
-				if id == -1 {
+				if id == 88888888 {
 					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey)
 				} else {
 					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey+"condition:")
@@ -516,7 +516,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB,
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
 	defer func() {
 		// delete cache
-		_ = d.deleteCache(ctx, -1)
+		_ = d.deleteCache(ctx, 88888888)
 	}()
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
