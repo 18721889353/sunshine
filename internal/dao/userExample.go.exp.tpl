@@ -68,9 +68,9 @@ func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, {{.ColumnNa
 		if id == 0 || id == 88888888 {
 			defer func() {
 				if id == 88888888 {
-					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey)
+					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamelFCL}}CachePrefixKey)
 				} else {
-					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey+"condition:")
+					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamelFCL}}CachePrefixKey+"condition:")
 				}
 			}()
 		}
