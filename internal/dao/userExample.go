@@ -52,9 +52,11 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 	if d.cache != nil {
-		defer func() {
-			_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
-		}()
+		if id == 0 {
+			defer func() {
+				_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
+			}()
+		}
 		return d.cache.Del(ctx, id)
 	}
 	return nil

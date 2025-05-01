@@ -63,9 +63,11 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 	if d.cache != nil {
-		defer func() {
-			_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKeyLock)
-		}()
+		if id == 0 {
+			defer func() {
+				_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition:")
+			}()
+		}
 		return d.cache.Del(ctx, id)
 	}
 	return nil
@@ -317,7 +319,7 @@ queryStr, args, err := c.ConvertToGorm()
 		return nil, err
 	}
 	var tables []*model.UserExample
-	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	key := gocrypto.Md5([]byte(fmt.Sprintf("condition:%s_%v", queryStr, args)))
 	if d.cache == nil {
 		// for the same id, prevent high concurrent simultaneous access to database
 		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
