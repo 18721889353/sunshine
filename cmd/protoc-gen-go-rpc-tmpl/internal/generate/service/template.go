@@ -76,26 +76,6 @@ func New{{.Name}}Server() {{.ProtoPkgName}}.{{.Name}}Server {
 	}
 }
 
-func (s *{{.LowerServiceName}}) validateTimeRange(startTimeStr, endTimeStr string) error {
-	// 定义时间格式
-	timeLayout := time.DateOnly
-	// 解析 startTime
-	startTime, err := time.Parse(timeLayout, startTimeStr)
-	if err != nil {
-		return errors.New("startTime格式异常")
-	}
-	// 解析 endTime
-	endTime, err := time.Parse(timeLayout, endTimeStr)
-	if err != nil {
-		return errors.New("endTime格式异常")
-	}
-	// 比较时间
-	if endTime.Before(startTime) {
-		return errors.New("endTime必须大于等于startTime")
-	}
-	return nil
-}
-
 {{- range .Methods}}
 {{if eq .InvokeType 1}}
 {{.Comment}}
