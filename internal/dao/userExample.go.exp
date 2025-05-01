@@ -63,6 +63,9 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 	if d.cache != nil {
+		defer func() {
+			_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKeyLock)
+		}()
 		return d.cache.Del(ctx, id)
 	}
 	return nil
@@ -70,10 +73,16 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 
 // Create a record, insert the record and the id value is written back to the table
 func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
 
 func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 
@@ -268,7 +277,6 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 
 func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
 	defer func() {
-		// delete cache
 		_ = d.deleteCache(ctx, 0)
 	}()
 	queryStr, args, err := c.ConvertToGorm()
@@ -464,11 +472,17 @@ func (d *userExampleDao) GetByLastID(ctx context.Context, lastID uint64, limit i
 
 // CreateByTx create a record in the database using the provided transaction
 func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := tx.WithContext(ctx).Create(table).Error
 	return table.ID, err
 }
 
 func (d *userExampleDao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
     return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 
@@ -490,7 +504,6 @@ func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64)
 
 func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
 	defer func() {
-		// delete cache
 		_ = d.deleteCache(ctx, 0)
 	}()
 	queryStr, args, err := c.ConvertToGorm()

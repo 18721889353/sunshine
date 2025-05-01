@@ -52,6 +52,9 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 	if d.cache != nil {
+		defer func() {
+			_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
+		}()
 		return d.cache.Del(ctx, id)
 	}
 	return nil
@@ -59,10 +62,16 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 
 // Create a record, insert the record and the id value is written back to the table
 func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
 
 func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 
@@ -244,6 +253,9 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 
 // CreateByTx create a record in the database using the provided transaction
 func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := tx.WithContext(ctx).Create(table).Error
 	return table.ID, err
 }

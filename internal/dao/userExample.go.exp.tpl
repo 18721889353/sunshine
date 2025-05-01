@@ -65,6 +65,9 @@ func New{{.TableNameCamel}}Dao(db *gorm.DB, xCache cache.{{.TableNameCamel}}Cach
 
 func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
 	if d.cache != nil {
+		defer func() {
+			_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey)
+		}()
 		return d.cache.Del(ctx, {{.ColumnNameCamelFCL}})
 	}
 	return nil

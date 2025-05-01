@@ -16,8 +16,9 @@ import (
 )
 
 const (
+    {{.TableNameCamel}}CachePrefixKeyLock = "{{.TableNameCamelFCL}}Lock:"
 	// cache prefix key, must end with a colon
-	{{.TableNameCamelFCL}}CachePrefixKey = "{{.TableNameCamelFCL}}:"
+	{{.TableNameCamel}}CachePrefixKey = "{{.TableNameCamelFCL}}:"
 	// {{.TableNameCamel}}ExpireTime expire time
 	{{.TableNameCamel}}ExpireTime = 5 * time.Minute
 )
@@ -76,7 +77,7 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 
 
 func (c *{{.TableNameCamelFCL}}Cache) getLockCacheKey(key string) string {
-	return fmt.Sprintf("%s%v", {{.TableNameCamelFCL}}CachePrefixKey, key)
+	return fmt.Sprintf("%s%v", {{.TableNameCamel}}CachePrefixKeyLock, key)
 }
 
 
@@ -96,11 +97,11 @@ func (c *{{.TableNameCamelFCL}}Cache) ReleaseLock(ctx context.Context) error {
 
 // Get{{.TableNameCamel}}CacheKey cache key
 func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey({{.ColumnNameCamelFCL}} {{.GoType}}) string {
-	{{if .IsStringType}}return {{.TableNameCamelFCL}}CachePrefixKey + {{.ColumnNameCamelFCL}}{{else}}return {{.TableNameCamelFCL}}CachePrefixKey + utils.{{.GoTypeFCU}}ToStr({{.ColumnNameCamelFCL}}){{end}}
+	{{if .IsStringType}}return {{.TableNameCamel}}CachePrefixKey + {{.ColumnNameCamelFCL}}{{else}}return {{.TableNameCamel}}CachePrefixKey + utils.{{.GoTypeFCU}}ToStr({{.ColumnNameCamelFCL}}){{end}}
 }
 
 func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKeyString(key string) string {
-	return {{.TableNameCamelFCL}}CachePrefixKey + key
+	return {{.TableNameCamel}}CachePrefixKey + key
 }
 
 
