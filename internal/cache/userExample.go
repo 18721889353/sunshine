@@ -19,7 +19,8 @@ import (
 
 const (
 	// cache prefix key, must end with a colon
-	userExampleCachePrefixKey = "userExample:"
+	UserExampleCachePrefixKeyLock = "userExampleLock:"
+	UserExampleCachePrefixKey     = "userExample:"
 	// UserExampleExpireTime expire time
 	UserExampleExpireTime = 5 * time.Minute
 )
@@ -76,14 +77,14 @@ func NewUserExampleCache(cacheType *database.CacheType) UserExampleCache {
 
 // GetUserExampleCacheKey cache key
 func (c *userExampleCache) GetUserExampleCacheKey(id uint64) string {
-	return userExampleCachePrefixKey + utils.Uint64ToStr(id)
+	return UserExampleCachePrefixKey + utils.Uint64ToStr(id)
 }
 func (c *userExampleCache) GetUserExampleCacheKeyString(key string) string {
-	return userExampleCachePrefixKey + key
+	return UserExampleCachePrefixKey + key
 }
 
 func (c *userExampleCache) getLockCacheKey(key string) string {
-	return fmt.Sprintf("%s%v", userExampleCachePrefixKey, key)
+	return fmt.Sprintf("%s%v", UserExampleCachePrefixKeyLock, key)
 }
 
 func (c *userExampleCache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
