@@ -66,9 +66,9 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 		if id == 0 || id == 88888888 {
 			defer func() {
 				if id == 88888888 {
-					_ = d.cache.DelByPrefix(ctx, cache.SysGoodsParamsTemplateConfigCachePrefixKey)
+					_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
 				} else {
-					_ = d.cache.DelByPrefix(ctx, cache.SysGoodsParamsTemplateConfigCachePrefixKey+"condition:")
+					_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition:")
 				}
 			}()
 		}
