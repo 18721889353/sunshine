@@ -3,8 +3,9 @@ package dao
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
-
+    "github.com/18721889353/sunshine/pkg/gocrypto"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
@@ -29,13 +30,16 @@ type UserExampleDao interface {
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error)
 
 	DeleteByIDs(ctx context.Context, ids []uint64) error
-	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
+	DeleteByCondition(ctx context.Context, c *query.Conditions) error
 
+	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
 	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error)
 
 	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error)
+	CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error
 	DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error
+	DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
 }
 
@@ -262,6 +266,22 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 	return nil
 }
 
+func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
+	defer func() {
+		// delete cache
+		_ = d.deleteCache(ctx, 0)
+	}()
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetByCondition get a record by condition
 // query conditions:
 //
@@ -448,6 +468,10 @@ func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *mod
 	return table.ID, err
 }
 
+func (d *userExampleDao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
+    return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+}
+
 // DeleteByTx delete a record by id in the database using the provided transaction
 func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
 	update := map[string]interface{}{
@@ -461,6 +485,22 @@ func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64)
 	// delete cache
 	_ = d.deleteCache(ctx, id)
 
+	return nil
+}
+
+func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+	defer func() {
+		// delete cache
+		_ = d.deleteCache(ctx, 0)
+	}()
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

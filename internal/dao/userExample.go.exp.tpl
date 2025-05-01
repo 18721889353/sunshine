@@ -3,14 +3,19 @@ package dao
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
-
+    "github.com/18721889353/sunshine/pkg/gocrypto"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
+
+	"github.com/18721889353/sunshine/internal/cache"
+	"github.com/18721889353/sunshine/internal/database"
+	"github.com/18721889353/sunshine/internal/model"
 
 )
 
@@ -26,13 +31,17 @@ type {{.TableNameCamel}}Dao interface {
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.{{.TableNameCamel}}, int64, error)
 
 	DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error
-	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
+	DeleteByCondition(ctx context.Context, c *query.Conditions) error
 
+	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
 	GetBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
 	GetByLast{{.ColumnNameCamel}}(ctx context.Context, last{{.ColumnNameCamel}} {{.GoType}}, limit int, sort string) ([]*model.{{.TableNameCamel}}, error)
 
 	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) ({{.GoType}}, error)
+	CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error
 	DeleteByTx(ctx context.Context, tx *gorm.DB, {{.ColumnNameCamelFCL}} {{.GoType}}) error
+	DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
+
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error
 }
 
@@ -269,6 +278,22 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNamePluralCamel}}(ctx conte
 	return nil
 }
 
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
+	defer func() {
+		// delete cache
+		_ = d.deleteCache(ctx, 0)
+	}()
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.{{.TableNameCamel}}{}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // GetByCondition get a record by condition
 // query conditions:
 //
@@ -459,6 +484,10 @@ func (d *{{.TableNameCamelFCL}}Dao) CreateByTx(ctx context.Context, tx *gorm.DB,
 	return table.{{.ColumnNameCamel}}, err
 }
 
+func (d *{{.TableNameCamelFCL}}Dao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error {
+    return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+}
+
 // DeleteByTx delete a record by {{.ColumnNameCamelFCL}} in the database using the provided transaction
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
 	update := map[string]interface{}{
@@ -472,6 +501,22 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB,
 	// delete cache
 	_ = d.deleteCache(ctx, {{.ColumnNameCamelFCL}})
 
+	return nil
+}
+
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+	defer func() {
+		// delete cache
+		_ = d.deleteCache(ctx, 0)
+	}()
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.{{.TableNameCamel}}{}).Error
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
