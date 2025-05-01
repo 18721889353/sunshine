@@ -63,9 +63,13 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
 	if d.cache != nil {
-		if id == 0 {
+		if id == 0 || id == -1 {
 			defer func() {
-				_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition:")
+				if id == -1 {
+					_ = d.cache.DelByPrefix(ctx, cache.SysGoodsParamsTemplateConfigCachePrefixKey)
+				} else {
+					_ = d.cache.DelByPrefix(ctx, cache.SysGoodsParamsTemplateConfigCachePrefixKey+"condition:")
+				}
 			}()
 		}
 		return d.cache.Del(ctx, id)
@@ -506,7 +510,7 @@ func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64)
 
 func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		_ = d.deleteCache(ctx, -1)
 	}()
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
