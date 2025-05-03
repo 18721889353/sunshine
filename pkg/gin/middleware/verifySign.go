@@ -188,13 +188,12 @@ func createEncryptStr(params map[string]interface{}) string {
 			case map[string]interface{}:
 				sortIn(v)
 			case []interface{}:
-				for _, s := range v {
+				for idx, s := range v {
 					switch sv := s.(type) {
 					case map[string]interface{}:
-						sortIn(sv) // 直接递归处理子 map
+						sortIn(sv) // 递归处理子 map
 					default:
-						// 非 map 类型直接转为字符串拼接
-						strBuilder.WriteString(fmt.Sprintf("%v&", sv))
+						strBuilder.WriteString(fmt.Sprintf("%d=%v&", idx, sv)) // 修改点：index=value 拼接
 					}
 				}
 			default:
