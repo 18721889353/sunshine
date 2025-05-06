@@ -23,7 +23,7 @@ const (
 	// cache prefix key, must end with a colon
 	cacheNameExampleCachePrefixKey = "prefixKeyExample:"
 	// CacheNameExampleExpireTime expire time
-	CacheNameExampleExpireTime = 5 * time.Minute
+	CacheNameExampleExpireTime = 180 * time.Minute
 )
 
 var _ CacheNameExampleCache = (*cacheNameExampleCache)(nil)
