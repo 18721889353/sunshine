@@ -283,7 +283,7 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 
 func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		_ = d.deleteCache(ctx, 88888888)
 	}()
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
