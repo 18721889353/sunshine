@@ -290,7 +290,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNamePluralCamel}}(ctx conte
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
 	defer func() {
 		// delete cache
-		_ = d.deleteCache(ctx, 0)
+		_ = d.deleteCache(ctx, 88888888)
 	}()
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
