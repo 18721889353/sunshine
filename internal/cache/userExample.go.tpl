@@ -20,7 +20,7 @@ const (
 	// cache prefix key, must end with a colon
 	{{.TableNameCamel}}CachePrefixKey = "{{.TableNameCamelFCL}}:"
 	// {{.TableNameCamel}}ExpireTime expire time
-	{{.TableNameCamel}}ExpireTime = 5 * time.Minute
+	{{.TableNameCamel}}ExpireTime = 180 * time.Minute
 )
 
 var _ {{.TableNameCamel}}Cache = (*{{.TableNameCamelFCL}}Cache)(nil)

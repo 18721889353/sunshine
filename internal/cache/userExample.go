@@ -22,7 +22,7 @@ const (
 	UserExampleCachePrefixKeyLock = "userExampleLock:"
 	UserExampleCachePrefixKey     = "userExample:"
 	// UserExampleExpireTime expire time
-	UserExampleExpireTime = 5 * time.Minute
+	UserExampleExpireTime = 180 * time.Minute
 )
 
 var _ UserExampleCache = (*userExampleCache)(nil)
