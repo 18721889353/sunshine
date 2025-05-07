@@ -2,6 +2,7 @@ package utils
 
 import (
 	"strconv"
+	"strings"
 )
 
 // MaxStringID is the maximum string ID
@@ -104,4 +105,13 @@ func ProtoInt64ToUint64(v int64) uint64 {
 // Uint64ToProtoInt64 convert uint64 to proto int64
 func Uint64ToProtoInt64(v uint64) int64 {
 	return int64(v)
+}
+
+// Uint64SliceToStringSlice 将 []Uint64 转换为 []string
+func Uint64SliceToStringSlice(slice []uint64) string {
+	result := make([]string, len(slice))
+	for i, v := range slice {
+		result[i] = strconv.FormatUint(v, 10)
+	}
+	return strings.Join(result, ",")
 }
