@@ -115,3 +115,28 @@ func Uint64SliceToStringSlice(slice []uint64) string {
 	}
 	return strings.Join(result, ",")
 }
+
+// UniqueStringSlice 将 字符切片去重
+func UniqueStringSlice(slice []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, v := range slice {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+// HasDuplicateStringSlice 判断字符切片是否有重复
+func HasDuplicateStringSlice(slice []string) bool {
+	seen := make(map[string]struct{})
+	for _, v := range slice {
+		if _, ok := seen[v]; ok {
+			return true
+		}
+		seen[v] = struct{}{}
+	}
+	return false
+}
