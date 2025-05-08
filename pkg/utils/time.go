@@ -1,6 +1,9 @@
 package utils
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	// DateTimeLayout is the layout string for datetime format.
@@ -60,4 +63,24 @@ func FormatDateTimeLayoutWithMSAndTZ(t time.Time) string {
 // ParseDateTimeLayoutWithMSAndTZ parses the given string to time with layout string "2006-01-02T15:04:05.000Z".
 func ParseDateTimeLayoutWithMSAndTZ(s string) (time.Time, error) {
 	return time.Parse(DateTimeLayoutWithMSAndTZ, s)
+}
+
+func ValidateTimeRange(startTimeStr, endTimeStr string) error {
+	// 定义时间格式
+	timeLayout := time.DateOnly
+	// 解析 startTime
+	startTime, err := time.Parse(timeLayout, startTimeStr)
+	if err != nil {
+		return errors.New("startTime格式异常")
+	}
+	// 解析 endTime
+	endTime, err := time.Parse(timeLayout, endTimeStr)
+	if err != nil {
+		return errors.New("endTime格式异常")
+	}
+	// 比较时间
+	if endTime.Before(startTime) {
+		return errors.New("endTime必须大于等于startTime")
+	}
+	return nil
 }
