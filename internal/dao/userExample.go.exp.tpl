@@ -330,7 +330,7 @@ queryStr, args, err := c.ConvertToGorm()
 		return nil, err
 	}
 	var tables []*model.{{.TableNameCamel}}{}
-	key := gocrypto.Md5([]byte(fmt.Sprintf("condition:%s_%v", queryStr, args)))
+	key := "condition:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 	if d.cache == nil {
 		// for the same id, prevent high concurrent simultaneous access to database
 		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
