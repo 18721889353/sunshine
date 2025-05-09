@@ -94,6 +94,9 @@ func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.Us
 
 // DeleteByID delete a record by id
 func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
@@ -268,6 +271,9 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 
 // DeleteByIDs delete records by batch id
 func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
@@ -494,6 +500,9 @@ func (d *userExampleDao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, t
 
 // DeleteByTx delete a record by id in the database using the provided transaction
 func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	update := map[string]interface{}{
 		"deleted_at": time.Now(),
 	}
@@ -525,6 +534,9 @@ func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c
 
 // UpdateByTx update a record by id in the database using the provided transaction
 func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := d.updateDataByID(ctx, tx, table)
 
 	// delete cache
