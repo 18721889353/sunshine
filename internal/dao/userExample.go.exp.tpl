@@ -81,16 +81,25 @@ func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, {{.ColumnNa
 
 // Create a record, insert the record and the {{.ColumnNameCamelFCL}} value is written back to the table
 func (d *{{.TableNameCamelFCL}}Dao) Create(ctx context.Context, table *model.{{.TableNameCamel}}) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
 
 func (d *{{.TableNameCamelFCL}}Dao) CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 
 
 // DeleteBy{{.ColumnNameCamel}} delete a record by {{.ColumnNameCamelFCL}}
 func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := d.db.WithContext(ctx).Where("{{.ColumnName}} = ?", {{.ColumnNameCamelFCL}}).Delete(&model.{{.TableNameCamel}}{}).Error
 	if err != nil {
 		return err
@@ -274,6 +283,9 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 
 // DeleteBy{{.ColumnNamePluralCamel}} delete records by batch {{.ColumnNameCamelFCL}}
 func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := d.db.WithContext(ctx).Where("{{.ColumnName}} IN (?)", {{.ColumnNamePluralCamelFCL}}).Delete(&model.{{.TableNameCamel}}{}).Error
 	if err != nil {
 		return err
@@ -489,16 +501,25 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByLast{{.ColumnNameCamel}}(ctx context.Co
 
 // CreateByTx create a record in the database using the provided transaction
 func (d *{{.TableNameCamelFCL}}Dao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) ({{.GoType}}, error) {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := tx.WithContext(ctx).Create(table).Error
 	return table.{{.ColumnNameCamel}}, err
 }
 
 func (d *{{.TableNameCamelFCL}}Dao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
     return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 
 // DeleteByTx delete a record by {{.ColumnNameCamelFCL}} in the database using the provided transaction
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	update := map[string]interface{}{
 		"deleted_at": time.Now(),
 	}
@@ -530,7 +551,9 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx 
 }
 
 // UpdateByTx update a record by {{.ColumnNameCamelFCL}} in the database using the provided transaction
-func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0)
+	}()
 	err := d.updateDataBy{{.ColumnNameCamel}}(ctx, tx, table)
 
 	// delete cache
