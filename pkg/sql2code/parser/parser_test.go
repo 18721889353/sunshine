@@ -365,7 +365,7 @@ func Test_getPostgresqlTableFields(t *testing.T) {
 }
 
 func TestGetSqliteTableInfo(t *testing.T) {
-	info, err := GetSqliteTableInfo("..\\..\\..\\test\\sql\\sqlite\\sponge.db", "user_order")
+	info, err := GetSqliteTableInfo("..\\..\\..\\test\\sql\\sqlite\\sunshine.db", "user_order")
 	t.Log(err, info)
 }
 

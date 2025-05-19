@@ -88,7 +88,7 @@ func TestGenerate(t *testing.T) {
 		//{
 		//	name: "sql from sqlite",
 		//	args: args{args: &Args{
-		//		DBDsn:    "C:\\Users\\zhuyasen\\Desktop\\genTest\\sql\\sqlite\\sponge.db",
+		//		DBDsn:    "C:\\Users\\zhuyasen\\Desktop\\genTest\\sql\\sqlite\\sunshine.db",
 		//		DBTable:  "user",
 		//		DBDriver: "sqlite",
 		//	}},
