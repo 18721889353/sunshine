@@ -46,10 +46,10 @@ func RunCommand() *cobra.Command {
 		Short: "Running assistant",
 		Long:  "Running assistant.",
 		Example: color.HiBlackString(` # Running ChatGPT assistant.
-  sponge assistant run --type=chatgpt --api-key=your-api-key
+  sunshine assistant run --type=chatgpt --api-key=your-api-key
 
   # Running DeepSeek assistant with model.
-  sponge assistant run --type=deepseek --api-key=your-api-key --model=deepseek-reasoner`),
+  sunshine assistant run --type=deepseek --api-key=your-api-key --model=deepseek-reasoner`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {

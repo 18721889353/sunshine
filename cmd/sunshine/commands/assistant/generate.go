@@ -40,13 +40,13 @@ func GenerateCommand() *cobra.Command {
 		Short: "Generate code for project",
 		Long:  "Generate code for project using assistant.",
 		Example: color.HiBlackString(`  # Generate code using deepseek, default model is deepseek-reasoner
-  sponge assistant generate --type=deepseek --api-key=your-api-key --dir=your-project-dir
+  sunshine assistant generate --type=deepseek --api-key=your-api-key --dir=your-project-dir
   
   # Generate code using deepseek, specify model is deepseek-chat
-  sponge assistant generate --type=deepseek --model=deepseek-chat --api-key=your-api-key --dir=your-project-dir
+  sunshine assistant generate --type=deepseek --model=deepseek-chat --api-key=your-api-key --dir=your-project-dir
 
   # Generate code using chatgpt, default model is o1-mini
-  sponge assistant generate --type=chatgpt --api-key=your-api-key --dir=your-project-dir`),
+  sunshine assistant generate --type=chatgpt --api-key=your-api-key --dir=your-project-dir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
