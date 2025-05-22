@@ -140,3 +140,28 @@ func HasDuplicateStringSlice(slice []string) bool {
 	}
 	return false
 }
+
+// UniqueUint64Slice 将 uint64 切片去重
+func UniqueUint64Slice(slice []uint64) []uint64 {
+	seen := make(map[uint64]struct{})
+	result := make([]uint64, 0, len(slice))
+	for _, v := range slice {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			result = append(result, v)
+		}
+	}
+	return result
+}
+
+// HasDuplicateUint64Slice 判断 uint64 切片是否有重复
+func HasDuplicateUint64Slice(slice []uint64) bool {
+	seen := make(map[uint64]struct{})
+	for _, v := range slice {
+		if _, ok := seen[v]; ok {
+			return true
+		}
+		seen[v] = struct{}{}
+	}
+	return false
+}
