@@ -145,7 +145,7 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 			return errors.New("timestamp error")
 		}
 		mapData["timestamp"] = tsInt
-		if tsInt > currentTimestamp || currentTimestamp-tsInt >= 60 {
+		if currentTimestamp-tsInt <= -60 || currentTimestamp-tsInt >= 60 {
 			return errors.New("timestamp expired")
 		}
 	}
