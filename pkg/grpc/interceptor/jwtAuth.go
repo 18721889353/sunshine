@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"errors"
 	"github.com/18721889353/sunshine/pkg/jwt"
 )
 
@@ -292,10 +293,15 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 func GetUidByCtx(ctx context.Context) (uid uint64, err error) {
 	var claims *jwt.Claims
 	authorization := metautils.ExtractIncoming(ctx).Get("Authorization")
-	token := authorization[7:] // remove Bearer prefix
-	claims, err = jwt.ParseToken(token)
-	if err != nil {
-		return uid, err
+	if len(authorization) > 0 {
+		token := authorization[7:] // remove Bearer prefix
+		claims, err = jwt.ParseToken(token)
+		if err != nil {
+			return uid, err
+		}
+		return utils.StrToUint64(claims.UID), err
+	} else {
+		return 0, errors.New("no authorization")
 	}
-	return utils.StrToUint64(claims.UID), err
+
 }
