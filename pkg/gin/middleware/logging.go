@@ -174,6 +174,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			zap.String("method", c.Request.Method),
 			zap.String("url", c.Request.URL.String()),
 			zap.String("userAgent", c.Request.UserAgent()),
+			zap.String("ip", c.ClientIP()),
 		}
 		// Add request headers to log fields
 		headers := make(map[string]string)
