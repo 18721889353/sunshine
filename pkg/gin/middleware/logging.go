@@ -119,23 +119,15 @@ func (w bodyLogWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// If there is sensitive information in the body, you can use WithIgnoreRoutes set the route to ignore logging
-func getResponseBody(buf *bytes.Buffer, maxLen int) []byte {
-	l := buf.Len()
-	if l == 0 {
-		return []byte("")
-	} else if l > maxLen {
-		l = maxLen
-	}
-
-	body := make([]byte, l)
-	n, _ := buf.Read(body)
-	if n == 0 {
+// getResponseBody returns the full response body without truncation
+func getResponseBody(buf *bytes.Buffer, _ int) []byte {
+	if buf == nil || buf.Len() == 0 {
 		return emptyBody
-	} else if n < maxLen {
-		return body[:n-1]
 	}
-	return append(body[:maxLen-len(contentMark)], contentMark...)
+	// Copy buffer content to a new byte slice to avoid modifying the original buffer
+	body := make([]byte, buf.Len())
+	_, _ = buf.Read(body)
+	return body
 }
 
 // If there is sensitive information in the body, you can use WithIgnoreRoutes set the route to ignore logging
