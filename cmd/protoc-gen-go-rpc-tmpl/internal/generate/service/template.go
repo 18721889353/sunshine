@@ -198,17 +198,27 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 }
 {{else}}
 {{.Comment}}
-func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (*{{.ReplyImportPkgName}}.{{.Reply}}, error) {
+func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (resp *{{.ReplyImportPkgName}}.{{.Reply}}, err error) {
 	panic("{{.Prompt}}")
-
-	// fill in the business logic code here
-	// example:
-	//	    err := req.Validate()
-	//	    if err != nil {
-	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
-	//		    return nil, ecode.StatusInvalidParams.Err()
-	//	    }
-	//     ctx = interceptor.WrapServerCtx(ctx)
+	//ctx = interceptor.WrapServerCtx(ctx)
+	//logger.Info("数据验证", logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//{
+	//	err = req.Validate()
+	//	if err != nil {
+	//		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//		return nil, ecode.StatusInvalidParams.Err(err.Error())
+	//	}
+	//}
+	//defer func() {
+	//	if r := recover(); r != nil {
+	//		// 使用 debug.Stack() 获取堆栈信息
+	//		logger.Error("panic recovered",
+	//			logger.Any("err", string(debug.Stack())),
+	//			interceptor.ServerCtxRequestIDField(ctx),
+	//		)
+	//		err = ecode.StatusInternalServerError.Err()
+	//	}
+	//}()
     //
 	//     reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
 				{{- range .RequestFields}}
