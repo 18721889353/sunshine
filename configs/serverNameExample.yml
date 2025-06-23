@@ -186,7 +186,6 @@ jwt:
 #    normalQueueName: "orderMsgQueue" #正常队列名称
 #    deadQueueName: "orderMsgQueueDLX" #死信队列名称
 #    maxErrorNum: 0 #消费者最大失败次数 0关闭
-#    errRetryTime: 10 #消费者异常重试等待时间
 #    xMessageTTL: 60000 #消息过期时间（队列级别）,毫秒
 #    couponInfos:
 #      - couponNum: 10 #消费者数量

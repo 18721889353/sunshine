@@ -24,7 +24,6 @@ type consumerOptions struct {
 	queueBind       *queueBindOptions
 	qos             *qosOptions
 	consume         *consumeOptions
-	errRetryTime    time.Duration
 
 	isPersistent bool // persistent or not
 	isAutoAck    bool // auto-answer or not, if false, manual ACK required
@@ -44,7 +43,6 @@ func defaultConsumerOptions() *consumerOptions {
 		queueBind:       defaultQueueBindOptions(),
 		qos:             defaultQosOptions(),
 		consume:         defaultConsumeOptions(),
-		errRetryTime:    time.Second * 60,
 		isPersistent:    true,
 		isAutoAck:       true,
 	}
@@ -96,11 +94,6 @@ func WithConsumerAutoAck(enable bool) ConsumerOption {
 func WithConsumerPersistent(enable bool) ConsumerOption {
 	return func(o *consumerOptions) {
 		o.isPersistent = enable
-	}
-}
-func WithErrRetryTime(errRetryTime time.Duration) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.errRetryTime = errRetryTime
 	}
 }
 
@@ -242,7 +235,6 @@ type Consumer struct {
 
 	isPersistent bool // persistent or not
 	isAutoAck    bool // auto ack or not
-	errRetryTime time.Duration
 	zapLog       *zap.Logger
 	count        int64 // consumer success message number
 	mu           sync.Mutex
@@ -270,7 +262,6 @@ func NewConsumer(exchange *Exchange, queueName string, connection *Connection, o
 
 		isPersistent: o.isPersistent,
 		isAutoAck:    o.isAutoAck,
-		errRetryTime: o.errRetryTime,
 		zapLog:       connection.zapLog,
 	}
 
@@ -437,9 +428,6 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					if err != nil {
 						span.RecordError(err)
 						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
-						// Wait for 60 seconds before retrying
-						// Wait for 60 seconds before retrying
-						time.Sleep(c.errRetryTime)
 						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(true); err != nil {
@@ -547,8 +535,6 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 					if err != nil {
 						span.RecordError(err)
 						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
-						// Wait for 60 seconds before retrying
-						time.Sleep(c.errRetryTime)
 						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(false); err != nil {
