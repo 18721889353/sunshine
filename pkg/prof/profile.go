@@ -217,7 +217,7 @@ func (p *profile) goroutine() error {
 
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
-		_ = pprof.Lookup(profileName).WriteTo(f, 2)
+		_ = pprof.Lookup(profileName).WriteTo(f, 0)
 		_ = f.Close()
 	})
 
