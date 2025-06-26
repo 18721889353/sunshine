@@ -59,6 +59,7 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	logFields := []zap.Field{
 		requestID,
 		zap.String("log_from", "Cache msg GetLoopLock"),
+		zap.Any("sql", map[string]any{"key": key, "options": options}),
 	}
 	//Lock 阻塞直到获取到锁或上下文被取消
 	// 开始锁定
@@ -70,7 +71,7 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 		return err
 	} else {
 		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-		if elapsed > 2 {
+		if elapsed > 10 {
 			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 			pkgLogger.Info("Cache msg", logFields...)
 		}
@@ -88,6 +89,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	logFields := []zap.Field{
 		requestID,
 		zap.String("log_from", "Cache msg RedisLock"),
+		zap.Any("sql", map[string]any{"key": key, "options": options}),
 	}
 	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
 	// TryLock 尝试获取锁而不阻塞
@@ -98,7 +100,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 		return err
 	} else {
 		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-		if elapsed > 2 {
+		if elapsed > 10 {
 			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 			pkgLogger.Info("Cache msg", logFields...)
 		}
@@ -124,7 +126,7 @@ func (c *redisCache) ReleaseLock(ctx context.Context) error {
 		return err
 	} else {
 		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-		if elapsed > 2 {
+		if elapsed > 10 {
 			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 			pkgLogger.Info("Cache msg", logFields...)
 		}
@@ -138,6 +140,7 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 	fields := []zap.Field{
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg Set"),
+		zap.Any("sql", map[string]any{"key": key, "val": val, "expireTime": expireTime}),
 	}
 	buf, err := encoding.Marshal(c.encoding, val)
 
@@ -164,7 +167,7 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-	if elapsed > 2 {
+	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 		pkgLogger.Info("Cache msg", fields...)
 	}
@@ -178,6 +181,7 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	fields := []zap.Field{
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg Get"),
+		zap.Any("sql", map[string]any{"key": key, "val": val}),
 	}
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
@@ -214,7 +218,7 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-	if elapsed > 2 {
+	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 		pkgLogger.Info("Cache msg", fields...)
 	}
@@ -227,6 +231,7 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	fields := []zap.Field{
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg MultiSet"),
+		zap.Any("sql", map[string]any{"valueMap": valueMap, "expireTime": expireTime}),
 	}
 	if len(valueMap) == 0 {
 		return nil
@@ -274,7 +279,7 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-	if elapsed > 2 {
+	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 		pkgLogger.Info("Cache msg", fields...)
 	}
@@ -287,6 +292,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	fields := []zap.Field{
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg MultiGet"),
+		zap.Any("sql", map[string]any{"keys": keys, "value": value}),
 	}
 	if len(keys) == 0 {
 		return nil
@@ -327,7 +333,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-	if elapsed > 2 {
+	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 		pkgLogger.Info("Cache msg", fields...)
 	}
@@ -340,6 +346,7 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 	fields := []zap.Field{
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg Del"),
+		zap.Any("sql", map[string]any{"keys": keys}),
 	}
 	if len(keys) == 0 {
 		return nil
@@ -363,7 +370,7 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-	if elapsed > 2 {
+	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 		pkgLogger.Info("Cache msg", fields...)
 	}
@@ -376,7 +383,7 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
 	fields := []zap.Field{
 		requestIDField(ctx, "request_id"),
 		zap.String("log_from", "Cache msg DelByPrefix"),
-		zap.String("prefix", prefix),
+		zap.Any("sql", map[string]any{"prefix": prefix}),
 	}
 
 	var cursor uint64
@@ -405,7 +412,7 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-	if elapsed > 2 {
+	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
 		pkgLogger.Info("Cache msg", fields...)
 	}
