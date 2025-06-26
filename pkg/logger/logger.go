@@ -9,9 +9,11 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/lestrrat-go/file-rotatelogs"
 	"strings"
+	"sync"
 	"time"
+
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 
 	"github.com/natefinch/lumberjack"
 	"go.uber.org/zap"
@@ -28,6 +30,7 @@ const (
 	levelError = "ERROR"
 )
 
+var syncOnce sync.Once
 var defaultLogger *zap.Logger
 var defaultSugaredLogger *zap.SugaredLogger
 
@@ -88,7 +91,26 @@ func Init(opts ...Option) (*zap.Logger, error) {
 	defaultSugaredLogger = defaultLogger.Sugar()
 	Info(str)
 
+	// 启动定时刷新 goroutine
+	startLogSyncTicker()
+
 	return defaultLogger, err
+}
+
+// 定义定时刷新函数
+func startLogSyncTicker() {
+	syncOnce.Do(func() {
+		ticker := time.NewTicker(time.Second)
+		go func() {
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					_ = Sync()
+				}
+			}
+		}()
+	})
 }
 
 func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
@@ -149,7 +171,11 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 			Compress:   fo.isCompression, // whether to compress and archive old files
 		})
 	}
-
+	// 添加缓冲层
+	ws = &zapcore.BufferedWriteSyncer{
+		WS:   ws,
+		Size: 128 * 1024,
+	}
 	core := zapcore.NewCore(encoder, ws, getLevelSize(levelName))
 
 	// add the function call information log to the log.
