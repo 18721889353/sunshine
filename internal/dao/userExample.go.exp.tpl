@@ -252,34 +252,63 @@ func (d *{{.TableNameCamelFCL}}Dao) GetBy{{.ColumnNameCamel}}(ctx context.Contex
 //		},
 //	}
 func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.{{.TableNameCamel}}, int64, error) {
-	if params.Sort == "" {
-		params.Sort = "-{{.ColumnName}}"
-	}
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, errors.New("query params error: " + err.Error())
 	}
 
-	var total int64
-	if params.Sort != "ignore count" { // determine if count is required
-		err = d.db.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&total).Error
-		if err != nil {
-			return nil, 0, err
-		}
-		if total == 0 {
-			return nil, total, nil
-		}
+	// 生成唯一 key
+    key := "columns:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+
+	var result struct {
+		records []*model.{{.TableNameCamel}}
+		total   int64
 	}
 
-	records := []*model.{{.TableNameCamel}}{}
-	order, limit, offset := params.ConvertToPage()
-	err = d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+	// 使用 singleflight 避免并发重复查询
+	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+		var total int64
+		var records []*model.{{.TableNameCamel}}
+
+		// 统计总数（若需要）
+		if params.Sort != "ignore count" {
+			err := d.db.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&total).Error
+			if err != nil {
+				return nil, err
+			}
+			if total == 0 {
+				return struct {
+					records []*model.{{.TableNameCamel}}
+					total   int64
+				}{records: []*model.{{.TableNameCamel}}{}, total: 0}, nil
+			}
+		}
+
+		// 分页查询
+		order, limit, offset := params.ConvertToPage()
+		err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+		if err != nil {
+			return nil, err
+		}
+
+		return struct {
+			records []*model.{{.TableNameCamel}}
+			total   int64
+		}{records: records, total: total}, nil
+	})
+
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return records, total, err
+	result = val.(struct {
+		records []*model.{{.TableNameCamel}}
+		total   int64
+	})
+
+	return result.records, result.total, nil
 }
+
 
 // DeleteBy{{.ColumnNamePluralCamel}} delete records by batch {{.ColumnNameCamelFCL}}
 func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error {
