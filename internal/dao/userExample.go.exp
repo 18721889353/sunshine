@@ -243,33 +243,6 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExa
 //		},
 //	}
 func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error) {
-	queryStr, args, err := params.ConvertToGormConditions()
-	if err != nil {
-		return nil, 0, errors.New("query params error: " + err.Error())
-	}
-
-	var total int64
-	if params.Sort != "ignore count" { // determine if count is required
-		err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Count(&total).Error
-		if err != nil {
-			return nil, 0, err
-		}
-		if total == 0 {
-			return nil, total, nil
-		}
-	}
-
-	records := []*model.UserExample{}
-	order, limit, offset := params.ConvertToPage()
-	err = d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return records, total, err
-}
-
-func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error) {
     queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, errors.New("query params error: " + err.Error())
