@@ -293,7 +293,7 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 func GetUidByCtx(ctx context.Context) (uid uint64, err error) {
 	var claims *jwt.Claims
 	authorization := metautils.ExtractIncoming(ctx).Get("Authorization")
-	if len(authorization) > 0 {
+	if len(authorization) > 6 {
 		token := authorization[7:] // remove Bearer prefix
 		claims, err = jwt.ParseToken(token)
 		if err != nil {
