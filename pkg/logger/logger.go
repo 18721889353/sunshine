@@ -93,7 +93,7 @@ func Init(opts ...Option) (*zap.Logger, error) {
 
 	if strings.ToUpper(levelName) == "DEBUG" {
 		// 启动定时刷新 goroutine
-		startLogSyncTicker()
+		//startLogSyncTicker()
 	}
 	return defaultLogger, err
 }
@@ -165,10 +165,10 @@ func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
 	if strings.ToUpper(levelName) == "DEBUG" {
 		//创建终端 WriteSyncer 并启用缓冲
 		ws = zapcore.Lock(os.Stdout) // 锁定标准输出
-		ws = &zapcore.BufferedWriteSyncer{
-			WS:   ws,
-			Size: 1024 * 1024, // 缓冲区大小：1024KB
-		}
+		//ws = &zapcore.BufferedWriteSyncer{
+		//	WS:   ws,
+		//	Size: 1024 * 1024, // 缓冲区大小：1024KB
+		//}
 	} else {
 		// 使用自定义的 NopWriteSyncer（禁止终端/文件输出）
 		ws = nopWriteSyncer{}
@@ -220,10 +220,10 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 		}
 
 		// 添加缓冲层
-		ws = &zapcore.BufferedWriteSyncer{
-			WS:   ws,
-			Size: 1024 * 1024,
-		}
+		//ws = &zapcore.BufferedWriteSyncer{
+		//	WS:   ws,
+		//	Size: 1024 * 1024,
+		//}
 	} else {
 		// 使用自定义的 NopWriteSyncer（禁止终端/文件输出）
 		ws = nopWriteSyncer{}
