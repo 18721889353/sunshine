@@ -7,45 +7,10 @@ import (
 	"go.uber.org/zap/zapcore"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"go.uber.org/zap"
 )
-
-// 异步通道和消费者
-var (
-	logChan   chan logEntry
-	closeOnce sync.Once
-	wg        sync.WaitGroup
-)
-
-type logEntry struct {
-	level  string
-	msg    string
-	fields []zap.Field
-}
-
-func init() {
-	logChan = make(chan logEntry, 10000)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Logger Goroutine panic: %v\n", r)
-			}
-		}()
-		for entry := range logChan {
-			logger := getLogger()
-			if logger == nil {
-				fmt.Println("logger == nil")
-				continue
-			}
-			logger.Info(toJSON(entry.fields))
-		}
-	}()
-}
 
 // Debug level information
 func Debug(msg string, fields ...Field) {
@@ -54,22 +19,9 @@ func Debug(msg string, fields ...Field) {
 
 // Info level information
 func Info(msg string, fields ...Field) {
-	////getLogger().Info(msg, fields...)
-	//fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
-	//getLogger().Info(toJSON(fields))
-	entry := logEntry{
-		level:  "info",
-		msg:    msg,
-		fields: append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000"))),
-	}
-	select {
-	case logChan <- entry:
-		// 异步写入成功
-	default:
-		// 通道满，降级为同步写入
-		jsonLog := toJSON(entry.fields)
-		getLogger().Info(jsonLog)
-	}
+	//getLogger().Info(msg, fields...)
+	fields = append(fields, zap.String("log_msg", msg), zap.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")))
+	getLogger().Info(toJSON(fields))
 }
 
 // Warn level information
@@ -129,10 +81,6 @@ func Fatalf(format string, a ...interface{}) {
 
 // Sync flushing any buffered log entries, applications should take care to call Sync before exiting.
 func Sync() error {
-	closeOnce.Do(func() {
-		close(logChan)
-	})
-	wg.Wait() // 等待消费者处理完剩余日志
 	_ = getSugaredLogger().Sync()
 	err := getLogger().Sync()
 	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") {
@@ -145,15 +93,7 @@ func Sync() error {
 func WithFields(fields ...Field) *zap.Logger {
 	return GetWithSkip(0).With(fields...)
 }
-func toJSON(fields []zap.Field) (result string) {
-	defer func() {
-		if r := recover(); r != nil {
-			// 记录 panic 信息
-			fmt.Printf("panic in toJSON: %v\n", r)
-			// 返回空字符串，防止致命错误导致日志系统崩溃
-			result = ""
-		}
-	}()
+func toJSON(fields []zap.Field) string {
 	// 创建一个空的 map 用于存储键值对
 	keyValuePairs := make(map[string]interface{})
 
