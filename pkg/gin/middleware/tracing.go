@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"fmt"
-
 	"github.com/gin-gonic/gin"
 	otelcontrib "go.opentelemetry.io/contrib"
 	"go.opentelemetry.io/otel"
@@ -62,6 +61,14 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		reqID := c.Request.Header.Get(HeaderXRequestIDKey)
+		if reqID == "" {
+			if v, isExist := c.Get(ContextRequestIDKey); isExist {
+				if requestID, ok := v.(string); ok {
+					reqID = requestID
+				}
+			}
+		}
 		c.Set(tracerKey, tracer)
 		savedCtx := c.Request.Context()
 		defer func() {
@@ -82,7 +89,7 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		}
 		ctx, span := tracer.Start(ctx, spanName, tOpts...)
 		defer span.End()
-
+		span.SetAttributes(attribute.String("requestId", reqID))
 		// pass the span through the request context
 		c.Request = c.Request.WithContext(ctx)
 
