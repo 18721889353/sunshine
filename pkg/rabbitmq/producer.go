@@ -3,6 +3,8 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -267,11 +269,18 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
 }
 
 // PublishTopic send topic type message
-func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) error {
+func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) (err error) {
+	tracer := otel.Tracer("PublishTopic")
+	ctx, span := tracer.Start(ctx, "PublishTopic")
+	defer span.End()
+
 	if p.Exchange.eType != exchangeTypeTopic {
-		return fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
+		err = fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
+		span.RecordError(err)
+		return err
 	}
-	return p.ch.PublishWithContext(
+	span.SetAttributes(attribute.String("body", string(body)))
+	err = p.ch.PublishWithContext(
 		ctx,
 		p.Exchange.name,
 		topicKey,
@@ -283,6 +292,10 @@ func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byt
 			Body:         body,
 		},
 	)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
 }
 
 // PublishHeaders send headers type message

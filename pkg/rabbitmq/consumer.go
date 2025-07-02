@@ -420,7 +420,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 						break
 					}
 					// 开始一个新的 span
-					ctx, span := tracer.Start(ctx, "deadConsume message")
+					ctx, span := tracer.Start(ctx, "consume message")
 					span.SetAttributes(attribute.String("message.body", string(d.Body)))
 
 					tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
