@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"strings"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
@@ -82,7 +83,8 @@ func sanitizeJSON(json map[string]interface{}, policy *bluemonday.Policy) {
 	for key, value := range json {
 		switch v := value.(type) {
 		case string:
-			json[key] = policy.Sanitize(v)
+			cleaned := strings.TrimSpace(v)
+			json[key] = policy.Sanitize(cleaned)
 		case map[string]interface{}:
 			sanitizeJSON(v, policy)
 		case []interface{}:
