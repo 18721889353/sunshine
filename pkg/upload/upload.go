@@ -7,10 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/bwmarrin/snowflake"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/bwmarrin/snowflake"
 )
 
 // CosUploaderOptions 上传配置选项
@@ -19,6 +20,7 @@ type CosUploaderOptions struct {
 	fileDirPrefix   string        // 文件存储路径前缀
 	maxFileSize     int64         // 最大文件大小（字节）
 	policyCondition []interface{} // 策略条件
+	prefixUrl       string        //域名前缀
 
 }
 
@@ -32,6 +34,7 @@ func defaultCosUploaderOptions() *CosUploaderOptions {
 		fileDirPrefix:   "image",         // 默认路径前缀
 		maxFileSize:     5 * 1024 * 1024, // 默认最大文件 10MB
 		policyCondition: []interface{}{"content-length-range", 1, 5 * 1024 * 1024},
+		prefixUrl:       "",
 	}
 }
 
@@ -54,6 +57,13 @@ func WithMaxFileSize(size int64) CosUploaderOption {
 	return func(o *CosUploaderOptions) {
 		o.maxFileSize = size
 		o.policyCondition = []interface{}{"content-length-range", 1, size}
+	}
+}
+
+// WithPrefixUrl 设置文件存储路径前缀
+func WithPrefixUrl(prefixUrl string) CosUploaderOption {
+	return func(o *CosUploaderOptions) {
+		o.prefixUrl = prefixUrl
 	}
 }
 
@@ -85,6 +95,9 @@ func NewCosUploader(cosUploaderInfo *CosUploaderInfo, opts ...CosUploaderOption)
 
 // CosPrefixUrl 返回 COS 域名前缀
 func (c *cosUploader) cosPrefixUrl() string {
+	if c.opts.prefixUrl != "" {
+		return c.opts.prefixUrl
+	}
 	return fmt.Sprintf("https://%s.cos.%s.myqcloud.com", c.Bucket, c.Region)
 }
 
