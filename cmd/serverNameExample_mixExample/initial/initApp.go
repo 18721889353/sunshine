@@ -69,6 +69,7 @@ func InitApp() {
 			logger.WithFileMaxBackups(cfg.Logger.LogFileConfig.MaxBackups),
 			logger.WithFileMaxAge(cfg.Logger.LogFileConfig.MaxAge),
 			logger.WithFileIsCompression(cfg.Logger.LogFileConfig.IsCompression),
+			logger.WithNoPrint(cfg.Logger.LogFileConfig.IsNoPrint),
 		),
 	)
 	if err != nil {

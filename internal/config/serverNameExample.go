@@ -162,6 +162,7 @@ type LogFileConfig struct {
 	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
 	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
 	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
+	IsNoPrint     bool   `yaml:"isNoPrint" json:"isNoPrint"`
 }
 
 type Logger struct {
