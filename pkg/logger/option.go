@@ -18,6 +18,7 @@ var (
 	defaultIsCompression = false     // whether to compress and archive old files
 	defaultIsLocalTime   = true      // whether to use local time
 	defaultSaveDay       = false
+	defaultNoPrint       = false //禁止终端/文件输出）
 )
 
 type options struct {
@@ -98,6 +99,7 @@ type fileOptions struct {
 	isCompression bool
 	isLocalTime   bool
 	isSaveDay     bool
+	noPrint       bool
 }
 
 func defaultFileOptions() *fileOptions {
@@ -109,6 +111,7 @@ func defaultFileOptions() *fileOptions {
 		isCompression: defaultIsCompression,
 		isLocalTime:   defaultIsLocalTime,
 		isSaveDay:     defaultSaveDay,
+		noPrint:       defaultNoPrint,
 	}
 }
 
@@ -174,5 +177,11 @@ func WithLocalTime(isLocalTime bool) FileOption {
 func WithSaveDay(isSaveDay bool) FileOption {
 	return func(f *fileOptions) {
 		f.isSaveDay = isSaveDay
+	}
+}
+
+func WithNoPrint(noPrint bool) FileOption {
+	return func(f *fileOptions) {
+		f.noPrint = noPrint
 	}
 }
