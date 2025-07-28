@@ -7,13 +7,11 @@
 package logger
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
+	"github.com/lestrrat-go/file-rotatelogs"
 	"strings"
-	"sync"
 	"time"
-
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 
 	"github.com/natefinch/lumberjack"
 	"go.uber.org/zap"
@@ -30,7 +28,6 @@ const (
 	levelError = "ERROR"
 )
 
-var syncOnce sync.Once
 var defaultLogger *zap.Logger
 var defaultSugaredLogger *zap.SugaredLogger
 
@@ -42,6 +39,16 @@ func getLogger() *zap.Logger {
 func getSugaredLogger() *zap.SugaredLogger {
 	checkNil()
 	return defaultSugaredLogger.WithOptions(zap.AddCallerSkip(1))
+}
+
+type nopWriteSyncer struct{}
+
+func (nopWriteSyncer) Write(p []byte) (n int, err error) {
+	return len(p), nil // 模拟写入成功，但不执行实际操作
+}
+
+func (nopWriteSyncer) Sync() error {
+	return nil // 无需同步
 }
 
 // Init initial log settings
@@ -91,101 +98,36 @@ func Init(opts ...Option) (*zap.Logger, error) {
 	defaultSugaredLogger = defaultLogger.Sugar()
 	Info(str)
 
-	if strings.ToUpper(levelName) == "DEBUG" {
-		// 启动定时刷新 goroutine
-		startLogSyncTicker()
-	}
 	return defaultLogger, err
 }
 
-// 定义定时刷新函数
-func startLogSyncTicker() {
-	syncOnce.Do(func() {
-		ticker := time.NewTicker(1 * time.Second)
-		go func() {
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					_ = Sync()
-				}
-			}
-		}()
-	})
-}
-
-//	func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
-//		js := fmt.Sprintf(`{
-//	     		"level": "%s",
-//	           "encoding": "%s",
-//	     		"outputPaths": ["stdout"],
-//	           "errorOutputPaths": ["stdout"]
-//			}`, levelName, encoding)
-//
-//		var config zap.Config
-//		err := json.Unmarshal([]byte(js), &config)
-//		if err != nil {
-//			return nil, err
-//		}
-//
-//		config.EncoderConfig = zap.NewProductionEncoderConfig()
-//		if encoding == formatConsole {
-//			config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // logging color
-//		} else {
-//			config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // logging levels in the log file using upper case letters
-//		}
-//		config.EncoderConfig.EncodeTime = timeFormatter // default time format
-//		return config.Build()
-//	}
-type nopWriteSyncer struct{}
-
-func (nopWriteSyncer) Write(p []byte) (n int, err error) {
-	return len(p), nil // 模拟写入成功，但不执行实际操作
-}
-
-func (nopWriteSyncer) Sync() error {
-	return nil // 无需同步
-}
 func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
-	// 直接构建 EncoderConfig（避免 JSON 解析）
-	encoderConfig := zap.NewProductionEncoderConfig()
-	if encoding == formatConsole {
-		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	} else {
-		encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-	}
-	encoderConfig.EncodeTime = timeFormatter
-	var encoder zapcore.Encoder
-	if encoding == formatConsole { // console format
-		encoder = zapcore.NewConsoleEncoder(encoderConfig)
-	} else { // json format
-		encoder = zapcore.NewJSONEncoder(encoderConfig)
-	}
-	var ws zapcore.WriteSyncer
-	if strings.ToUpper(levelName) == "DEBUG" {
-		//创建终端 WriteSyncer 并启用缓冲
-		ws = zapcore.Lock(os.Stdout) // 锁定标准输出
-		ws = &zapcore.BufferedWriteSyncer{
-			WS:   ws,
-			Size: 1024 * 1024, // 缓冲区大小：1024KB
-		}
-	} else {
-		// 使用自定义的 NopWriteSyncer（禁止终端/文件输出）
-		ws = nopWriteSyncer{}
+	js := fmt.Sprintf(`{
+      		"level": "%s",
+            "encoding": "%s",
+      		"outputPaths": ["stdout"],
+            "errorOutputPaths": ["stdout"]
+		}`, levelName, encoding)
+
+	var config zap.Config
+	err := json.Unmarshal([]byte(js), &config)
+	if err != nil {
+		return nil, err
 	}
 
-	// 构建 Core 并禁用调用栈追踪（AddCaller）
-	core := zapcore.NewCore(
-		encoder,
-		ws,
-		getLevelSize(levelName),
-	)
-	return zap.New(core, zap.AddCaller()), nil
+	config.EncoderConfig = zap.NewProductionEncoderConfig()
+	if encoding == formatConsole {
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // logging color
+	} else {
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // logging levels in the log file using upper case letters
+	}
+	config.EncoderConfig.EncodeTime = timeFormatter // default time format
+	return config.Build()
 }
 
 func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = timeFormatter                // zapcore.ISO8601TimeEncoder   // modify Time Encoder
+	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder   // modify Time Encoder
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // logging levels in the log file using upper case letters
 	var encoder zapcore.Encoder
 	if encoding == formatConsole { // console format
@@ -194,37 +136,27 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 		encoder = zapcore.NewJSONEncoder(encoderConfig)
 	}
 	var ws zapcore.WriteSyncer
-	if strings.ToUpper(levelName) == "DEBUG" {
-		if fo.isSaveDay {
-			logWriter, err := rotatelogs.New(
-				fo.filename+".%Y%m%d",                // Log file name with date format
-				rotatelogs.WithLinkName(fo.filename), // Symlink name
-				// WithMaxAge和WithRotationCount二者只能设置一个，
-				// WithMaxAge设置文件清理前的最长保存时间，
-				// WithRotationCount设置文件清理前最多保存的个数。
-				rotatelogs.WithMaxAge(time.Duration(fo.maxAge)*24*time.Hour), // Maximum age of log files
-				rotatelogs.WithRotationTime(24*time.Hour),                    //WithRotationTime设置日志分割的时间，这里设置为一小时分割一次
-			)
-			if err != nil {
-				panic(err)
-			}
-			ws = zapcore.AddSync(logWriter)
-		} else {
-			ws = zapcore.AddSync(&lumberjack.Logger{
-				Filename:   fo.filename,      // file name
-				MaxSize:    fo.maxSize,       // maximum file size (MB)
-				MaxBackups: fo.maxBackups,    // maximum number of old files
-				MaxAge:     fo.maxAge,        // maximum number of days for old documents
-				Compress:   fo.isCompression, // whether to compress and archive old files
-			})
+	if fo.isSaveDay {
+		logWriter, err := rotatelogs.New(
+			fo.filename+".%Y%m%d",                                        // Log file name with date format
+			rotatelogs.WithLinkName(fo.filename),                         // Symlink name
+			rotatelogs.WithMaxAge(time.Duration(fo.maxAge)*24*time.Hour), // Maximum age of log files
+			rotatelogs.WithRotationTime(24*time.Hour),                    // Rotate daily
+		)
+		if err != nil {
+			panic(err)
 		}
-
-		// 添加缓冲层
-		ws = &zapcore.BufferedWriteSyncer{
-			WS:   ws,
-			Size: 1024 * 1024,
-		}
+		ws = zapcore.AddSync(logWriter)
 	} else {
+		ws = zapcore.AddSync(&lumberjack.Logger{
+			Filename:   fo.filename,      // file name
+			MaxSize:    fo.maxSize,       // maximum file size (MB)
+			MaxBackups: fo.maxBackups,    // maximum number of old files
+			MaxAge:     fo.maxAge,        // maximum number of days for old documents
+			Compress:   fo.isCompression, // whether to compress and archive old files
+		})
+	}
+	if fo.noPrint {
 		// 使用自定义的 NopWriteSyncer（禁止终端/文件输出）
 		ws = nopWriteSyncer{}
 	}
