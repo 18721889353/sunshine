@@ -29,6 +29,7 @@ type {{.TableNameCamel}}Dao interface {
 	UpdateBy{{.ColumnNameCamel}}(ctx context.Context, table *model.{{.TableNameCamel}}) error
 	GetBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error)
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.{{.TableNameCamel}}, int64, error)
+	GetOneByColumns(ctx context.Context, params *query.Params) (*model.{{.TableNameCamel}}, error)
 
 	DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error
 	DeleteByCondition(ctx context.Context, c *query.Conditions) error
@@ -307,6 +308,66 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 	})
 
 	return result.records, result.total, nil
+}
+
+func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params *query.Params) (*model.{{.TableNameCamel}}, error) {
+	queryStr, args, err := params.ConvertToGormConditions()
+	if err != nil {
+		return nil, errors.New("query params error: " + err.Error())
+	}
+    // 生成唯一 key
+    key := "one_column:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+
+	// no cache
+	if d.cache == nil {
+		record := &model.{{.TableNameCamel}}{}
+		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return record, err
+	}
+
+	// 有缓存的情况
+	// 先尝试从缓存获取ID
+	cachedID, err := d.cache.GetIdByKey(ctx, key)
+	if err == nil && cachedID != 0 {
+		// 通过ID获取完整信息
+		return d.GetByID(ctx, cachedID)
+	}
+
+	// 缓存中没有找到，检查是否是占位符
+	if d.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+	record := &model.{{.TableNameCamel}}{}
+	// 从数据库获取
+	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// 设置占位符缓存防止缓存穿透
+				if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
+					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(err), logger.Any("key", key))
+				}
+			}
+			return nil, err
+		}
+
+		// 将查询结果的ID缓存起来
+		if err = d.cache.SetIdByKey(ctx, key, record.ID, cache.{{.TableNameCamel}}ExpireTime); err != nil {
+			logger.Warn("cache.SetIdByKey error", logger.Err(err), logger.Any("key", key), logger.Any("id", record.ID))
+		}
+
+		return record, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	record = val.(*model.{{.TableNameCamel}})
+	return record, nil
 }
 
 
