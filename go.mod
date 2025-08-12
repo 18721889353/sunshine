@@ -5,6 +5,8 @@ go 1.23.0
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/IBM/sarama v1.43.3
+	github.com/alibaba/sentinel-golang v1.0.4
+	github.com/alibaba/sentinel-golang/pkg/adapters/gin v0.0.0-20250702131350-f7a7f9575711
 	github.com/alicebob/miniredis/v2 v2.33.0
 	github.com/bojand/ghz v0.120.0
 	github.com/bwmarrin/snowflake v0.3.0
