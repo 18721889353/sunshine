@@ -69,3 +69,15 @@ sunshine -v
 
 Tip
 升级最新sunshine版本，执行命令 sunshine upgrade
+
+#本地调试案例
+
+#查找
+var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
+
+#替换
+var SunshineDir = build.Default.GOPATH + gofile.GetPathDelimiter() + "src" + gofile.GetPathDelimiter() + "sun" + gofile.GetPathDelimiter() + "sunshine"
+
+#运行
+go run main.go web dao --module-name=platformApiService --db-driver=mysql --db-dsn="root:jianguo123@(127.0.0.1:3306)/fzj" --db-table=sys_admin_log --embed=true --include-init-db=false --suited-mono-repo=false --extended-api=t
+rue --out=/d/Temp
