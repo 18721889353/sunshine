@@ -359,7 +359,8 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 			logger.Warn("cache.SetIdByKey error", logger.Err(err), logger.Any("key", key), logger.Any("id", record.ID))
 		}
 
-		return record, nil
+		// 通过ID获取完整信息
+        return d.GetByID(ctx, record.ID)
 	})
 
 	if err != nil {
