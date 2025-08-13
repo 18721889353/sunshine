@@ -53,8 +53,8 @@ func WithSentinelThreshold(threshold float64) SentinelOptions {
 }
 
 // WithSentinelLog set log
-func WithSentinelLog(log *zap.Logger) Option {
-	return func(o *options) {
+func WithSentinelLog(log *zap.Logger) SentinelOptions {
+	return func(o *sentinelOptions) {
 		if log != nil {
 			o.log = log
 		}

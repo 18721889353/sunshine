@@ -336,21 +336,11 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 		return d.GetByID(ctx, cachedID)
 	}
 
-	// 缓存中没有找到，检查是否是占位符
-	if d.cache.IsPlaceholderErr(err) {
-		return nil, database.ErrRecordNotFound
-	}
 	record := &model.{{.TableNameCamel}}{}
 	// 从数据库获取
 	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
 		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// 设置占位符缓存防止缓存穿透
-				if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
-					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(err), logger.Any("key", key))
-				}
-			}
 			return nil, err
 		}
 
