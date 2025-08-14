@@ -92,3 +92,23 @@ func GetTimeFromSnowId(id snowflake.ID) time.Time {
 	timestamp := (int64(id) >> 22) + 1288834974657 // 添加 Twitter Snowflake 的起始时间戳
 	return time.Unix(0, timestamp*int64(time.Millisecond))
 }
+
+// GetSequenceFromSnowId 从雪花ID中提取序列号
+func GetSequenceFromSnowId(id snowflake.ID) int64 {
+	// 序列号是雪花ID的最低12位
+	sequence := int64(id) & 0xFFF
+	return sequence
+}
+
+// ParseSnowId 解析雪花ID的各个组成部分
+func ParseSnowId(id snowflake.ID) map[string]int64 {
+	timestamp := (int64(id) >> 22) + 1288834974657 // Twitter Snowflake起始时间戳
+	machineID := (int64(id) >> 12) & 0x3FF
+	sequence := int64(id) & 0xFFF
+
+	return map[string]int64{
+		"timestamp": timestamp,
+		"machineID": machineID,
+		"sequence":  sequence,
+	}
+}
