@@ -2,10 +2,12 @@
 package database
 
 import (
-	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/bwmarrin/snowflake"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/bwmarrin/snowflake"
 
 	"github.com/18721889353/sunshine/pkg/sgorm"
 
@@ -83,4 +85,10 @@ func InitSnowNode() {
 
 func GetSnowId() snowflake.ID {
 	return snowNode.Generate()
+}
+func GetTimeFromSnowId(id snowflake.ID) time.Time {
+	// Snowflake ID 的时间部分在 41 位时间戳字段中
+	// 需要将 ID 右移 22 位来获取时间戳（机器ID(10位) + 序列号(12位) = 22位）
+	timestamp := (int64(id) >> 22) + 1288834974657 // 添加 Twitter Snowflake 的起始时间戳
+	return time.Unix(0, timestamp*int64(time.Millisecond))
 }
