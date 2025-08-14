@@ -316,7 +316,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 		return nil, errors.New("query params error: " + err.Error())
 	}
     // 生成唯一 key
-    key := "one_column:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+    key := "condition:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	// no cache
 	if d.cache == nil {
