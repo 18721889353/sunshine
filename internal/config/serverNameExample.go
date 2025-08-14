@@ -39,6 +39,7 @@ type Config struct {
 	Jwt        Jwt          `yaml:"jwt" json:"jwt"`
 	Logger     Logger       `yaml:"logger" json:"logger"`
 	Redis      Redis        `yaml:"redis" json:"redis"`
+	Sentinel   Sentinel     `yaml:"sentinel" json:"sentinel"`
 	Sign       Sign         `yaml:"sign" json:"sign"`
 }
 
@@ -162,7 +163,7 @@ type LogFileConfig struct {
 	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
 	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
 	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
-	IsNoPrint     bool   `yaml:"isNoPrint" json:"isNoPrint"`
+	NoPrint       bool   `yaml:"noPrint" json:"noPrint"`
 }
 
 type Logger struct {
@@ -187,4 +188,14 @@ type Sign struct {
 type HTTP struct {
 	Port    int `yaml:"port" json:"port"`
 	Timeout int `yaml:"timeout" json:"timeout"`
+}
+
+type Rules struct {
+	Resource         string  `yaml:"resource" json:"resource"`
+	StatIntervalInMs int     `yaml:"statIntervalInMs" json:"statIntervalInMs"`
+	Threshold        float64 `yaml:"threshold" json:"threshold"`
+}
+
+type Sentinel struct {
+	Rules []Rules `yaml:"rules" json:"rules"`
 }

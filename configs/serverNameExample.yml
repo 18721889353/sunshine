@@ -176,6 +176,12 @@ jwt:
       - "/api.adminService.v1.adminLoginService/Captcha"
       - "/api.adminService.v1.adminLoginService/Login"
 
+
+sentinel:
+  rules:
+    - resource: ""
+      threshold: 1.0
+      statIntervalInMs: 2000
 #rabbitmq:
 #  orderMsg:
 #    dialTimeout: 5 #连接mq超时时间
