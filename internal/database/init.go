@@ -2,6 +2,11 @@
 package database
 
 import (
+	"errors"
+	"fmt"
+	"github.com/18721889353/sunshine/internal/config"
+	"hash/fnv"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -10,8 +15,6 @@ import (
 	"github.com/bwmarrin/snowflake"
 
 	"github.com/18721889353/sunshine/pkg/sgorm"
-
-	"github.com/18721889353/sunshine/internal/config"
 )
 
 var (
@@ -24,26 +27,17 @@ var (
 	ErrRecordNotFound = sgorm.ErrRecordNotFound
 )
 
-// todo generate initialisation database code here
-// delete the templates code start
-
 // InitDB connect database
 func InitDB() {
 	dbDriver := config.Get().Database.Driver
 	switch strings.ToLower(dbDriver) {
 	case sgorm.DBDriverMysql, sgorm.DBDriverTidb:
 		gdb = InitMysql()
-	case sgorm.DBDriverPostgresql:
-		gdb = InitPostgresql()
-	case sgorm.DBDriverSqlite:
-		gdb = InitSqlite()
 	default:
 		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
 			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
 	}
 }
-
-// delete the templates code end
 
 // GetDB get db
 func GetDB() *sgorm.DB {
@@ -75,7 +69,12 @@ func GetSnowNode() *snowflake.Node {
 
 // InitSnowNode connect redis
 func InitSnowNode() {
-	node, err := snowflake.NewNode(int64(config.Get().App.MachineID))
+	machineID, err := getMachineID()
+	if err != nil {
+		logger.Error("getMachineID err", logger.Err(err))
+		panic("getMachineID error: " + err.Error())
+	}
+	node, err := snowflake.NewNode(machineID)
 	if err != nil {
 		logger.Error("snowflake.NewNode err", logger.Err(err))
 		panic("snowflake.NewNode error: " + err.Error())
@@ -83,9 +82,49 @@ func InitSnowNode() {
 	snowNode = node
 }
 
+// 从配置或环境变量中获取MachineID
+func getMachineID() (int64, error) {
+	// 1. 从配置文件读取
+	// 1. 从IP地址计算得到
+	machineID := config.Get().App.MachineID
+	if machineID <= 0 {
+		// 如果未配置，从IP地址计算
+		var err error
+		machineID, err = calculateMachineIDFromIP()
+		if err != nil {
+			return 0, fmt.Errorf("failed to calculate machine ID from IP: %w", err)
+		}
+	}
+	// 确保MachineID在合法范围内(0-1023)
+	return int64(machineID % 1024), nil
+}
+func calculateMachineIDFromIP() (int, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get interface addresses: %w", err)
+	}
+
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				// 简单的IP地址哈希计算
+				ipStr := ipNet.IP.String()
+				hash := fnv.New32a()
+				_, err := hash.Write([]byte(ipStr))
+				if err != nil {
+					return 0, err
+				}
+				return int(hash.Sum32()) % 1024, nil
+			}
+		}
+	}
+	return 0, errors.New("failed to get interface addresses")
+}
+
 func GetSnowId() snowflake.ID {
 	return snowNode.Generate()
 }
+
 func GetTimeFromSnowId(id snowflake.ID) time.Time {
 	// Snowflake ID 的时间部分在 41 位时间戳字段中
 	// 需要将 ID 右移 22 位来获取时间戳（机器ID(10位) + 序列号(12位) = 22位）
@@ -111,4 +150,13 @@ func ParseSnowId(id snowflake.ID) map[string]int64 {
 		"machineID": machineID,
 		"sequence":  sequence,
 	}
+}
+
+// GenerateOrderNo 生成带有业务含义的订单号
+func GenerateOrderNo(prefix string, snowId snowflake.ID) string {
+	// 格式: 业务前缀 + 时间戳(yyyyMMddHHmmss) + 雪花ID后几位
+	timestamp := time.Now().Format("20060102150405")
+	// 取雪花ID的后6位作为序列号
+	sequence := snowId % 1000000
+	return fmt.Sprintf("%s%s%06d", prefix, timestamp, sequence)
 }
