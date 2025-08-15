@@ -97,7 +97,15 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 
 	// limit middleware
 	if config.Get().App.EnableLimit {
-		r.Use(middleware.RateLimit())
+		r.Use(
+			middleware.SentinelMiddleware(
+				middleware.WithSentinelLog(logger.Get()),
+				middleware.WithSentinelResourceExtractor(func(c *gin.Context) string {
+					return c.FullPath()
+				}),
+				middleware.WithSentinelRules(config.Get().Sentinel.Rules),
+			),
+		)
 	}
 
 	// circuit breaker middleware

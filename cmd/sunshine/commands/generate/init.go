@@ -1,9 +1,8 @@
 package generate
 
 import (
-	"embed" // 导入嵌入文件系统包
-	"fmt"   // 导入格式化输入输出包
-	"go/build"
+	"embed"     // 导入嵌入文件系统包
+	"fmt"       // 导入格式化输入输出包
 	"math/rand" // 导入随机数生成包
 	"os"        // 导入操作系统包
 	"strings"   // 导入字符串处理包
@@ -24,8 +23,9 @@ func init() {
 var Replacers = map[string]replacer.Replacer{}
 
 // SunshineDir .sunshine 目录的路径
-// var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
-var SunshineDir = build.Default.GOPATH + gofile.GetPathDelimiter() + "src" + gofile.GetPathDelimiter() + "sun" + gofile.GetPathDelimiter() + "sunshine"
+var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
+
+//var SunshineDir = build.Default.GOPATH + gofile.GetPathDelimiter() + "src" + gofile.GetPathDelimiter() + "sun" + gofile.GetPathDelimiter() + "sunshine"
 
 // Template 模板信息结构体
 type Template struct {
