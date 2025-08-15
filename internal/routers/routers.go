@@ -3,10 +3,12 @@
 package routers
 
 import (
-	"github.com/18721889353/sunshine/internal/database"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/18721889353/sunshine/internal/database"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -120,7 +122,8 @@ func NewRouter() *gin.Engine {
 
 	// trace middleware
 	if config.Get().App.EnableTrace {
-		r.Use(middleware.Tracing(config.Get().App.Name))
+		//r.Use(middleware.Tracing(config.Get().App.Name))
+		r.Use(otelgin.Middleware(config.Get().App.Name))
 	}
 
 	// register routers, middleware support
