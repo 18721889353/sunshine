@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/18721889353/sunshine/internal/cron"
+	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
+
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/server"
 	"github.com/18721889353/sunshine/pkg/app"
@@ -33,7 +36,14 @@ func CreateServices() []app.IServer {
 		server.WithGrpcRegistry(grpcRegistry, grpcInstance),
 	)
 	servers = append(servers, grpcServer)
-
+	if cfg.App.OpenCron {
+		// 添加cron服务示例
+		servers = append(servers, server.NewCronServer(cron.GetTasks()))
+	}
+	if cfg.App.OpenRabbitmqConsumer {
+		// 添加mq消费者服务示例
+		servers = append(servers, server.NewRabbitmqConsumerServer(mq.GetConsumers()))
+	}
 	return servers
 }
 

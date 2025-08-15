@@ -232,10 +232,16 @@ func (g *httpGenerator) generateCode() (string, error) {
 			"routers.go", "userExample.go",
 		},
 		"internal/server": {
-			"http.go", "http_option.go",
+			"http.go", "http_option.go", "cron.go", "cron_option.go", "rabbitmqConsumer.go", "rabbitmqConsumer_option.go",
 		},
 		"internal/types": {
 			"swagger_types.go", "userExample_types.go",
+		},
+		"internal/cron": {
+			"cron.go", "tasks/userExampleCronTask.go",
+		},
+		"internal/mq": {
+			"rabbitmq/mq.go", "rabbitmq/consumers/order.go", "rabbitmq/producer/main.go",
 		},
 	}
 	err := SetSelectFiles(g.dbDriver, selectFiles)

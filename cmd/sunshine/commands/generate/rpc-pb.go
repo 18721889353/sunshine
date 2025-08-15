@@ -132,10 +132,16 @@ func (g *rpcPbGenerator) generateCode() error {
 			"systemCode_rpc.go",
 		},
 		"internal/server": {
-			"grpc.go", "grpc_option.go",
+			"grpc.go", "grpc_option.go", "cron.go", "cron_option.go", "rabbitmqConsumer.go", "rabbitmqConsumer_option.go",
 		},
 		"internal/service": {
 			"service.go", "service_test.go",
+		},
+		"internal/cron": {
+			"cron.go", "tasks/userExampleCronTask.go",
+		},
+		"internal/mq": {
+			"rabbitmq/mq.go", "rabbitmq/consumers/order.go", "rabbitmq/producer/main.go",
 		},
 	}
 

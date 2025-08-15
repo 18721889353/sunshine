@@ -85,8 +85,10 @@ type App struct {
 	Host                  string  `yaml:"host" json:"host"`
 	MachineID             int     `yaml:"machineId" json:"machineId"`
 	Name                  string  `yaml:"name" json:"name"`
+	OpenCron              bool    `yaml:"openCron" json:"openCron"`
 	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
 	OpenJwt               bool    `yaml:"openJwt" json:"openJwt"`
+	OpenRabbitmqConsumer  bool    `yaml:"openRabbitmqConsumer" json:"openRabbitmqConsumer"`
 	OpenSign              bool    `yaml:"openSign" json:"openSign"`
 	OpenXSS               bool    `yaml:"openXSS" json:"openXSS"`
 	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`

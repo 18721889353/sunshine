@@ -20,6 +20,8 @@ app:
   openXSS: true
   openJwt: true
   openSign: true
+  openCron: false
+  openRabbitmqConsumer: false
 
 # todo generate http or rpc server configuration here
 # delete the templates code start
@@ -179,20 +181,21 @@ jwt:
 
 sentinel:
   rules:
-    - resource: ""
+    - resource: "default"
       threshold: 1.0
       statIntervalInMs: 2000
+
 #rabbitmq:
-#  orderMsg:
+#  order:
 #    dialTimeout: 5 #连接mq超时时间
 #    isOpen: true
-#    url: "amqp://test:test@192.167.66.41:5672/"
-#    isDeadQueue: false #死信队列
+#    url: "amqp://sunjianguo:jianguo123@127.0.0.1:5672/"
+#    isDeadQueue: true #死信队列
 #    autoAck: false #是否自动确认消息
-#    exchangeName: "testExchange" #交换机名称
-#    normalQueueName: "orderMsgQueue" #正常队列名称
-#    deadQueueName: "orderMsgQueueDLX" #死信队列名称
+#    exchangeName: "orderExchange" #交换机名称
+#    normalQueueName: "orderQueue" #正常队列名称
+#    deadQueueName: "orderQueueDL" #死信队列名称
 #    maxErrorNum: 0 #消费者最大失败次数 0关闭
 #    xMessageTTL: 60000 #消息过期时间（队列级别）,毫秒
-#    couponInfos:
+#    consumerInfos:
 #      - couponNum: 10 #消费者数量

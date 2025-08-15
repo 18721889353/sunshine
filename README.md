@@ -73,14 +73,67 @@ Tip
 #本地调试案例
 
 #查找
+
 var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
 
 #替换
+
 var SunshineDir = build.Default.GOPATH + gofile.GetPathDelimiter() + "src" + gofile.GetPathDelimiter() + "sun" + gofile.GetPathDelimiter() + "sunshine"
 
-#运行
-go run main.go web dao --module-name=hello --db-driver=mysql --db-dsn="root:jianguo123@(127.0.0.1:3306)/fzj" --db-table=sys_admin_log --embed=true --include-init-db=false --suited-mono-repo=false --extended-api=true --out=/d/Temp
+#基于protobuf创建grpc+http服务
 
-go run main.go web http --module-name=hello --server-name=hello --project-name=hello --repo-addr= --db-driver=mysql --db-dsn="root:jianguo123@(127.0.0.1:3306)/fzj" --db-table=app_info --embed=true --suited-mono-repo=false --extended-api=true --out=/d/Temp
+go run main.go micro grpc-http-pb --module-name=hello --server-name=hello --project-name=hello --repo-addr= --protobuf-file=/d/Temp/greeter.proto --suited-mono-repo=false --out=/d/Temp/web
 
-go run main.go micro grpc-http-pb --module-name=hello --server-name=hello --project-name=hello --repo-addr= --protobuf-file=/d/Temp/aa.proto --suited-mono-repo=false --out=/d/Temp
+#基于protobuf创建grpc服务
+
+go run main.go micro rpc-pb --module-name=hello --server-name=hello --project-name=hello --repo-addr= --protobuf-file=/d/Temp/greeter.proto --suited-mono-repo=false --out=/d/Temp/web
+
+#基于protobuf创建web服务
+
+go run main.go web http-pb --module-name=hello --server-name=hello --project-name=hello --repo-addr=hello --protobuf-file=/d/Temp/greeter.proto --suited-mono-repo=false --out=/d/Temp/web
+
+#基于sql创建web服务
+
+go run main.go web http --module-name=hello --server-name=hello --project-name=hello --repo-addr= --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --suited-mono-repo=false --extended-api=true   --out=/d/Temp/web
+
+#基于sql创建grpc服务
+
+go run main.go micro rpc --module-name=hello --server-name=hello --project-name=hello --repo-addr= --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --suited-mono-repo=false --extended-api=true  --out=/d/Temp/web
+
+#基于protobuf创建grpc网关服务
+
+go run main.go micro rpc-gw-pb --module-name=test --server-name=test --project-name=test --repo-addr= --protobuf-file=/d/Temp/greeter.proto --suited-mono-repo=false --out=/d/Temp/web
+
+#基于sql生成dao cache model 代码
+
+go run main.go web dao --module-name=platformApiService --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --include-init-db=false --suited-mono-repo=false --extended-api=true --out=/d/Temp/web
+
+#基于sql生成protobuf cache dao ecode handler model代码
+
+go run main.go web handler-pb --module-name=hello --server-name=hello --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --suited-mono-repo=false --extended-api=true  --out=/d/Temp/web
+
+#生成cache代码
+
+go run main.go web cache --module-name=adminService --cache-name=getUserToken --prefix-key=user:token: --key-name=uid --key-type=string --value-name=token --value-type=string --suited-mono-repo=false --out=/d/Temp/web
+
+#生成grpc服务连接代码
+
+go run main.go micro rpc-conn --module-name=hello --rpc-server-name=ping --suited-mono-repo=false --out=/d/Temp/web
+
+#生成Model代码
+
+go run main.go web model --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --out=/d/Temp/web
+
+#基于sql生成protobuf CURD描述信息
+
+go run main.go micro protobuf --module-name=hello --server-name=hello --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --web-type=true --extended-api=true --out=/d/Temp/web
+
+#基于sql生成生成service+handler
+
+go run main.go micro service-handler --module-name=hello --server-name=hello --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --suited-mono-repo=false --extended-api=true --out=/d/Temp/web
+
+#基于sql生成生成生成service CRUD代码
+
+go run main.go micro service --module-name=hello --server-name=hello --db-driver=mysql --db-dsn="hello:hello@(43.143.78.234:3306)/fzj" --db-table=sys_admin_dept --embed=true --suited-mono-repo=false --extended-api=true --out=/d/Temp/web
+
+
