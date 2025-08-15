@@ -79,5 +79,8 @@ var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
 var SunshineDir = build.Default.GOPATH + gofile.GetPathDelimiter() + "src" + gofile.GetPathDelimiter() + "sun" + gofile.GetPathDelimiter() + "sunshine"
 
 #运行
-go run main.go web dao --module-name=platformApiService --db-driver=mysql --db-dsn="root:jianguo123@(127.0.0.1:3306)/fzj" --db-table=sys_admin_log --embed=true --include-init-db=false --suited-mono-repo=false --extended-api=t
-rue --out=/d/Temp
+go run main.go web dao --module-name=hello --db-driver=mysql --db-dsn="root:jianguo123@(127.0.0.1:3306)/fzj" --db-table=sys_admin_log --embed=true --include-init-db=false --suited-mono-repo=false --extended-api=true --out=/d/Temp
+
+go run main.go web http --module-name=hello --server-name=hello --project-name=hello --repo-addr= --db-driver=mysql --db-dsn="root:jianguo123@(127.0.0.1:3306)/fzj" --db-table=app_info --embed=true --suited-mono-repo=false --extended-api=true --out=/d/Temp
+
+go run main.go micro grpc-http-pb --module-name=hello --server-name=hello --project-name=hello --repo-addr= --protobuf-file=/d/Temp/aa.proto --suited-mono-repo=false --out=/d/Temp
