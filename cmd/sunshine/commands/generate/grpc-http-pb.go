@@ -137,10 +137,16 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 			"routers_pbExample.go",
 		},
 		"internal/server": {
-			"http.go", "http_option.go", "grpc.go", "grpc_option.go",
+			"http.go", "http_option.go", "grpc.go", "grpc_option.go", "cron.go", "cron_option.go", "rabbitmqConsumer.go", "rabbitmqConsumer_option.go",
 		},
 		"internal/service": {
 			"service.go", "service_test.go",
+		},
+		"internal/cron": {
+			"cron.go", "tasks/userExampleCronTask.go",
+		},
+		"internal/mq": {
+			"rabbitmq/mq.go", "rabbitmq/consumers/order.go", "rabbitmq/producer/main.go",
 		},
 	}
 

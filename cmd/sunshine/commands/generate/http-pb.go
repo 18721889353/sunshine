@@ -139,6 +139,12 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 		"internal/server": {
 			"http.go", "http_option.go",
 		},
+		"internal/cron": {
+			"cron.go", "tasks/userExampleCronTask.go",
+		},
+		"internal/mq": {
+			"rabbitmq/mq.go", "rabbitmq/consumers/order.go", "rabbitmq/producer/main.go",
+		},
 	}
 
 	if g.suitedMonoRepo {
