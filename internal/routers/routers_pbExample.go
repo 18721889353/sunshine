@@ -2,12 +2,14 @@ package routers
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/internal/database"
-	"google.golang.org/grpc/metadata"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/18721889353/sunshine/internal/database"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"google.golang.org/grpc/metadata"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -119,7 +121,8 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 
 	// trace middleware
 	if config.Get().App.EnableTrace {
-		r.Use(middleware.Tracing(config.Get().App.Name))
+		//r.Use(middleware.Tracing(config.Get().App.Name))
+		r.Use(otelgin.Middleware(config.Get().App.Name))
 	}
 
 	c := newMiddlewareConfig()
