@@ -8,8 +8,8 @@ import (
 	"github.com/alibaba/sentinel-golang/core/flow"
 	SentinelGin "github.com/alibaba/sentinel-golang/pkg/adapters/gin"
 	"github.com/gin-gonic/gin"
+	"github.com/jinzhu/copier"
 	"go.uber.org/zap"
-	"reflect"
 )
 
 var resourceName = "default"
@@ -71,29 +71,9 @@ func WithSentinelLog(log *zap.Logger) SentinelOptions {
 func WithSentinelRules(ruleInfos any) SentinelOptions {
 	return func(o *sentinelOptions) {
 		var rules []*flow.Rule
-		// 使用反射处理slice
-		rv := reflect.ValueOf(ruleInfos)
-		if rv.Kind() == reflect.Slice {
-			for i := 0; i < rv.Len(); i++ {
-				item := rv.Index(i)
-				// 如果是指针，需要解引用
-				if item.Kind() == reflect.Ptr {
-					item = item.Elem()
-				}
-
-				// 通过反射获取字段值
-				resource := item.FieldByName("Resource").String()
-				statIntervalInMs := int(item.FieldByName("StatIntervalInMs").Int())
-				threshold := item.FieldByName("Threshold").Float()
-
-				rules = append(rules, &flow.Rule{
-					Resource:               resource,
-					TokenCalculateStrategy: flow.Direct,
-					ControlBehavior:        flow.Reject,
-					Threshold:              threshold,
-					StatIntervalInMs:       uint32(statIntervalInMs),
-				})
-			}
+		err := copier.Copy(&rules, ruleInfos)
+		if err != nil {
+			o.log.Panic("copier.Copy err", logger.Err(err))
 		}
 		o.rules = rules
 	}
