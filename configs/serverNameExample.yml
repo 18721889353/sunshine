@@ -85,7 +85,7 @@ logger:
     maxBackups: 50         # Maximum number of old files to retain (default is 100)
     maxAge: 15             # Maximum number of days to retain old files (default is 30 days)
     isCompression: true    # Whether to compress/archive old files (default is false)
-    noPrint: false
+    isNoPrint: true         #禁止终端/文件输出
 
 
 
