@@ -461,9 +461,16 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			case ast.ColumnOptionAutoIncrement:
 				gormTag.WriteString(";AUTO_INCREMENT")
 			case ast.ColumnOptionDefaultValue:
+				// 处理默认值，包括NULL默认值
 				if value := getDefaultValue(o.Expr); value != "" {
 					gormTag.WriteString(";default:")
 					gormTag.WriteString(value)
+				} else if o.Expr.GetDatum().Kind() == types.KindNull {
+					// 明确处理NULL默认值
+					gormTag.WriteString(";default:null")
+				} else if o.Expr.GetDatum().Kind() == types.KindString {
+					// 处理空字符串默认值
+					gormTag.WriteString(";default:''")
 				}
 			case ast.ColumnOptionUniqKey:
 				gormTag.WriteString(";unique")
