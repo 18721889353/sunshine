@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type CreateTokenRequest struct {
@@ -37,7 +38,8 @@ func NewCreateTokenRequest() *CreateTokenRequest {
 	request := &CreateTokenRequest{
 		param: &CreateTokenParam{},
 	}
-	request.SetConfig(GlobalConfig)
+	fmt.Println(GetTkConfig())
+	request.SetConfig(GetTkConfig())
 	request.SetClient(DefaultTkApiClient)
 	return request
 }

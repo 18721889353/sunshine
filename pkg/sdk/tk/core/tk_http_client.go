@@ -1,20 +1,21 @@
-package http
+package core
 
 import (
 	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 var clientMap sync.Map
@@ -147,34 +148,35 @@ func (client *TkHttpClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	return &TkHttpResponse{Body: string(bs)}, nil
 }
 
-func GetHttpClient(timeout int64) *TkHttpClient {
+func GetHttpClient() *TkHttpClient {
 	// 使用 LoadOrStore 确保并发安全初始化
-	client, loaded := clientMap.LoadOrStore(timeout, nil)
+	client, loaded := clientMap.LoadOrStore(GetTkConfig().HttpReadTimeout, nil)
 	if !loaded || client == nil {
+		// 获取配置
+		config := GetTkConfig()
 		newClient := &TkHttpClient{
 			httpClient: &http.Client{
 				Transport: &http.Transport{
 					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: false, // 启用证书验证（生产环境建议开启）
+						InsecureSkipVerify: config.InsecureSkipVerify,
 						MinVersion:         tls.VersionTLS12,
-						// 增加以下配置
-						RootCAs:    nil, // 指定CA证书池
-						ClientAuth: tls.NoClientCert,
+						RootCAs:            nil,
+						ClientAuth:         tls.NoClientCert,
 					},
-					DisableKeepAlives:     false,
-					MaxIdleConns:          1000,             // 合理限制空闲连接数
-					MaxIdleConnsPerHost:   1000,             // 每个 Host 的最大空闲连接数
-					IdleConnTimeout:       30 * time.Second, // 缩短空闲连接超时时间
-					ResponseHeaderTimeout: 5 * time.Second,  // 添加响应头超时限制
+					DisableKeepAlives:     config.DisableKeepAlives,
+					MaxIdleConns:          config.MaxIdleCons,
+					MaxIdleConnsPerHost:   config.MaxIdleConsPerHost,
+					IdleConnTimeout:       config.IdleConnTimeout,
+					ResponseHeaderTimeout: config.ResponseHeaderTimeout,
 					DialContext: (&net.Dialer{
-						Timeout:   10 * time.Second, // 缩短连接超时时间
-						KeepAlive: 30 * time.Second,
+						Timeout:   config.DialTimeout,
+						KeepAlive: config.DialKeepAlive,
 					}).DialContext,
 				},
-				Timeout: time.Duration(timeout) * time.Millisecond,
+				Timeout: time.Duration(config.HttpReadTimeout) * time.Millisecond,
 			},
 		}
-		clientMap.Store(timeout, newClient)
+		clientMap.Store(GetTkConfig().HttpReadTimeout, newClient)
 		return newClient
 	}
 	return client.(*TkHttpClient)

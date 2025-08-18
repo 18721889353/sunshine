@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	get_coupon_info_response "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_coupon_info/response"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 	"github.com/go-playground/locales/zh"
@@ -25,7 +26,7 @@ func New() *GetCouponInfoRequest {
 	request := &GetCouponInfoRequest{
 		Param: &GetCouponInfoParam{},
 	}
-	request.SetConfig(core.GlobalConfig)
+	request.SetConfig(core.GetTkConfig())
 	request.SetClient(core.DefaultTkApiClient)
 	return request
 

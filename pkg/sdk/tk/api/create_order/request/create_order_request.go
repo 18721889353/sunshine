@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	create_order_response "github.com/18721889353/sunshine/pkg/sdk/tk/api/create_order/response"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 	"github.com/go-playground/locales/zh"
@@ -25,7 +26,7 @@ func New() *CreateOrderRequest {
 	request := &CreateOrderRequest{
 		Param: &CreateOrderParam{},
 	}
-	request.SetConfig(core.GlobalConfig)
+	request.SetConfig(core.GetTkConfig())
 	request.SetClient(core.DefaultTkApiClient)
 	return request
 

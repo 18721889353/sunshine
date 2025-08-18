@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/sdk/tk/core/http"
+
 	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/utils"
 	"go.opentelemetry.io/otel"
@@ -44,17 +44,13 @@ func (client *TkApiClient) Request(request TkApiRequest, accessToken string) (st
 		}
 	}
 
-	timeout := request.GetConfig().HttpReadTimeout
-	if timeout == 0 {
-		timeout = 10000 //默认10s超时
-	}
-	httpRequest := &http.TkHttpRequest{
+	httpRequest := &TkHttpRequest{
 		Url:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestUrl, urlPath),
 		Headers: httpHeaderMap,
 		Body:    paramJsonString,
 	}
 
-	httpResponse, err := http.GetHttpClient(timeout).Post(httpRequest)
+	httpResponse, err := GetHttpClient().Post(httpRequest)
 
 	if err != nil {
 		return "", err
@@ -110,11 +106,7 @@ func (client *TkApiClient) RequestWithContext(ctx context.Context, request TkApi
 		}
 	}
 
-	timeout := request.GetConfig().HttpReadTimeout
-	if timeout == 0 {
-		timeout = 10000 //默认10s超时
-	}
-	httpRequest := &http.TkHttpRequest{
+	httpRequest := &TkHttpRequest{
 		Url:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestUrl, urlPath),
 		Headers: httpHeaderMap,
 		Body:    paramJsonString,
@@ -126,7 +118,7 @@ func (client *TkApiClient) RequestWithContext(ctx context.Context, request TkApi
 		attribute.String("http.method", "POST"),
 	)
 
-	httpResponse, err := http.GetHttpClient(timeout).PostWithContext(ctx, httpRequest)
+	httpResponse, err := GetHttpClient().PostWithContext(ctx, httpRequest)
 
 	if err != nil {
 		span.RecordError(err)
