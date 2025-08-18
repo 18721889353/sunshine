@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	place_order_response "github.com/18721889353/sunshine/pkg/sdk/tk/api/place_order/response"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 	"github.com/go-playground/locales/zh"
@@ -25,7 +26,7 @@ func New() *PlaceOrderRequest {
 	request := &PlaceOrderRequest{
 		Param: &PlaceOrderParam{},
 	}
-	request.SetConfig(core.GlobalConfig)
+	request.SetConfig(core.GetTkConfig())
 	request.SetClient(core.DefaultTkApiClient)
 	return request
 

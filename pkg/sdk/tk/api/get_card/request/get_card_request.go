@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	get_card_response "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_card/response"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 	"github.com/go-playground/locales/zh"
@@ -25,7 +26,7 @@ func New() *GetCardRequest {
 	request := &GetCardRequest{
 		Param: &GetCardParam{},
 	}
-	request.SetConfig(core.GlobalConfig)
+	request.SetConfig(core.GetTkConfig())
 	request.SetClient(core.DefaultTkApiClient)
 	return request
 
