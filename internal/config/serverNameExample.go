@@ -161,11 +161,11 @@ type Jwt struct {
 type LogFileConfig struct {
 	Filename      string `yaml:"filename" json:"filename"`
 	IsCompression bool   `yaml:"isCompression" json:"isCompression"`
+	IsNoPrint     bool   `yaml:"isNoPrint" json:"isNoPrint"`
 	IsSaveDay     bool   `yaml:"isSaveDay" json:"isSaveDay"`
 	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
 	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
 	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
-	NoPrint       bool   `yaml:"noPrint" json:"noPrint"`
 }
 
 type Logger struct {

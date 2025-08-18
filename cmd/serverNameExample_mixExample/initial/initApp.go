@@ -64,6 +64,7 @@ func InitApp() {
 		logger.WithHooks(ZapLogHandler),
 		logger.WithSave(
 			cfg.Logger.IsSave,
+			logger.WithSaveDay(cfg.Logger.LogFileConfig.IsSaveDay),
 			logger.WithFileName(cfg.Logger.LogFileConfig.Filename),
 			logger.WithFileMaxSize(cfg.Logger.LogFileConfig.MaxSize),
 			logger.WithFileMaxBackups(cfg.Logger.LogFileConfig.MaxBackups),

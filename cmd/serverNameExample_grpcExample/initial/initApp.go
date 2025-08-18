@@ -64,11 +64,13 @@ func InitApp() {
 		logger.WithHooks(ZapLogHandler),
 		logger.WithSave(
 			cfg.Logger.IsSave,
+			logger.WithSaveDay(cfg.Logger.LogFileConfig.IsSaveDay),
 			logger.WithFileName(cfg.Logger.LogFileConfig.Filename),
 			logger.WithFileMaxSize(cfg.Logger.LogFileConfig.MaxSize),
 			logger.WithFileMaxBackups(cfg.Logger.LogFileConfig.MaxBackups),
 			logger.WithFileMaxAge(cfg.Logger.LogFileConfig.MaxAge),
 			logger.WithFileIsCompression(cfg.Logger.LogFileConfig.IsCompression),
+			logger.WithNoPrint(cfg.Logger.LogFileConfig.IsNoPrint),
 		),
 	)
 	if err != nil {
