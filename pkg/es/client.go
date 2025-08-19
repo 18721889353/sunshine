@@ -63,14 +63,24 @@ func NewClient(config Config) (*Client, error) {
 
 // Ping 检查ES服务状态
 func (c *Client) Ping() error {
-	res, err := c.Client.Ping()
+	ctx := context.Background()
+	// 添加追踪支持
+	ctx, endSpan := c.withSpan(ctx, "ping")
+	defer endSpan(nil)
+
+	res, err := c.Client.Ping(
+		c.Client.Ping.WithContext(ctx),
+	)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("failed to ping elasticsearch: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return fmt.Errorf("elasticsearch ping returned error status: %s", res.String())
+		err = fmt.Errorf("elasticsearch ping returned error status: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	return nil
@@ -78,18 +88,29 @@ func (c *Client) Ping() error {
 
 // Info 获取ES集群信息
 func (c *Client) Info() (map[string]interface{}, error) {
-	res, err := c.Client.Info()
+	ctx := context.Background()
+	// 添加追踪支持
+	ctx, endSpan := c.withSpan(ctx, "info")
+	defer endSpan(nil)
+
+	res, err := c.Client.Info(
+		c.Client.Info.WithContext(ctx),
+	)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("failed to get elasticsearch info: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return nil, fmt.Errorf("elasticsearch info request returned error: %s", res.String())
+		err = fmt.Errorf("elasticsearch info request returned error: %s", res.String())
+		endSpan(err)
+		return nil, err
 	}
 
 	var info map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&info); err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("failed to decode elasticsearch info: %w", err)
 	}
 
@@ -98,26 +119,36 @@ func (c *Client) Info() (map[string]interface{}, error) {
 
 // HealthCheck 检查集群健康状态
 func (c *Client) HealthCheck(ctx context.Context) (string, error) {
+	// 添加追踪支持
+	ctx, endSpan := c.withSpan(ctx, "health_check")
+	defer endSpan(nil)
+
 	res, err := c.Client.Cluster.Health(
 		c.Client.Cluster.Health.WithContext(ctx),
 	)
 	if err != nil {
+		endSpan(err)
 		return "", fmt.Errorf("failed to check cluster health: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return "", fmt.Errorf("cluster health check returned error: %s", res.String())
+		err = fmt.Errorf("cluster health check returned error: %s", res.String())
+		endSpan(err)
+		return "", err
 	}
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		endSpan(err)
 		return "", fmt.Errorf("failed to decode health check result: %w", err)
 	}
 
 	status, ok := result["status"].(string)
 	if !ok {
-		return "", fmt.Errorf("unexpected health check response format")
+		err = fmt.Errorf("unexpected health check response format")
+		endSpan(err)
+		return "", err
 	}
 
 	return status, nil

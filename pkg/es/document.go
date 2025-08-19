@@ -22,8 +22,13 @@ func (c *Client) Document() *Document {
 
 // Index 索引文档
 func (d *Document) Index(ctx context.Context, index string, doc interface{}, docID string) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "index", index, docID)
+	defer endSpan(nil)
+	
 	body, err := json.Marshal(doc)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("marshal document error: %w", err)
 	}
 
@@ -36,12 +41,15 @@ func (d *Document) Index(ctx context.Context, index string, doc interface{}, doc
 
 	res, err := req.Do(ctx, d.client.Client)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("index document error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return fmt.Errorf("index document failed: %s", res.String())
+		err = fmt.Errorf("index document failed: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	return nil
@@ -49,6 +57,10 @@ func (d *Document) Index(ctx context.Context, index string, doc interface{}, doc
 
 // Get 获取文档
 func (d *Document) Get(ctx context.Context, index string, docID string, result interface{}) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "get", index, docID)
+	defer endSpan(nil)
+
 	req := esapi.GetRequest{
 		Index:      index,
 		DocumentID: docID,
@@ -56,20 +68,26 @@ func (d *Document) Get(ctx context.Context, index string, docID string, result i
 
 	res, err := req.Do(ctx, d.client.Client)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("get document error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode == 404 {
-		return fmt.Errorf("document not found")
+		err = fmt.Errorf("document not found")
+		endSpan(err)
+		return err
 	}
 
 	if res.IsError() {
-		return fmt.Errorf("get document failed: %s", res.String())
+		err = fmt.Errorf("get document failed: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("read response body error: %w", err)
 	}
 
@@ -78,10 +96,12 @@ func (d *Document) Get(ctx context.Context, index string, docID string, result i
 	}
 
 	if err := json.Unmarshal(body, &response); err != nil {
+		endSpan(err)
 		return fmt.Errorf("unmarshal response error: %w", err)
 	}
 
 	if err := json.Unmarshal(response.Source, result); err != nil {
+		endSpan(err)
 		return fmt.Errorf("unmarshal document error: %w", err)
 	}
 
@@ -90,6 +110,10 @@ func (d *Document) Get(ctx context.Context, index string, docID string, result i
 
 // Delete 删除文档
 func (d *Document) Delete(ctx context.Context, index string, docID string) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "delete", index, docID)
+	defer endSpan(nil)
+
 	req := esapi.DeleteRequest{
 		Index:      index,
 		DocumentID: docID,
@@ -98,12 +122,15 @@ func (d *Document) Delete(ctx context.Context, index string, docID string) error
 
 	res, err := req.Do(ctx, d.client.Client)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("delete document error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return fmt.Errorf("delete document failed: %s", res.String())
+		err = fmt.Errorf("delete document failed: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	return nil
@@ -111,10 +138,15 @@ func (d *Document) Delete(ctx context.Context, index string, docID string) error
 
 // Update 添加更新文档功能
 func (d *Document) Update(ctx context.Context, index string, docID string, updateData interface{}) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "update", index, docID)
+	defer endSpan(nil)
+	
 	body, err := json.Marshal(map[string]interface{}{
 		"doc": updateData,
 	})
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("marshal update data error: %w", err)
 	}
 
@@ -127,12 +159,15 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 
 	res, err := req.Do(ctx, d.client.Client)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("update document error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return fmt.Errorf("update document failed: %s", res.String())
+		err = fmt.Errorf("update document failed: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	return nil
@@ -140,6 +175,10 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 
 // BulkIndex 添加批量操作示例
 func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[string]interface{}) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_index", index)
+	defer endSpan(nil)
+	
 	var operations []BulkOperation
 	for i, doc := range docs {
 		operations = append(operations, BulkOperation{
