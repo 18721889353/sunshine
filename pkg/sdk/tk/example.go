@@ -4,18 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
 	get_coupon_num_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_coupon_num/request"
 
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 )
 
 func main() {
+
 	tkConfig := core.NewTkConfig(
-		core.WithAppId(""),
-		core.WithAppSecret(""),
-		//core.WithOpenRequestUrl("https://new-test.tongkask.com"),
-		//core.WithHttpReadTimeout(10000),
+	//core.WithAppId(""),
+	//core.WithAppSecret(""),
+	//core.WithSignFunc(func(params map[string]any, appSecret string) string {
+	//	return ""
+	//}),
+	//core.WithOpenRequestUrl("https://new-test.tongkask.com"),
+	//core.WithHttpReadTimeout(10000),
 	)
 
 	accessToken, err := core.GetAccessToken(&core.GetAccessTokenParam{

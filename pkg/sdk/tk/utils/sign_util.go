@@ -30,7 +30,7 @@ func Md5(s string) string {
 }
 
 // Marshal 序列化参数
-func Marshal(o interface{}, appSecret string) string {
+func Marshal(o interface{}, appSecret string, signFunc func(params map[string]any, appSecret string) string) string {
 	// 序列化一次
 	raw, _ := json.Marshal(o)
 
@@ -43,6 +43,13 @@ func Marshal(o interface{}, appSecret string) string {
 	m["timestamp"] = time.Now().Unix()
 	m["nonce_str"] = RandStringBytesMaskImprSrcUnsafe(32)
 	m["sign"] = Sign(m, appSecret)
+
+	// 使用传入的签名函数或者默认签名函数
+	if signFunc != nil {
+		m["sign"] = signFunc(m, appSecret)
+	} else {
+		m["sign"] = Sign(m, appSecret)
+	}
 	// 重新做一次序列化，并禁用Html Escape
 	buffer := bytes.NewBufferString("")
 	encoder := json.NewEncoder(buffer)
