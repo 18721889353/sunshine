@@ -199,3 +199,34 @@ sentinel:
 #    xMessageTTL: 60000 #消息过期时间（队列级别）,毫秒
 #    consumerInfos:
 #      - couponNum: 10 #消费者数量
+
+elasticsearch:
+  isOpen: true #是否开启
+  # Elasticsearch服务器地址列表
+  addresses:
+    - "http://127.0.0.1:9200"
+  # 用户名
+  username: "elastic"
+  # 密码
+  password: "elastic"
+  # API密钥
+  apiKey: "aaa"
+  # 超时时间(秒)
+  timeout: 30
+  # 连接池配置
+  max_idle_conns: 20              # 最大空闲连接数
+  max_idle_conns_per_host: 5      # 每个主机最大空闲连接数
+  max_conns_per_host: 20          # 每个主机最大连接数
+  idle_conn_timeout: 90           # 空闲连接超时时间(秒)
+  tls_handshake_timeout: 10       # TLS握手超时时间(秒)
+  expect_continue_timeout: 1      # 期望继续超时时间(秒)
+  response_header_timeout: 10     # 响应头超时时间(秒)
+  connection_timeout: 30          # 连接超时时间(秒)
+  connection_keep_alive: 30       # 连接保持时间(秒)
+  # 重试配置
+  retry_on_status: [ 502, 503, 504, 429 ]  # 需要重试的HTTP状态码
+  max_retries: 3                         # 最大重试次数
+  retry_backoff: 100                     # 重试间隔基础时间(毫秒)
+  # 健康检查
+  enable_ping_check: true                # 是否启用ping检查
+  enable_health_check: true              # 是否启用健康检查
