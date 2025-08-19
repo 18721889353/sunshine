@@ -6,11 +6,12 @@ package initial
 import (
 	"flag"
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/18721889353/sunshine/pkg/jwt"
 	v5 "github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
-	"strconv"
-	"time"
 
 	"github.com/jinzhu/copier"
 
@@ -129,6 +130,10 @@ func InitApp() {
 	if cfg.App.CacheType == "redis" {
 		database.InitCache(cfg.App.CacheType)
 		logger.Infof("[%s] was initialized", cfg.App.CacheType)
+	}
+	if cfg.Elasticsearch.IsOpen {
+		database.InitElasticsearch()
+		logger.Info("[Elasticsearch] was initialized")
 	}
 	if int64(cfg.App.MachineID) > 0 {
 		database.GetSnowNode()

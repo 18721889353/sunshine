@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/elastic/go-elasticsearch/v8/esapi"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 )
 
 // Document 文档操作接口
@@ -107,4 +107,48 @@ func (d *Document) Delete(ctx context.Context, index string, docID string) error
 	}
 
 	return nil
+}
+
+// Update 添加更新文档功能
+func (d *Document) Update(ctx context.Context, index string, docID string, updateData interface{}) error {
+	body, err := json.Marshal(map[string]interface{}{
+		"doc": updateData,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal update data error: %w", err)
+	}
+
+	req := esapi.UpdateRequest{
+		Index:      index,
+		DocumentID: docID,
+		Body:       bytes.NewReader(body),
+		Refresh:    "true",
+	}
+
+	res, err := req.Do(ctx, d.client.Client)
+	if err != nil {
+		return fmt.Errorf("update document error: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return fmt.Errorf("update document failed: %s", res.String())
+	}
+
+	return nil
+}
+
+// BulkIndex 添加批量操作示例
+func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[string]interface{}) error {
+	var operations []BulkOperation
+	for i, doc := range docs {
+		operations = append(operations, BulkOperation{
+			Index:   index,
+			ID:      fmt.Sprintf("%d", i),
+			Action:  "index",
+			Payload: doc,
+		})
+	}
+
+	return d.client.Bulk().BulkExecute(ctx, operations)
 }

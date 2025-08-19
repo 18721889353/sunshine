@@ -10,6 +10,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.33.0
 	github.com/bojand/ghz v0.120.0
 	github.com/bwmarrin/snowflake v0.3.0
+	github.com/elastic/go-elasticsearch/v7 v7.17.10
 	github.com/elastic/go-elasticsearch/v8 v8.19.0
 	github.com/fatih/color v1.18.0
 	github.com/felixge/fgprof v0.9.5

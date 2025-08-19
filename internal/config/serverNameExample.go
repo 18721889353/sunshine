@@ -29,18 +29,42 @@ func Set(conf *Config) {
 }
 
 type Config struct {
-	App        App          `yaml:"app" json:"app"`
-	Database   Database     `yaml:"database" json:"database"`
-	Etcd       Etcd         `yaml:"etcd" json:"etcd"`
-	Grpc       Grpc         `yaml:"grpc" json:"grpc"`
-	GrpcClient []GrpcClient `yaml:"grpcClient" json:"grpcClient"`
-	HTTP       HTTP         `yaml:"http" json:"http"`
-	Jaeger     Jaeger       `yaml:"jaeger" json:"jaeger"`
-	Jwt        Jwt          `yaml:"jwt" json:"jwt"`
-	Logger     Logger       `yaml:"logger" json:"logger"`
-	Redis      Redis        `yaml:"redis" json:"redis"`
-	Sentinel   Sentinel     `yaml:"sentinel" json:"sentinel"`
-	Sign       Sign         `yaml:"sign" json:"sign"`
+	App           App           `yaml:"app" json:"app"`
+	Database      Database      `yaml:"database" json:"database"`
+	Elasticsearch Elasticsearch `yaml:"elasticsearch" json:"elasticsearch"`
+	Etcd          Etcd          `yaml:"etcd" json:"etcd"`
+	Grpc          Grpc          `yaml:"grpc" json:"grpc"`
+	GrpcClient    []GrpcClient  `yaml:"grpcClient" json:"grpcClient"`
+	HTTP          HTTP          `yaml:"http" json:"http"`
+	Jaeger        Jaeger        `yaml:"jaeger" json:"jaeger"`
+	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
+	Logger        Logger        `yaml:"logger" json:"logger"`
+	Redis         Redis         `yaml:"redis" json:"redis"`
+	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
+	Sign          Sign          `yaml:"sign" json:"sign"`
+}
+
+type Elasticsearch struct {
+	Addresses             []string `yaml:"addresses" json:"addresses"`
+	APIKey                string   `yaml:"apiKey" json:"apiKey"`
+	ConnectionKeepAlive   int      `yaml:"connection_keep_alive" json:"connection_keep_alive"`
+	ConnectionTimeout     int      `yaml:"connection_timeout" json:"connection_timeout"`
+	EnableHealthCheck     bool     `yaml:"enable_health_check" json:"enable_health_check"`
+	EnablePingCheck       bool     `yaml:"enable_ping_check" json:"enable_ping_check"`
+	ExpectContinueTimeout int      `yaml:"expect_continue_timeout" json:"expect_continue_timeout"`
+	IdleConnTimeout       int      `yaml:"idle_conn_timeout" json:"idle_conn_timeout"`
+	IsOpen                bool     `yaml:"isOpen" json:"isOpen"`
+	MaxConnsPerHost       int      `yaml:"max_conns_per_host" json:"max_conns_per_host"`
+	MaxIdleConns          int      `yaml:"max_idle_conns" json:"max_idle_conns"`
+	MaxIdleConnsPerHost   int      `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
+	MaxRetries            int      `yaml:"max_retries" json:"max_retries"`
+	Password              string   `yaml:"password" json:"password"`
+	ResponseHeaderTimeout int      `yaml:"response_header_timeout" json:"response_header_timeout"`
+	RetryBackoff          int      `yaml:"retry_backoff" json:"retry_backoff"`
+	RetryOnStatus         []int    `yaml:"retry_on_status" json:"retry_on_status"`
+	Timeout               int      `yaml:"timeout" json:"timeout"`
+	TLSHandshakeTimeout   int      `yaml:"tls_handshake_timeout" json:"tls_handshake_timeout"`
+	Username              string   `yaml:"username" json:"username"`
 }
 
 type Etcd struct {

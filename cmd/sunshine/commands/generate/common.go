@@ -1020,7 +1020,7 @@ func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 	dbDriver = strings.ToLower(dbDriver)
 	switch dbDriver {
 	case DBDriverMysql, DBDriverTidb:
-		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go", "snow.go", "rabbitmq.go"}
+		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go", "snow.go", "rabbitmq.go", "es.go"}
 	case DBDriverPostgresql:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "postgresql.go"}
 	case DBDriverSqlite:
