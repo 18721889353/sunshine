@@ -27,6 +27,8 @@ type TkConfig struct {
 	ResponseHeaderTimeout time.Duration // 从请求发送到接收到响应头的超时时间
 	DialTimeout           time.Duration // 建立TCP连接的超时时间
 	DialKeepAlive         time.Duration // TCP连接的Keep-Alive探测时间间隔
+
+	SignFunc func(params map[string]any, appSecret string) string
 }
 type TkOption func(*TkConfig)
 
@@ -101,7 +103,7 @@ func WithDisableKeepAlives(disableKeepAlives bool) TkOption {
 func WithMaxIdleCons(maxIdleCons int) TkOption {
 	return func(config *TkConfig) {
 		if maxIdleCons <= 0 {
-			maxIdleCons = 1000
+			config.MaxIdleCons = 1000
 		} else {
 			config.MaxIdleCons = maxIdleCons
 		}
@@ -112,7 +114,7 @@ func WithMaxIdleCons(maxIdleCons int) TkOption {
 func WithMaxIdleConsPerHost(maxIdleConsPerHost int) TkOption {
 	return func(config *TkConfig) {
 		if maxIdleConsPerHost <= 0 {
-			maxIdleConsPerHost = 1000
+			config.MaxIdleConsPerHost = 1000
 		} else {
 			config.MaxIdleConsPerHost = maxIdleConsPerHost
 		}
@@ -123,7 +125,7 @@ func WithMaxIdleConsPerHost(maxIdleConsPerHost int) TkOption {
 func WithIdleConnTimeout(idleConnTimeout time.Duration) TkOption {
 	return func(config *TkConfig) {
 		if idleConnTimeout <= 0 {
-			idleConnTimeout = 30 * time.Second
+			config.IdleConnTimeout = 30 * time.Second
 		} else {
 			config.IdleConnTimeout = idleConnTimeout
 		}
@@ -134,7 +136,7 @@ func WithIdleConnTimeout(idleConnTimeout time.Duration) TkOption {
 func WithResponseHeaderTimeout(responseHeaderTimeout time.Duration) TkOption {
 	return func(config *TkConfig) {
 		if responseHeaderTimeout <= 0 {
-			responseHeaderTimeout = 5 * time.Second
+			config.ResponseHeaderTimeout = 5 * time.Second
 		} else {
 			config.ResponseHeaderTimeout = responseHeaderTimeout
 		}
@@ -146,7 +148,7 @@ func WithResponseHeaderTimeout(responseHeaderTimeout time.Duration) TkOption {
 func WithDialTimeout(dialTimeout time.Duration) TkOption {
 	return func(config *TkConfig) {
 		if dialTimeout <= 0 {
-			dialTimeout = 10 * time.Second
+			config.DialTimeout = 10 * time.Second
 		} else {
 			config.DialTimeout = dialTimeout
 		}
@@ -158,11 +160,17 @@ func WithDialTimeout(dialTimeout time.Duration) TkOption {
 func WithDialKeepAlive(dialKeepAlive time.Duration) TkOption {
 	return func(config *TkConfig) {
 		if dialKeepAlive <= 0 {
-			dialKeepAlive = 30 * time.Second
+			config.DialKeepAlive = 30 * time.Second
 		} else {
 			config.DialKeepAlive = dialKeepAlive
 		}
 
+	}
+}
+
+func WithSignFunc(funcName func(params map[string]any, appSecret string) string) TkOption {
+	return func(config *TkConfig) {
+		config.SignFunc = funcName
 	}
 }
 

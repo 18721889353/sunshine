@@ -30,7 +30,10 @@ func (client *TkApiClient) Request(request TkApiRequest, accessToken string) (st
 	}
 	paramJson := request.GetParamObject()
 	urlPath := request.GetUrlPath()
-	paramJsonString := utils.Marshal(paramJson, appSecret)
+	if GetTkConfig().SignFunc == nil {
+		GetTkConfig().SignFunc = utils.Sign
+	}
+	paramJsonString := utils.Marshal(paramJson, appSecret, GetTkConfig().SignFunc)
 	httpHeaderMap := map[string]string{
 		"from":     "sdk",
 		"sdk-type": "golang",
@@ -87,7 +90,10 @@ func (client *TkApiClient) RequestWithContext(ctx context.Context, request TkApi
 
 	paramJson := request.GetParamObject()
 	urlPath := request.GetUrlPath()
-	paramJsonString := utils.Marshal(paramJson, appSecret)
+	if GetTkConfig().SignFunc == nil {
+		GetTkConfig().SignFunc = utils.Sign
+	}
+	paramJsonString := utils.Marshal(paramJson, appSecret, GetTkConfig().SignFunc)
 	// 记录请求参数到 span 中
 	span.SetAttributes(
 		attribute.String("request.body", paramJsonString),
