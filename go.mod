@@ -15,6 +15,8 @@ require (
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/gin-contrib/cors v1.7.2
 	github.com/gin-gonic/gin v1.10.1
+	github.com/go-playground/locales v0.14.1
+	github.com/go-playground/universal-translator v0.18.1
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/go-redsync/redsync/v4 v4.13.0
 	github.com/go-resty/resty/v2 v2.16.5
@@ -37,6 +39,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/nacos-group/nacos-sdk-go/v2 v2.2.7
 	github.com/natefinch/lumberjack v2.0.0+incompatible
+	github.com/olivere/elastic/v7 v7.0.32
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.2
 	github.com/rabbitmq/amqp091-go v1.10.0
@@ -132,8 +135,6 @@ require (
 	github.com/go-openapi/jsonreference v0.19.6 // indirect
 	github.com/go-openapi/spec v0.20.4 // indirect
 	github.com/go-openapi/swag v0.19.15 // indirect
-	github.com/go-playground/locales v0.14.1 // indirect
-	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/mock v1.6.0 // indirect
@@ -166,7 +167,7 @@ require (
 	github.com/jhump/protoreflect v1.15.1 // indirect
 	github.com/jinzhu/configor v1.2.1 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/jmespath/go-jmespath v0.0.0-20180206201540-c2b33e8439af // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
