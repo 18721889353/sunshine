@@ -10,15 +10,20 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const (
-	// instrumentationName 是用于追踪的 instrumentation 名称
-	instrumentationName = "github.com/18721889353/sunshine/pkg/es"
-)
-
 // withSpan 创建一个带有追踪信息的 span
 func (c *Client) withSpan(ctx context.Context, operation string, opts ...interface{}) (context.Context, func(error)) {
 	// 创建一个新的 span
 	ctx, span := tracer.NewSpan(ctx, fmt.Sprintf("es.%s", operation), nil)
+	
+	// 处理传入的参数，将它们作为属性添加到 span 中
+	attrs := make(map[string]interface{})
+	for i, opt := range opts {
+		attrs[fmt.Sprintf("param_%d", i)] = opt
+	}
+	
+	if len(attrs) > 0 {
+		addSpanAttributes(span, attrs)
+	}
 	
 	// 返回上下文和结束函数
 	return ctx, func(err error) {
