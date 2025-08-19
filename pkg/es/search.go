@@ -51,8 +51,13 @@ type SearchResult struct {
 
 // Search 执行搜索
 func (s *Search) Search(ctx context.Context, index string, req SearchRequest) (*SearchResult, error) {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "search", index)
+	defer endSpan(nil)
+	
 	body, err := json.Marshal(req)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("marshal search request error: %w", err)
 	}
 
@@ -63,21 +68,26 @@ func (s *Search) Search(ctx context.Context, index string, req SearchRequest) (*
 
 	res, err := searchReq.Do(ctx, s.client.Client)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return nil, fmt.Errorf("search failed: %s", res.String())
+		err = fmt.Errorf("search failed: %s", res.String())
+		endSpan(err)
+		return nil, err
 	}
 
 	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("read response body error: %w", err)
 	}
 
 	var result SearchResult
 	if err := json.Unmarshal(responseBody, &result); err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("unmarshal search result error: %w", err)
 	}
 
@@ -86,6 +96,10 @@ func (s *Search) Search(ctx context.Context, index string, req SearchRequest) (*
 
 // SearchWithRawQuery 添加更灵活的搜索方法
 func (s *Search) SearchWithRawQuery(ctx context.Context, index string, query []byte) (*SearchResult, error) {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "search_raw_query", index)
+	defer endSpan(nil)
+	
 	searchReq := esapi.SearchRequest{
 		Index: []string{index},
 		Body:  bytes.NewReader(query),
@@ -93,21 +107,26 @@ func (s *Search) SearchWithRawQuery(ctx context.Context, index string, query []b
 
 	res, err := searchReq.Do(ctx, s.client.Client)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return nil, fmt.Errorf("search failed: %s", res.String())
+		err = fmt.Errorf("search failed: %s", res.String())
+		endSpan(err)
+		return nil, err
 	}
 
 	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("read response body error: %w", err)
 	}
 
 	var result SearchResult
 	if err := json.Unmarshal(responseBody, &result); err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("unmarshal search result error: %w", err)
 	}
 
@@ -144,6 +163,10 @@ type PaginationResult struct {
 
 // SearchWithPagination 支持分页的搜索方法
 func (s *Search) SearchWithPagination(ctx context.Context, index string, req PaginatedSearchRequest) (*PaginatedResult, error) {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "search_with_pagination", index)
+	defer endSpan(nil)
+	
 	// 设置默认分页参数
 	page := req.Pagination.Page
 	pageSize := req.Pagination.PageSize
@@ -170,6 +193,7 @@ func (s *Search) SearchWithPagination(ctx context.Context, index string, req Pag
 
 	result, err := s.Search(ctx, index, searchReq)
 	if err != nil {
+		endSpan(err)
 		return nil, err
 	}
 
@@ -179,7 +203,7 @@ func (s *Search) SearchWithPagination(ctx context.Context, index string, req Pag
 		totalPages = (total + pageSize - 1) / pageSize
 	}
 
-	return &PaginatedResult{
+	paginatedResult := &PaginatedResult{
 		SearchResult: *result,
 		Pagination: PaginationResult{
 			Page:       page,
@@ -187,7 +211,9 @@ func (s *Search) SearchWithPagination(ctx context.Context, index string, req Pag
 			Total:      total,
 			TotalPages: totalPages,
 		},
-	}, nil
+	}
+	
+	return paginatedResult, nil
 }
 
 // ScrollSearchResult Scroll搜索结果
@@ -198,8 +224,13 @@ type ScrollSearchResult struct {
 
 // ScrollSearch 初始化Scroll搜索
 func (s *Search) ScrollSearch(ctx context.Context, index string, req SearchRequest, scrollTime time.Duration) (*ScrollSearchResult, error) {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "scroll_search", index)
+	defer endSpan(nil)
+	
 	body, err := json.Marshal(req)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("marshal search request error: %w", err)
 	}
 
@@ -211,21 +242,26 @@ func (s *Search) ScrollSearch(ctx context.Context, index string, req SearchReque
 
 	res, err := scrollReq.Do(ctx, s.client.Client)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("scroll search error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return nil, fmt.Errorf("scroll search failed: %s", res.String())
+		err = fmt.Errorf("scroll search failed: %s", res.String())
+		endSpan(err)
+		return nil, err
 	}
 
 	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("read response body error: %w", err)
 	}
 
 	var result ScrollSearchResult
 	if err := json.Unmarshal(responseBody, &result); err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("unmarshal scroll search result error: %w", err)
 	}
 
@@ -239,6 +275,10 @@ func (s *Search) ScrollSearch(ctx context.Context, index string, req SearchReque
 
 // ScrollContinue 继续Scroll搜索
 func (s *Search) ScrollContinue(ctx context.Context, scrollID string, scrollTime time.Duration) (*ScrollSearchResult, error) {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "scroll_continue")
+	defer endSpan(nil)
+	
 	scrollReq := esapi.ScrollRequest{
 		ScrollID: scrollID,
 		Scroll:   scrollTime,
@@ -246,21 +286,26 @@ func (s *Search) ScrollContinue(ctx context.Context, scrollID string, scrollTime
 
 	res, err := scrollReq.Do(ctx, s.client.Client)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("scroll continue error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return nil, fmt.Errorf("scroll continue failed: %s", res.String())
+		err = fmt.Errorf("scroll continue failed: %s", res.String())
+		endSpan(err)
+		return nil, err
 	}
 
 	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("read response body error: %w", err)
 	}
 
 	var result ScrollSearchResult
 	if err := json.Unmarshal(responseBody, &result); err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("unmarshal scroll search result error: %w", err)
 	}
 
@@ -269,18 +314,25 @@ func (s *Search) ScrollContinue(ctx context.Context, scrollID string, scrollTime
 
 // ScrollClear 清除Scroll上下文
 func (s *Search) ScrollClear(ctx context.Context, scrollIDs []string) error {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "scroll_clear")
+	defer endSpan(nil)
+	
 	clearReq := esapi.ClearScrollRequest{
 		Body: strings.NewReader(fmt.Sprintf(`{"scroll_id": ["%s"]}`, strings.Join(scrollIDs, `","`))),
 	}
 
 	res, err := clearReq.Do(ctx, s.client.Client)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("scroll clear error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return fmt.Errorf("scroll clear failed: %s", res.String())
+		err = fmt.Errorf("scroll clear failed: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	return nil
@@ -294,13 +346,20 @@ type SearchRequestWithSearchAfter struct {
 
 // SearchWithSearchAfter 使用search_after进行搜索
 func (s *Search) SearchWithSearchAfter(ctx context.Context, index string, req SearchRequestWithSearchAfter) (*SearchResult, error) {
+	// 添加追踪支持
+	ctx, endSpan := s.client.withSpan(ctx, "search_with_search_after", index)
+	defer endSpan(nil)
+	
 	// 确保设置了排序字段，这是使用 search_after 的前提条件
 	if req.Sort == nil {
-		return nil, fmt.Errorf("sort field is required when using search_after")
+		err := fmt.Errorf("sort field is required when using search_after")
+		endSpan(err)
+		return nil, err
 	}
 
 	body, err := json.Marshal(req)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("marshal search request error: %w", err)
 	}
 
@@ -311,21 +370,26 @@ func (s *Search) SearchWithSearchAfter(ctx context.Context, index string, req Se
 
 	res, err := searchReq.Do(ctx, s.client.Client)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return nil, fmt.Errorf("search failed: %s", res.String())
+		err = fmt.Errorf("search failed: %s", res.String())
+		endSpan(err)
+		return nil, err
 	}
 
 	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("read response body error: %w", err)
 	}
 
 	var result SearchResult
 	if err := json.Unmarshal(responseBody, &result); err != nil {
+		endSpan(err)
 		return nil, fmt.Errorf("unmarshal search result error: %w", err)
 	}
 

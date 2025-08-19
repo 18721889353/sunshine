@@ -29,6 +29,10 @@ func (c *Client) Bulk() *Bulk {
 
 // BulkExecute 执行批量操作
 func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) error {
+	// 添加追踪支持
+	ctx, endSpan := b.client.withSpan(ctx, "bulk_execute")
+	defer endSpan(nil)
+	
 	var buf bytes.Buffer
 
 	for _, op := range operations {
@@ -41,6 +45,7 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 
 		actionLine, err := json.Marshal(action)
 		if err != nil {
+			endSpan(err)
 			return fmt.Errorf("marshal action error: %w", err)
 		}
 
@@ -50,6 +55,7 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 		if op.Payload != nil && op.Action != "delete" {
 			payload, err := json.Marshal(op.Payload)
 			if err != nil {
+				endSpan(err)
 				return fmt.Errorf("marshal payload error: %w", err)
 			}
 			buf.Write(payload)
@@ -63,12 +69,15 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 
 	res, err := req.Do(ctx, b.client.Client)
 	if err != nil {
+		endSpan(err)
 		return fmt.Errorf("bulk operation error: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		return fmt.Errorf("bulk operation failed: %s", res.String())
+		err = fmt.Errorf("bulk operation failed: %s", res.String())
+		endSpan(err)
+		return err
 	}
 
 	return nil
