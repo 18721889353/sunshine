@@ -179,17 +179,7 @@ func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[strin
 	ctx, endSpan := d.client.withSpan(ctx, "bulk_index", index)
 	defer endSpan(nil)
 	
-	var operations []BulkOperation
-	for i, doc := range docs {
-		operations = append(operations, BulkOperation{
-			Index:   index,
-			ID:      fmt.Sprintf("%d", i),
-			Action:  "index",
-			Payload: doc,
-		})
-	}
-
-	return d.client.Bulk().BulkExecute(ctx, operations)
+	return d.client.Bulk().BulkIndex(ctx, index, docs)
 }
 
 // BulkCreate 批量创建文档
