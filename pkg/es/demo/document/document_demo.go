@@ -1,0 +1,526 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/18721889353/sunshine/pkg/es"
+)
+
+// User 用户结构体，用于映射Elasticsearch中的文档
+type User struct {
+	Name      string    `json:"name"`       // 用户名
+	Age       int       `json:"age"`        // 年龄
+	Email     string    `json:"email"`      // 邮箱
+	CreatedAt time.Time `json:"created_at"` // 创建时间
+}
+
+func main() {
+	fmt.Println("=== Elasticsearch 文档操作完整演示 ===")
+
+	// 初始化客户端，使用完全自定义的连接池配置
+	config := es.GetDefaultConfig()
+	config.Addresses = []string{"http://43.143.78.234:9200"} // Elasticsearch服务地址
+	config.Username = "elastic"                              // 用户名
+	config.Password = "jianguo123"                           // 密码
+
+	// 自定义连接池参数
+	config.MaxIdleConns = 30                    // 最大空闲连接数
+	config.MaxIdleConnsPerHost = 10             // 每个主机最大空闲连接数
+	config.MaxConnsPerHost = 50                 // 每个主机最大连接数
+	config.IdleConnTimeout = 120 * time.Second  // 空闲连接超时时间
+	config.ConnectionTimeout = 10 * time.Second // 连接超时时间
+
+	// 自定义重试参数
+	config.MaxRetries = 5                        // 最大重试次数
+	config.RetryBackoff = 200 * time.Millisecond // 重试间隔
+
+	// 验证配置
+	if err := config.Validate(); err != nil {
+		log.Fatal("Invalid configuration:", err)
+	}
+
+	client, err := es.NewClient(config)
+	if err != nil {
+		log.Fatal("Failed to create client:", err)
+	}
+
+	// 连接检查使用较短的超时
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer connectCancel()
+
+	if err := client.Ping(connectCtx); err != nil {
+		log.Fatal("ES connection failed:", err)
+	}
+
+	// 检查集群健康状态
+	health, err := client.HealthCheck(connectCtx)
+	if err != nil {
+		log.Fatal("Failed to check cluster health:", err)
+	}
+	fmt.Printf("Cluster health status: %s\n", health)
+
+	info, err := client.Info(connectCtx)
+	if err != nil {
+		log.Fatal("Failed to get ES info:", err)
+	}
+
+	fmt.Printf("Connected to Elasticsearch cluster: %s (version: %s)\n",
+		info["cluster_name"], info["version"].(map[string]interface{})["number"])
+
+	// 其他操作使用配置的超时时间
+	ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
+	defer cancel()
+
+	// 1. 集群信息演示
+	fmt.Println("\n=== 1. 集群信息演示 ===")
+	clusterInfoDemo(client, ctx)
+
+	// 确保索引存在
+	indexName := "users"
+	if exists, _ := client.Document().IndexExists(ctx, indexName); !exists {
+		// 创建索引
+		if err := client.Document().CreateIndex(ctx, indexName, nil); err != nil {
+			log.Printf("创建索引失败: %v", err)
+		} else {
+			fmt.Printf("索引 %s 创建成功\n", indexName)
+		}
+	}
+
+	// 2. 单文档操作演示
+	fmt.Println("\n=== 2. 单文档操作演示 ===")
+	docID := "user_1"
+	singleDocumentDemo(client, ctx, indexName, docID)
+
+	// 3. 批量操作演示
+	fmt.Println("\n=== 3. 批量操作演示 ===")
+	bulkOperationsDemo(client, ctx, indexName)
+
+	// 4. 搜索操作演示
+	fmt.Println("\n=== 4. 搜索操作演示 ===")
+	searchOperationsDemo(client, ctx, indexName)
+
+	fmt.Println("\n=== 所有文档操作功能演示完成 ===")
+
+	// 5. 清理操作
+	fmt.Println("\n=== 5. 清理操作 ===")
+	cleanupDemo(client, ctx, indexName)
+}
+
+// 集群信息演示
+func clusterInfoDemo(client *es.Client, ctx context.Context) {
+	// 获取集群健康状态
+	health, err := client.HealthCheck(ctx)
+	if err != nil {
+		log.Printf("获取集群健康状态失败: %v", err)
+	} else {
+		fmt.Printf("集群健康状态: %s\n", health)
+	}
+
+	// 获取集群信息
+	info, err := client.Info(ctx)
+	if err != nil {
+		log.Printf("获取集群信息失败: %v", err)
+	} else {
+		fmt.Printf("集群名称: %s, 版本: %s\n",
+			info["cluster_name"],
+			info["version"].(map[string]interface{})["number"])
+	}
+}
+
+// 单文档操作演示
+func singleDocumentDemo(client *es.Client, ctx context.Context, index, docID string) {
+	// 2.1 索引单个文档
+	fmt.Printf("索引单个文档 %s...\n", docID)
+	indexDocumentDemo(client, ctx, index, docID)
+
+	// 2.2 获取文档
+	fmt.Printf("获取文档 %s...\n", docID)
+	getDocumentDemo(client, ctx, index, docID)
+
+	// 2.3 更新文档
+	fmt.Printf("更新文档 %s...\n", docID)
+	updateDocumentDemo(client, ctx, index, docID)
+
+	// 2.4 再次获取文档验证更新
+	fmt.Printf("再次获取文档 %s 验证更新...\n", docID)
+	getDocumentDemo(client, ctx, index, docID)
+
+	// 2.5 删除文档
+	fmt.Printf("删除文档 %s...\n", docID)
+	deleteDocumentDemo(client, ctx, index, docID)
+
+	// 2.6 验证文档已删除
+	fmt.Printf("验证文档 %s 已删除...\n", docID)
+	getDocumentDemo(client, ctx, index, docID)
+}
+
+// 索引文档演示
+func indexDocumentDemo(client *es.Client, ctx context.Context, index, docID string) {
+	user := User{
+		Name:      "张三",
+		Age:       25,
+		Email:     "zhangsan@example.com",
+		CreatedAt: time.Now(),
+	}
+
+	if err := client.Document().Index(ctx, index, user, docID); err != nil {
+		log.Printf("索引文档失败: %v", err)
+	} else {
+		fmt.Printf("文档 %s 索引成功\n", docID)
+	}
+}
+
+// 获取文档演示
+func getDocumentDemo(client *es.Client, ctx context.Context, index, docID string) {
+	var user User
+	if err := client.Document().Get(ctx, index, docID, &user); err != nil {
+		if err.Error() == "document not found" {
+			fmt.Printf("文档 %s 不存在\n", docID)
+		} else {
+			log.Printf("获取文档失败: %v", err)
+		}
+		return
+	}
+	fmt.Printf("获取到的文档 %s: %+v\n", docID, user)
+}
+
+// 更新文档演示
+func updateDocumentDemo(client *es.Client, ctx context.Context, index, docID string) {
+	updateData := map[string]interface{}{
+		"age": 26,
+	}
+	if err := client.Document().Update(ctx, index, docID, updateData); err != nil {
+		log.Printf("更新文档失败: %v", err)
+	} else {
+		fmt.Printf("文档 %s 更新成功\n", docID)
+	}
+}
+
+// 删除文档演示
+func deleteDocumentDemo(client *es.Client, ctx context.Context, index, docID string) {
+	if err := client.Document().Delete(ctx, index, docID); err != nil {
+		log.Printf("删除文档失败: %v", err)
+	} else {
+		fmt.Printf("文档 %s 删除成功\n", docID)
+	}
+}
+
+// 批量操作演示
+func bulkOperationsDemo(client *es.Client, ctx context.Context, index string) {
+	// 首先创建一些初始数据
+	fmt.Println("创建初始数据...")
+	createInitialData(client, ctx, index)
+
+	// 3.1 批量索引文档
+	fmt.Println("批量索引文档...")
+	bulkIndexDemo(client, ctx, index)
+
+	// 3.2 批量创建文档
+	fmt.Println("批量创建文档...")
+	bulkCreateDemo(client, ctx, index)
+
+	// 3.3 批量更新文档
+	fmt.Println("批量更新文档...")
+	bulkUpdateDemo(client, ctx, index)
+
+	// 3.4 批量删除文档
+	fmt.Println("批量删除文档...")
+	bulkDeleteDemo(client, ctx, index)
+
+	// 3.5 直接使用Bulk接口进行混合操作
+	fmt.Println("混合批量操作...")
+	mixedBulkDemo(client, ctx, index)
+}
+
+// 创建初始数据
+func createInitialData(client *es.Client, ctx context.Context, index string) {
+	// 创建一些基础用户数据
+	users := []User{
+		{Name: "张三", Age: 25, Email: "zhangsan@example.com", CreatedAt: time.Now()},
+		{Name: "李四", Age: 30, Email: "lisi@example.com", CreatedAt: time.Now()},
+		{Name: "王五", Age: 35, Email: "wangwu@example.com", CreatedAt: time.Now()},
+	}
+
+	for i, user := range users {
+		docID := fmt.Sprintf("user_%d", i)
+		if err := client.Document().Index(ctx, index, user, docID); err != nil {
+			log.Printf("创建初始数据失败 %s: %v", docID, err)
+		}
+	}
+
+	fmt.Println("初始数据创建完成")
+}
+
+// 批量索引文档演示
+func bulkIndexDemo(client *es.Client, ctx context.Context, index string) {
+	users := make([]map[string]interface{}, 0)
+	for i := 0; i < 3; i++ {
+		users = append(users, map[string]interface{}{
+			"name":       fmt.Sprintf("用户%d", i),
+			"age":        20 + i,
+			"email":      fmt.Sprintf("user%d@example.com", i),
+			"created_at": time.Now(),
+		})
+	}
+
+	if err := client.Document().BulkIndex(ctx, index, users); err != nil {
+		log.Printf("批量索引失败: %v", err)
+	} else {
+		fmt.Println("批量索引完成")
+	}
+}
+
+// 批量创建文档演示
+func bulkCreateDemo(client *es.Client, ctx context.Context, index string) {
+	newUsers := make([]map[string]interface{}, 0)
+	for i := 0; i < 3; i++ {
+		newUsers = append(newUsers, map[string]interface{}{
+			"name":       fmt.Sprintf("新用户%d", i),
+			"age":        30 + i,
+			"email":      fmt.Sprintf("newuser%d@example.com", i),
+			"created_at": time.Now(),
+		})
+	}
+
+	if err := client.Document().BulkCreate(ctx, index, newUsers); err != nil {
+		log.Printf("批量创建失败: %v", err)
+	} else {
+		fmt.Println("批量创建完成")
+	}
+}
+
+// 批量更新文档演示
+func bulkUpdateDemo(client *es.Client, ctx context.Context, index string) {
+	updates := map[string]interface{}{
+		"user_0": map[string]interface{}{"age": 99},
+		"user_1": map[string]interface{}{"age": 88},
+	}
+
+	if err := client.Document().BulkUpdate(ctx, index, updates); err != nil {
+		log.Printf("批量更新失败: %v", err)
+	} else {
+		fmt.Println("批量更新完成")
+	}
+}
+
+// 批量删除文档演示
+func bulkDeleteDemo(client *es.Client, ctx context.Context, index string) {
+	idsToDelete := []string{"user_0", "user_1"} // 修正要删除的文档ID
+	if err := client.Document().BulkDelete(ctx, index, idsToDelete); err != nil {
+		log.Printf("批量删除失败: %v", err)
+	} else {
+		fmt.Println("批量删除完成")
+	}
+}
+
+// 混合批量操作演示
+func mixedBulkDemo(client *es.Client, ctx context.Context, index string) {
+	operations := []es.BulkOperation{
+		{Index: index, ID: "mixed_1", Action: "index", Payload: map[string]interface{}{"name": "混合操作用户1", "age": 40}},
+		{Index: index, ID: "mixed_2", Action: "create", Payload: map[string]interface{}{"name": "混合操作用户2", "age": 41}},
+		{Index: index, ID: "user_0", Action: "update", Payload: map[string]interface{}{"doc": map[string]interface{}{"age": 55}}},
+		{Index: index, ID: "user_1", Action: "delete"},
+	}
+
+	if err := client.Bulk().BulkExecute(ctx, operations); err != nil {
+		log.Printf("混合批量操作失败: %v", err)
+	} else {
+		fmt.Println("混合批量操作完成")
+	}
+}
+
+// 搜索操作演示
+func searchOperationsDemo(client *es.Client, ctx context.Context, index string) {
+	// 4.1 基本搜索
+	fmt.Println("基本搜索...")
+	basicSearchDemo(client, ctx, index)
+
+	// 4.2 使用原始查询搜索
+	fmt.Println("使用原始查询搜索...")
+	rawQuerySearchDemo(client, ctx, index)
+
+	// 4.3 分页查询示例
+	fmt.Println("分页查询示例...")
+	paginatedSearchDemo(client, ctx, index)
+
+	// 4.4 Scroll API 示例
+	fmt.Println("Scroll API 示例...")
+	scrollSearchDemo(client, ctx, index)
+
+	// 4.5 Search After 示例
+	fmt.Println("Search After 示例...")
+	searchAfterDemo(client, ctx, index)
+}
+
+// 基本搜索演示
+func basicSearchDemo(client *es.Client, ctx context.Context, index string) {
+	searchReq := es.SearchRequest{
+		Query: map[string]interface{}{
+			"range": map[string]interface{}{
+				"age": map[string]interface{}{
+					"gte": 20,
+					"lte": 50,
+				},
+			},
+		},
+		Size: 20,
+	}
+
+	searchResult, err := client.Search().Search(ctx, index, searchReq)
+	if err != nil {
+		log.Printf("搜索失败: %v", err)
+		return
+	}
+
+	fmt.Printf("找到 %d 个文档\n", searchResult.Hits.Total.Value)
+
+	// 打印搜索结果
+	for _, hit := range searchResult.Hits.Hits {
+		var user User
+		if err := json.Unmarshal(hit.Source, &user); err != nil {
+			log.Printf("解析文档 %s 失败: %v", hit.ID, err)
+			continue
+		}
+		fmt.Printf("文档ID: %s, 分数: %.2f, 用户: %+v\n", hit.ID, hit.Score, user)
+	}
+}
+
+// 原始查询搜索演示
+func rawQuerySearchDemo(client *es.Client, ctx context.Context, index string) {
+	rawQuery := []byte(`{
+		"query": {
+			"match": {
+				"name": "用户"
+			}
+		},
+		"size": 10
+	}`)
+
+	rawSearchResult, err := client.Search().SearchWithRawQuery(ctx, index, rawQuery)
+	if err != nil {
+		log.Printf("原始查询搜索失败: %v", err)
+		return
+	}
+
+	fmt.Printf("使用原始查询找到 %d 个文档\n", rawSearchResult.Hits.Total.Value)
+}
+
+// 分页查询演示
+func paginatedSearchDemo(client *es.Client, ctx context.Context, index string) {
+	paginatedReq := es.PaginatedSearchRequest{
+		Query: map[string]interface{}{
+			"match_all": map[string]interface{}{},
+		},
+		Pagination: es.Pagination{
+			Page:     1,
+			PageSize: 3,
+		},
+		Sort: map[string]interface{}{
+			"age": map[string]interface{}{
+				"order": "asc",
+			},
+		},
+	}
+
+	paginatedResult, err := client.Search().SearchWithPagination(ctx, index, paginatedReq)
+	if err != nil {
+		log.Printf("分页搜索失败: %v", err)
+		return
+	}
+
+	fmt.Printf("第%d页，共%d页，总共%d条记录\n",
+		paginatedResult.Pagination.Page,
+		paginatedResult.Pagination.TotalPages,
+		paginatedResult.Pagination.Total)
+}
+
+// Scroll搜索演示
+func scrollSearchDemo(client *es.Client, ctx context.Context, index string) {
+	scrollReq := es.SearchRequest{
+		Query: map[string]interface{}{
+			"match_all": map[string]interface{}{},
+		},
+		Size: 5,
+		Sort: []map[string]interface{}{
+			{"age": map[string]interface{}{"order": "asc"}},
+			{"_id": map[string]interface{}{"order": "asc"}},
+		},
+	}
+
+	// 初始化 Scroll 搜索
+	scrollResult, err := client.Search().ScrollSearch(ctx, index, scrollReq, 1*time.Minute)
+	if err != nil {
+		log.Printf("Scroll搜索失败: %v", err)
+		return
+	}
+
+	fmt.Printf("通过 Scroll 获取到 %d 个文档\n", len(scrollResult.Hits.Hits))
+
+	// 继续 Scroll 搜索
+	if scrollResult.ScrollID != "" {
+		nextScrollResult, err := client.Search().ScrollContinue(ctx, scrollResult.ScrollID, 1*time.Minute)
+		if err != nil {
+			log.Printf("继续 Scroll 搜索失败: %v", err)
+		} else {
+			fmt.Printf("通过继续 Scroll 获取到 %d 个文档\n", len(nextScrollResult.Hits.Hits))
+		}
+
+		// 清除 Scroll 上下文
+		err = client.Search().ScrollClear(ctx, []string{scrollResult.ScrollID})
+		if err != nil {
+			log.Printf("警告: 清除 Scroll 上下文失败: %v", err)
+		}
+	}
+}
+
+// Search After 演示
+func searchAfterDemo(client *es.Client, ctx context.Context, index string) {
+	searchAfterReq := es.SearchRequestWithSearchAfter{
+		SearchRequest: es.SearchRequest{
+			Query: map[string]interface{}{
+				"match_all": map[string]interface{}{},
+			},
+			Size: 3,
+			Sort: []map[string]interface{}{
+				{"age": map[string]interface{}{"order": "asc"}},
+				{"_id": map[string]interface{}{"order": "asc"}},
+			},
+		},
+	}
+
+	searchAfterResult, err := client.Search().SearchWithSearchAfter(ctx, index, searchAfterReq)
+	if err != nil {
+		log.Printf("Search After 失败: %v", err)
+		return
+	}
+
+	fmt.Printf("通过 Search After 获取到 %d 个文档\n", len(searchAfterResult.Hits.Hits))
+}
+
+// 清理函数，用于删除演示过程中创建的索引
+func cleanupDemo(client *es.Client, ctx context.Context, index string) {
+	fmt.Printf("开始清理索引 %s...\n", index)
+
+	// 检查索引是否存在
+	exists, err := client.Document().IndexExists(ctx, index)
+	if err != nil {
+		log.Printf("检查索引是否存在时出错: %v", err)
+		return
+	}
+
+	if !exists {
+		fmt.Printf("索引 %s 不存在，无需清理\n", index)
+		return
+	}
+
+	// 删除索引
+	if err := client.Document().DeleteIndex(ctx, index); err != nil {
+		log.Printf("删除索引 %s 失败: %v", index, err)
+	} else {
+		fmt.Printf("索引 %s 删除成功\n", index)
+	}
+}
