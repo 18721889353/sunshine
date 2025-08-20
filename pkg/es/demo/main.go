@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/es"
+	// 添加客户端方法的扩展
 )
 
 // User 用户结构体，用于映射Elasticsearch中的文档
@@ -23,18 +24,18 @@ func main() {
 	// 初始化客户端，使用完全自定义的连接池配置
 	config := es.GetDefaultConfig()
 	config.Addresses = []string{"http://43.143.78.234:9200"} // Elasticsearch服务地址
-	config.Username = "elastic"                               // 用户名
-	config.Password = "elastic"                               // 密码
+	config.Username = "elastic"                              // 用户名
+	config.Password = "elastic"                              // 密码
 
 	// 自定义连接池参数
-	config.MaxIdleConns = 30              // 最大空闲连接数
-	config.MaxIdleConnsPerHost = 10       // 每个主机最大空闲连接数
-	config.MaxConnsPerHost = 50           // 每个主机最大连接数
-	config.IdleConnTimeout = 120 * time.Second // 空闲连接超时时间
+	config.MaxIdleConns = 30                    // 最大空闲连接数
+	config.MaxIdleConnsPerHost = 10             // 每个主机最大空闲连接数
+	config.MaxConnsPerHost = 50                 // 每个主机最大连接数
+	config.IdleConnTimeout = 120 * time.Second  // 空闲连接超时时间
 	config.ConnectionTimeout = 10 * time.Second // 连接超时时间
 
 	// 自定义重试参数
-	config.MaxRetries = 5                    // 最大重试次数
+	config.MaxRetries = 5                        // 最大重试次数
 	config.RetryBackoff = 200 * time.Millisecond // 重试间隔
 
 	// 验证配置
@@ -74,22 +75,104 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
 	defer cancel()
 
-	// 批量索引文档以测试连接池
+	// 1.5 删除文档
+	if err := client.Document().Delete(ctx, "users", "1"); err != nil {
+		log.Fatal("Delete document failed:", err)
+	}
+	fmt.Println("文档删除成功")
+
+	// 1. 单文档操作演示
+	fmt.Println("\n=== 单文档操作演示 ===")
+
+	// 1.1 索引单个文档
+	user := User{
+		Name:      "张三",
+		Age:       25,
+		Email:     "zhangsan@example.com",
+		CreatedAt: time.Now(),
+	}
+
+	if err := client.Document().Index(ctx, "users", user, "1"); err != nil {
+		log.Fatal("Index document failed:", err)
+	}
+	fmt.Println("单个文档索引完成")
+
+	// 1.2 获取文档
+	var retrievedUser User
+	if err := client.Document().Get(ctx, "users", "1", &retrievedUser); err != nil {
+		log.Fatal("Get document failed:", err)
+	}
+	fmt.Printf("获取到的文档: %+v\n", retrievedUser)
+
+	// 1.3 更新文档
+	updateData := map[string]interface{}{
+		"age": 26,
+	}
+	if err := client.Document().Update(ctx, "users", "1", updateData); err != nil {
+		log.Fatal("Update document failed:", err)
+	}
+	fmt.Println("文档更新完成")
+
+	// 1.4 再次获取文档验证更新
+	if err := client.Document().Get(ctx, "users", "1", &retrievedUser); err != nil {
+		log.Fatal("Get document failed:", err)
+	}
+	fmt.Printf("更新后的文档: %+v\n", retrievedUser)
+
+	// 2. 批量操作演示
+	fmt.Println("\n=== 批量操作演示 ===")
+
+	// 2.1 批量索引文档
 	users := make([]map[string]interface{}, 0)
-	for i := 0; i < 25; i++ {
+	for i := 0; i < 5; i++ {
 		users = append(users, map[string]interface{}{
-			"name":       fmt.Sprintf("用户%d", i),            // 用户名
-			"age":        20 + i,                            // 年龄
-			"email":      fmt.Sprintf("user%d@example.com", i), // 邮箱
-			"created_at": time.Now(),                        // 创建时间
+			"name":       fmt.Sprintf("用户%d", i),
+			"age":        20 + i,
+			"email":      fmt.Sprintf("user%d@example.com", i),
+			"created_at": time.Now(),
 		})
 	}
 
-	// 使用批量操作索引用户数据
 	if err := client.Document().BulkIndex(ctx, "users", users); err != nil {
 		log.Fatal("Bulk index failed:", err)
 	}
-	fmt.Println("Bulk indexing completed")
+	fmt.Println("批量索引完成")
+
+	// 2.2 批量创建文档
+	newUsers := make([]map[string]interface{}, 0)
+	for i := 10; i < 15; i++ {
+		newUsers = append(newUsers, map[string]interface{}{
+			"name":       fmt.Sprintf("新用户%d", i),
+			"age":        30 + i,
+			"email":      fmt.Sprintf("newuser%d@example.com", i),
+			"created_at": time.Now(),
+		})
+	}
+
+	if err := client.Document().BulkCreate(ctx, "users", newUsers); err != nil {
+		log.Fatal("Bulk create failed:", err)
+	}
+	fmt.Println("批量创建完成")
+
+	// 2.4 批量删除文档
+	idsToDelete := []string{"2", "3"}
+	if err := client.Document().BulkDelete(ctx, "users", idsToDelete); err != nil {
+		log.Fatal("Bulk delete failed:", err)
+	}
+	fmt.Println("批量删除完成")
+
+	// 2.5 直接使用Bulk接口进行混合操作
+	operations := []es.BulkOperation{
+		{Index: "users", ID: "mixed_1", Action: "index", Payload: map[string]interface{}{"name": "混合操作用户1", "age": 40}},
+		{Index: "users", ID: "mixed_2", Action: "create", Payload: map[string]interface{}{"name": "混合操作用户2", "age": 41}},
+		{Index: "users", ID: "4", Action: "update", Payload: map[string]interface{}{"doc": map[string]interface{}{"age": 99}}},
+		{Index: "users", ID: "10", Action: "delete"},
+	}
+
+	if err := client.Bulk().BulkExecute(ctx, operations); err != nil {
+		log.Fatal("Mixed bulk execute failed:", err)
+	}
+	fmt.Println("混合批量操作完成")
 
 	// 搜索文档
 	searchReq := es.SearchRequest{
@@ -121,19 +204,36 @@ func main() {
 		fmt.Printf("Document ID: %s, Score: %.2f, User: %+v\n", hit.ID, hit.Score, user)
 	}
 
-	// 分页查询示例
+	// 3.2 使用原始查询搜索
+	rawQuery := []byte(`{
+		"query": {
+			"match": {
+				"name": "用户"
+			}
+		},
+		"size": 10
+	}`)
+
+	rawSearchResult, err := client.Search().SearchWithRawQuery(ctx, "users", rawQuery)
+	if err != nil {
+		log.Fatal("Raw query search failed:", err)
+	}
+
+	fmt.Printf("\n使用原始查询找到 %d 个文档\n", rawSearchResult.Hits.Total.Value)
+
+	// 3.3 分页查询示例
 	fmt.Println("\n=== 分页查询示例 ===")
 	paginatedReq := es.PaginatedSearchRequest{
 		Query: map[string]interface{}{
-			"match_all": map[string]interface{}{}, // 匹配所有文档
+			"match_all": map[string]interface{}{},
 		},
 		Pagination: es.Pagination{
-			Page:     2,  // 第2页
-			PageSize: 5,  // 每页5条记录
+			Page:     1,
+			PageSize: 3,
 		},
 		Sort: map[string]interface{}{
 			"age": map[string]interface{}{
-				"order": "asc", // 按年龄升序排列
+				"order": "asc",
 			},
 		},
 	}
@@ -143,30 +243,21 @@ func main() {
 		log.Fatal("Paginated search failed:", err)
 	}
 
-	fmt.Printf("第%d页，共%d页，总共%d条记录\n", 
+	fmt.Printf("第%d页，共%d页，总共%d条记录\n",
 		paginatedResult.Pagination.Page,
 		paginatedResult.Pagination.TotalPages,
 		paginatedResult.Pagination.Total)
 
-	for _, hit := range paginatedResult.Hits.Hits {
-		var user User
-		if err := json.Unmarshal(hit.Source, &user); err != nil {
-			log.Printf("Failed to unmarshal document %s: %v", hit.ID, err)
-			continue
-		}
-		fmt.Printf("Document ID: %s, Score: %.2f, User: %+v\n", hit.ID, hit.Score, user)
-	}
-
-	// Scroll API 示例
+	// 3.4 Scroll API 示例
 	fmt.Println("\n=== Scroll API 示例 ===")
 	scrollReq := es.SearchRequest{
 		Query: map[string]interface{}{
-			"match_all": map[string]interface{}{}, // 匹配所有文档
+			"match_all": map[string]interface{}{},
 		},
-		Size: 10, // 每次滚动返回10条记录
+		Size: 5,
 		Sort: []map[string]interface{}{
-			{"age": map[string]interface{}{"order": "asc"}},   // 按年龄升序
-			{"_id": map[string]interface{}{"order": "asc"}},   // 按ID升序
+			{"age": map[string]interface{}{"order": "asc"}},
+			{"_id": map[string]interface{}{"order": "asc"}},
 		},
 	}
 
@@ -184,13 +275,56 @@ func main() {
 		if err != nil {
 			log.Fatal("Continue scroll search failed:", err)
 		}
-		
+
 		fmt.Printf("通过继续 Scroll 获取到 %d 个文档\n", len(nextScrollResult.Hits.Hits))
-		
+
 		// 清除 Scroll 上下文
 		err = client.Search().ScrollClear(ctx, []string{scrollResult.ScrollID})
 		if err != nil {
 			log.Printf("Warning: Failed to clear scroll context: %v", err)
 		}
 	}
+
+	// 3.5 Search After 示例
+	fmt.Println("\n=== Search After 示例 ===")
+	searchAfterReq := es.SearchRequestWithSearchAfter{
+		SearchRequest: es.SearchRequest{
+			Query: map[string]interface{}{
+				"match_all": map[string]interface{}{},
+			},
+			Size: 3,
+			Sort: []map[string]interface{}{
+				{"age": map[string]interface{}{"order": "asc"}},
+				{"_id": map[string]interface{}{"order": "asc"}},
+			},
+		},
+	}
+
+	searchAfterResult, err := client.Search().SearchWithSearchAfter(ctx, "users", searchAfterReq)
+	if err != nil {
+		log.Fatal("Search after failed:", err)
+	}
+
+	fmt.Printf("通过 Search After 获取到 %d 个文档\n", len(searchAfterResult.Hits.Hits))
+
+	// 4. 集群信息演示
+	fmt.Println("\n=== 集群信息演示 ===")
+
+	// 获取集群健康状态
+	health, err = client.HealthCheck(ctx)
+	if err != nil {
+		log.Fatal("Failed to check cluster health:", err)
+	}
+	fmt.Printf("集群健康状态: %s\n", health)
+
+	// 获取集群信息
+	info, err = client.Info()
+	if err != nil {
+		log.Fatal("Failed to get cluster info:", err)
+	}
+	fmt.Printf("集群名称: %s, 版本: %s\n",
+		info["cluster_name"],
+		info["version"].(map[string]interface{})["number"])
+
+	fmt.Println("\n=== 所有功能演示完成 ===")
 }

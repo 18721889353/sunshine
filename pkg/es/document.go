@@ -191,3 +191,30 @@ func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[strin
 
 	return d.client.Bulk().BulkExecute(ctx, operations)
 }
+
+// BulkCreate 批量创建文档
+func (d *Document) BulkCreate(ctx context.Context, index string, docs []map[string]interface{}) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_create", index)
+	defer endSpan(nil)
+	
+	return d.client.Bulk().BulkCreate(ctx, index, docs)
+}
+
+// BulkUpdate 批量更新文档
+func (d *Document) BulkUpdate(ctx context.Context, index string, updates map[string]interface{}) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_update", index)
+	defer endSpan(nil)
+	
+	return d.client.Bulk().BulkUpdate(ctx, index, updates)
+}
+
+// BulkDelete 批量删除文档
+func (d *Document) BulkDelete(ctx context.Context, index string, ids []string) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_delete", index)
+	defer endSpan(nil)
+	
+	return d.client.Bulk().BulkDelete(ctx, index, ids)
+}
