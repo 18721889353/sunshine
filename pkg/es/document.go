@@ -218,3 +218,86 @@ func (d *Document) BulkDelete(ctx context.Context, index string, ids []string) e
 	
 	return d.client.Bulk().BulkDelete(ctx, index, ids)
 }
+
+// IndexExists 检查索引是否存在
+func (d *Document) IndexExists(ctx context.Context, index string) (bool, error) {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "index_exists", index)
+	defer endSpan(nil)
+	
+	res, err := d.client.Indices.Exists([]string{index}, d.client.Indices.Exists.WithContext(ctx))
+	if err != nil {
+		endSpan(err)
+		return false, fmt.Errorf("check index exists error: %w", err)
+	}
+	defer res.Body.Close()
+
+	switch res.StatusCode {
+	case 200:
+		return true, nil
+	case 404:
+		return false, nil
+	default:
+		err = fmt.Errorf("check index exists failed: %s", res.String())
+		endSpan(err)
+		return false, err
+	}
+}
+
+// DeleteIndex 删除索引
+func (d *Document) DeleteIndex(ctx context.Context, index string) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "delete_index", index)
+	defer endSpan(nil)
+	
+	res, err := d.client.Indices.Delete([]string{index}, d.client.Indices.Delete.WithContext(ctx))
+	if err != nil {
+		endSpan(err)
+		return fmt.Errorf("delete index error: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		err = fmt.Errorf("delete index failed: %s", res.String())
+		endSpan(err)
+		return err
+	}
+
+	return nil
+}
+
+// CreateIndex 创建索引
+func (d *Document) CreateIndex(ctx context.Context, index string, mapping interface{}) error {
+	// 添加追踪支持
+	ctx, endSpan := d.client.withSpan(ctx, "create_index", index)
+	defer endSpan(nil)
+	
+	var body io.Reader
+	if mapping != nil {
+		mappingBytes, err := json.Marshal(mapping)
+		if err != nil {
+			endSpan(err)
+			return fmt.Errorf("marshal mapping error: %w", err)
+		}
+		body = bytes.NewReader(mappingBytes)
+	}
+
+	res, err := d.client.Indices.Create(
+		index,
+		d.client.Indices.Create.WithContext(ctx),
+		d.client.Indices.Create.WithBody(body),
+	)
+	if err != nil {
+		endSpan(err)
+		return fmt.Errorf("create index error: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		err = fmt.Errorf("create index failed: %s", res.String())
+		endSpan(err)
+		return err
+	}
+
+	return nil
+}

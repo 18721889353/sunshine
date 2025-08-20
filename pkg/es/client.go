@@ -62,8 +62,7 @@ func NewClient(config Config) (*Client, error) {
 }
 
 // Ping 检查ES服务状态
-func (c *Client) Ping() error {
-	ctx := context.Background()
+func (c *Client) Ping(ctx context.Context) error {
 	// 添加追踪支持
 	ctx, endSpan := c.withSpan(ctx, "ping")
 	defer endSpan(nil)
@@ -87,8 +86,7 @@ func (c *Client) Ping() error {
 }
 
 // Info 获取ES集群信息
-func (c *Client) Info() (map[string]interface{}, error) {
-	ctx := context.Background()
+func (c *Client) Info(ctx context.Context) (map[string]interface{}, error) {
 	// 添加追踪支持
 	ctx, endSpan := c.withSpan(ctx, "info")
 	defer endSpan(nil)
