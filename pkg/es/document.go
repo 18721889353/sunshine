@@ -25,7 +25,7 @@ func (d *Document) Index(ctx context.Context, index string, doc interface{}, doc
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "index", index, docID)
 	defer endSpan(nil)
-	
+
 	body, err := json.Marshal(doc)
 	if err != nil {
 		endSpan(err)
@@ -141,7 +141,7 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "update", index, docID)
 	defer endSpan(nil)
-	
+
 	body, err := json.Marshal(map[string]interface{}{
 		"doc": updateData,
 	})
@@ -178,7 +178,7 @@ func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[strin
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "bulk_index", index)
 	defer endSpan(nil)
-	
+
 	return d.client.Bulk().BulkIndex(ctx, index, docs)
 }
 
@@ -187,12 +187,12 @@ func (d *Document) BulkCreate(ctx context.Context, index string, docs []map[stri
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "bulk_create", index)
 	defer endSpan(nil)
-	
+
 	return d.client.Bulk().BulkCreate(ctx, index, docs)
 }
 
 // BulkUpdate 批量更新文档
-func (d *Document) BulkUpdate(ctx context.Context, index string, updates map[string]interface{}) error {
+func (d *Document) BulkUpdate(ctx context.Context, index string, updates []map[string]interface{}) error {
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "bulk_update", index)
 	defer endSpan(nil)
@@ -205,7 +205,7 @@ func (d *Document) BulkDelete(ctx context.Context, index string, ids []string) e
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "bulk_delete", index)
 	defer endSpan(nil)
-	
+
 	return d.client.Bulk().BulkDelete(ctx, index, ids)
 }
 
@@ -214,7 +214,7 @@ func (d *Document) IndexExists(ctx context.Context, index string) (bool, error) 
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "index_exists", index)
 	defer endSpan(nil)
-	
+
 	res, err := d.client.Indices.Exists([]string{index}, d.client.Indices.Exists.WithContext(ctx))
 	if err != nil {
 		endSpan(err)
@@ -239,7 +239,7 @@ func (d *Document) DeleteIndex(ctx context.Context, index string) error {
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "delete_index", index)
 	defer endSpan(nil)
-	
+
 	res, err := d.client.Indices.Delete([]string{index}, d.client.Indices.Delete.WithContext(ctx))
 	if err != nil {
 		endSpan(err)
@@ -261,7 +261,7 @@ func (d *Document) CreateIndex(ctx context.Context, index string, mapping interf
 	// 添加追踪支持
 	ctx, endSpan := d.client.withSpan(ctx, "create_index", index)
 	defer endSpan(nil)
-	
+
 	var body io.Reader
 	if mapping != nil {
 		mappingBytes, err := json.Marshal(mapping)

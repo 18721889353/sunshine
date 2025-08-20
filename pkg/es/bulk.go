@@ -159,15 +159,40 @@ func (b *Bulk) BulkCreate(ctx context.Context, index string, docs []map[string]i
 }
 
 // BulkUpdate 批量更新文档
-func (b *Bulk) BulkUpdate(ctx context.Context, index string, updates map[string]interface{}) error {
-	operations := make([]BulkOperation, 0, len(updates))
-	for id, update := range updates {
-		operations = append(operations, BulkOperation{
+func (b *Bulk) BulkUpdate(ctx context.Context, index string, docs []map[string]interface{}) error {
+	operations := make([]BulkOperation, len(docs))
+	for i, doc := range docs {
+		// 创建不包含_id字段的文档副本
+		docCopy := make(map[string]interface{})
+		for k, v := range doc {
+			docCopy[k] = v
+		}
+
+		operation := BulkOperation{
 			Index:   index,
-			ID:      id,
 			Action:  "update",
-			Payload: map[string]interface{}{"doc": update},
-		})
+			Payload: map[string]interface{}{"doc": docCopy},
+		}
+
+		// 检查文档中是否包含_id字段，如果有则使用它作为ID，并从文档副本中移除
+		if docID, ok := doc["_id"]; ok {
+			delete(docCopy, "_id") // 从文档内容中移除_id字段
+			if strID, ok := docID.(string); ok && strID != "" {
+				operation.ID = strID
+			} else if intID, ok := docID.(int); ok {
+				operation.ID = fmt.Sprintf("%d", intID)
+			} else if floatID, ok := docID.(float64); ok {
+				// 处理数字字符串偏好，将浮点数转换为整数字符串
+				operation.ID = fmt.Sprintf("%.0f", floatID)
+			}
+		}
+
+		// 确保每个更新操作都有ID
+		if operation.ID == "" {
+			return fmt.Errorf("document at index %d missing _id field, update operation requires document ID", i)
+		}
+
+		operations[i] = operation
 	}
 
 	return b.BulkExecute(ctx, operations)
