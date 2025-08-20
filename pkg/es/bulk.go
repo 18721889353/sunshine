@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 )
 
@@ -32,15 +31,21 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 	// 添加追踪支持
 	ctx, endSpan := b.client.withSpan(ctx, "bulk_execute")
 	defer endSpan(nil)
-	
+
 	var buf bytes.Buffer
 
 	for _, op := range operations {
+		meta := map[string]interface{}{
+			"_index": op.Index,
+		}
+
+		// 只有当ID不为空时才添加_id字段
+		if op.ID != "" {
+			meta["_id"] = op.ID
+		}
+
 		action := map[string]interface{}{
-			op.Action: map[string]interface{}{
-				"_index": op.Index,
-				"_id":    op.ID,
-			},
+			op.Action: meta,
 		}
 
 		actionLine, err := json.Marshal(action)
@@ -87,14 +92,34 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 func (b *Bulk) BulkIndex(ctx context.Context, index string, docs []map[string]interface{}) error {
 	operations := make([]BulkOperation, len(docs))
 	for i, doc := range docs {
-		operations[i] = BulkOperation{
-			Index:   index,
-			ID:      fmt.Sprintf("%d", i),
-			Action:  "index",
-			Payload: doc,
+		// 创建不包含_id字段的文档副本
+		docCopy := make(map[string]interface{})
+		for k, v := range doc {
+			docCopy[k] = v
 		}
+
+		operation := BulkOperation{
+			Index:   index,
+			Action:  "index",
+			Payload: docCopy,
+		}
+
+		// 检查文档中是否包含_id字段，如果有则使用它作为ID，并从文档副本中移除
+		if docID, ok := doc["_id"]; ok {
+			delete(docCopy, "_id") // 从文档内容中移除_id字段
+			if strID, ok := docID.(string); ok && strID != "" {
+				operation.ID = strID
+			} else if intID, ok := docID.(int); ok {
+				operation.ID = fmt.Sprintf("%d", intID)
+			} else if floatID, ok := docID.(float64); ok {
+				// 处理数字字符串偏好，将浮点数转换为整数字符串
+				operation.ID = fmt.Sprintf("%.0f", floatID)
+			}
+		}
+
+		operations[i] = operation
 	}
-	
+
 	return b.BulkExecute(ctx, operations)
 }
 
@@ -102,14 +127,34 @@ func (b *Bulk) BulkIndex(ctx context.Context, index string, docs []map[string]in
 func (b *Bulk) BulkCreate(ctx context.Context, index string, docs []map[string]interface{}) error {
 	operations := make([]BulkOperation, len(docs))
 	for i, doc := range docs {
-		operations[i] = BulkOperation{
-			Index:   index,
-			ID:      fmt.Sprintf("%d", i),
-			Action:  "create",
-			Payload: doc,
+		// 创建不包含_id字段的文档副本
+		docCopy := make(map[string]interface{})
+		for k, v := range doc {
+			docCopy[k] = v
 		}
+
+		operation := BulkOperation{
+			Index:   index,
+			Action:  "create",
+			Payload: docCopy,
+		}
+
+		// 检查文档中是否包含_id字段，如果有则使用它作为ID，并从文档副本中移除
+		if docID, ok := doc["_id"]; ok {
+			delete(docCopy, "_id") // 从文档内容中移除_id字段
+			if strID, ok := docID.(string); ok && strID != "" {
+				operation.ID = strID
+			} else if intID, ok := docID.(int); ok {
+				operation.ID = fmt.Sprintf("%d", intID)
+			} else if floatID, ok := docID.(float64); ok {
+				// 处理数字字符串偏好，将浮点数转换为整数字符串
+				operation.ID = fmt.Sprintf("%.0f", floatID)
+			}
+		}
+
+		operations[i] = operation
 	}
-	
+
 	return b.BulkExecute(ctx, operations)
 }
 
@@ -124,7 +169,7 @@ func (b *Bulk) BulkUpdate(ctx context.Context, index string, updates map[string]
 			Payload: map[string]interface{}{"doc": update},
 		})
 	}
-	
+
 	return b.BulkExecute(ctx, operations)
 }
 
@@ -138,7 +183,7 @@ func (b *Bulk) BulkDelete(ctx context.Context, index string, ids []string) error
 			Action: "delete",
 		}
 	}
-	
+
 	return b.BulkExecute(ctx, operations)
 }
 
@@ -148,6 +193,6 @@ func (b *Bulk) MixedBulkExecute(ctx context.Context, indexOperations map[string]
 	for _, ops := range indexOperations {
 		operations = append(operations, ops...)
 	}
-	
+
 	return b.BulkExecute(ctx, operations)
 }
