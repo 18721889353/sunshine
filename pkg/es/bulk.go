@@ -82,3 +82,72 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 
 	return nil
 }
+
+// BulkIndex 批量索引文档
+func (b *Bulk) BulkIndex(ctx context.Context, index string, docs []map[string]interface{}) error {
+	operations := make([]BulkOperation, len(docs))
+	for i, doc := range docs {
+		operations[i] = BulkOperation{
+			Index:   index,
+			ID:      fmt.Sprintf("%d", i),
+			Action:  "index",
+			Payload: doc,
+		}
+	}
+	
+	return b.BulkExecute(ctx, operations)
+}
+
+// BulkCreate 批量创建文档
+func (b *Bulk) BulkCreate(ctx context.Context, index string, docs []map[string]interface{}) error {
+	operations := make([]BulkOperation, len(docs))
+	for i, doc := range docs {
+		operations[i] = BulkOperation{
+			Index:   index,
+			ID:      fmt.Sprintf("%d", i),
+			Action:  "create",
+			Payload: doc,
+		}
+	}
+	
+	return b.BulkExecute(ctx, operations)
+}
+
+// BulkUpdate 批量更新文档
+func (b *Bulk) BulkUpdate(ctx context.Context, index string, updates map[string]interface{}) error {
+	operations := make([]BulkOperation, 0, len(updates))
+	for id, update := range updates {
+		operations = append(operations, BulkOperation{
+			Index:   index,
+			ID:      id,
+			Action:  "update",
+			Payload: map[string]interface{}{"doc": update},
+		})
+	}
+	
+	return b.BulkExecute(ctx, operations)
+}
+
+// BulkDelete 批量删除文档
+func (b *Bulk) BulkDelete(ctx context.Context, index string, ids []string) error {
+	operations := make([]BulkOperation, len(ids))
+	for i, id := range ids {
+		operations[i] = BulkOperation{
+			Index:  index,
+			ID:     id,
+			Action: "delete",
+		}
+	}
+	
+	return b.BulkExecute(ctx, operations)
+}
+
+// MixedBulkExecute 混合批量操作
+func (b *Bulk) MixedBulkExecute(ctx context.Context, indexOperations map[string][]BulkOperation) error {
+	operations := make([]BulkOperation, 0)
+	for _, ops := range indexOperations {
+		operations = append(operations, ops...)
+	}
+	
+	return b.BulkExecute(ctx, operations)
+}
