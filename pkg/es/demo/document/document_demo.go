@@ -826,3 +826,168 @@ func cleanupDemo(client *es.Client, ctx context.Context, index string) {
 		fmt.Printf("索引 %s 删除成功\n", index)
 	}
 }
+
+// 搜索文档演示
+func searchDemo(client *es.Client, ctx context.Context, index string) {
+	fmt.Println("搜索文档演示...")
+	
+	// 1. 基本搜索 - 匹配所有文档
+	fmt.Println("1. 搜索所有文档...")
+	searchReq := es.SearchRequest{
+		Query: map[string]interface{}{
+			"match_all": map[string]interface{}{},
+		},
+		Size: 10,
+	}
+	
+	result, err := client.Search().Search(ctx, index, searchReq)
+	if err != nil {
+		log.Printf("搜索失败: %v", err)
+		return
+	}
+	
+	fmt.Printf("总共找到 %d 个文档\n", result.Hits.Total.Value)
+	for _, hit := range result.Hits.Hits {
+		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
+		var user User
+		if err := json.Unmarshal(hit.Source, &user); err != nil {
+			log.Printf("解析文档 %s 失败: %v", hit.ID, err)
+			continue
+		}
+		fmt.Printf("  用户信息: %+v\n", user)
+	}
+	
+	// 2. 精确匹配搜索 - 匹配名称包含"新用户"的文档
+	fmt.Println("\n2. 搜索名称包含\"新用户\"的文档...")
+	searchReq2 := es.SearchRequest{
+		Query: map[string]interface{}{
+			"match": map[string]interface{}{
+				"name": "新用户",
+			},
+		},
+		Size: 10,
+	}
+	
+	result2, err := client.Search().Search(ctx, index, searchReq2)
+	if err != nil {
+		log.Printf("搜索失败: %v", err)
+		return
+	}
+	
+	fmt.Printf("找到 %d 个名称包含\"新用户\"的文档\n", result2.Hits.Total.Value)
+	for _, hit := range result2.Hits.Hits {
+		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
+		var user User
+		if err := json.Unmarshal(hit.Source, &user); err != nil {
+			log.Printf("解析文档 %s 失败: %v", hit.ID, err)
+			continue
+		}
+		fmt.Printf("  用户信息: %+v\n", user)
+	}
+	
+	// 3. 布尔查询 - 必须匹配包含"新用户"的文档
+	fmt.Println("\n3. 使用布尔查询必须匹配包含\"新用户\"的文档...")
+	searchReq3 := es.SearchRequest{
+		Query: map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": []interface{}{
+					map[string]interface{}{
+						"match": map[string]interface{}{
+							"name": "新用户",
+						},
+					},
+				},
+			},
+		},
+		Size: 10,
+	}
+	
+	result3, err := client.Search().Search(ctx, index, searchReq3)
+	if err != nil {
+		log.Printf("搜索失败: %v", err)
+		return
+	}
+	
+	fmt.Printf("通过布尔查询找到 %d 个名称包含\"新用户\"的文档\n", result3.Hits.Total.Value)
+	for _, hit := range result3.Hits.Hits {
+		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
+		var user User
+		if err := json.Unmarshal(hit.Source, &user); err != nil {
+			log.Printf("解析文档 %s 失败: %v", hit.ID, err)
+			continue
+		}
+		fmt.Printf("  用户信息: %+v\n", user)
+	}
+	
+	// 4. 范围查询 - 年龄在30到40之间的用户
+	fmt.Println("\n4. 搜索年龄在30到40之间的用户...")
+	searchReq4 := es.SearchRequest{
+		Query: map[string]interface{}{
+			"range": map[string]interface{}{
+				"age": map[string]interface{}{
+					"gte": 30,
+					"lte": 40,
+				},
+			},
+		},
+		Size: 10,
+	}
+	
+	result4, err := client.Search().Search(ctx, index, searchReq4)
+	if err != nil {
+		log.Printf("搜索失败: %v", err)
+		return
+	}
+	
+	fmt.Printf("找到 %d 个年龄在30到40之间的用户\n", result4.Hits.Total.Value)
+	for _, hit := range result4.Hits.Hits {
+		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
+		var user User
+		if err := json.Unmarshal(hit.Source, &user); err != nil {
+			log.Printf("解析文档 %s 失败: %v", hit.ID, err)
+			continue
+		}
+		fmt.Printf("  用户信息: %+v\n", user)
+	}
+	
+	// 5. 复合查询 - 必须匹配"新用户"并且年龄大于等于30
+	fmt.Println("\n5. 复合查询 - 必须匹配\"新用户\"并且年龄大于等于30...")
+	searchReq5 := es.SearchRequest{
+		Query: map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": []interface{}{
+					map[string]interface{}{
+						"match": map[string]interface{}{
+							"name": "新用户",
+						},
+					},
+					map[string]interface{}{
+						"range": map[string]interface{}{
+							"age": map[string]interface{}{
+								"gte": 30,
+							},
+						},
+					},
+				},
+			},
+		},
+		Size: 10,
+	}
+	
+	result5, err := client.Search().Search(ctx, index, searchReq5)
+	if err != nil {
+		log.Printf("搜索失败: %v", err)
+		return
+	}
+	
+	fmt.Printf("找到 %d 个匹配条件的用户\n", result5.Hits.Total.Value)
+	for _, hit := range result5.Hits.Hits {
+		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
+		var user User
+		if err := json.Unmarshal(hit.Source, &user); err != nil {
+			log.Printf("解析文档 %s 失败: %v", hit.ID, err)
+			continue
+		}
+		fmt.Printf("  用户信息: %+v\n", user)
+	}
+}
