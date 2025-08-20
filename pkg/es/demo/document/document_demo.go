@@ -211,21 +211,17 @@ func deleteDocumentDemo(client *es.Client, ctx context.Context, index, docID str
 
 // 批量操作演示
 func bulkOperationsDemo(client *es.Client, ctx context.Context, index string) {
-	// 首先创建一些初始数据
-	//fmt.Println("创建初始数据...")
-	//createInitialData(client, ctx, index)
-	//
-	//// 3.1 批量索引文档
+	// 3.1 批量索引文档
 	//fmt.Println("批量索引文档...")
 	//bulkIndexDemo(client, ctx, index)
 
-	// 3.2 批量创建文档
-	fmt.Println("批量创建文档...")
-	bulkCreateDemo(client, ctx, index)
+	//3.2 批量创建文档
+	//fmt.Println("批量创建文档...")
+	//bulkCreateDemo(client, ctx, index)
 
-	//// 3.3 批量更新文档
-	//fmt.Println("批量更新文档...")
-	//bulkUpdateDemo(client, ctx, index)
+	// 3.3 批量更新文档
+	fmt.Println("批量更新文档...")
+	bulkUpdateDemo(client, ctx, index)
 
 	//// 3.4 批量删除文档
 	//fmt.Println("批量删除文档...")
@@ -236,89 +232,56 @@ func bulkOperationsDemo(client *es.Client, ctx context.Context, index string) {
 	//mixedBulkDemo(client, ctx, index)
 }
 
-// 创建初始数据
-func createInitialData(client *es.Client, ctx context.Context, index string) {
-	fmt.Println("创建初始数据...")
-
-	users := make([]map[string]interface{}, 0)
-	for i := 0; i < 5; i++ {
-		users = append(users, map[string]interface{}{
-			"_id":        fmt.Sprintf("user_%d", i),
-			"name":       fmt.Sprintf("初始用户%d", i),
-			"age":        20 + i,
-			"email":      fmt.Sprintf("user%d@example.com", i),
-			"created_at": time.Now(),
-		})
-	}
-
-	if err := client.Document().BulkIndex(ctx, index, users); err != nil {
-		log.Printf("创建初始数据失败: %v", err)
-	} else {
-		fmt.Println("初始数据创建完成")
-	}
-
-	// 等待一下确保文档被索引
-	time.Sleep(1 * time.Second)
-
-	// 验证初始数据 - 使用精确匹配查询
-	fmt.Println("验证初始数据...")
-	searchReq := es.SearchRequest{
-		Query: map[string]interface{}{
-			"terms": map[string]interface{}{
-				"_id": []string{"user_0", "user_1", "user_2", "user_3", "user_4"},
-			},
-		},
-		Size: 10,
-	}
-
-	searchResult, err := client.Search().Search(ctx, index, searchReq)
-	if err != nil {
-		log.Printf("验证搜索失败: %v", err)
-		return
-	}
-
-	fmt.Printf("找到 %d 个初始用户文档\n", searchResult.Hits.Total.Value)
-	for _, hit := range searchResult.Hits.Hits {
-		fmt.Printf("文档ID: %s\n", hit.ID)
-		var doc map[string]interface{}
-		if err := json.Unmarshal(hit.Source, &doc); err != nil {
-			log.Printf("解析文档失败: %v", err)
-			continue
-		}
-		fmt.Printf("  内容: %+v\n", doc)
-	}
-}
-
 // 批量索引文档演示
 func bulkIndexDemo(client *es.Client, ctx context.Context, index string) {
-	users := make([]map[string]interface{}, 0)
-	for i := 0; i < 3; i++ {
-		users = append(users, map[string]interface{}{
-			"_id":        fmt.Sprintf("bulk_index_%d", i),
-			"name":       fmt.Sprintf("用户%d", i),
-			"age":        20 + i,
-			"email":      fmt.Sprintf("user%d@example.com", i),
+	// 创建带指定ID的文档
+	newUsersWithID := make([]map[string]interface{}, 0)
+	for i := 0; i < 2; i++ {
+		newUsersWithID = append(newUsersWithID, map[string]interface{}{
+			"_id":        fmt.Sprintf("bulk_create_%d", i),
+			"name":       fmt.Sprintf("新用户%d", i),
+			"age":        60 + i,
+			"email":      fmt.Sprintf("newuser%d@example.com", i),
 			"created_at": time.Now(),
 		})
 	}
 
-	fmt.Println("批量索引文档...")
-	if err := client.Document().BulkIndex(ctx, index, users); err != nil {
-		log.Printf("批量索引失败: %v", err)
+	fmt.Println("准备创建带ID的文档...")
+	if err := client.Document().BulkIndex(ctx, index, newUsersWithID); err != nil {
+		log.Printf("批量创建带ID的文档失败: %v", err)
 		return
 	} else {
-		fmt.Println("批量索引完成")
+		fmt.Println("批量创建带ID的文档完成")
+	}
+
+	// 创建不带指定ID的文档（让ES自动生成ID）
+	newUsersWithoutID := make([]map[string]interface{}, 0)
+	for i := 0; i < 2; i++ {
+		newUsersWithoutID = append(newUsersWithoutID, map[string]interface{}{
+			"name":       fmt.Sprintf("自动生成ID用户%d", i),
+			"age":        25 + i,
+			"email":      fmt.Sprintf("auto_id_user%d@example.com", i),
+			"created_at": time.Now(),
+		})
+	}
+
+	fmt.Println("准备创建不带ID的文档...")
+	if err := client.Document().BulkIndex(ctx, index, newUsersWithoutID); err != nil {
+		log.Printf("批量创建不带ID的文档失败: %v", err)
+		return
+	} else {
+		fmt.Println("批量创建不带ID的文档完成")
 	}
 
 	// 等待一下确保文档被索引
 	time.Sleep(1 * time.Second)
 
-	// 验证数据是否索引成功 - 使用精确匹配查询
-	fmt.Println("验证批量索引的文档...")
+	// 验证带指定ID的数据是否创建成功 - 使用terms精确匹配查询
+	fmt.Println("验证批量创建带指定ID的文档...")
 	searchReq := es.SearchRequest{
 		Query: map[string]interface{}{
-			"terms": map[string]interface{}{
-				"_id": []string{"bulk_index_0", "bulk_index_1", "bulk_index_2"},
+			"match_phrase": map[string]interface{}{
+				"name": "新用户",
 			},
 		},
 		Size: 10,
@@ -330,7 +293,7 @@ func bulkIndexDemo(client *es.Client, ctx context.Context, index string) {
 		return
 	}
 
-	fmt.Printf("找到 %d 个批量索引的文档\n", searchResult.Hits.Total.Value)
+	fmt.Printf("找到 %d 个带指定ID的文档\n", searchResult.Hits.Total.Value)
 	for _, hit := range searchResult.Hits.Hits {
 		fmt.Printf("文档ID: %s\n", hit.ID)
 		var doc map[string]interface{}
@@ -340,6 +303,61 @@ func bulkIndexDemo(client *es.Client, ctx context.Context, index string) {
 		}
 		fmt.Printf("  内容: %+v\n", doc)
 	}
+
+	// 验证自动生成ID的文档 - 使用match查询匹配名称，并且排除已知的指定ID文档
+	fmt.Println("验证自动生成ID的文档...")
+	searchReq2 := es.SearchRequest{
+		Query: map[string]interface{}{
+			"match_phrase": map[string]interface{}{
+				"name": "自动生成ID用户",
+			},
+		},
+		Size: 10,
+	}
+
+	searchResult2, err := client.Search().Search(ctx, index, searchReq2)
+	if err != nil {
+		log.Printf("验证搜索失败: %v", err)
+		return
+	}
+
+	fmt.Printf("找到 %d 个自动生成ID的文档\n", searchResult2.Hits.Total.Value)
+	for _, hit := range searchResult2.Hits.Hits {
+		fmt.Printf("文档ID: %s\n", hit.ID)
+		var doc map[string]interface{}
+		if err := json.Unmarshal(hit.Source, &doc); err != nil {
+			log.Printf("解析文档失败: %v", err)
+			continue
+		}
+		fmt.Printf("  内容: %+v\n", doc)
+	}
+
+	// 验证所有文档
+	fmt.Println("验证所有文档...")
+	searchReq3 := es.SearchRequest{
+		Query: map[string]interface{}{
+			"match_all": map[string]interface{}{},
+		},
+		Size: 20,
+	}
+
+	searchResult3, err := client.Search().Search(ctx, index, searchReq3)
+	if err != nil {
+		log.Printf("验证搜索失败: %v", err)
+		return
+	}
+
+	fmt.Printf("索引中总共有 %d 个文档\n", searchResult3.Hits.Total.Value)
+	for i, hit := range searchResult3.Hits.Hits {
+		fmt.Printf("文档 %d ID: %s\n", i+1, hit.ID)
+		var doc map[string]interface{}
+		if err := json.Unmarshal(hit.Source, &doc); err != nil {
+			log.Printf("解析文档失败: %v", err)
+			continue
+		}
+		fmt.Printf("  内容: %+v\n", doc)
+	}
+
 }
 
 // 批量创建文档演示
@@ -350,7 +368,7 @@ func bulkCreateDemo(client *es.Client, ctx context.Context, index string) {
 		newUsersWithID = append(newUsersWithID, map[string]interface{}{
 			"_id":        fmt.Sprintf("bulk_create_%d", i),
 			"name":       fmt.Sprintf("新用户%d", i),
-			"age":        30 + i,
+			"age":        20 + i,
 			"email":      fmt.Sprintf("newuser%d@example.com", i),
 			"created_at": time.Now(),
 		})
@@ -390,8 +408,8 @@ func bulkCreateDemo(client *es.Client, ctx context.Context, index string) {
 	fmt.Println("验证批量创建带指定ID的文档...")
 	searchReq := es.SearchRequest{
 		Query: map[string]interface{}{
-			"terms": map[string]interface{}{
-				"_id": []string{"bulk_create_0", "bulk_create_1"},
+			"match_phrase": map[string]interface{}{
+				"name": "新用户",
 			},
 		},
 		Size: 10,
@@ -418,21 +436,8 @@ func bulkCreateDemo(client *es.Client, ctx context.Context, index string) {
 	fmt.Println("验证自动生成ID的文档...")
 	searchReq2 := es.SearchRequest{
 		Query: map[string]interface{}{
-			"bool": map[string]interface{}{
-				"must": []interface{}{
-					map[string]interface{}{
-						"match": map[string]interface{}{
-							"name": "自动生成ID用户",
-						},
-					},
-				},
-				"must_not": []interface{}{
-					map[string]interface{}{
-						"terms": map[string]interface{}{
-							"_id": []string{"bulk_create_0", "bulk_create_1"},
-						},
-					},
-				},
+			"match_phrase": map[string]interface{}{
+				"name": "自动生成ID用户",
 			},
 		},
 		Size: 10,
@@ -830,7 +835,7 @@ func cleanupDemo(client *es.Client, ctx context.Context, index string) {
 // 搜索文档演示
 func searchDemo(client *es.Client, ctx context.Context, index string) {
 	fmt.Println("搜索文档演示...")
-	
+
 	// 1. 基本搜索 - 匹配所有文档
 	fmt.Println("1. 搜索所有文档...")
 	searchReq := es.SearchRequest{
@@ -839,13 +844,13 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		},
 		Size: 10,
 	}
-	
+
 	result, err := client.Search().Search(ctx, index, searchReq)
 	if err != nil {
 		log.Printf("搜索失败: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("总共找到 %d 个文档\n", result.Hits.Total.Value)
 	for _, hit := range result.Hits.Hits {
 		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
@@ -856,7 +861,7 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		}
 		fmt.Printf("  用户信息: %+v\n", user)
 	}
-	
+
 	// 2. 精确匹配搜索 - 匹配名称包含"新用户"的文档
 	fmt.Println("\n2. 搜索名称包含\"新用户\"的文档...")
 	searchReq2 := es.SearchRequest{
@@ -867,13 +872,13 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		},
 		Size: 10,
 	}
-	
+
 	result2, err := client.Search().Search(ctx, index, searchReq2)
 	if err != nil {
 		log.Printf("搜索失败: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("找到 %d 个名称包含\"新用户\"的文档\n", result2.Hits.Total.Value)
 	for _, hit := range result2.Hits.Hits {
 		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
@@ -884,7 +889,7 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		}
 		fmt.Printf("  用户信息: %+v\n", user)
 	}
-	
+
 	// 3. 布尔查询 - 必须匹配包含"新用户"的文档
 	fmt.Println("\n3. 使用布尔查询必须匹配包含\"新用户\"的文档...")
 	searchReq3 := es.SearchRequest{
@@ -901,13 +906,13 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		},
 		Size: 10,
 	}
-	
+
 	result3, err := client.Search().Search(ctx, index, searchReq3)
 	if err != nil {
 		log.Printf("搜索失败: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("通过布尔查询找到 %d 个名称包含\"新用户\"的文档\n", result3.Hits.Total.Value)
 	for _, hit := range result3.Hits.Hits {
 		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
@@ -918,7 +923,7 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		}
 		fmt.Printf("  用户信息: %+v\n", user)
 	}
-	
+
 	// 4. 范围查询 - 年龄在30到40之间的用户
 	fmt.Println("\n4. 搜索年龄在30到40之间的用户...")
 	searchReq4 := es.SearchRequest{
@@ -932,13 +937,13 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		},
 		Size: 10,
 	}
-	
+
 	result4, err := client.Search().Search(ctx, index, searchReq4)
 	if err != nil {
 		log.Printf("搜索失败: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("找到 %d 个年龄在30到40之间的用户\n", result4.Hits.Total.Value)
 	for _, hit := range result4.Hits.Hits {
 		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
@@ -949,7 +954,7 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		}
 		fmt.Printf("  用户信息: %+v\n", user)
 	}
-	
+
 	// 5. 复合查询 - 必须匹配"新用户"并且年龄大于等于30
 	fmt.Println("\n5. 复合查询 - 必须匹配\"新用户\"并且年龄大于等于30...")
 	searchReq5 := es.SearchRequest{
@@ -973,13 +978,13 @@ func searchDemo(client *es.Client, ctx context.Context, index string) {
 		},
 		Size: 10,
 	}
-	
+
 	result5, err := client.Search().Search(ctx, index, searchReq5)
 	if err != nil {
 		log.Printf("搜索失败: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("找到 %d 个匹配条件的用户\n", result5.Hits.Total.Value)
 	for _, hit := range result5.Hits.Hits {
 		fmt.Printf("文档ID: %s, 分数: %f\n", hit.ID, hit.Score)
