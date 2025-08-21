@@ -9,9 +9,10 @@ package logger
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/lestrrat-go/file-rotatelogs"
 	"strings"
 	"time"
+
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 
 	"github.com/natefinch/lumberjack"
 	"go.uber.org/zap"
@@ -151,7 +152,7 @@ func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
 
 func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder   // modify Time Encoder
+	encoderConfig.EncodeTime = timeFormatter                // modify Time Encoder
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // logging levels in the log file using upper case letters
 	var encoder zapcore.Encoder
 	if encoding == formatConsole { // console format
@@ -222,7 +223,7 @@ func (c *customHookCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zap
 func (c *customHookCore) Write(ent zapcore.Entry, fields []Field) error {
 	// Execute custom hooks first
 	for _, hook := range customHooks {
-		if err := hook(ent.Level.String(), ent.Message, fields); err != nil {
+		if err := hook(ent, fields); err != nil {
 			return err
 		}
 	}
@@ -248,7 +249,7 @@ func getLevelSize(levelName string) zapcore.Level {
 }
 
 func timeFormatter(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-	enc.AppendString(t.Format("2006-01-02 15:04:05.000"))
+	enc.AppendString(t.Format("2006-01-02 15:04:05.000000"))
 }
 
 // GetWithSkip get defaultLogger, set the skipped caller value, customize the number of lines of code displayed

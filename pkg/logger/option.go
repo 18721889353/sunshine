@@ -28,7 +28,7 @@ type customHookWrapper struct {
 
 // Execute executes the custom hook with level, message and fields
 func (w customHookWrapper) Execute(entry zapcore.Entry, fields []Field) error {
-	return w.hook(entry.Level.String(), entry.Message, fields)
+	return w.hook(entry, fields)
 }
 
 type options struct {
