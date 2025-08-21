@@ -9,7 +9,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
 	"github.com/18721889353/sunshine/pkg/jwt"
-	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 const (
@@ -18,6 +17,7 @@ const (
 )
 
 type jwtOptions struct {
+	log              *zap.Logger
 	isSwitchHTTPCode bool
 	verify           VerifyFn // verify function, only use in Auth
 	ignoreMethods    map[string]struct{}
@@ -33,7 +33,9 @@ func (o *jwtOptions) apply(opts ...JwtOption) {
 }
 
 func defaultJwtOptions() *jwtOptions {
+	defaultLogger, _ := zap.NewProduction()
 	return &jwtOptions{
+		log:              defaultLogger,
 		isSwitchHTTPCode: false,
 		verify:           nil,
 		ignoreMethods:    make(map[string]struct{}), // 忽略的方法
@@ -73,6 +75,15 @@ func WithJwtIgnoreMethods(fullMethodNames ...string) JwtOption {
 	}
 }
 
+// WithAuthLog set log
+func WithAuthLog(log *zap.Logger) JwtOption {
+	return func(o *jwtOptions) {
+		if log != nil {
+			o.log = log
+		}
+	}
+}
+
 // -------------------------------------------------------------------------------------------
 
 // VerifyFn verify function, tokenTail10 is the last 10 characters of the token.
@@ -101,7 +112,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 			authorization := c.GetHeader(HeaderAuthorizationKey)
 			if len(authorization) < 150 {
 				fields = append(fields, zap.String(HeaderAuthorizationKey, authorization))
-				logger.Warn("authorization is illegal", fields...)
+				o.log.Warn("authorization is illegal", fields...)
 				responseUnauthorized(c, o.isSwitchHTTPCode)
 				c.Abort()
 				return
@@ -111,7 +122,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 			claims, err := jwt.ParseToken(token)
 			if err != nil {
 				fields = append(fields, zap.String("token", token), zap.Error(err))
-				logger.Warn("ParseToken error", fields...)
+				o.log.Warn("ParseToken error", fields...)
 				responseUnauthorized(c, o.isSwitchHTTPCode)
 				c.Abort()
 				return
@@ -120,8 +131,8 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 			if o.verify != nil {
 				tokenTail10 := token[len(token)-10:]
 				if err = o.verify(claims, tokenTail10, c); err != nil {
-					fields = append(fields, zap.Error(err), logger.String("uid", claims.UID), logger.String("name", claims.Name))
-					logger.Warn("verify error", fields...)
+					fields = append(fields, zap.Error(err), zap.String("uid", claims.UID), zap.String("name", claims.Name))
+					o.log.Warn("verify error", fields...)
 					responseUnauthorized(c, o.isSwitchHTTPCode)
 					c.Abort()
 					return
@@ -148,7 +159,7 @@ func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authorization := c.GetHeader(HeaderAuthorizationKey)
 		if len(authorization) < 150 {
-			logger.Warn("authorization is illegal")
+			o.log.Warn("authorization is illegal")
 			responseUnauthorized(c, o.isSwitchHTTPCode)
 			c.Abort()
 			return
@@ -157,7 +168,7 @@ func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 		token := authorization[7:] // remove Bearer prefix
 		claims, err := jwt.ParseCustomToken(token)
 		if err != nil {
-			logger.Warn("ParseToken error", logger.Err(err))
+			o.log.Warn("ParseToken error", zap.Error(err))
 			responseUnauthorized(c, o.isSwitchHTTPCode)
 			c.Abort()
 			return
@@ -165,7 +176,7 @@ func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 
 		tokenTail10 := token[len(token)-10:]
 		if err = verify(claims, tokenTail10, c); err != nil {
-			logger.Warn("verify error", logger.Err(err), logger.Any("fields", claims.Fields))
+			o.log.Warn("verify error", zap.Error(err), zap.Any("fields", claims.Fields))
 			responseUnauthorized(c, o.isSwitchHTTPCode)
 			c.Abort()
 			return
