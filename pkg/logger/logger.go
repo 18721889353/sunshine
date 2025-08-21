@@ -30,6 +30,7 @@ const (
 
 var defaultLogger *zap.Logger
 var defaultSugaredLogger *zap.SugaredLogger
+var customHooks []CustomHook
 
 func getLogger() *zap.Logger {
 	checkNil()
@@ -75,6 +76,9 @@ func Init(opts ...Option) (*zap.Logger, error) {
 	isSave := o.isSave
 	levelName := o.level
 	encoding := o.encoding
+
+	// Store custom hooks for use in our custom core
+	customHooks = o.customHooks
 
 	var err error
 	var zapLog *zap.Logger
@@ -122,6 +126,26 @@ func log2Terminal(levelName string, encoding string) (*zap.Logger, error) {
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // logging levels in the log file using upper case letters
 	}
 	config.EncoderConfig.EncodeTime = timeFormatter // default time format
+
+	// If we have custom hooks, we need to create a custom core
+	if len(customHooks) > 0 {
+		// Create the base core from the config
+		baseCore, err := config.Build()
+		if err != nil {
+			return nil, err
+		}
+
+		// Get the underlying core to wrap it
+		core := baseCore.Core()
+
+		// Wrap the core with our custom hook support
+		wrappedCore := &customHookCore{
+			Core: core,
+		}
+
+		return zap.New(wrappedCore, zap.AddCaller()), nil
+	}
+
 	return config.Build()
 }
 
@@ -163,8 +187,48 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 
 	core := zapcore.NewCore(encoder, ws, getLevelSize(levelName))
 
+	// If we have custom hooks, wrap the core
+	if len(customHooks) > 0 && !fo.noPrint {
+		core = &customHookCore{
+			Core: core,
+		}
+	}
+
 	// add the function call information log to the log.
 	return zap.New(core, zap.AddCaller())
+}
+
+// customHookCore wraps a zapcore.Core and executes custom hooks
+type customHookCore struct {
+	zapcore.Core
+}
+
+// With adds structured context to the Core.
+func (c *customHookCore) With(fields []Field) zapcore.Core {
+	return &customHookCore{
+		Core: c.Core.With(fields),
+	}
+}
+
+// Check determines whether the supplied Entry should be logged.
+func (c *customHookCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	if c.Enabled(ent.Level) {
+		return ce.AddCore(ent, c)
+	}
+	return ce
+}
+
+// Write writes the entry and fields to the underlying writer.
+func (c *customHookCore) Write(ent zapcore.Entry, fields []Field) error {
+	// Execute custom hooks first
+	for _, hook := range customHooks {
+		if err := hook(ent.Level.String(), ent.Message, fields); err != nil {
+			return err
+		}
+	}
+
+	// Then write to the underlying core
+	return c.Core.Write(ent, fields)
 }
 
 // DEBUG(default), INFO, WARN, ERROR

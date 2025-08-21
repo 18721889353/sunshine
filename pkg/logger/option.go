@@ -21,6 +21,16 @@ var (
 	defaultNoPrint       = false //禁止终端/文件输出）
 )
 
+// customHookWrapper wraps CustomHook to implement zap's Hook interface
+type customHookWrapper struct {
+	hook CustomHook
+}
+
+// Execute executes the custom hook with level, message and fields
+func (w customHookWrapper) Execute(entry zapcore.Entry, fields []Field) error {
+	return w.hook(entry.Level.String(), entry.Message, fields)
+}
+
 type options struct {
 	level    string
 	encoding string
@@ -29,6 +39,9 @@ type options struct {
 	fileConfig *fileOptions
 
 	hooks []func(zapcore.Entry) error
+
+	// Custom hooks that can access fields data
+	customHooks []CustomHook
 }
 
 func defaultOptions() *options {
@@ -86,6 +99,13 @@ func WithSave(isSave bool, opts ...FileOption) Option {
 func WithHooks(hooks ...func(zapcore.Entry) error) Option {
 	return func(o *options) {
 		o.hooks = hooks
+	}
+}
+
+// WithCustomHooks sets custom hooks that can access fields data
+func WithCustomHooks(hooks ...CustomHook) Option {
+	return func(o *options) {
+		o.customHooks = hooks
 	}
 }
 
