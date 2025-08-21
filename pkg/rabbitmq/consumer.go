@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
@@ -351,7 +350,7 @@ func (c *Consumer) initialize() error {
 
 	fields := logFields(c.QueueName, c.Exchange)
 	fields = append(fields, zap.String("autoAck", strconv.FormatBool(c.isAutoAck)))
-	pkgLogger.Info("[rabbitmq consumer] initialized", fields...)
+	c.zapLog.Info("[rabbitmq consumer] initialized", fields...)
 	return nil
 }
 
@@ -395,16 +394,16 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 
 			err := c.initialize()
 			if err != nil {
-				pkgLogger.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				c.zapLog.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
 
 			delivery, err := c.consumeWithContext(ctx)
 			if err != nil {
-				pkgLogger.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				c.zapLog.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
-			//pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
+			//c.zapLog.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
 			tracer := otel.Tracer("rabbitmq-Consume")
 
 			isContinueConsume := false
@@ -415,7 +414,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					return
 				case d, ok := <-delivery:
 					if !ok {
-						pkgLogger.Warn("[rabbitmq consumer] exit consume message, queue=" + c.QueueName)
+						c.zapLog.Warn("[rabbitmq consumer] exit consume message, queue=" + c.QueueName)
 						isContinueConsume = true
 						break
 					}
@@ -427,25 +426,25 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					err = handler(ctx, d.Body, tagID)
 					if err != nil {
 						span.RecordError(err)
-						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						c.zapLog.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(false); err != nil {
 							span.RecordError(err)
-							pkgLogger.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							c.zapLog.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						//pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
+						//c.zapLog.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
 
 						continue
 					}
 					if !c.isAutoAck {
 						if err = d.Ack(false); err != nil {
 							span.RecordError(err)
-							pkgLogger.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							c.zapLog.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						//pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
+						//c.zapLog.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
 					atomic.AddInt64(&c.count, 1)
 					// 结束 span
@@ -501,16 +500,16 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 
 			err := c.initialize()
 			if err != nil {
-				pkgLogger.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				c.zapLog.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
 
 			delivery, err := c.consumeWithContext(ctx)
 			if err != nil {
-				pkgLogger.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				c.zapLog.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
-			//pkgLogger.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
+			//c.zapLog.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
 			tracer := otel.Tracer("rabbitmq-DeadConsume")
 
 			isContinueConsume := false
@@ -521,7 +520,7 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 					return
 				case d, ok := <-delivery:
 					if !ok {
-						pkgLogger.Warn("[rabbitmq consumer] exit consume message, queue=" + c.QueueName)
+						c.zapLog.Warn("[rabbitmq consumer] exit consume message, queue=" + c.QueueName)
 						isContinueConsume = true
 						break
 					}
@@ -534,24 +533,24 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 					err = handler(ctx, d.Body, tagID)
 					if err != nil {
 						span.RecordError(err)
-						pkgLogger.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+						c.zapLog.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 						//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 						//如果设置为 false，则将消息从队列中移除，不再重新排队
 						if err = d.Reject(false); err != nil {
 							span.RecordError(err)
-							pkgLogger.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							c.zapLog.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						//pkgLogger.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
+						//c.zapLog.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
 						continue
 					}
 					if !c.isAutoAck {
 						if err = d.Ack(false); err != nil {
 							span.RecordError(err)
-							pkgLogger.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
+							c.zapLog.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							continue
 						}
-						//pkgLogger.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
+						//c.zapLog.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
 					// 结束 span
 					span.End()
