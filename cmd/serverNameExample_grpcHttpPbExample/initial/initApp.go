@@ -53,11 +53,11 @@ func ZapLogHandler(entry zapcore.Entry) error {
 	return nil
 }
 
-func customHook(level string, msg string, fields []logger.Field) error {
-	fmt.Printf("Level: %s\nMessage: %s\n", level, msg)
+func customHook(entry zapcore.Entry, fields []logger.Field) error {
+	fmt.Printf("Level: %s\nMessage: %s\nCaller: %s\nTime: %s\n", entry.Level, entry.Message, entry.Caller.TrimmedPath(), entry.Time.Format("2006-01-02 15:04:05.000000"))
 	// 分析字段数据并打印键值对
 	for _, field := range fields {
-		fmt.Printf("  Field - Key: %s, Value: %v\n", field.Key, logger.GGetFieldValue(field))
+		fmt.Printf("Key: %s, Value: %v\n", field.Key, logger.GGetFieldValue(field))
 	}
 	return nil
 }

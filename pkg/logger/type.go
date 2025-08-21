@@ -13,7 +13,7 @@ import (
 type Field = zapcore.Field
 
 // CustomHook defines a custom hook function that can access log level, message and fields
-type CustomHook func(level string, msg string, fields []Field) error
+type CustomHook func(entry zapcore.Entry, fields []Field) error
 
 // Int type
 func Int(key string, val int) Field {
