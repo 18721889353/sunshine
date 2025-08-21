@@ -78,6 +78,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	if config.Get().App.OpenSign {
 		r.Use(
 			middleware.VerifySignatureMiddleware(
+				middleware.WithSignLog(logger.Get()),
 				middleware.WithSignKey(config.Get().Sign.SignKey),
 				middleware.WithIgnoreUrl(config.Get().Sign.IgnoreUrls.HTTP...),
 				middleware.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
@@ -86,9 +87,8 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	}
 	// 将XSSMiddleware添加为全局中间件
 	if config.Get().App.OpenXSS {
-		r.Use(middleware.XSSCrossMiddleware())
+		r.Use(middleware.XSSCrossMiddleware(middleware.WithXsLog(logger.Get())))
 	}
-
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
 		r.Use(metrics.Metrics(r,
@@ -108,6 +108,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 				middleware.WithSentinelRules(config.Get().Sentinel.Rules),
 			),
 		)
+		//r.Use(middleware.RateLimit())
 	}
 
 	// circuit breaker middleware
@@ -123,6 +124,15 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	if config.Get().App.EnableTrace {
 		//r.Use(middleware.Tracing(config.Get().App.Name))
 		r.Use(otelgin.Middleware(config.Get().App.Name))
+	}
+	if config.Get().App.OpenJwt {
+		//全局权限验证
+		r.Use(
+			middleware.Auth(
+				middleware.WithAuthLog(logger.Get()),
+				middleware.WithSwitchHTTPCode(),
+				middleware.WithJwtIgnoreMethods(config.Get().Jwt.IgnoreMethods.HTTP...)),
+		)
 	}
 
 	c := newMiddlewareConfig()
