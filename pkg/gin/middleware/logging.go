@@ -254,7 +254,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			reqID = c.Request.Header.Get(HeaderXRequestIDKey)
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		fields = append(fields, zap.String("log_from", `<<<<`))
+		fields = append(fields, zap.String("log_from", `<<<<`+o.logFrom))
 
 		o.log.Info(`gin middleware Logging`, fields...)
 
@@ -279,7 +279,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		if reqID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		fields = append(fields, zap.String("log_from", `>>>>`))
+		fields = append(fields, zap.String("log_from", `>>>>`+o.logFrom))
 		o.log.Info(`gin middleware Logging`, fields...)
 	}
 }
