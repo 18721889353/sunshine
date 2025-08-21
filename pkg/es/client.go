@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"time"
@@ -15,10 +16,64 @@ import (
 // Client ES客户端封装
 type Client struct {
 	*elasticsearch.Client
+	log *zap.Logger
+}
+
+// ESOptions ES客户端选项配置
+type ESOptions func(*esOptions)
+
+// esOptions ES客户端配置选项
+type esOptions struct {
+	config  Config
+	logger  *zap.Logger
+}
+
+// defaultESOptions 默认ES客户端选项
+func defaultESOptions() *esOptions {
+	defaultLogger, _ := zap.NewProduction()
+	return &esOptions{
+		config: GetDefaultConfig(),
+		logger: defaultLogger,
+	}
+}
+
+// WithConfig 设置ES配置
+func WithConfig(config Config) ESOptions {
+	return func(o *esOptions) {
+		o.config = config
+	}
+}
+
+// WithLogger 设置日志记录器
+func WithLogger(logger *zap.Logger) ESOptions {
+	return func(o *esOptions) {
+		if logger != nil {
+			o.logger = logger
+		}
+	}
+
+}
+
+// apply 应用选项
+func (o *esOptions) apply(opts ...ESOptions) {
+	for _, opt := range opts {
+		opt(o)
+	}
 }
 
 // NewClient 创建ES客户端，启用连接池
-func NewClient(config Config) (*Client, error) {
+func NewClient(opts ...ESOptions) (*Client, error) {
+	o := defaultESOptions()
+	o.apply(opts...)
+
+	config := o.config
+	log := o.logger
+
+	// 验证配置
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid elasticsearch config: %w", err)
+	}
+
 	// 创建自定义的Transport以配置连接池
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -58,7 +113,12 @@ func NewClient(config Config) (*Client, error) {
 		return nil, fmt.Errorf("failed to create elasticsearch client: %w", err)
 	}
 
-	return &Client{client}, nil
+	return &Client{client, log}, nil
+}
+
+// Search 返回搜索操作实例
+func (c *Client) Search() SearchService {
+	return c.NewSearch()
 }
 
 // Ping 检查ES服务状态

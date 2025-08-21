@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap/zapcore"
 	"log"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/es"
+	"go.uber.org/zap"
 )
 
 // User 用户结构体，用于映射Elasticsearch中的文档
@@ -21,7 +23,7 @@ type User struct {
 func main() {
 	fmt.Println("=== Elasticsearch 文档操作完整演示 ===")
 
-	// 初始化客户端，使用完全自定义的连接池配置
+	// 初始化客户端，使用选项模式配置
 	config := es.GetDefaultConfig()
 	config.Addresses = []string{"http://43.143.78.234:9200"} // Elasticsearch服务地址
 	config.Username = "elastic"                              // 用户名
@@ -38,12 +40,19 @@ func main() {
 	config.MaxRetries = 5                        // 最大重试次数
 	config.RetryBackoff = 200 * time.Millisecond // 重试间隔
 
-	// 验证配置
-	if err := config.Validate(); err != nil {
-		log.Fatal("Invalid configuration:", err)
+	// 创建只记录告警级别及以上日志的logger
+	// 设置日志级别为 WarnLevel，只记录警告和错误级别日志
+	cfg := zap.NewProductionConfig()
+	cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+	logger, err := cfg.Build()
+	if err != nil {
+		log.Fatal("Failed to create logger:", err)
 	}
-
-	client, err := es.NewClient(config)
+	defer logger.Sync()
+	client, err := es.NewClient(
+		es.WithConfig(config),
+		es.WithLogger(logger),
+	)
 	if err != nil {
 		log.Fatal("Failed to create client:", err)
 	}
@@ -106,7 +115,7 @@ func main() {
 				},
 			},
 		}
-		
+
 		if err := client.Document().CreateIndex(ctx, indexName, indexMapping); err != nil {
 			log.Printf("创建索引失败: %v", err)
 		} else {
@@ -310,7 +319,6 @@ func bulkIndexDemo(client *es.Client, ctx context.Context, index string) {
 		},
 		Size: 10,
 	}
-
 	searchResult, err := client.Search().Search(ctx, index, searchReq)
 	if err != nil {
 		log.Printf("验证搜索失败: %v", err)

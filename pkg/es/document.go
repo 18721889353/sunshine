@@ -139,7 +139,7 @@ func (d *Document) Delete(ctx context.Context, index string, docID string) error
 // Update 添加更新文档功能
 func (d *Document) Update(ctx context.Context, index string, docID string, updateData interface{}) error {
 	// 添加追踪支持
-	ctx, endSpan := d.client.withSpan(ctx, "update", index, docID)
+	ctx, endSpan := d.client.withSpan(ctx, "update", index, docID, updateData)
 	defer endSpan(nil)
 
 	body, err := json.Marshal(map[string]interface{}{
@@ -176,7 +176,7 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 // BulkIndex 添加批量操作示例
 func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[string]interface{}) error {
 	// 添加追踪支持
-	ctx, endSpan := d.client.withSpan(ctx, "bulk_index", index)
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_index", index, docs)
 	defer endSpan(nil)
 
 	return d.client.Bulk().BulkIndex(ctx, index, docs)
@@ -185,7 +185,7 @@ func (d *Document) BulkIndex(ctx context.Context, index string, docs []map[strin
 // BulkCreate 批量创建文档
 func (d *Document) BulkCreate(ctx context.Context, index string, docs []map[string]interface{}) error {
 	// 添加追踪支持
-	ctx, endSpan := d.client.withSpan(ctx, "bulk_create", index)
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_create", index, docs)
 	defer endSpan(nil)
 
 	return d.client.Bulk().BulkCreate(ctx, index, docs)
@@ -194,16 +194,16 @@ func (d *Document) BulkCreate(ctx context.Context, index string, docs []map[stri
 // BulkUpdate 批量更新文档
 func (d *Document) BulkUpdate(ctx context.Context, index string, updates []map[string]interface{}) error {
 	// 添加追踪支持
-	ctx, endSpan := d.client.withSpan(ctx, "bulk_update", index)
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_update", index, updates)
 	defer endSpan(nil)
-	
+
 	return d.client.Bulk().BulkUpdate(ctx, index, updates)
 }
 
 // BulkDelete 批量删除文档
 func (d *Document) BulkDelete(ctx context.Context, index string, ids []string) error {
 	// 添加追踪支持
-	ctx, endSpan := d.client.withSpan(ctx, "bulk_delete", index)
+	ctx, endSpan := d.client.withSpan(ctx, "bulk_delete", index, ids)
 	defer endSpan(nil)
 
 	return d.client.Bulk().BulkDelete(ctx, index, ids)
@@ -259,7 +259,7 @@ func (d *Document) DeleteIndex(ctx context.Context, index string) error {
 // CreateIndex 创建索引
 func (d *Document) CreateIndex(ctx context.Context, index string, mapping interface{}) error {
 	// 添加追踪支持
-	ctx, endSpan := d.client.withSpan(ctx, "create_index", index)
+	ctx, endSpan := d.client.withSpan(ctx, "create_index", index, mapping)
 	defer endSpan(nil)
 
 	var body io.Reader

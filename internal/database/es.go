@@ -2,10 +2,10 @@ package database
 
 import (
 	"context"
+	"github.com/18721889353/sunshine/internal/config"
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/es"
 	"github.com/18721889353/sunshine/pkg/logger"
 )
@@ -55,8 +55,11 @@ func InitElasticsearch() *es.Client {
 		panic("elasticsearch config validation failed: " + err.Error())
 	}
 
-	// 创建ES客户端
-	client, err := es.NewClient(esConfig)
+	// 使用选项模式创建ES客户端
+	client, err := es.NewClient(
+		es.WithConfig(esConfig),
+		es.WithLogger(logger.Get()),
+	)
 	if err != nil {
 		panic("failed to create elasticsearch client: " + err.Error())
 	}
@@ -65,7 +68,7 @@ func InitElasticsearch() *es.Client {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := client.Ping(); err != nil {
+	if err := client.Ping(ctx); err != nil {
 		logger.Warnf("elasticsearch ping failed: %v", err)
 		// 根据配置决定是否panic
 		if esCfg.EnablePingCheck {
