@@ -1,7 +1,6 @@
 package es
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -32,7 +31,9 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 	ctx, endSpan := b.client.withSpan(ctx, "bulk_execute")
 	defer endSpan(nil)
 
-	var buf bytes.Buffer
+	// 使用缓冲池优化内存分配
+	buf := b.client.getBuffer()
+	defer b.client.putBuffer(buf)
 
 	for _, op := range operations {
 		meta := map[string]interface{}{
@@ -69,7 +70,7 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 	}
 
 	req := esapi.BulkRequest{
-		Body: &buf,
+		Body: buf,
 	}
 
 	res, err := req.Do(ctx, b.client.Client)

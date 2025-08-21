@@ -66,15 +66,18 @@ func (s *search) Search(ctx context.Context, index string, req SearchRequest) (*
 	ctx, endSpan := s.client.withSpan(ctx, "search", index)
 	defer endSpan(nil)
 
-	body, err := json.Marshal(req)
-	if err != nil {
+	// 使用缓冲池优化内存分配
+	body := s.client.getBuffer()
+	defer s.client.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(req); err != nil {
 		endSpan(err)
 		return nil, fmt.Errorf("marshal search request error: %w", err)
 	}
 
 	searchReq := esapi.SearchRequest{
 		Index: []string{index},
-		Body:  bytes.NewReader(body),
+		Body:  bytes.NewReader(body.Bytes()),
 	}
 
 	res, err := searchReq.Do(ctx, s.client.Client)
@@ -239,15 +242,18 @@ func (s *search) ScrollSearch(ctx context.Context, index string, req SearchReque
 	ctx, endSpan := s.client.withSpan(ctx, "scroll_search", index)
 	defer endSpan(nil)
 
-	body, err := json.Marshal(req)
-	if err != nil {
+	// 使用缓冲池优化内存分配
+	body := s.client.getBuffer()
+	defer s.client.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(req); err != nil {
 		endSpan(err)
 		return nil, fmt.Errorf("marshal search request error: %w", err)
 	}
 
 	scrollReq := esapi.SearchRequest{
 		Index:  []string{index},
-		Body:   bytes.NewReader(body),
+		Body:   bytes.NewReader(body.Bytes()),
 		Scroll: scrollTime,
 	}
 
@@ -368,15 +374,18 @@ func (s *search) SearchWithSearchAfter(ctx context.Context, index string, req Se
 		return nil, err
 	}
 
-	body, err := json.Marshal(req)
-	if err != nil {
+	// 使用缓冲池优化内存分配
+	body := s.client.getBuffer()
+	defer s.client.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(req); err != nil {
 		endSpan(err)
 		return nil, fmt.Errorf("marshal search request error: %w", err)
 	}
 
 	searchReq := esapi.SearchRequest{
 		Index: []string{index},
-		Body:  bytes.NewReader(body),
+		Body:  bytes.NewReader(body.Bytes()),
 	}
 
 	res, err := searchReq.Do(ctx, s.client.Client)

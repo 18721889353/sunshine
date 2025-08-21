@@ -1,6 +1,7 @@
 package es
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -17,6 +19,8 @@ import (
 type Client struct {
 	*elasticsearch.Client
 	log *zap.Logger
+	// 添加缓冲池以提高并发性能
+	bufferPool sync.Pool
 }
 
 // ESOptions ES客户端选项配置
@@ -113,7 +117,13 @@ func NewClient(opts ...ESOptions) (*Client, error) {
 		return nil, fmt.Errorf("failed to create elasticsearch client: %w", err)
 	}
 
-	return &Client{client, log}, nil
+	esClient := &Client{client, log, sync.Pool{}}
+	// 初始化缓冲池
+	esClient.bufferPool.New = func() interface{} {
+		return new(bytes.Buffer)
+	}
+
+	return esClient, nil
 }
 
 // Search 返回搜索操作实例
@@ -210,4 +220,16 @@ func (c *Client) HealthCheck(ctx context.Context) (string, error) {
 	}
 
 	return status, nil
+}
+
+// getBuffer 从池中获取缓冲区
+func (c *Client) getBuffer() *bytes.Buffer {
+	buf := c.bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	return buf
+}
+
+// putBuffer 将缓冲区放回池中
+func (c *Client) putBuffer(buf *bytes.Buffer) {
+	c.bufferPool.Put(buf)
 }

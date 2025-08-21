@@ -26,8 +26,11 @@ func (d *Document) Index(ctx context.Context, index string, doc interface{}, doc
 	ctx, endSpan := d.client.withSpan(ctx, "index", index, docID)
 	defer endSpan(nil)
 
-	body, err := json.Marshal(doc)
-	if err != nil {
+	// 使用缓冲池优化内存分配
+	body := d.client.getBuffer()
+	defer d.client.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(doc); err != nil {
 		endSpan(err)
 		return fmt.Errorf("marshal document error: %w", err)
 	}
@@ -35,7 +38,7 @@ func (d *Document) Index(ctx context.Context, index string, doc interface{}, doc
 	req := esapi.IndexRequest{
 		Index:      index,
 		DocumentID: docID,
-		Body:       bytes.NewReader(body),
+		Body:       bytes.NewReader(body.Bytes()),
 		Refresh:    "true",
 	}
 
@@ -142,10 +145,13 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 	ctx, endSpan := d.client.withSpan(ctx, "update", index, docID, updateData)
 	defer endSpan(nil)
 
-	body, err := json.Marshal(map[string]interface{}{
+	// 使用缓冲池优化内存分配
+	body := d.client.getBuffer()
+	defer d.client.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(map[string]interface{}{
 		"doc": updateData,
-	})
-	if err != nil {
+	}); err != nil {
 		endSpan(err)
 		return fmt.Errorf("marshal update data error: %w", err)
 	}
@@ -153,7 +159,7 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 	req := esapi.UpdateRequest{
 		Index:      index,
 		DocumentID: docID,
-		Body:       bytes.NewReader(body),
+		Body:       bytes.NewReader(body.Bytes()),
 		Refresh:    "true",
 	}
 
@@ -264,12 +270,15 @@ func (d *Document) CreateIndex(ctx context.Context, index string, mapping interf
 
 	var body io.Reader
 	if mapping != nil {
-		mappingBytes, err := json.Marshal(mapping)
-		if err != nil {
+		// 使用缓冲池优化内存分配
+		buf := d.client.getBuffer()
+		defer d.client.putBuffer(buf)
+		
+		if err := json.NewEncoder(buf).Encode(mapping); err != nil {
 			endSpan(err)
 			return fmt.Errorf("marshal mapping error: %w", err)
 		}
-		body = bytes.NewReader(mappingBytes)
+		body = bytes.NewReader(buf.Bytes())
 	}
 
 	res, err := d.client.Indices.Create(
