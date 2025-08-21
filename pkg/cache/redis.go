@@ -10,7 +10,6 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 
-	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"go.uber.org/zap"
@@ -25,6 +24,7 @@ var CacheNotFound = redis.Nil
 
 // redisCache redis cache object
 type redisCache struct {
+	log               *zap.Logger
 	client            *redis.Client
 	KeyPrefix         string
 	encoding          encoding.Encoding
@@ -36,10 +36,14 @@ type redisCache struct {
 
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
 
-func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}) Cache {
+func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, log *zap.Logger) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
+	if log == nil {
+		log, _ = zap.NewProduction()
+	}
 	return &redisCache{
+		log:               log,
 		client:            client,
 		KeyPrefix:         keyPrefix,
 		encoding:          encode,
@@ -66,14 +70,14 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
 	err := c.mutex.LockContext(ctx)
 	if err != nil {
-		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", logFields...)
+		logFields = append(logFields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", logFields...)
 		return err
 	} else {
 		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 		if elapsed > 10 {
 			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-			pkgLogger.Info("Cache msg", logFields...)
+			c.log.Info("Cache msg", logFields...)
 		}
 		return nil
 	}
@@ -95,14 +99,14 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	// TryLock 尝试获取锁而不阻塞
 	err := c.mutex.TryLockContext(ctx)
 	if err != nil {
-		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", logFields...)
+		logFields = append(logFields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", logFields...)
 		return err
 	} else {
 		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 		if elapsed > 10 {
 			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-			pkgLogger.Info("Cache msg", logFields...)
+			c.log.Info("Cache msg", logFields...)
 		}
 		return nil
 	}
@@ -121,14 +125,14 @@ func (c *redisCache) ReleaseLock(ctx context.Context) error {
 	// 解锁操作
 	_, err := c.mutex.UnlockContext(ctx)
 	if err != nil {
-		logFields = append(logFields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", logFields...)
+		logFields = append(logFields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", logFields...)
 		return err
 	} else {
 		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 		if elapsed > 10 {
 			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-			pkgLogger.Info("Cache msg", logFields...)
+			c.log.Info("Cache msg", logFields...)
 		}
 		return nil
 	}
@@ -145,15 +149,15 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 	buf, err := encoding.Marshal(c.encoding, val)
 
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("encoding.Marshal error: %v, key=%s, val=%+v ", err, key, val)
 	}
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
 	if expireTime == 0 {
@@ -161,15 +165,15 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 	}
 	err = c.client.Set(ctx, cacheKey, buf, expireTime).Err()
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.Set error: %v, cacheKey=%s", err, cacheKey)
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-		pkgLogger.Info("Cache msg", fields...)
+		c.log.Info("Cache msg", fields...)
 	}
 
 	return nil
@@ -185,8 +189,8 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	}
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
 
@@ -197,8 +201,8 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 		if errors.Is(err, redis.Nil) {
 			return err
 		}
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return err
 	}
 
@@ -211,8 +215,8 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	}
 	err = encoding.Unmarshal(c.encoding, bytes, val)
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("encoding.Unmarshal error: %v, key=%s, cacheKey=%s, type=%v, json=%+v ",
 			err, key, cacheKey, reflect.TypeOf(val), string(bytes))
 	}
@@ -220,7 +224,7 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) error
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-		pkgLogger.Info("Cache msg", fields...)
+		c.log.Info("Cache msg", fields...)
 	}
 	return nil
 }
@@ -259,8 +263,8 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	pipeline := c.client.Pipeline()
 	err := pipeline.MSet(ctx, paris...).Err()
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("pipeline.MSet error: %v", err)
 	}
 	for i := 0; i < len(paris); i = i + 2 {
@@ -273,15 +277,15 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	}
 	_, err = pipeline.Exec(ctx)
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("pipeline.Exec error: %v", err)
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-		pkgLogger.Info("Cache msg", fields...)
+		c.log.Info("Cache msg", fields...)
 	}
 	return nil
 }
@@ -310,8 +314,8 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 		if errors.Is(err, redis.Nil) {
 			return err
 		}
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.MGet error: %v, keys=%+v", err, cacheKeys)
 	}
 
@@ -324,8 +328,8 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 		object := c.newObject()
 		err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object)
 		if err != nil {
-			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-			pkgLogger.Warn("Cache msg", fields...)
+			fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+			c.log.Warn("Cache msg", fields...)
 			fmt.Printf("unmarshal data error: %+v, key=%s, cacheKey=%s type=%v\n", err, keys[i], cacheKeys[i], reflect.TypeOf(value))
 			continue
 		}
@@ -335,7 +339,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-		pkgLogger.Info("Cache msg", fields...)
+		c.log.Info("Cache msg", fields...)
 	}
 	return nil
 }
@@ -356,23 +360,23 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) error {
 	for index, key := range keys {
 		cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 		if err != nil {
-			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-			pkgLogger.Warn("Cache msg", fields...)
+			fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+			c.log.Warn("Cache msg", fields...)
 			continue
 		}
 		cacheKeys[index] = cacheKey
 	}
 	err := c.client.Del(ctx, cacheKeys...).Err()
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, cacheKeys)
 	}
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-		pkgLogger.Info("Cache msg", fields...)
+		c.log.Info("Cache msg", fields...)
 	}
 	return nil
 }
@@ -393,16 +397,16 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
 		var err error
 		keys, cursor, err = c.client.Scan(ctx, cursor, prefix+"*", 100).Result()
 		if err != nil {
-			fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-			pkgLogger.Warn("Cache msg", fields...)
+			fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+			c.log.Warn("Cache msg", fields...)
 			return fmt.Errorf("c.client.Scan error: %v, prefix=%s", err, prefix)
 		}
 		n += len(keys)
 		if len(keys) > 0 {
 			err = c.client.Del(ctx, keys...).Err()
 			if err != nil {
-				fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-				pkgLogger.Warn("Cache msg", fields...)
+				fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+				c.log.Warn("Cache msg", fields...)
 				return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, keys)
 			}
 		}
@@ -414,7 +418,7 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) error {
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
 		fields = append(fields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-		pkgLogger.Info("Cache msg", fields...)
+		c.log.Info("Cache msg", fields...)
 	}
 	return nil
 }
@@ -428,8 +432,8 @@ func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) error
 	}
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		fields = append(fields, pkgLogger.Err(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		pkgLogger.Warn("Cache msg", fields...)
+		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
+		c.log.Warn("Cache msg", fields...)
 		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 	}
 
