@@ -53,6 +53,15 @@ func ZapLogHandler(entry zapcore.Entry) error {
 	return nil
 }
 
+func customHook(level string, msg string, fields []logger.Field) error {
+	fmt.Printf("Level: %s\nMessage: %s\n", level, msg)
+	// 分析字段数据并打印键值对
+	for _, field := range fields {
+		fmt.Printf("  Field - Key: %s, Value: %v\n", field.Key, logger.GGetFieldValue(field))
+	}
+	return nil
+}
+
 // InitApp initial app configuration
 func InitApp() {
 	initConfig()
@@ -62,7 +71,8 @@ func InitApp() {
 	_, err := logger.Init(
 		logger.WithLevel(cfg.Logger.Level),
 		logger.WithFormat(cfg.Logger.Format),
-		logger.WithHooks(ZapLogHandler),
+		//logger.WithHooks(ZapLogHandler),
+		logger.WithCustomHooks(customHook),
 		logger.WithSave(
 			cfg.Logger.IsSave,
 			logger.WithSaveDay(cfg.Logger.LogFileConfig.IsSaveDay),
