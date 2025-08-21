@@ -105,3 +105,40 @@ func zapAnyToJSON(val interface{}) string {
 	// 将字节数组转换为字符串并返回
 	return string(jsonBytes)
 }
+
+func GGetFieldValue(field Field) interface{} {
+	switch field.Type {
+	case zapcore.StringType:
+		return field.String
+	case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type:
+		return field.Integer
+	case zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
+		return field.Integer
+	case zapcore.BoolType:
+		if b, ok := field.Interface.(bool); ok {
+			return b
+		}
+		return false
+	case zapcore.Float64Type:
+		if f, ok := field.Interface.(float64); ok {
+			return f
+		}
+		return 0.0
+	case zapcore.ErrorType:
+		if err, ok := field.Interface.(error); ok {
+			return err.Error()
+		}
+		return ""
+	case zapcore.ByteStringType:
+		if b, ok := field.Interface.([]byte); ok {
+			return string(b)
+		}
+		return field.Interface
+	default:
+		// 尝试处理可能的字节切片类型
+		if b, ok := field.Interface.([]byte); ok {
+			return string(b)
+		}
+		return field.Interface
+	}
+}
