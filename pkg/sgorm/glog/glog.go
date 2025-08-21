@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	pkgLogger "github.com/18721889353/sunshine/pkg/logger"
 	"go.uber.org/zap"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/utils"
@@ -49,7 +48,7 @@ func (l *gormLogger) LogMode(level logger.LogLevel) logger.Interface {
 func (l *gormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
 	if l.logLevel >= logger.Info {
 		msg = strings.ReplaceAll(msg, "%v", "")
-		pkgLogger.Info(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
+		l.gLog.Info(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
 	}
 }
 
@@ -57,7 +56,7 @@ func (l *gormLogger) Info(ctx context.Context, msg string, data ...interface{}) 
 func (l *gormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
 	if l.logLevel >= logger.Warn {
 		msg = strings.ReplaceAll(msg, "%v", "")
-		pkgLogger.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
+		l.gLog.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
 	}
 }
 
@@ -65,7 +64,7 @@ func (l *gormLogger) Warn(ctx context.Context, msg string, data ...interface{}) 
 func (l *gormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 	if l.logLevel >= logger.Error {
 		msg = strings.ReplaceAll(msg, "%v", "")
-		pkgLogger.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
+		l.gLog.Warn(msg, zap.Any("data", data), zap.String("line", utils.FileWithLineNum()), requestIDField(ctx, l.requestIDKey))
 	}
 }
 
@@ -95,7 +94,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 	}
 
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		pkgLogger.Error("Gorm msg",
+		l.gLog.Error("Gorm msg",
 			zap.Error(err),
 			zap.String("sql", sql),
 			rowsField,
@@ -108,7 +107,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 	}
 
 	if l.logLevel >= logger.Info {
-		pkgLogger.Info("Gorm msg",
+		l.gLog.Info("Gorm msg",
 			zap.String("sql", sql),
 			rowsField,
 			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
@@ -120,7 +119,7 @@ func (l *gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql 
 	}
 
 	if l.logLevel >= logger.Warn {
-		pkgLogger.Warn("Gorm msg",
+		l.gLog.Warn("Gorm msg",
 			zap.String("sql", sql),
 			rowsField,
 			zap.String("ms", fmt.Sprintf("%v", float64(elapsed.Nanoseconds())/1e6)),
