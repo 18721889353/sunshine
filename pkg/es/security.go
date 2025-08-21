@@ -109,15 +109,18 @@ func (c *Client) CreateRole(ctx context.Context, roleName string, role Role) err
 	ctx, endSpan := c.withSpan(ctx, "create_role", roleName, role)
 	defer endSpan(nil)
 
-	body, err := json.Marshal(role)
-	if err != nil {
+	// 使用缓冲池优化内存分配
+	body := c.getBuffer()
+	defer c.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(role); err != nil {
 		endSpan(err)
 		return fmt.Errorf("marshal role error: %w", err)
 	}
 
 	req := esapi.SecurityPutRoleRequest{
 		Name: roleName,
-		Body: bytes.NewReader(body),
+		Body: bytes.NewReader(body.Bytes()),
 	}
 
 	res, err := req.Do(ctx, c.Client)
@@ -227,15 +230,18 @@ func (c *Client) CreateUser(ctx context.Context, username string, user User) err
 	ctx, endSpan := c.withSpan(ctx, "create_user", username, user)
 	defer endSpan(nil)
 
-	body, err := json.Marshal(user)
-	if err != nil {
+	// 使用缓冲池优化内存分配
+	body := c.getBuffer()
+	defer c.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(user); err != nil {
 		endSpan(err)
 		return fmt.Errorf("marshal user error: %w", err)
 	}
 
 	req := esapi.SecurityPutUserRequest{
 		Username: username,
-		Body:     bytes.NewReader(body),
+		Body:     bytes.NewReader(body.Bytes()),
 	}
 
 	res, err := req.Do(ctx, c.Client)
@@ -297,10 +303,13 @@ func (c *Client) ChangeUserPassword(ctx context.Context, username string, passwo
 	defer endSpan(nil)
 
 	// 创建请求体
-	body, err := json.Marshal(map[string]string{
+	// 使用缓冲池优化内存分配
+	body := c.getBuffer()
+	defer c.putBuffer(body)
+
+	if err := json.NewEncoder(body).Encode(map[string]string{
 		"password": password,
-	})
-	if err != nil {
+	}); err != nil {
 		endSpan(err)
 		return fmt.Errorf("marshal password error: %w", err)
 	}
@@ -308,7 +317,7 @@ func (c *Client) ChangeUserPassword(ctx context.Context, username string, passwo
 	// 创建请求
 	req := esapi.SecurityChangePasswordRequest{
 		Username: username,
-		Body:     bytes.NewReader(body),
+		Body:     bytes.NewReader(body.Bytes()),
 	}
 
 	// 执行请求并处理响应
