@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
+
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 
 	"github.com/go-redsync/redsync/v4"
@@ -36,14 +38,11 @@ type redisCache struct {
 
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
 
-func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, log *zap.Logger) Cache {
+func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
-	if log == nil {
-		log, _ = zap.NewProduction()
-	}
 	return &redisCache{
-		log:               log,
+		log:               logger.Get(),
 		client:            client,
 		KeyPrefix:         keyPrefix,
 		encoding:          encode,
