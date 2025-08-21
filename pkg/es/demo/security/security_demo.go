@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -9,12 +10,14 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/es"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func main() {
 	fmt.Println("=== Elasticsearch 安全功能完整演示 ===")
 
-	// 初始化客户端，使用完全自定义的连接池配置
+	// 初始化客户端，使用选项模式配置
 	config := es.GetDefaultConfig()
 	config.Addresses = []string{"http://43.143.78.234:9200"} // Elasticsearch服务地址
 	config.Username = "elastic"                              // 用户名
@@ -31,12 +34,22 @@ func main() {
 	config.MaxRetries = 5                        // 最大重试次数
 	config.RetryBackoff = 200 * time.Millisecond // 重试间隔
 
-	// 验证配置
-	if err := config.Validate(); err != nil {
-		log.Fatal("Invalid configuration:", err)
-	}
+	// 创建只记录告警级别及以上日志的logger
+	// 设置日志级别为 WarnLevel，只记录警告和错误级别日志
+	cfg := zap.NewProductionConfig()
+	cfg.Level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 
-	client, err := es.NewClient(config)
+	logger, err := cfg.Build()
+	if err != nil {
+		log.Fatal("Failed to create logger:", err)
+	}
+	defer logger.Sync()
+
+	// 使用选项模式创建客户端
+	client, err := es.NewClient(
+		es.WithConfig(config),
+		es.WithLogger(logger),
+	)
 	if err != nil {
 		log.Fatal("Failed to create client:", err)
 	}
@@ -104,59 +117,43 @@ func main() {
 	fmt.Printf("再次获取用户 %s 信息以验证更新...\n", username)
 	getUserDemo(client, ctx, username)
 
-	// 3.5 修改用户密码
-	fmt.Printf("修改用户 %s 密码...\n", username)
-	changeUserPasswordDemo(client, ctx, username)
+	// 4. 权限验证演示
+	fmt.Println("\n=== 4. 权限验证演示 ===")
+	validatePermissions(client, ctx, username, roleName)
 
-	// 4. 清理操作
-	fmt.Println("\n=== 4. 清理操作 ===")
-
-	// 4.1 删除用户
-	fmt.Printf("删除用户 %s...\n", username)
-	deleteUserDemo(client, ctx, username)
-
-	// 4.2 删除角色
-	fmt.Printf("删除角色 %s...\n", roleName)
-	deleteRoleDemo(client, ctx, roleName)
-
-	fmt.Println("\n=== 安全功能完整演示完成 ===")
+	// 5. 清理工作 - 删除用户和角色
+	fmt.Println("\n=== 5. 清理工作 ===")
+	cleanup(client, ctx, username, roleName)
 }
 
-// 获取所有用户信息
+// getAllUsers 查看所有用户
 func getAllUsers(client *es.Client, ctx context.Context) {
 	req := esapi.SecurityGetUserRequest{}
-
 	res, err := req.Do(ctx, client.Client)
 	if err != nil {
-		log.Printf("获取用户信息失败: %s", err)
+		log.Printf("获取用户列表失败: %v", err)
 		return
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		log.Printf("获取用户信息错误响应: %s", res.String())
+		log.Printf("获取用户列表返回错误: %s", res.String())
 		return
 	}
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		log.Printf("读取响应体失败: %s", err)
+		log.Printf("读取响应体失败: %v", err)
 		return
 	}
 
-	fmt.Printf("所有用户信息: %s\n", string(body))
+	fmt.Printf("用户列表: %s\n", string(body))
 }
 
-// 创建角色演示
+// createRoleDemo 创建角色演示
 func createRoleDemo(client *es.Client, ctx context.Context, roleName string) {
 	role := es.Role{
 		Cluster: []string{"monitor"},
-		Indices: []es.RoleIndicesPermissions{
-			{
-				Names:      []string{"logs-*"},
-				Privileges: []string{"read", "view_index_metadata"},
-			},
-		},
 		Applications: []es.ApplicationPrivileges{
 			{
 				Application: "myapp",
@@ -164,152 +161,152 @@ func createRoleDemo(client *es.Client, ctx context.Context, roleName string) {
 				Resources:   []string{"*"},
 			},
 		},
-		Metadata: map[string]interface{}{
-			"creator": "security_demo",
-			"created": time.Now().Format(time.RFC3339),
+		Indices: []es.RoleIndicesPermissions{
+			{
+				Names:      []string{"*"},
+				Privileges: []string{"read", "write"},
+			},
 		},
 	}
 
 	if err := client.CreateRole(ctx, roleName, role); err != nil {
 		log.Printf("创建角色失败: %v", err)
-	} else {
-		fmt.Printf("角色 %s 创建成功\n", roleName)
+		return
 	}
+
+	fmt.Printf("角色 %s 创建成功\n", roleName)
 }
 
-// 获取角色演示
+// getRoleDemo 获取角色信息演示
 func getRoleDemo(client *es.Client, ctx context.Context, roleName string) {
 	role, err := client.GetRole(ctx, roleName)
 	if err != nil {
-		log.Printf("获取角色失败: %v", err)
+		log.Printf("获取角色信息失败: %v", err)
 		return
 	}
-	fmt.Printf("获取到的角色信息: %+v\n", role)
+
+	roleJSON, err := json.MarshalIndent(role, "", "  ")
+	if err != nil {
+		log.Printf("序列化角色信息失败: %v", err)
+		return
+	}
+
+	fmt.Printf("角色 %s 信息:\n%s\n", roleName, string(roleJSON))
 }
 
-// 更新角色演示
+// updateRoleDemo 更新角色演示
 func updateRoleDemo(client *es.Client, ctx context.Context, roleName string) {
-	// 先获取现有角色信息
-	role, err := client.GetRole(ctx, roleName)
-	if err != nil {
-		log.Printf("获取角色失败，无法更新: %v", err)
-		return
-	}
-
-	updatedRole := es.Role{
-		Cluster: []string{"monitor", "read_ilm"},
-		Indices: []es.RoleIndicesPermissions{
-			{
-				Names:      []string{"logs-*", "metrics-*"},
-				Privileges: []string{"read", "view_index_metadata", "manage"},
-			},
-		},
+	role := es.Role{
+		Cluster: []string{"monitor", "manage_index_templates"},
 		Applications: []es.ApplicationPrivileges{
 			{
 				Application: "myapp",
-				Privileges:  []string{"read", "write", "admin"},
+				Privileges:  []string{"read", "write", "delete"},
 				Resources:   []string{"*"},
 			},
 		},
-		Metadata: map[string]interface{}{
-			"creator":     "security_demo",
-			"created":     role.Metadata["created"],
-			"last_update": time.Now().Format(time.RFC3339),
+		Indices: []es.RoleIndicesPermissions{
+			{
+				Names:      []string{"*"},
+				Privileges: []string{"read", "write", "delete"},
+			},
 		},
 	}
 
-	if err := client.UpdateRole(ctx, roleName, updatedRole); err != nil {
+	if err := client.UpdateRole(ctx, roleName, role); err != nil {
 		log.Printf("更新角色失败: %v", err)
-	} else {
-		fmt.Printf("角色 %s 更新成功\n", roleName)
+		return
 	}
+
+	fmt.Printf("角色 %s 更新成功\n", roleName)
 }
 
-// 删除角色演示
-func deleteRoleDemo(client *es.Client, ctx context.Context, roleName string) {
-	if err := client.DeleteRole(ctx, roleName); err != nil {
-		log.Printf("删除角色失败: %v", err)
-	} else {
-		fmt.Printf("角色 %s 删除成功\n", roleName)
-	}
-}
-
-// 创建用户演示
+// createUserDemo 创建用户演示
 func createUserDemo(client *es.Client, ctx context.Context, username, roleName string) {
 	user := es.User{
-		Username: username,
+		Password: "demo_password",
+		Roles:    []string{roleName},
 		FullName: "Demo User",
 		Email:    "demo@example.com",
-		Roles:    []string{roleName},
-		Password: "DemoPass123!",
-		Metadata: map[string]interface{}{
-			"creator": "security_demo",
-			"created": time.Now().Format(time.RFC3339),
-		},
-		Enabled: true,
+		Enabled:  true,
 	}
 
 	if err := client.CreateUser(ctx, username, user); err != nil {
 		log.Printf("创建用户失败: %v", err)
-	} else {
-		fmt.Printf("用户 %s 创建成功\n", username)
+		return
 	}
+
+	fmt.Printf("用户 %s 创建成功\n", username)
 }
 
-// 获取用户演示
+// getUserDemo 获取用户信息演示
 func getUserDemo(client *es.Client, ctx context.Context, username string) {
 	user, err := client.GetUser(ctx, username)
 	if err != nil {
-		log.Printf("获取用户失败: %v", err)
+		log.Printf("获取用户信息失败: %v", err)
 		return
 	}
-	fmt.Printf("获取到的用户信息: %+v\n", user)
+
+	userJSON, err := json.MarshalIndent(user, "", "  ")
+	if err != nil {
+		log.Printf("序列化用户信息失败: %v", err)
+		return
+	}
+
+	fmt.Printf("用户 %s 信息:\n%s\n", username, string(userJSON))
 }
 
-// 更新用户演示
+// updateUserDemo 更新用户演示
 func updateUserDemo(client *es.Client, ctx context.Context, username, roleName string) {
-	// 先获取现有用户信息
-	user, err := client.GetUser(ctx, username)
-	if err != nil {
-		log.Printf("获取用户失败，无法更新: %v", err)
-		return
-	}
-
-	updatedUser := es.User{
-		Username: username,
+	user := es.User{
+		Password: "new_demo_password",
+		Roles:    []string{roleName},
 		FullName: "Updated Demo User",
 		Email:    "updated_demo@example.com",
-		Roles:    []string{roleName, "superuser"},
-		Metadata: map[string]interface{}{
-			"creator":     "security_demo",
-			"created":     user.Metadata["created"],
-			"last_update": time.Now().Format(time.RFC3339),
-		},
-		Enabled: true,
+		Enabled:  true,
 	}
 
-	if err := client.UpdateUser(ctx, username, updatedUser); err != nil {
+	if err := client.UpdateUser(ctx, username, user); err != nil {
 		log.Printf("更新用户失败: %v", err)
+		return
+	}
+
+	fmt.Printf("用户 %s 更新成功\n", username)
+}
+
+// validatePermissions 权限验证演示
+func validatePermissions(client *es.Client, ctx context.Context, username, roleName string) {
+	fmt.Printf("验证用户 %s 的权限...\n", username)
+
+	// 尝试执行一个需要权限的操作
+	req := esapi.ClusterHealthRequest{}
+	res, err := req.Do(ctx, client.Client)
+	if err != nil {
+		log.Printf("权限验证失败: %v", err)
+		return
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		fmt.Printf("用户 %s 权限不足: %s\n", username, res.String())
 	} else {
-		fmt.Printf("用户 %s 更新成功\n", username)
+		fmt.Printf("用户 %s 有足够权限执行操作\n", username)
 	}
 }
 
-// 修改用户密码演示
-func changeUserPasswordDemo(client *es.Client, ctx context.Context, username string) {
-	newPassword := "NewDemoPass456!"
-	if err := client.ChangeUserPassword(ctx, username, newPassword); err != nil {
-		log.Printf("修改用户密码失败: %v", err)
-	} else {
-		fmt.Printf("用户 %s 密码修改成功\n", username)
-	}
-}
-
-// 删除用户演示
-func deleteUserDemo(client *es.Client, ctx context.Context, username string) {
+// cleanup 清理工作
+func cleanup(client *es.Client, ctx context.Context, username, roleName string) {
+	// 删除用户
 	if err := client.DeleteUser(ctx, username); err != nil {
-		log.Printf("删除用户失败: %v", err)
+		log.Printf("删除用户 %s 失败: %v", username, err)
 	} else {
 		fmt.Printf("用户 %s 删除成功\n", username)
+	}
+
+	// 删除角色
+	if err := client.DeleteRole(ctx, roleName); err != nil {
+		log.Printf("删除角色 %s 失败: %v", roleName, err)
+	} else {
+		fmt.Printf("角色 %s 删除成功\n", roleName)
 	}
 }

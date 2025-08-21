@@ -12,21 +12,21 @@ import (
 
 // Role 角色结构
 type Role struct {
-	Cluster      []string                 `json:"cluster,omitempty"`
-	Indices      []RoleIndicesPermissions `json:"indices,omitempty"`
-	Applications []ApplicationPrivileges  `json:"applications,omitempty"`
-	Global       interface{}              `json:"global,omitempty"`
-	Metadata     map[string]interface{}   `json:"metadata,omitempty"`
-	TransientMetadata map[string]interface{} `json:"transient_metadata,omitempty"`
+	Cluster           []string                 `json:"cluster,omitempty"`
+	Indices           []RoleIndicesPermissions `json:"indices,omitempty"`
+	Applications      []ApplicationPrivileges  `json:"applications,omitempty"`
+	Global            interface{}              `json:"global,omitempty"`
+	Metadata          map[string]interface{}   `json:"metadata,omitempty"`
+	TransientMetadata map[string]interface{}   `json:"transient_metadata,omitempty"`
 }
 
 // RoleIndicesPermissions 索引权限
 type RoleIndicesPermissions struct {
-	Names         []string               `json:"names"`
-	Privileges    []string               `json:"privileges"`
-	FieldSecurity *FieldSecurity         `json:"field_security,omitempty"`
-	Query         *string                `json:"query,omitempty"`
-	AllowRestrictedIndices *bool         `json:"allow_restricted_indices,omitempty"`
+	Names                  []string       `json:"names"`
+	Privileges             []string       `json:"privileges"`
+	FieldSecurity          *FieldSecurity `json:"field_security,omitempty"`
+	Query                  *string        `json:"query,omitempty"`
+	AllowRestrictedIndices *bool          `json:"allow_restricted_indices,omitempty"`
 }
 
 // FieldSecurity 字段安全设置
@@ -59,11 +59,13 @@ func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
 	// 添加追踪支持
 	ctx, endSpan := c.withSpan(ctx, "get_role", roleName)
 	defer endSpan(nil)
-	
+
+	// 创建请求
 	req := esapi.SecurityGetRoleRequest{
 		Name: []string{roleName},
 	}
 
+	// 执行请求并处理响应
 	res, err := req.Do(ctx, c.Client)
 	if err != nil {
 		endSpan(err)
@@ -77,14 +79,14 @@ func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
 		return nil, err
 	}
 
+	// 读取响应体
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		endSpan(err)
 		return nil, fmt.Errorf("read response body error: %w", err)
 	}
 
-	// Elasticsearch安全API返回的角色信息格式是 { "role_name": { ...role_data... } }
-	// 而不是 { "role_name": { "role": { ...role_data... } } }
+	// 解析响应
 	var result map[string]Role
 	if err := json.Unmarshal(body, &result); err != nil {
 		endSpan(err)
@@ -104,9 +106,9 @@ func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
 // CreateRole 创建角色
 func (c *Client) CreateRole(ctx context.Context, roleName string, role Role) error {
 	// 添加追踪支持
-	ctx, endSpan := c.withSpan(ctx, "create_role", roleName)
+	ctx, endSpan := c.withSpan(ctx, "create_role", roleName, role)
 	defer endSpan(nil)
-	
+
 	body, err := json.Marshal(role)
 	if err != nil {
 		endSpan(err)
@@ -137,9 +139,9 @@ func (c *Client) CreateRole(ctx context.Context, roleName string, role Role) err
 // UpdateRole 更新角色
 func (c *Client) UpdateRole(ctx context.Context, roleName string, role Role) error {
 	// 添加追踪支持
-	ctx, endSpan := c.withSpan(ctx, "update_role", roleName)
+	ctx, endSpan := c.withSpan(ctx, "update_role", roleName, role)
 	defer endSpan(nil)
-	
+
 	// 在 Elasticsearch 中，更新角色与创建角色使用相同的 API
 	return c.CreateRole(ctx, roleName, role)
 }
@@ -149,7 +151,7 @@ func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
 	// 添加追踪支持
 	ctx, endSpan := c.withSpan(ctx, "delete_role", roleName)
 	defer endSpan(nil)
-	
+
 	req := esapi.SecurityDeleteRoleRequest{
 		Name: roleName,
 	}
@@ -175,7 +177,7 @@ func (c *Client) GetUser(ctx context.Context, username string) (*User, error) {
 	// 添加追踪支持
 	ctx, endSpan := c.withSpan(ctx, "get_user", username)
 	defer endSpan(nil)
-	
+
 	req := esapi.SecurityGetUserRequest{
 		Username: []string{username},
 	}
@@ -202,7 +204,7 @@ func (c *Client) GetUser(ctx context.Context, username string) (*User, error) {
 	// Elasticsearch安全API返回的用户信息格式是 { "username": { ...user_data... } }
 	// 而不是 { "username": { "user": { ...user_data... } } }
 	var result map[string]User
-	
+
 	if err := json.Unmarshal(body, &result); err != nil {
 		endSpan(err)
 		return nil, fmt.Errorf("unmarshal user result error: %w", err)
@@ -222,9 +224,9 @@ func (c *Client) GetUser(ctx context.Context, username string) (*User, error) {
 // CreateUser 创建用户
 func (c *Client) CreateUser(ctx context.Context, username string, user User) error {
 	// 添加追踪支持
-	ctx, endSpan := c.withSpan(ctx, "create_user", username)
+	ctx, endSpan := c.withSpan(ctx, "create_user", username, user)
 	defer endSpan(nil)
-	
+
 	body, err := json.Marshal(user)
 	if err != nil {
 		endSpan(err)
@@ -255,9 +257,9 @@ func (c *Client) CreateUser(ctx context.Context, username string, user User) err
 // UpdateUser 更新用户
 func (c *Client) UpdateUser(ctx context.Context, username string, user User) error {
 	// 添加追踪支持
-	ctx, endSpan := c.withSpan(ctx, "update_user", username)
+	ctx, endSpan := c.withSpan(ctx, "update_user", username, user)
 	defer endSpan(nil)
-	
+
 	// 在 Elasticsearch 中，更新用户与创建用户使用相同的 API
 	return c.CreateUser(ctx, username, user)
 }
@@ -267,7 +269,7 @@ func (c *Client) DeleteUser(ctx context.Context, username string) error {
 	// 添加追踪支持
 	ctx, endSpan := c.withSpan(ctx, "delete_user", username)
 	defer endSpan(nil)
-	
+
 	req := esapi.SecurityDeleteUserRequest{
 		Username: username,
 	}
@@ -291,9 +293,10 @@ func (c *Client) DeleteUser(ctx context.Context, username string) error {
 // ChangeUserPassword 修改用户密码
 func (c *Client) ChangeUserPassword(ctx context.Context, username string, password string) error {
 	// 添加追踪支持
-	ctx, endSpan := c.withSpan(ctx, "change_user_password", username)
+	ctx, endSpan := c.withSpan(ctx, "change_user_password", username, password)
 	defer endSpan(nil)
-	
+
+	// 创建请求体
 	body, err := json.Marshal(map[string]string{
 		"password": password,
 	})
@@ -302,11 +305,13 @@ func (c *Client) ChangeUserPassword(ctx context.Context, username string, passwo
 		return fmt.Errorf("marshal password error: %w", err)
 	}
 
+	// 创建请求
 	req := esapi.SecurityChangePasswordRequest{
 		Username: username,
 		Body:     bytes.NewReader(body),
 	}
 
+	// 执行请求并处理响应
 	res, err := req.Do(ctx, c.Client)
 	if err != nil {
 		endSpan(err)

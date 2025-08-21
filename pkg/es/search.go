@@ -12,14 +12,25 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 )
 
-// Search 搜索操作接口
-type Search struct {
+// SearchService 搜索服务接口
+type SearchService interface {
+	Search(ctx context.Context, index string, req SearchRequest) (*SearchResult, error)
+	SearchWithRawQuery(ctx context.Context, index string, query []byte) (*SearchResult, error)
+	SearchWithPagination(ctx context.Context, index string, req PaginatedSearchRequest) (*PaginatedResult, error)
+	ScrollSearch(ctx context.Context, index string, req SearchRequest, scrollTime time.Duration) (*ScrollSearchResult, error)
+	ScrollContinue(ctx context.Context, scrollID string, scrollTime time.Duration) (*ScrollSearchResult, error)
+	ScrollClear(ctx context.Context, scrollIDs []string) error
+	SearchWithSearchAfter(ctx context.Context, index string, req SearchRequestWithSearchAfter) (*SearchResult, error)
+}
+
+// Search 搜索操作
+type search struct {
 	client *Client
 }
 
-// Search NewSearch 创建搜索操作实例
-func (c *Client) Search() *Search {
-	return &Search{client: c}
+// NewSearch 创建搜索操作实例
+func (c *Client) NewSearch() SearchService {
+	return &search{client: c}
 }
 
 // SearchRequest 搜索请求
@@ -50,11 +61,11 @@ type SearchResult struct {
 }
 
 // Search 执行搜索
-func (s *Search) Search(ctx context.Context, index string, req SearchRequest) (*SearchResult, error) {
+func (s *search) Search(ctx context.Context, index string, req SearchRequest) (*SearchResult, error) {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "search", index)
 	defer endSpan(nil)
-	
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		endSpan(err)
@@ -95,11 +106,11 @@ func (s *Search) Search(ctx context.Context, index string, req SearchRequest) (*
 }
 
 // SearchWithRawQuery 添加更灵活的搜索方法
-func (s *Search) SearchWithRawQuery(ctx context.Context, index string, query []byte) (*SearchResult, error) {
+func (s *search) SearchWithRawQuery(ctx context.Context, index string, query []byte) (*SearchResult, error) {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "search_raw_query", index)
 	defer endSpan(nil)
-	
+
 	searchReq := esapi.SearchRequest{
 		Index: []string{index},
 		Body:  bytes.NewReader(query),
@@ -141,10 +152,10 @@ type Pagination struct {
 
 // PaginatedSearchRequest 支持分页的搜索请求
 type PaginatedSearchRequest struct {
-	Query    interface{} `json:"query,omitempty"`
-	Pagination Pagination `json:"pagination,omitempty"`
-	Sort     interface{} `json:"sort,omitempty"`
-	Source   interface{} `json:"_source,omitempty"`
+	Query      interface{} `json:"query,omitempty"`
+	Pagination Pagination  `json:"pagination,omitempty"`
+	Sort       interface{} `json:"sort,omitempty"`
+	Source     interface{} `json:"_source,omitempty"`
 }
 
 // PaginatedResult 分页结果
@@ -162,15 +173,15 @@ type PaginationResult struct {
 }
 
 // SearchWithPagination 支持分页的搜索方法
-func (s *Search) SearchWithPagination(ctx context.Context, index string, req PaginatedSearchRequest) (*PaginatedResult, error) {
+func (s *search) SearchWithPagination(ctx context.Context, index string, req PaginatedSearchRequest) (*PaginatedResult, error) {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "search_with_pagination", index)
 	defer endSpan(nil)
-	
+
 	// 设置默认分页参数
 	page := req.Pagination.Page
 	pageSize := req.Pagination.PageSize
-	
+
 	if page < 1 {
 		page = 1
 	}
@@ -212,7 +223,7 @@ func (s *Search) SearchWithPagination(ctx context.Context, index string, req Pag
 			TotalPages: totalPages,
 		},
 	}
-	
+
 	return paginatedResult, nil
 }
 
@@ -223,11 +234,11 @@ type ScrollSearchResult struct {
 }
 
 // ScrollSearch 初始化Scroll搜索
-func (s *Search) ScrollSearch(ctx context.Context, index string, req SearchRequest, scrollTime time.Duration) (*ScrollSearchResult, error) {
+func (s *search) ScrollSearch(ctx context.Context, index string, req SearchRequest, scrollTime time.Duration) (*ScrollSearchResult, error) {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "scroll_search", index)
 	defer endSpan(nil)
-	
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		endSpan(err)
@@ -235,9 +246,9 @@ func (s *Search) ScrollSearch(ctx context.Context, index string, req SearchReque
 	}
 
 	scrollReq := esapi.SearchRequest{
-		Index:      []string{index},
-		Body:       bytes.NewReader(body),
-		Scroll:     scrollTime,
+		Index:  []string{index},
+		Body:   bytes.NewReader(body),
+		Scroll: scrollTime,
 	}
 
 	res, err := scrollReq.Do(ctx, s.client.Client)
@@ -274,11 +285,11 @@ func (s *Search) ScrollSearch(ctx context.Context, index string, req SearchReque
 }
 
 // ScrollContinue 继续Scroll搜索
-func (s *Search) ScrollContinue(ctx context.Context, scrollID string, scrollTime time.Duration) (*ScrollSearchResult, error) {
+func (s *search) ScrollContinue(ctx context.Context, scrollID string, scrollTime time.Duration) (*ScrollSearchResult, error) {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "scroll_continue")
 	defer endSpan(nil)
-	
+
 	scrollReq := esapi.ScrollRequest{
 		ScrollID: scrollID,
 		Scroll:   scrollTime,
@@ -313,11 +324,11 @@ func (s *Search) ScrollContinue(ctx context.Context, scrollID string, scrollTime
 }
 
 // ScrollClear 清除Scroll上下文
-func (s *Search) ScrollClear(ctx context.Context, scrollIDs []string) error {
+func (s *search) ScrollClear(ctx context.Context, scrollIDs []string) error {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "scroll_clear")
 	defer endSpan(nil)
-	
+
 	clearReq := esapi.ClearScrollRequest{
 		Body: strings.NewReader(fmt.Sprintf(`{"scroll_id": ["%s"]}`, strings.Join(scrollIDs, `","`))),
 	}
@@ -345,11 +356,11 @@ type SearchRequestWithSearchAfter struct {
 }
 
 // SearchWithSearchAfter 使用search_after进行搜索
-func (s *Search) SearchWithSearchAfter(ctx context.Context, index string, req SearchRequestWithSearchAfter) (*SearchResult, error) {
+func (s *search) SearchWithSearchAfter(ctx context.Context, index string, req SearchRequestWithSearchAfter) (*SearchResult, error) {
 	// 添加追踪支持
 	ctx, endSpan := s.client.withSpan(ctx, "search_with_search_after", index)
 	defer endSpan(nil)
-	
+
 	// 确保设置了排序字段，这是使用 search_after 的前提条件
 	if req.Sort == nil {
 		err := fmt.Errorf("sort field is required when using search_after")

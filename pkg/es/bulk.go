@@ -21,7 +21,7 @@ type BulkOperation struct {
 	Payload interface{} `json:"-"`
 }
 
-// NewBulk 创建批量操作实例
+// Bulk NewBulk 创建批量操作实例
 func (c *Client) Bulk() *Bulk {
 	return &Bulk{client: c}
 }
