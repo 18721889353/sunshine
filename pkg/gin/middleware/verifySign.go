@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"go.uber.org/zap"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
@@ -26,7 +25,9 @@ var defaultIgnoreUrl = map[string]struct{}{}
 type SignOption func(*signOptions)
 
 func defaultSignOptions() *signOptions {
+	defaultLogger, _ := zap.NewProduction()
 	return &signOptions{
+		log:             defaultLogger,
 		ignoreUrls:      defaultIgnoreUrl,
 		signKey:         "",
 		signExpiredTime: time.Second * 5,
@@ -34,6 +35,7 @@ func defaultSignOptions() *signOptions {
 }
 
 type signOptions struct {
+	log             *zap.Logger
 	ignoreUrls      map[string]struct{}
 	signKey         string
 	signExpiredTime time.Duration
@@ -59,6 +61,15 @@ func WithSignKey(signKey string) SignOption {
 func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	return func(o *signOptions) {
 		o.signExpiredTime = signExpiredTime
+	}
+}
+
+// WithSignLog set log
+func WithSignLog(log *zap.Logger) SignOption {
+	return func(o *signOptions) {
+		if log != nil {
+			o.log = log
+		}
 	}
 }
 
@@ -150,7 +161,7 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 		}
 	}
 
-	if sign == "" || sign != createSign(ctx, mapData, o.signKey) {
+	if sign == "" || sign != createSign(ctx, o, mapData, o.signKey) {
 		return errors.New("sign error")
 	}
 	return nil
@@ -162,9 +173,9 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 //	return strings.ToUpper(gocrypto.Md5([]byte(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)))
 //}
 
-func createSign(ctx context.Context, params map[string]interface{}, signKey string) string {
+func createSign(ctx context.Context, o *signOptions, params map[string]interface{}, signKey string) string {
 	key := strings.Trim(createEncryptStr(params), "&")
-	logger.Info("gin中间件拼接的key", logger.String("key", key), zap.String("request_id", fmt.Sprintf("%s", ctx.Value("request_id"))))
+	o.log.Info("gin中间件拼接的key", zap.String("key", key), zap.String("request_id", fmt.Sprintf("%s", ctx.Value("request_id"))))
 	key = key + "&key=" + signKey
 	// 自定义 MD5 组合
 	return strings.ToUpper(gocrypto.Md5([]byte(key)))

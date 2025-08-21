@@ -10,8 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-
-	zapLog "github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (
@@ -43,15 +41,18 @@ func defaultOptions() *options {
 		ignoreRoutes:  defaultIgnoreRoutes,
 		requestIDFrom: 0,
 		logFrom:       defaultLogFrom,
+		logHeaders:    false,
 	}
 }
 
 type options struct {
-	maxLength     int
-	log           *zap.Logger
-	ignoreRoutes  map[string]struct{}
-	requestIDFrom int // 0: ignore, 1: from context, 2: from header
-	logFrom       string
+	maxLength        int
+	log              *zap.Logger
+	ignoreRoutes     map[string]struct{}
+	requestIDFrom    int // 0: ignore, 1: from context, 2: from header
+	logFrom          string
+	logHeaders       bool                // 是否记录请求头
+	sensitiveHeaders map[string]struct{} // 敏感请求头列表(不记录)
 }
 
 func (o *options) apply(opts ...Option) {
@@ -69,6 +70,7 @@ func WithMaxLen(maxLen int) Option {
 		o.maxLength = maxLen
 	}
 }
+
 func WithLogFrom(logFrom string) Option {
 	return func(o *options) {
 		o.logFrom = logFrom
@@ -107,6 +109,25 @@ func WithRequestIDFromHeader() Option {
 	}
 }
 
+// WithLogHeaders enable logging request headers
+func WithLogHeaders() Option {
+	return func(o *options) {
+		o.logHeaders = true
+	}
+}
+
+// WithSensitiveHeaders set sensitive headers that should not be logged
+func WithSensitiveHeaders(headers ...string) Option {
+	return func(o *options) {
+		if o.sensitiveHeaders == nil {
+			o.sensitiveHeaders = make(map[string]struct{})
+		}
+		for _, header := range headers {
+			o.sensitiveHeaders[strings.ToLower(header)] = struct{}{}
+		}
+	}
+}
+
 // ------------------------------------------------------------------------------------------
 
 type bodyLogWriter struct {
@@ -119,18 +140,26 @@ func (w bodyLogWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-// getResponseBody returns the full response body without truncation
-func getResponseBody(buf *bytes.Buffer, _ int) []byte {
-	if buf == nil || buf.Len() == 0 {
+// getResponseBody returns the response body, possibly truncated
+func getResponseBody(buf *bytes.Buffer, maxLen int) []byte {
+	l := buf.Len()
+	if l == 0 {
 		return emptyBody
+	} else if l > maxLen {
+		l = maxLen
 	}
-	// Copy buffer content to a new byte slice to avoid modifying the original buffer
-	body := make([]byte, buf.Len())
-	_, _ = buf.Read(body)
-	return body
+
+	body := make([]byte, l)
+	n, _ := buf.Read(body)
+	if n == 0 {
+		return emptyBody
+	} else if n < maxLen {
+		return body[:n]
+	}
+	return append(body[:maxLen-len(contentMark)], contentMark...)
 }
 
-// If there is sensitive information in the body, you can use WithIgnoreRoutes set the route to ignore logging
+// getRequestBody returns the request body, possibly truncated
 func getRequestBody(buf *bytes.Buffer, maxLen int) []byte {
 	l := buf.Len()
 	if l == 0 {
@@ -144,10 +173,35 @@ func getRequestBody(buf *bytes.Buffer, maxLen int) []byte {
 	return append(body[:maxLen-len(contentMark)], contentMark...)
 }
 
+// filterHeaders filters out sensitive headers
+func filterHeaders(headers map[string][]string, sensitive map[string]struct{}) map[string]string {
+	result := make(map[string]string)
+	for k, v := range headers {
+		// Skip sensitive headers
+		if _, found := sensitive[strings.ToLower(k)]; found {
+			continue
+		}
+		result[k] = fmt.Sprint(v)
+	}
+	return result
+}
+
 // Logging print request and response info
 func Logging(opts ...Option) gin.HandlerFunc {
 	o := defaultOptions()
 	o.apply(opts...)
+
+	// Initialize sensitive headers map if needed
+	if o.sensitiveHeaders == nil {
+		o.sensitiveHeaders = make(map[string]struct{})
+	}
+	// Add common sensitive headers by default
+	sensitiveDefaults := []string{}
+	for _, header := range sensitiveDefaults {
+		if _, exists := o.sensitiveHeaders[header]; !exists {
+			o.sensitiveHeaders[header] = struct{}{}
+		}
+	}
 
 	return func(c *gin.Context) {
 		start := time.Now()
@@ -168,26 +222,21 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			zap.String("userAgent", c.Request.UserAgent()),
 			zap.String("ip", c.ClientIP()),
 		}
-		// Add request headers to log fields
-		headers := make(map[string]string)
-		for k, v := range c.Request.Header {
-			headers[k] = fmt.Sprint(v)
+
+		// Add request headers to log fields if enabled
+		if o.logHeaders {
+			headers := filterHeaders(c.Request.Header, o.sensitiveHeaders)
+			fields = append(fields, zap.Any("headers", headers))
 		}
-		fields = append(fields, zap.Any("headers", headers))
 
 		if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch || c.Request.Method == http.MethodDelete {
 			// 获取请求内容类型
 			contentType := c.Request.Header.Get("Content-Type")
 			if !strings.HasPrefix(contentType, "multipart/form-data") {
-				// 检查请求体大小
-				if buf.Len() <= o.maxLength {
-					fields = append(fields,
-						zap.Int("size", buf.Len()),
-						zap.ByteString("body", getRequestBody(&buf, o.maxLength)),
-					)
-				} else {
-					fields = append(fields, zap.Int("size", buf.Len()), zap.String("body", "request body too large to log"))
-				}
+				fields = append(fields,
+					zap.Int("size", buf.Len()),
+					zap.ByteString("body", getRequestBody(&buf, o.maxLength)),
+				)
 			} else {
 				fields = append(fields, zap.String("body", "form-data not logged"))
 			}
@@ -205,9 +254,9 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			reqID = c.Request.Header.Get(HeaderXRequestIDKey)
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+` <<<<`))
+		fields = append(fields, zap.String("log_from", `<<<<`))
 
-		zapLog.Info(`gin middleware Logging`, fields...)
+		o.log.Info(`gin middleware Logging`, fields...)
 
 		c.Request.Body = io.NopCloser(&buf)
 
@@ -226,13 +275,12 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
 			zap.Int("size", newWriter.body.Len()),
 			zap.ByteString("response", getResponseBody(newWriter.body, o.maxLength)),
-			//zap.String("response", strings.TrimRight(getBodyData(newWriter.body, o.maxLength), "\n")),
 		}
 		if reqID != "" {
 			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 		}
-		fields = append(fields, zap.String("log_from", o.logFrom+` >>>>`))
-		zapLog.Info(`gin middleware Logging`, fields...)
+		fields = append(fields, zap.String("log_from", `>>>>`))
+		o.log.Info(`gin middleware Logging`, fields...)
 	}
 }
 
@@ -240,6 +288,18 @@ func Logging(opts ...Option) gin.HandlerFunc {
 func SimpleLog(opts ...Option) gin.HandlerFunc {
 	o := defaultOptions()
 	o.apply(opts...)
+
+	// Initialize sensitive headers map if needed
+	if o.sensitiveHeaders == nil {
+		o.sensitiveHeaders = make(map[string]struct{})
+	}
+	// Add common sensitive headers by default
+	sensitiveDefaults := []string{"authorization", "cookie", "x-api-key"}
+	for _, header := range sensitiveDefaults {
+		if _, exists := o.sensitiveHeaders[header]; !exists {
+			o.sensitiveHeaders[header] = struct{}{}
+		}
+	}
 
 	return func(c *gin.Context) {
 		start := time.Now()

@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"go.uber.org/zap"
 	"io"
 	"strings"
 
@@ -15,12 +16,15 @@ import (
 type XssOptions func(*xssOptions)
 
 func defaultXssOptions() *xssOptions {
+	defaultLogger, _ := zap.NewProduction()
 	return &xssOptions{
+		log:        defaultLogger,
 		ignoreUrls: map[string]struct{}{},
 	}
 }
 
 type xssOptions struct {
+	log        *zap.Logger
 	ignoreUrls map[string]struct{}
 }
 
@@ -38,6 +42,15 @@ func WithIgnoreXssUrl(urls ...string) XssOptions {
 	}
 }
 
+// WithXsLog set log
+func WithXsLog(log *zap.Logger) XssOptions {
+	return func(o *xssOptions) {
+		if log != nil {
+			o.log = log
+		}
+	}
+}
+
 func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
 	o := defaultXssOptions()
 	o.apply(opts...)
@@ -46,7 +59,7 @@ func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
 			ctx.Next()
 			return
 		}
-		if err := xssCross(ctx); err != nil {
+		if err := xssCross(ctx, o); err != nil {
 			response.Out(ctx, errcode.InvalidParams.WithOutMsg(err.Error()))
 			ctx.Abort()
 			return
@@ -56,14 +69,16 @@ func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
 	}
 }
 
-func xssCross(ctx *gin.Context) error {
+func xssCross(ctx *gin.Context, o *xssOptions) error {
 	body, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
+		o.log.Warn("io.ReadAll error", zap.Error(err))
 		return err
 	}
 	var jsonBody map[string]interface{}
 	err = json.Unmarshal(body, &jsonBody)
 	if err != nil {
+		o.log.Warn("json unmarshal error", zap.Error(err))
 		return err
 	}
 	policy := bluemonday.UGCPolicy()
@@ -71,6 +86,7 @@ func xssCross(ctx *gin.Context) error {
 	// 重置请求体，以便后续中间件和处理程序能够读取它
 	marshal, err := json.Marshal(jsonBody)
 	if err != nil {
+		o.log.Warn("json Marshal error", zap.Error(err))
 		return err
 	}
 
