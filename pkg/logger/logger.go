@@ -189,7 +189,7 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 	core := zapcore.NewCore(encoder, ws, getLevelSize(levelName))
 
 	// If we have custom hooks, wrap the core
-	if len(customHooks) > 0 && !fo.noPrint {
+	if len(customHooks) > 0 {
 		core = &customHookCore{
 			Core: core,
 		}

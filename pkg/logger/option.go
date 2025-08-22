@@ -77,8 +77,9 @@ func WithLevel(levelName string) Option {
 // WithFormat set the output log format, console or json
 func WithFormat(format string) Option {
 	return func(o *options) {
-		if strings.ToLower(format) == formatJSON {
-			o.encoding = formatJSON
+		o.encoding = strings.ToLower(format)
+		if o.encoding != formatJSON && o.encoding != formatConsole {
+			o.encoding = defaultEncoding
 		}
 	}
 }
