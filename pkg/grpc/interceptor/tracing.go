@@ -7,20 +7,20 @@ import (
 
 // UnaryClientTracing client-side tracing unary interceptor
 func UnaryClientTracing() grpc.UnaryClientInterceptor {
-	return otelgrpc.UnaryClientInterceptor() //nolint
+	return otelgrpc.UnaryClientInterceptor()
 }
 
 // StreamClientTracing client-side tracing stream interceptor
 func StreamClientTracing() grpc.StreamClientInterceptor {
-	return otelgrpc.StreamClientInterceptor() //nolint
+	return otelgrpc.StreamClientInterceptor()
 }
 
 // UnaryServerTracing server-side tracing unary interceptor
 func UnaryServerTracing() grpc.UnaryServerInterceptor {
-	return otelgrpc.UnaryServerInterceptor() //nolint
+	return otelgrpc.UnaryServerInterceptor()
 }
 
 // StreamServerTracing server-side tracing stream interceptor
 func StreamServerTracing() grpc.StreamServerInterceptor {
-	return otelgrpc.StreamServerInterceptor() //nolint
+	return otelgrpc.StreamServerInterceptor()
 }
