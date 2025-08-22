@@ -201,6 +201,16 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (resp *{{.ReplyImportPkgName}}.{{.Reply}}, err error) {
 	panic("{{.Prompt}}")
 	//ctx = interceptor.WrapServerCtx(ctx)
+	//defer func() {
+	//	if r := recover(); r != nil {
+    //   //使用 debug.Stack() 获取堆栈信息并保持原始格式
+	//      logger.Error(
+	//			fmt.Sprintf("panic recovered: %v\nstack: %s", r, string(debug.Stack())),
+	//	    	interceptor.ServerCtxRequestIDField(ctx),
+	//      )
+	//		err = ecode.StatusInternalServerError.Err()
+	//	}
+	//}()
 	//logger.Info("数据验证", logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
 	//{
 	//	err = req.Validate()
@@ -209,16 +219,6 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//		return nil, ecode.StatusInvalidParams.Err(err.Error())
 	//	}
 	//}
-	//defer func() {
-	//	if r := recover(); r != nil {
-	//		// 使用 debug.Stack() 获取堆栈信息
-	//		logger.Error("panic recovered",
-	//			logger.Any("err", string(debug.Stack())),
-	//			interceptor.ServerCtxRequestIDField(ctx),
-	//		)
-	//		err = ecode.StatusInternalServerError.Err()
-	//	}
-	//}()
     //
 	//     reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
 				{{- range .RequestFields}}
