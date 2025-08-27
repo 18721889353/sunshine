@@ -142,3 +142,88 @@ func GGetFieldValue(field Field) interface{} {
 		return field.Interface
 	}
 }
+
+func ToJSON(fields []zap.Field) string {
+	// 创建一个空的 map 用于存储键值对
+	keyValuePairs := make(map[string]interface{})
+	// 遍历 Zap 字段，将键值对添加到 map 中
+	for _, f := range fields {
+		key := f.Key
+		// 根据字段的类型获取相应的值
+		switch f.Type {
+		case zapcore.StringType:
+			keyValuePairs[key] = f.String
+		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type:
+			keyValuePairs[key] = f.Integer
+		case zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
+			keyValuePairs[key] = f.Integer
+		case zapcore.BoolType:
+			if b, ok := f.Interface.(bool); ok {
+				keyValuePairs[key] = b
+			} else {
+				keyValuePairs[key] = false
+			}
+		case zapcore.Float64Type:
+			if fl, ok := f.Interface.(float64); ok {
+				keyValuePairs[key] = fl
+			} else {
+				keyValuePairs[key] = 0.0
+			}
+		case zapcore.Float32Type:
+			if fl, ok := f.Interface.(float32); ok {
+				keyValuePairs[key] = fl
+			} else {
+				keyValuePairs[key] = float32(0.0)
+			}
+		case zapcore.ErrorType:
+			if err, ok := f.Interface.(error); ok {
+				keyValuePairs[key] = err.Error()
+			} else {
+				keyValuePairs[key] = ""
+			}
+		case zapcore.StringerType:
+			if str, ok := f.Interface.(fmt.Stringer); ok {
+				keyValuePairs[key] = str.String()
+			} else {
+				keyValuePairs[key] = fmt.Sprintf("%v", f.Interface)
+			}
+		case zapcore.DurationType:
+			if d, ok := f.Interface.(time.Duration); ok {
+				keyValuePairs[key] = d.String()
+			} else {
+				keyValuePairs[key] = time.Duration(f.Integer).String()
+			}
+		case zapcore.TimeType:
+			if t, ok := f.Interface.(time.Time); ok {
+				keyValuePairs[key] = t.Format("2006-01-02 15:04:05")
+			} else {
+				keyValuePairs[key] = time.Unix(0, f.Integer).Format("2006-01-02 15:04:05")
+			}
+		case zapcore.ByteStringType:
+			if b, ok := f.Interface.([]byte); ok {
+				keyValuePairs[key] = string(b)
+			} else {
+				keyValuePairs[key] = f.Interface
+			}
+		case zapcore.ReflectType:
+			// 使用反射处理复杂类型
+			keyValuePairs[key] = fmt.Sprintf("%+v", f.Interface)
+		case zapcore.SkipType:
+			// 跳过的字段不处理
+			continue
+		default:
+			// 尝试处理可能的字节切片类型或其他类型
+			if b, ok := f.Interface.([]byte); ok {
+				keyValuePairs[key] = string(b)
+			} else {
+				keyValuePairs[key] = f.Interface
+			}
+		}
+	}
+	// 将 map 转换为 JSON 格式的字符串
+	jsonBytes, err := json.Marshal(keyValuePairs)
+	if err != nil {
+		return fmt.Sprintf(`{"error": "%s"}`, err)
+	}
+	return string(jsonBytes)
+}
