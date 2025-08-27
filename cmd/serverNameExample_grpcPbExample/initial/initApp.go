@@ -32,26 +32,6 @@ var (
 	enableConfigCenter bool
 )
 
-func ZapLogHandler(entry zapcore.Entry) error {
-
-	// 参数 entry 介绍
-	// entry  参数就是单条日志结构体，主要包括字段如下：
-	//Level      日志等级
-	//Time       当前时间
-	//LoggerName  日志名称
-	//Message    日志内容
-	//Caller     各个文件调用路径
-	//Stack      代码调用栈
-	//这里启动一个协程，hook丝毫不会影响程序性能，
-	go func(paramEntry zapcore.Entry) {
-		//logServiceV1.NewAdminLogServiceClient(rpcclient.GetAdminLogServiceRPCConn()).Add(context.Background(), &logServiceV1.AdminLogAddRequest{
-		//    Body:     entry.Message,
-		//    LogLevel: int32(entry.Level),
-		//})
-	}(entry)
-
-	return nil
-}
 func customHook(entry zapcore.Entry, fields []logger.Field) error {
 	fmt.Printf("Level: %s\nMessage: %s\nCaller: %s\nTime: %s\n", entry.Level, entry.Message, entry.Caller.TrimmedPath(), entry.Time.Format("2006-01-02 15:04:05.000000"))
 	// 分析字段数据并打印键值对
@@ -70,7 +50,6 @@ func InitApp() {
 	_, err := logger.Init(
 		logger.WithLevel(cfg.Logger.Level),
 		logger.WithFormat(cfg.Logger.Format),
-		//logger.WithHooks(ZapLogHandler),
 		logger.WithCustomHooks(customHook),
 		logger.WithSave(
 			cfg.Logger.IsSave,
