@@ -37,6 +37,7 @@ import (
 
 	//"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	//"github.com/18721889353/sunshine/pkg/logger"
+	//"go.uber.org/zap"
 
 	// import api service package here
 	//"moduleNameExample/internal/cache"
@@ -100,7 +101,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//
 	//	        err = req.Validate()
 	//	        if err != nil {
-	//		        logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//		        logger.Warn("req.Validate error", zap.Error(err), zap.Any("body", req), interceptor.ServerCtxRequestIDField(ctx))
 	//		        return ecode.StatusInvalidParams.Err()
 	//	        }
 	//
@@ -110,7 +111,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 				    {{- end}}
 	//         })
 	//	        if err != nil {
-	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+	//			    logger.Warn("{{.MethodName}} error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//	    }
@@ -125,7 +126,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 	//	    ctx := interceptor.WrapServerCtx(stream.Context())
 	//	    err := req.Validate()
 	//	    if err != nil {
-	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//		    logger.Warn("req.Validate error", zap.Error(err), zap.Any("body", req), interceptor.ServerCtxRequestIDField(ctx))
 	//		    return ecode.StatusInvalidParams.Err()
 	//	    }
 	//
@@ -136,7 +137,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 				    {{- end}}
 	//         })
 	//         if err != nil {
-	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+	//			    logger.Warn("{{.MethodName}} error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//
@@ -146,7 +147,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 				    {{- end}}
 	//	        })
 	//	        if err != nil {
-	//			    logger.Warn("stream.Send error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+	//			    logger.Warn("stream.Send error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//	    	    return err
 	//	        }
 	//	    }
@@ -171,7 +172,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//
 	//	        err = req.Validate()
 	//	        if err != nil {
-	//		        logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//		        logger.Warn("req.Validate error", zap.Error(err), zap.Any("body", req), interceptor.ServerCtxRequestIDField(ctx))
 	//		        return ecode.StatusInvalidParams.Err()
 	//	        }
 	//
@@ -181,7 +182,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 				    {{- end}}
 	//         })
 	//         if err != nil {
-	//			    logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+	//			    logger.Warn("{{.MethodName}} error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//
@@ -191,7 +192,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 				    {{- end}}
 	//	    	})
 	//         if err != nil {
-	//			    logger.Warn("stream.Send error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+	//			    logger.Warn("stream.Send error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//	    }
@@ -211,11 +212,11 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//		err = ecode.StatusInternalServerError.Err()
 	//	}
 	//}()
-	//logger.Info("数据验证", logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//logger.Info("数据验证", zap.Any("body", req), interceptor.ServerCtxRequestIDField(ctx))
 	//{
 	//	err = req.Validate()
 	//	if err != nil {
-	//		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+	//		logger.Warn("req.Validate error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//		return nil, ecode.StatusInvalidParams.Err(err.Error())
 	//	}
 	//}
@@ -226,7 +227,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 				{{- end}}
 	//     })
 	//     if err != nil {
-	//			logger.Warn("{{.MethodName}} error", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+	//			logger.Warn("{{.MethodName}} error", zap.Error(err), interceptor.ServerCtxRequestIDField(ctx))
 	//			return nil, ecode.StatusInternalServerError.Err()
 	//		}
 	//
