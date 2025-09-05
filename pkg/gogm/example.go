@@ -68,32 +68,46 @@ func main() {
 	fmt.Println("Private Key (hex):", privateKeyHex)
 	fmt.Println("Public Key (hex):", publicKeyHex)
 
-	//密钥转换为PEM格式
-	privateKeyPem, err := sm2Instance.PrivateKeyToPem(privateKey)
-	if err != nil {
-		log.Fatalf("Failed to convert private key to PEM: %v", err)
-	}
+	////密钥转换为PEM格式
+	//privateKeyPem, err := sm2Instance.PrivateKeyToPem(privateKey)
+	//if err != nil {
+	//	log.Fatalf("Failed to convert private key to PEM: %v", err)
+	//}
+	//
+	//publicKeyPem, err := sm2Instance.PublicKeyToPem(publicKey)
+	//if err != nil {
+	//	log.Fatalf("Failed to convert public key to PEM: %v", err)
+	//}
+	//
+	//fmt.Println("Private Key (PEM):", privateKeyPem)
+	//fmt.Println("Public Key (PEM):", publicKeyPem)
+	//
+	////从十六进制解析私钥
+	//privateKeyFromHex, err := sm2Instance.ParsePrivateKeyFromHex(privateKeyHex)
+	//if err != nil {
+	//	log.Fatalf("Failed to parse private key from hex: %v", err)
+	//}
+	//fmt.Println("Private Key (hex):", privateKeyFromHex)
+	//
+	//// 从十六进制解析公钥
+	//publicKeyFromHex, err := sm2Instance.ParsePublicKeyFromHex(publicKeyHex)
+	//if err != nil {
+	//	log.Fatalf("Failed to parse public key from hex: %v", err)
+	//}
+	//fmt.Println("Public Key (hex):", publicKeyFromHex)
 
-	publicKeyPem, err := sm2Instance.PublicKeyToPem(publicKey)
+	// 加密数据并链式调用转换格式
+	plaintext := []byte("需要加密的数据")
+	// 直接获取十六进制字符串
+	hexResult, err := sm2Instance.Encrypt(publicKey, plaintext, sm2.C1C3C2).ToBase64()
 	if err != nil {
-		log.Fatalf("Failed to convert public key to PEM: %v", err)
+		log.Fatalf("Failed to encrypt data: %v", err)
 	}
-
-	fmt.Println("Private Key (PEM):", privateKeyPem)
-	fmt.Println("Public Key (PEM):", publicKeyPem)
-
-	//从十六进制解析私钥
-	privateKeyFromHex, err := sm2Instance.ParsePrivateKeyFromHex(privateKeyHex)
+	fmt.Println("Encrypted data (hex):", hexResult)
+	bytes, err := sm2Instance.DecryptFromBase64(privateKey, hexResult, sm2.C1C3C2).ToBytes()
 	if err != nil {
-		log.Fatalf("Failed to parse private key from hex: %v", err)
+		log.Fatalf("Failed to Decrypt data: %v", err)
 	}
-	fmt.Println("Private Key (hex):", privateKeyFromHex)
-
-	// 从十六进制解析公钥
-	publicKeyFromHex, err := sm2Instance.ParsePublicKeyFromHex(publicKeyHex)
-	if err != nil {
-		log.Fatalf("Failed to parse public key from hex: %v", err)
-	}
-	fmt.Println("Public Key (hex):", publicKeyFromHex)
+	fmt.Println("Decrypted data:", string(bytes))
 
 }
