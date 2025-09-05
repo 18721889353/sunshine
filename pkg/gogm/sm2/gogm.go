@@ -411,12 +411,36 @@ func (r *Result) ToBytes() ([]byte, error) {
 	return r.data, nil
 }
 
-// Sign 使用SM2私钥对数据进行签名
-func (s *SM2) Sign(privateKey *sm2.PrivateKey, data []byte) ([]byte, error) {
-	return privateKey.Sign(s.rand, data, nil)
+// SignResult 包装签名结果，支持链式调用转换格式
+type SignResult struct {
+	*Result
 }
 
-// Verify 使用SM2公钥验证签名
-func (s *SM2) Verify(publicKey *sm2.PublicKey, data, signature []byte) bool {
+// Sign 使用SM2私钥对数据进行签名
+func (s *SM2) Sign(privateKey *sm2.PrivateKey, data []byte) *SignResult {
+	signature, err := privateKey.Sign(s.rand, data, nil)
+	return &SignResult{Result: &Result{data: signature, err: err}}
+}
+
+// VerifyFromBytes 使用SM2公钥验证签名
+func (s *SM2) VerifyFromBytes(publicKey *sm2.PublicKey, data, signature []byte) bool {
 	return publicKey.Verify(data, signature)
+}
+
+// VerifyFromHex 使用SM2公钥验证十六进制字符串签名
+func (s *SM2) VerifyFromHex(publicKey *sm2.PublicKey, data []byte, hexSignature string) bool {
+	signature, err := hex.DecodeString(hexSignature)
+	if err != nil {
+		return false
+	}
+	return s.VerifyFromBytes(publicKey, data, signature)
+}
+
+// VerifyFromBase64 使用SM2公钥验证Base64编码字符串签名
+func (s *SM2) VerifyFromBase64(publicKey *sm2.PublicKey, data []byte, base64Signature string) bool {
+	signature, err := base64.StdEncoding.DecodeString(base64Signature)
+	if err != nil {
+		return false
+	}
+	return s.VerifyFromBytes(publicKey, data, signature)
 }

@@ -97,22 +97,26 @@ func main() {
 		log.Fatalf("Failed to parse public key from hex: %v", err)
 	}
 
-	// 加密数据并链式调用转换格式
+	//// 加密数据并链式调用转换格式
 	plaintext := []byte("hello")
-	// 直接获取十六进制字符串 - 使用压缩格式
-	hexResult, err := sm2Instance.Encrypt(publicKeyFromHex, plaintext, gogm.C1C3C2Compressed).ToHex()
-	if err != nil {
-		log.Fatalf("Failed to encrypt data: %v", err)
-	}
-	fmt.Println("Encrypted data (hex):", hexResult)
+	//// 直接获取十六进制字符串 - 使用压缩格式
+	//hexResult, err := sm2Instance.Encrypt(publicKeyFromHex, plaintext, gogm.C1C3C2Compressed).ToHex()
+	//if err != nil {
+	//	log.Fatalf("Failed to encrypt data: %v", err)
+	//}
+	//fmt.Println("Encrypted data (hex):", hexResult)
+	//
+	//// 尝试使用不同的格式进行解密
+	//// 首先尝试C1C3C2格式解密压缩数据
+	//bytes, err := sm2Instance.DecryptFromHex(privateKeyFromHex, hexResult, gogm.C1C3C2Compressed).ToBytes()
+	//if err != nil {
+	//	fmt.Printf("Failed to decrypt with C1C3C2Compressed format: %v\n", err)
+	//} else {
+	//	fmt.Println("Decrypted data:", string(bytes))
+	//}
 
-	// 尝试使用不同的格式进行解密
-	// 首先尝试C1C3C2格式解密压缩数据
-	bytes, err := sm2Instance.DecryptFromHex(privateKeyFromHex, hexResult, gogm.C1C3C2Compressed).ToBytes()
-	if err != nil {
-		fmt.Printf("Failed to decrypt with C1C3C2Compressed format: %v\n", err)
-	} else {
-		fmt.Println("Decrypted data:", string(bytes))
-	}
-
+	toBytes, err := sm2Instance.Sign(privateKeyFromHex, plaintext).ToHex()
+	fmt.Println(toBytes)
+	verify := sm2Instance.VerifyFromHex(publicKeyFromHex, plaintext, toBytes)
+	fmt.Println(verify)
 }
