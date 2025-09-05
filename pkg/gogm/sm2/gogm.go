@@ -1,4 +1,4 @@
-package sm2
+package gogm
 
 import (
 	"crypto/rand"
@@ -29,7 +29,7 @@ type sm2Options struct {
 	rand        io.Reader
 	stripHeader bool
 	save        bool
-	privFile    string
+	privateFile string
 	pubFile     string
 }
 
@@ -62,10 +62,10 @@ func WithStripHeader(strip bool) SM2Option {
 }
 
 // WithSave 设置是否自动保存密钥到文件
-func WithSave(privFile, pubFile string) SM2Option {
+func WithSave(privateFile, pubFile string) SM2Option {
 	return func(o *sm2Options) {
 		o.save = true
-		o.privFile = privFile
+		o.privateFile = privateFile
 		o.pubFile = pubFile
 	}
 }
@@ -75,7 +75,7 @@ type SM2 struct {
 	rand        io.Reader
 	stripHeader bool
 	save        bool
-	privFile    string
+	privateFile string
 	pubFile     string
 }
 
@@ -87,7 +87,7 @@ func NewSM2(opts ...SM2Option) *SM2 {
 		rand:        o.rand,
 		stripHeader: o.stripHeader,
 		save:        o.save,
-		privFile:    o.privFile,
+		privateFile: o.privateFile,
 		pubFile:     o.pubFile,
 	}
 }
@@ -142,7 +142,7 @@ func (s *SM2) GenerateKeyPair() (*KeyPair, error) {
 	// 如果设置了自动保存，则保存到文件（保存完整PEM格式）
 	if s.save {
 		// 保存时使用完整的PEM格式（包含header和footer）
-		if err := s.SaveKeyPairRaw(privateKeyStr, publicKeyStr, s.privFile, s.pubFile); err != nil {
+		if err := s.SaveKeyPairRaw(privateKeyStr, publicKeyStr, s.privateFile, s.pubFile); err != nil {
 			return nil, fmt.Errorf("failed to save key pair to file: %v", err)
 		}
 	}
@@ -151,8 +151,8 @@ func (s *SM2) GenerateKeyPair() (*KeyPair, error) {
 }
 
 // SaveKeyPair 保存密钥对到文件（使用keyPair中的内容，可能已去除header）
-func (s *SM2) SaveKeyPair(keyPair *KeyPair, privFile, pubFile string) error {
-	if err := saveToFile(privFile, []byte(keyPair.PrivateKeyPEM), 0600); err != nil {
+func (s *SM2) SaveKeyPair(keyPair *KeyPair, privateFile, pubFile string) error {
+	if err := saveToFile(privateFile, []byte(keyPair.PrivateKeyPEM), 0600); err != nil {
 		return fmt.Errorf("failed to save private key: %v", err)
 	}
 	if err := saveToFile(pubFile, []byte(keyPair.PublicKeyPEM), 0644); err != nil {
@@ -162,8 +162,8 @@ func (s *SM2) SaveKeyPair(keyPair *KeyPair, privFile, pubFile string) error {
 }
 
 // SaveKeyPairRaw 保存原始密钥对到文件（保留完整PEM格式）
-func (s *SM2) SaveKeyPairRaw(privateKeyPem, publicKeyPem, privFile, pubFile string) error {
-	if err := saveToFile(privFile, []byte(privateKeyPem), 0600); err != nil {
+func (s *SM2) SaveKeyPairRaw(privateKeyPem, publicKeyPem, privateFile, pubFile string) error {
+	if err := saveToFile(privateFile, []byte(privateKeyPem), 0600); err != nil {
 		return fmt.Errorf("failed to save private key: %v", err)
 	}
 	if err := saveToFile(pubFile, []byte(publicKeyPem), 0644); err != nil {
@@ -276,16 +276,33 @@ const (
 	C1C3C2 EncryptFormat = iota
 	// C1C2C3 格式
 	C1C2C3
+	// C1C3C2Compressed 压缩格式
+	C1C3C2Compressed
+	// C1C2C3Compressed 压缩格式
+	C1C2C3Compressed
 )
 
 // Encrypt 使用SM2公钥加密数据，支持指定格式
 func (s *SM2) Encrypt(publicKey *sm2.PublicKey, data []byte, format EncryptFormat) *EncryptResult {
 	var encrypted []byte
 	var err error
-
 	switch format {
 	case C1C2C3:
 		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C2C3)
+	case C1C3C2Compressed:
+		// 使用标准C1C3C2格式加密，然后手动处理压缩
+		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C3C2)
+		if err == nil && len(encrypted) >= 65 && encrypted[0] == 0x04 {
+			// 移除0x04前缀以实现压缩效果
+			encrypted = encrypted[1:]
+		}
+	case C1C2C3Compressed:
+		// 使用标准C1C2C3格式加密，然后手动处理压缩
+		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C2C3)
+		if err == nil && len(encrypted) >= 65 && encrypted[0] == 0x04 {
+			// 移除0x04前缀以实现压缩效果
+			encrypted = encrypted[1:]
+		}
 	default:
 		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C3C2)
 	}
@@ -306,11 +323,23 @@ func (s *SM2) Decrypt(privateKey *sm2.PrivateKey, encryptedData []byte, format D
 	var decrypted []byte
 	var err error
 
+	// 针对压缩格式，需要在解密前添加0x04前缀
+	var dataToDecrypt []byte
 	switch format {
-	case C1C2C3:
-		decrypted, err = sm2.Decrypt(privateKey, encryptedData, sm2.C1C2C3)
+	case C1C3C2Compressed, C1C2C3Compressed:
+		// 为压缩格式数据添加0x04前缀以便正确解密
+		dataToDecrypt = make([]byte, len(encryptedData)+1)
+		dataToDecrypt[0] = 0x04
+		copy(dataToDecrypt[1:], encryptedData)
 	default:
-		decrypted, err = sm2.Decrypt(privateKey, encryptedData, sm2.C1C3C2)
+		dataToDecrypt = encryptedData
+	}
+
+	switch format {
+	case C1C2C3, C1C2C3Compressed:
+		decrypted, err = sm2.Decrypt(privateKey, dataToDecrypt, sm2.C1C2C3)
+	default:
+		decrypted, err = sm2.Decrypt(privateKey, dataToDecrypt, sm2.C1C3C2)
 	}
 
 	return &DecryptResult{Result: &Result{data: decrypted, err: err}}
@@ -357,7 +386,13 @@ func (r *Result) ToHex() (string, error) {
 	if r.err != nil {
 		return "", r.err
 	}
-	return fmt.Sprintf("%x", r.data), nil
+	// 处理SM2公钥十六进制字符串中多余的04前缀
+	hexStr := hex.EncodeToString(r.data)
+	if len(r.data) == 65 && r.data[0] == 4 {
+		// 如果数据长度为65字节且第一个字节是0x04，则移除0x04前缀
+		hexStr = hex.EncodeToString(r.data[1:])
+	}
+	return hexStr, nil
 }
 
 // ToBase64 将结果转换为Base64编码字符串
