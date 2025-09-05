@@ -99,12 +99,12 @@ func main() {
 	// 加密数据并链式调用转换格式
 	plaintext := []byte("需要加密的数据")
 	// 直接获取十六进制字符串
-	hexResult, err := sm2Instance.Encrypt(publicKey, plaintext, sm2.C1C3C2).ToBase64()
+	hexResult, err := sm2Instance.Encrypt(publicKey, plaintext, sm2.C1C3C2).ToHex()
 	if err != nil {
 		log.Fatalf("Failed to encrypt data: %v", err)
 	}
 	fmt.Println("Encrypted data (hex):", hexResult)
-	bytes, err := sm2Instance.DecryptFromBase64(privateKey, hexResult, sm2.C1C3C2).ToBytes()
+	bytes, err := sm2Instance.DecryptFromHex(privateKey, hexResult, sm2.C1C3C2).ToBytes()
 	if err != nil {
 		log.Fatalf("Failed to Decrypt data: %v", err)
 	}
