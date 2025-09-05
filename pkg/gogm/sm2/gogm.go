@@ -357,7 +357,7 @@ func (r *Result) ToHex() (string, error) {
 	if r.err != nil {
 		return "", r.err
 	}
-	return hex.EncodeToString(r.data), nil
+	return fmt.Sprintf("%x", r.data), nil
 }
 
 // ToBase64 将结果转换为Base64编码字符串
