@@ -2,6 +2,7 @@ package sm2
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -265,4 +266,122 @@ func stripPEMHeader(pemStr string) string {
 		}
 	}
 	return strings.Join(contentLines, "\n")
+}
+
+// EncryptFormat 定义加密格式类型
+type EncryptFormat int
+
+const (
+	// C1C3C2 格式
+	C1C3C2 EncryptFormat = iota
+	// C1C2C3 格式
+	C1C2C3
+)
+
+// Encrypt 使用SM2公钥加密数据，支持指定格式
+func (s *SM2) Encrypt(publicKey *sm2.PublicKey, data []byte, format EncryptFormat) *EncryptResult {
+	var encrypted []byte
+	var err error
+
+	switch format {
+	case C1C2C3:
+		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C2C3)
+	default:
+		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C3C2)
+	}
+
+	return &EncryptResult{Result: &Result{data: encrypted, err: err}}
+}
+
+// EncryptResult 包装加密结果，支持链式调用转换格式
+type EncryptResult struct {
+	*Result
+}
+
+// DecryptFormat 定义解密格式类型
+type DecryptFormat = EncryptFormat
+
+// Decrypt 使用SM2私钥解密数据，支持指定格式
+func (s *SM2) Decrypt(privateKey *sm2.PrivateKey, encryptedData []byte, format DecryptFormat) *DecryptResult {
+	var decrypted []byte
+	var err error
+
+	switch format {
+	case C1C2C3:
+		decrypted, err = sm2.Decrypt(privateKey, encryptedData, sm2.C1C2C3)
+	default:
+		decrypted, err = sm2.Decrypt(privateKey, encryptedData, sm2.C1C3C2)
+	}
+
+	return &DecryptResult{Result: &Result{data: decrypted, err: err}}
+}
+
+// DecryptResult 包装解密结果，支持链式调用转换格式
+type DecryptResult struct {
+	*Result
+}
+
+// DecryptFromBytes 使用SM2私钥解密字节数据，支持指定格式
+func (s *SM2) DecryptFromBytes(privateKey *sm2.PrivateKey, byteData []byte, format DecryptFormat) *DecryptResult {
+	return s.Decrypt(privateKey, byteData, format)
+}
+
+// DecryptFromHex 使用SM2私钥解密十六进制字符串数据，支持指定格式
+func (s *SM2) DecryptFromHex(privateKey *sm2.PrivateKey, hexData string, format DecryptFormat) *DecryptResult {
+	encryptedData, err := hex.DecodeString(hexData)
+	if err != nil {
+		return &DecryptResult{Result: &Result{err: fmt.Errorf("failed to decode hex string: %v", err)}}
+	}
+
+	return s.Decrypt(privateKey, encryptedData, format)
+}
+
+// DecryptFromBase64 使用SM2私钥解密Base64编码字符串数据，支持指定格式
+func (s *SM2) DecryptFromBase64(privateKey *sm2.PrivateKey, base64Data string, format DecryptFormat) *DecryptResult {
+	encryptedData, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return &DecryptResult{Result: &Result{err: fmt.Errorf("failed to decode base64 string: %v", err)}}
+	}
+
+	return s.Decrypt(privateKey, encryptedData, format)
+}
+
+// Result 包装通用结果数据
+type Result struct {
+	data []byte
+	err  error
+}
+
+// ToHex 将结果转换为十六进制字符串
+func (r *Result) ToHex() (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	return hex.EncodeToString(r.data), nil
+}
+
+// ToBase64 将结果转换为Base64编码字符串
+func (r *Result) ToBase64() (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	return base64.StdEncoding.EncodeToString(r.data), nil
+}
+
+// ToBytes 返回原始字节数据
+func (r *Result) ToBytes() ([]byte, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.data, nil
+}
+
+// Sign 使用SM2私钥对数据进行签名
+func (s *SM2) Sign(privateKey *sm2.PrivateKey, data []byte) ([]byte, error) {
+	return privateKey.Sign(s.rand, data, nil)
+}
+
+// Verify 使用SM2公钥验证签名
+func (s *SM2) Verify(publicKey *sm2.PublicKey, data, signature []byte) bool {
+	return publicKey.Verify(data, signature)
 }
