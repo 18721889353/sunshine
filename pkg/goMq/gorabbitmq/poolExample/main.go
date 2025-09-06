@@ -19,11 +19,11 @@ func main() {
 	// 创建连接池，配置 ants 协程池大小
 	pool, err := gorabbitmq.NewPool(
 		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
-		gorabbitmq.WithInitialCap(5),            // 初始连接数
-		gorabbitmq.WithMaxCap(20),               // 最大连接数
-		gorabbitmq.WithMaxIdle(time.Minute*1),   // 最大空闲时间
+		gorabbitmq.WithInitialCap(10),           // 初始连接数
+		gorabbitmq.WithMaxCap(1000),             // 最大连接数
+		gorabbitmq.WithMaxIdle(time.Minute*10),  // 最大空闲时间
 		gorabbitmq.WithPoolLogger(logger.Get()), // 日志记录器
-		gorabbitmq.WithAntsPoolSize(50),         // 配置 ants 协程池大小为 50
+		gorabbitmq.WithAntsPoolSize(10),         // 配置 ants 协程池大小为 10
 		gorabbitmq.WithConnOptions( // 连接选项
 			gorabbitmq.WithReconnectTime(time.Second*3),
 			gorabbitmq.WithDialTimeout(time.Second*5),
