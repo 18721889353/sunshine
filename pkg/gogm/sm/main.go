@@ -26,11 +26,11 @@ func main() {
 	fmt.Println("当前工作目录:", currentDir)
 
 	// 构建证书文件的绝对路径
-	zgyhPublicPem := filepath.Join(currentDir, "cert", "zgyhPublic.Pem")
-	sm2PrivatePem := filepath.Join(currentDir, "cert", "sm2Private.Pem")
+	zgyhPublicPem := filepath.Join(currentDir, "cert", "public.key")
+	sm2PrivatePem := filepath.Join(currentDir, "cert", "private.key")
 
-	fmt.Println("----------------------body1---------------------------")
-	json := "{\"customerName\":\"郝艺\",\"mobile\":\"18121688260\",\"createDate\":\"2021\\/01\\/15 15:18:55\",\"identityNumber\":\"32038219961025702X\",\"customerId\":\"276005749\",\"identityType\":\"1\",\"ibknum\":\"44433\",\"gender\":\"2\"}"
+	fmt.Println("----------------------body---------------------------")
+	json := "{\"customerName\":\"test\",\"mobile\":\"18721889351\",\"createDate\":\"2021\\/01\\/15 15:18:55\",\"identityNumber\":\"32038219961025702X\",\"customerId\":\"276005749\",\"identityType\":\"1\",\"ibknum\":\"44433\",\"gender\":\"2\"}"
 	base64json := base64.StdEncoding.EncodeToString([]byte(json))
 	sec := "1234567890abcdef"
 	ecbDec1, err := sm4.Sm4Ecb([]byte(sec), []byte(base64json), true) //sm4Ecb模式pksc7填充解密
@@ -38,22 +38,22 @@ func main() {
 		fmt.Printf("sm4 dec error:%s\n", err.Error())
 		return
 	}
-	boyd1 := base64.StdEncoding.EncodeToString(ecbDec1)
-	fmt.Println(boyd1)
+	body := base64.StdEncoding.EncodeToString(ecbDec1)
+	fmt.Println(body)
 	fmt.Println("----------------------skey1---------------------------")
 	publicKey1, err1 := ReadPublicPem(zgyhPublicPem)
 	if err1 != nil {
 		fmt.Println("ReadPublicPem Error: ", err1)
 	}
-	skey1 := Encrypt(sec, publicKey1)
-	fmt.Println(skey1)
+	skey := Encrypt(sec, publicKey1)
+	fmt.Println(skey)
 	fmt.Println("----------------------hmaCipherText1---------------------------")
-	aa := boyd1 + sec
+	aa := body + sec
 	h := sm3.New()
 	h.Write([]byte(aa))
 	sum := h.Sum(nil)
-	hmaCipherText1 := hex.EncodeToString(sum)
-	fmt.Println(hmaCipherText1)
+	hmaCipherText := hex.EncodeToString(sum)
+	fmt.Println(hmaCipherText)
 	fmt.Println("--------------------------hmac1-----------------------")
 	privateKey1, err1 := ReadPrivatePem(sm2PrivatePem, nil)
 	if err1 != nil {
@@ -63,14 +63,14 @@ func main() {
 	if err1 != nil {
 		fmt.Println("privateKey1.Sign Error: ", err)
 	}
-	hmac1 := hex.EncodeToString(signByte)
-	fmt.Println(hmac1)
+	hmac := hex.EncodeToString(signByte)
+	fmt.Println(hmac)
 	fmt.Println("-------------------------------------------------")
 	//cipherTex := "{\"hmaCipherText\":\"2a77153e34953c6bd09527ae22bb7ce0de78e0930cb89dab109bb7a388b5b2c1\",\"hmac\":\"3045022100b0256f7169ff892e513e9c884fbecf7e677c36c0027f3ad26a6943749e620c2702200f6a506b34c6f07b35dd99aa8bfcfc062706f53bff6992c3b4813a72a2d7c50a\",\"skey\":\"BP41O41m+FOB3OENnE/Ztb3OXC7i6+I9QtLprobm4yUdj1d8K2wuT7Cl4xlRPmGqFl9gzNeXVe2J4OICpTIal9faWKRad4Ooa3EE6G1nlN2Vq0TBJiU4n545QMLD4JzQMembK/95qp/SizyT31UHWM54r5Ohq7loGEbQ15Y7lME5\",\"body\":\"b25e0eedded3f43962f3aa9f7b9ee2a8cca70e6ed50c89f26be84104225a55c3668c2c74b11ba34aecd37779be3d0ee5c4c721cd3190d2a2154c1166896f10f1d274e2082e52784ea72a8620ca8b5d2cca5df803c4efdced90f2714e04fb416cddea0e56d7d4810abbd3bed90e767cad549785b8907163b7d88d800bd64f5b308ad2012fb0ed00c713529bca646227021a9cc7242a3839ad4a88b7fdabca56316bf0d4288de21834221d403d475b6910bd5b10fed224415d568ee2d1575e6d50561e32b8f33e03f16d2f7f79fd8ae08f52d549fcf7f17667d2f4b47611bd27b91e80676ec8325936ca3ea6197c12c2cd057ca2071247114f41b338007d7dec1910f8b2b31689e5df22b1afa70058ccaa\"}"
-	skey := "BP41O41m+FOB3OENnE/Ztb3OXC7i6+I9QtLprobm4yUdj1d8K2wuT7Cl4xlRPmGqFl9gzNeXVe2J4OICpTIal9faWKRad4Ooa3EE6G1nlN2Vq0TBJiU4n545QMLD4JzQMembK/95qp/SizyT31UHWM54r5Ohq7loGEbQ15Y7lME5"
-	hmaCipherText := "2a77153e34953c6bd09527ae22bb7ce0de78e0930cb89dab109bb7a388b5b2c1"
-	hmac := "3045022100b0256f7169ff892e513e9c884fbecf7e677c36c0027f3ad26a6943749e620c2702200f6a506b34c6f07b35dd99aa8bfcfc062706f53bff6992c3b4813a72a2d7c50a"
-	body := "b25e0eedded3f43962f3aa9f7b9ee2a8cca70e6ed50c89f26be84104225a55c3668c2c74b11ba34aecd37779be3d0ee5c4c721cd3190d2a2154c1166896f10f1d274e2082e52784ea72a8620ca8b5d2cca5df803c4efdced90f2714e04fb416cddea0e56d7d4810abbd3bed90e767cad549785b8907163b7d88d800bd64f5b308ad2012fb0ed00c713529bca646227021a9cc7242a3839ad4a88b7fdabca56316bf0d4288de21834221d403d475b6910bd5b10fed224415d568ee2d1575e6d50561e32b8f33e03f16d2f7f79fd8ae08f52d549fcf7f17667d2f4b47611bd27b91e80676ec8325936ca3ea6197c12c2cd057ca2071247114f41b338007d7dec1910f8b2b31689e5df22b1afa70058ccaa"
+	//skey := "BP41O41m+FOB3OENnE/Ztb3OXC7i6+I9QtLprobm4yUdj1d8K2wuT7Cl4xlRPmGqFl9gzNeXVe2J4OICpTIal9faWKRad4Ooa3EE6G1nlN2Vq0TBJiU4n545QMLD4JzQMembK/95qp/SizyT31UHWM54r5Ohq7loGEbQ15Y7lME5"
+	//hmaCipherText := "2a77153e34953c6bd09527ae22bb7ce0de78e0930cb89dab109bb7a388b5b2c1"
+	//hmac := "3045022100b0256f7169ff892e513e9c884fbecf7e677c36c0027f3ad26a6943749e620c2702200f6a506b34c6f07b35dd99aa8bfcfc062706f53bff6992c3b4813a72a2d7c50a"
+	//body = "b25e0eedded3f43962f3aa9f7b9ee2a8cca70e6ed50c89f26be84104225a55c3668c2c74b11ba34aecd37779be3d0ee5c4c721cd3190d2a2154c1166896f10f1d274e2082e52784ea72a8620ca8b5d2cca5df803c4efdced90f2714e04fb416cddea0e56d7d4810abbd3bed90e767cad549785b8907163b7d88d800bd64f5b308ad2012fb0ed00c713529bca646227021a9cc7242a3839ad4a88b7fdabca56316bf0d4288de21834221d403d475b6910bd5b10fed224415d568ee2d1575e6d50561e32b8f33e03f16d2f7f79fd8ae08f52d549fcf7f17667d2f4b47611bd27b91e80676ec8325936ca3ea6197c12c2cd057ca2071247114f41b338007d7dec1910f8b2b31689e5df22b1afa70058ccaa"
 	//fmt.Println(hmaCipherText, hmac, skey, body)
 	fmt.Println("-----------------SM2私钥解密skey获得SM4密钥----------------------------")
 	privateKey, err := ReadPrivatePem(sm2PrivatePem, nil)
@@ -81,9 +81,9 @@ func main() {
 	if err != nil {
 		fmt.Println("base64.StdEncoding.DecodeString Error: ", err)
 	}
-	toString := hex.EncodeToString(str)
-	SM4Key, err := Decode(toString, privateKey)
+	SM4Key, err := Decode(str, privateKey)
 	if err != nil {
+		panic(err)
 		fmt.Println("Decode Error: ", err)
 	}
 	fmt.Println("SM4密钥:", SM4Key)
@@ -110,16 +110,12 @@ func main() {
 	cc := hex.EncodeToString(sum1)
 	fmt.Println(cc == hmaCipherText)
 	fmt.Println("----------------sm4解密body数据-----------------------")
-	key, err := hex.DecodeString(SM4Key)
-	if err != nil {
-		fmt.Println("hex.DecodeString Error: ", err)
-	}
-	data, err := hex.DecodeString(body)
+	data, err := base64.StdEncoding.DecodeString(body)
 	if err != nil {
 		fmt.Printf("hex.DecodeString error:%s\n", err.Error())
 		return
 	}
-	ecbDec, err := sm4.Sm4Ecb(key, data, false) //sm4Ecb模式pksc7填充解密
+	ecbDec, err := sm4.Sm4Ecb([]byte(SM4Key), data, false) //sm4Ecb模式pksc7填充解密
 	if err != nil {
 		fmt.Printf("sm4 dec error:%s\n", err.Error())
 		return
@@ -337,6 +333,7 @@ func Encrypt(data string, publicKey *sm2.PublicKey) (cipherStr string) {
 	}
 	// 转为16进制字符串输出
 	//cipherStr = fmt.Sprintf("%x", cipherTxt)
+	return base64.StdEncoding.EncodeToString(cipherTxt)
 	cipherStr = hex.EncodeToString(cipherTxt)
 	return
 }
@@ -349,13 +346,11 @@ func Encrypt(data string, publicKey *sm2.PublicKey) (cipherStr string) {
 *  @return data 解密后的数据
 *  @return err
  */
-func Decode(cipherStr string, privateKey *sm2.PrivateKey) (data string, err error) {
-	// 16进制字符串转[]byte
-	bytes, _ := hex.DecodeString(cipherStr)
+func Decode(cipherStr []byte, privateKey *sm2.PrivateKey) (data string, err error) {
 	// sm2解密
 	var dataByte []byte
 	//dataByte, err = privateKey.DecryptAsn1(bytes)
-	dataByte, err = sm2.Decrypt(privateKey, bytes, sm2.C1C3C2)
+	dataByte, err = sm2.Decrypt(privateKey, cipherStr, sm2.C1C3C2)
 
 	if err != nil {
 		return data, err
