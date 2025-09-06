@@ -40,6 +40,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/nacos-group/nacos-sdk-go/v2 v2.3.3
 	github.com/natefinch/lumberjack v2.0.0+incompatible
+	github.com/panjf2000/ants/v2 v2.11.3
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rabbitmq/amqp091-go v1.10.0

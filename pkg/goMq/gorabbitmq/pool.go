@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,7 @@ type poolOptions struct {
 	maxIdle    time.Duration // 连接最大空闲时间
 	zapLog     *zap.Logger   // 日志记录器
 	connOpts   []ConnectionOption // 连接选项
+	antsCap    int           // ants协程池容量
 }
 
 // apply 应用连接池配置选项
@@ -36,6 +38,7 @@ func defaultPoolOptions() *poolOptions {
 		maxIdle:    time.Minute * 10,
 		zapLog:     defaultLogger,
 		connOpts:   []ConnectionOption{},
+		antsCap:    0, // 默认使用ants库的默认容量
 	}
 }
 
@@ -82,6 +85,15 @@ func WithConnOptions(connOpts ...ConnectionOption) PoolOption {
 	}
 }
 
+// WithAntsPoolSize 设置ants协程池大小
+func WithAntsPoolSize(cap int) PoolOption {
+	return func(o *poolOptions) {
+		if cap >= 0 {
+			o.antsCap = cap
+		}
+	}
+}
+
 // poolConn 连接池中的连接
 type poolConn struct {
 	conn       *Connection // RabbitMQ 连接
@@ -98,6 +110,7 @@ type Pool struct {
 	poolOpts   *poolOptions   // 连接池配置选项
 	closed     bool           // 连接池是否已关闭
 	totalConns int64          // 原子计数器，跟踪总连接数
+	antsPool   *ants.Pool     // ants协程池，用于处理后台任务
 }
 
 // NewPool 创建新的连接池
@@ -109,10 +122,25 @@ func NewPool(url string, opts ...PoolOption) (*Pool, error) {
 	poolOpts := defaultPoolOptions()
 	poolOpts.apply(opts...)
 
+	// 创建ants协程池
+	var antsPool *ants.Pool
+	var err error
+	if poolOpts.antsCap > 0 {
+		antsPool, err = ants.NewPool(poolOpts.antsCap)
+	} else {
+		// 使用ants库的默认配置
+		antsPool, err = ants.NewPool(-1)
+	}
+	
+	if err != nil {
+		return nil, err
+	}
+
 	pool := &Pool{
 		conns:    make([]*poolConn, 0, poolOpts.maxCap),
 		url:      url,
 		poolOpts: poolOpts,
+		antsPool: antsPool,
 	}
 
 	pool.cond = sync.NewCond(&pool.mutex)
@@ -229,37 +257,43 @@ func (p *Pool) idleCleanup() {
 	for {
 		select {
 		case <-ticker.C:
-			p.mutex.Lock()
+			// 使用ants协程池处理空闲连接清理任务
+			_ = p.antsPool.Submit(func() {
+				p.doCleanup()
+			})
+		}
+	}
+}
 
-			if p.closed {
-				p.mutex.Unlock()
-				return
-			}
+// doCleanup 实际执行清理工作的函数
+func (p *Pool) doCleanup() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 
-			now := time.Now()
-			// 保留的连接数不能少于初始容量
-			minKeep := p.poolOpts.initialCap
-			if minKeep > len(p.conns) {
-				minKeep = len(p.conns)
-			}
+	if p.closed {
+		return
+	}
 
-			// 从后往前遍历，移除空闲时间过长的连接
-			for i := len(p.conns) - 1; i >= minKeep; i-- {
-				pc := p.conns[i]
-				if now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
-					// 关闭连接
-					pc.conn.Close()
-					atomic.AddInt64(&p.totalConns, -1)
+	now := time.Now()
+	// 保留的连接数不能少于初始容量
+	minKeep := p.poolOpts.initialCap
+	if minKeep > len(p.conns) {
+		minKeep = len(p.conns)
+	}
 
-					// 从池中移除
-					p.conns = append(p.conns[:i], p.conns[i+1:]...)
+	// 从后往前遍历，移除空闲时间过长的连接
+	for i := len(p.conns) - 1; i >= minKeep; i-- {
+		pc := p.conns[i]
+		if now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
+			// 关闭连接
+			pc.conn.Close()
+			atomic.AddInt64(&p.totalConns, -1)
 
-					p.poolOpts.zapLog.Debug("[rabbitmq pool] removed idle connection",
-						zap.Duration("idleTime", now.Sub(pc.lastUsed)))
-				}
-			}
+			// 从池中移除
+			p.conns = append(p.conns[:i], p.conns[i+1:]...)
 
-			p.mutex.Unlock()
+			p.poolOpts.zapLog.Debug("[rabbitmq pool] removed idle connection",
+				zap.Duration("idleTime", now.Sub(pc.lastUsed)))
 		}
 	}
 }
@@ -286,6 +320,9 @@ func (p *Pool) Close() {
 	// 通知所有等待的goroutine
 	p.cond.Broadcast()
 
+	// 释放ants协程池资源
+	p.antsPool.Release()
+
 	p.poolOpts.zapLog.Info("[rabbitmq pool] closed")
 }
 
@@ -308,5 +345,7 @@ func (p *Pool) Stats() map[string]interface{} {
 		"poolSize":   len(p.conns),
 		"maxCap":     p.poolOpts.maxCap,
 		"closed":     p.closed,
+		"antsPoolRunning": p.antsPool.Running(),
+		"antsPoolCap": p.antsPool.Cap(),
 	}
 }
