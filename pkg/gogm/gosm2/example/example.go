@@ -2,9 +2,8 @@ package main
 
 import (
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/gogm/gosm2"
 	"log"
-
-	gogm "github.com/18721889353/sunshine/pkg/gogm/sm2"
 )
 
 func main() {
@@ -35,7 +34,7 @@ func main() {
 	//fmt.Printf("Public Key (hex):\n%s\n", keyPair.PublicKeyHex)
 
 	// 创建SM2实例
-	sm2Instance := gogm.NewSM2()
+	sm2Instance := gosm2.NewSM2()
 
 	//// 生成密钥对
 	//keyPair, err := sm2Instance.GenerateKeyPair()

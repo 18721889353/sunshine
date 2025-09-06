@@ -1,4 +1,4 @@
-package gogm
+package gosm2
 
 import (
 	"crypto/rand"
