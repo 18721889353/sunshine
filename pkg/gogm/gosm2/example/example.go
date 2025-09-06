@@ -34,7 +34,7 @@ func main() {
 	//fmt.Printf("Public Key (hex):\n%s\n", keyPair.PublicKeyHex)
 
 	// 创建SM2实例
-	sm2Instance := gosm2.NewSM2()
+	sm2Instance := gosm2.NewSM2(gosm2.WithUnescapeHTML(false))
 
 	//// 生成密钥对
 	//keyPair, err := sm2Instance.GenerateKeyPair()

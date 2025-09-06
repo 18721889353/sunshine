@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"strings"
@@ -26,17 +27,19 @@ type SM2Option func(*sm2Options)
 
 // sm2Options 包含SM2的所有可配置选项
 type sm2Options struct {
-	rand        io.Reader
-	stripHeader bool
-	save        bool
-	privateFile string
-	pubFile     string
+	rand         io.Reader
+	stripHeader  bool
+	save         bool
+	privateFile  string
+	pubFile      string
+	unescapeHTML bool
 }
 
 // defaultSM2Options 返回默认的SM2选项
 func defaultSM2Options() *sm2Options {
 	return &sm2Options{
-		rand: rand.Reader,
+		rand:         rand.Reader,
+		unescapeHTML: true, // 默认进行HTML转义处理，保持向后兼容
 	}
 }
 
@@ -70,13 +73,21 @@ func WithSave(privateFile, pubFile string) SM2Option {
 	}
 }
 
+// WithUnescapeHTML 设置是否进行HTML转义处理
+func WithUnescapeHTML(unescape bool) SM2Option {
+	return func(o *sm2Options) {
+		o.unescapeHTML = unescape
+	}
+}
+
 // SM2 封装了SM2算法相关的操作
 type SM2 struct {
-	rand        io.Reader
-	stripHeader bool
-	save        bool
-	privateFile string
-	pubFile     string
+	rand         io.Reader
+	stripHeader  bool
+	save         bool
+	privateFile  string
+	pubFile      string
+	unescapeHTML bool
 }
 
 // NewSM2 创建一个新的SM2实例
@@ -84,11 +95,12 @@ func NewSM2(opts ...SM2Option) *SM2 {
 	o := defaultSM2Options()
 	o.apply(opts...)
 	return &SM2{
-		rand:        o.rand,
-		stripHeader: o.stripHeader,
-		save:        o.save,
-		privateFile: o.privateFile,
-		pubFile:     o.pubFile,
+		rand:         o.rand,
+		stripHeader:  o.stripHeader,
+		save:         o.save,
+		privateFile:  o.privateFile,
+		pubFile:      o.pubFile,
+		unescapeHTML: o.unescapeHTML,
 	}
 }
 
@@ -283,28 +295,31 @@ const (
 )
 
 // Encrypt 使用SM2公钥加密数据，支持指定格式
-func (s *SM2) Encrypt(publicKey *sm2.PublicKey, data []byte, format EncryptFormat) *EncryptResult {
+func (s *SM2) Encrypt(publicKey *sm2.PublicKey, plainTextByte []byte, format EncryptFormat) *EncryptResult {
+	if s.unescapeHTML {
+		plainTextByte = []byte(html.UnescapeString(string(plainTextByte)))
+	}
 	var encrypted []byte
 	var err error
 	switch format {
 	case C1C2C3:
-		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C2C3)
+		encrypted, err = sm2.Encrypt(publicKey, plainTextByte, s.rand, sm2.C1C2C3)
 	case C1C3C2Compressed:
 		// 使用标准C1C3C2格式加密，然后手动处理压缩
-		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C3C2)
+		encrypted, err = sm2.Encrypt(publicKey, plainTextByte, s.rand, sm2.C1C3C2)
 		if err == nil && len(encrypted) >= 65 && encrypted[0] == 0x04 {
 			// 移除0x04前缀以实现压缩效果
 			encrypted = encrypted[1:]
 		}
 	case C1C2C3Compressed:
 		// 使用标准C1C2C3格式加密，然后手动处理压缩
-		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C2C3)
+		encrypted, err = sm2.Encrypt(publicKey, plainTextByte, s.rand, sm2.C1C2C3)
 		if err == nil && len(encrypted) >= 65 && encrypted[0] == 0x04 {
 			// 移除0x04前缀以实现压缩效果
 			encrypted = encrypted[1:]
 		}
 	default:
-		encrypted, err = sm2.Encrypt(publicKey, data, s.rand, sm2.C1C3C2)
+		encrypted, err = sm2.Encrypt(publicKey, plainTextByte, s.rand, sm2.C1C3C2)
 	}
 
 	return &EncryptResult{Result: &Result{data: encrypted, err: err}}
@@ -319,7 +334,7 @@ type EncryptResult struct {
 type DecryptFormat = EncryptFormat
 
 // Decrypt 使用SM2私钥解密数据，支持指定格式
-func (s *SM2) Decrypt(privateKey *sm2.PrivateKey, encryptedData []byte, format DecryptFormat) *DecryptResult {
+func (s *SM2) Decrypt(privateKey *sm2.PrivateKey, ciphertextByte []byte, format DecryptFormat) *DecryptResult {
 	var decrypted []byte
 	var err error
 
@@ -328,11 +343,11 @@ func (s *SM2) Decrypt(privateKey *sm2.PrivateKey, encryptedData []byte, format D
 	switch format {
 	case C1C3C2Compressed, C1C2C3Compressed:
 		// 为压缩格式数据添加0x04前缀以便正确解密
-		dataToDecrypt = make([]byte, len(encryptedData)+1)
+		dataToDecrypt = make([]byte, len(ciphertextByte)+1)
 		dataToDecrypt[0] = 0x04
-		copy(dataToDecrypt[1:], encryptedData)
+		copy(dataToDecrypt[1:], ciphertextByte)
 	default:
-		dataToDecrypt = encryptedData
+		dataToDecrypt = ciphertextByte
 	}
 
 	switch format {
@@ -417,30 +432,33 @@ type SignResult struct {
 }
 
 // Sign 使用SM2私钥对数据进行签名
-func (s *SM2) Sign(privateKey *sm2.PrivateKey, data []byte) *SignResult {
-	signature, err := privateKey.Sign(s.rand, data, nil)
+func (s *SM2) Sign(privateKey *sm2.PrivateKey, dataByte []byte) *SignResult {
+	if s.unescapeHTML {
+		dataByte = []byte(html.UnescapeString(string(dataByte)))
+	}
+	signature, err := privateKey.Sign(s.rand, dataByte, nil)
 	return &SignResult{Result: &Result{data: signature, err: err}}
 }
 
 // VerifyFromBytes 使用SM2公钥验证签名
-func (s *SM2) VerifyFromBytes(publicKey *sm2.PublicKey, data, signature []byte) bool {
-	return publicKey.Verify(data, signature)
+func (s *SM2) VerifyFromBytes(publicKey *sm2.PublicKey, dataByte, signatureByte []byte) bool {
+	return publicKey.Verify(dataByte, signatureByte)
 }
 
 // VerifyFromHex 使用SM2公钥验证十六进制字符串签名
-func (s *SM2) VerifyFromHex(publicKey *sm2.PublicKey, data []byte, hexSignature string) bool {
+func (s *SM2) VerifyFromHex(publicKey *sm2.PublicKey, dataByte []byte, hexSignature string) bool {
 	signature, err := hex.DecodeString(hexSignature)
 	if err != nil {
 		return false
 	}
-	return s.VerifyFromBytes(publicKey, data, signature)
+	return s.VerifyFromBytes(publicKey, dataByte, signature)
 }
 
 // VerifyFromBase64 使用SM2公钥验证Base64编码字符串签名
-func (s *SM2) VerifyFromBase64(publicKey *sm2.PublicKey, data []byte, base64Signature string) bool {
+func (s *SM2) VerifyFromBase64(publicKey *sm2.PublicKey, dataByte []byte, base64Signature string) bool {
 	signature, err := base64.StdEncoding.DecodeString(base64Signature)
 	if err != nil {
 		return false
 	}
-	return s.VerifyFromBytes(publicKey, data, signature)
+	return s.VerifyFromBytes(publicKey, dataByte, signature)
 }
