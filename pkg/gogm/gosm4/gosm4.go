@@ -62,9 +62,9 @@ func NewSM4(opts ...SM4Option) *SM4 {
 }
 
 // EncryptECB 使用SM4 ECB模式加密数据
-func (s *SM4) EncryptECB(plaintext []byte, key []byte) *EncryptResult {
-	plaintextByte := []byte(html.UnescapeString(string(plaintext)))
-	ciphertext, err := sm4.Sm4Ecb(key, plaintextByte, true)
+func (s *SM4) EncryptECB(plaintextByte, keyByte []byte) *EncryptResult {
+	plaintextByte = []byte(html.UnescapeString(string(plaintextByte)))
+	ciphertext, err := sm4.Sm4Ecb(keyByte, plaintextByte, true)
 	if err != nil {
 		return &EncryptResult{&Result{nil, fmt.Errorf("failed to encrypt with SM4 ECB: %w", err)}}
 	}
@@ -73,43 +73,101 @@ func (s *SM4) EncryptECB(plaintext []byte, key []byte) *EncryptResult {
 }
 
 // DecryptECB 使用SM4 ECB模式解密数据
-func (s *SM4) DecryptECB(ciphertext []byte, key []byte) *DecryptResult {
+func (s *SM4) DecryptECB(ciphertextByte, keyByte []byte) *DecryptResult {
 	// 使用gmsm库中的Sm4Ecb方法进行ECB解密
-	plaintext, err := sm4.Sm4Ecb(key, ciphertext, false)
+	plaintext, err := sm4.Sm4Ecb(keyByte, ciphertextByte, false)
 	if err != nil {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 ECB: %w", err)}}
 	}
-	
+
 	return &DecryptResult{&Result{plaintext, nil}}
 }
 
 // DecryptECBFromByte 使用SM4 ECB模式解密字节数据
-func (s *SM4) DecryptECBFromByte(ciphertext []byte, key []byte) *DecryptResult {
-	return s.DecryptECB(ciphertext, key)
+func (s *SM4) DecryptECBFromByte(ciphertextByte []byte, keyByte []byte) *DecryptResult {
+	return s.DecryptECB(ciphertextByte, keyByte)
 }
 
 // DecryptECBFromHex 使用SM4 ECB模式解密十六进制字符串
-func (s *SM4) DecryptECBFromHex(ciphertextHex string, key []byte) *DecryptResult {
+func (s *SM4) DecryptECBFromHex(ciphertextHex string, keyByte []byte) *DecryptResult {
 	// 将十六进制字符串解码为字节
 	ciphertext, err := hex.DecodeString(ciphertextHex)
 	if err != nil {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decode hex string: %w", err)}}
 	}
-	
+
 	// 调用基础解密方法
-	return s.DecryptECB(ciphertext, key)
+	return s.DecryptECB(ciphertext, keyByte)
 }
 
 // DecryptECBFromBase64 使用SM4 ECB模式解密Base64编码字符串
-func (s *SM4) DecryptECBFromBase64(ciphertextBase64 string, key []byte) *DecryptResult {
+func (s *SM4) DecryptECBFromBase64(ciphertextBase64 string, keyByte []byte) *DecryptResult {
 	// 将Base64字符串解码为字节
 	ciphertext, err := base64.StdEncoding.DecodeString(ciphertextBase64)
 	if err != nil {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decode base64 string: %w", err)}}
 	}
-	
+
 	// 调用基础解密方法
-	return s.DecryptECB(ciphertext, key)
+	return s.DecryptECB(ciphertext, keyByte)
+}
+
+// EncryptCBC 使用SM4 CBC模式加密数据
+func (s *SM4) EncryptCBC(plaintextByte, keyByte, ivByte []byte) *EncryptResult {
+	err := sm4.SetIV(ivByte) //设置SM4算法实现的IV值,不设置则使用默认值
+	if err != nil {
+		return &EncryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", err)}}
+	}
+	ciphertextByte, err := sm4.Sm4Cbc(keyByte, plaintextByte, true)
+	if err != nil {
+		return &EncryptResult{&Result{nil, fmt.Errorf("failed to encrypt with SM4 CBC: %w", err)}}
+	}
+	return &EncryptResult{&Result{ciphertextByte, nil}}
+}
+
+// DecryptCBC 使用SM4 CBC模式解密数据
+func (s *SM4) DecryptCBC(ciphertextByte, keyByte, ivByte []byte) *DecryptResult {
+	err := sm4.SetIV(ivByte) //设置SM4算法实现的IV值,不设置则使用默认值
+	if err != nil {
+		return &DecryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", err)}}
+	}
+	plaintextByte, err := sm4.Sm4Cbc(keyByte, ciphertextByte, false)
+	if err != nil {
+		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 CBC: %w", err)}}
+	}
+	if plaintextByte == nil || len(plaintextByte) == 0 {
+		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 CBC: %w", err)}}
+	}
+	return &DecryptResult{&Result{plaintextByte, nil}}
+}
+
+// DecryptCBCFromByte 使用SM4 CBC模式解密字节数据
+func (s *SM4) DecryptCBCFromByte(ciphertextByte, keyByte, ivByte []byte) *DecryptResult {
+	return s.DecryptCBC(ciphertextByte, keyByte, ivByte)
+}
+
+// DecryptCBCFromHex 使用SM4 CBC模式解密十六进制字符串
+func (s *SM4) DecryptCBCFromHex(ciphertextHex string, keyByte, ivByte []byte) *DecryptResult {
+	// 将十六进制字符串解码为字节
+	ciphertextByte, err := hex.DecodeString(ciphertextHex)
+	if err != nil {
+		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decode hex string: %w", err)}}
+	}
+
+	// 调用基础解密方法
+	return s.DecryptCBC(ciphertextByte, keyByte, ivByte)
+}
+
+// DecryptCBCFromBase64 使用SM4 CBC模式解密Base64编码字符串
+func (s *SM4) DecryptCBCFromBase64(ciphertextBase64 string, keyByte, ivByte []byte) *DecryptResult {
+	// 将Base64字符串解码为字节
+	ciphertextByte, err := base64.StdEncoding.DecodeString(ciphertextBase64)
+	if err != nil {
+		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decode base64 string: %w", err)}}
+	}
+
+	// 调用基础解密方法
+	return s.DecryptCBC(ciphertextByte, keyByte, ivByte)
 }
 
 // EncryptResult 包装加密结果，支持链式调用转换格式
