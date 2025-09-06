@@ -2,34 +2,40 @@ package gorabbitmq
 
 import (
 	"errors"
-	"go.uber.org/zap"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.uber.org/zap"
 )
 
-// PoolOption 连接池配置选项
+// PoolOption 连接池配置选项函数类型
 type PoolOption func(*poolOptions)
 
+// poolOptions 连接池配置选项
 type poolOptions struct {
 	initialCap int           // 初始连接数
 	maxCap     int           // 最大连接数
 	maxIdle    time.Duration // 连接最大空闲时间
-	zapLog     *zap.Logger
+	zapLog     *zap.Logger   // 日志记录器
+	connOpts   []ConnectionOption // 连接选项
 }
 
+// apply 应用连接池配置选项
 func (o *poolOptions) apply(opts ...PoolOption) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
+// defaultPoolOptions 默认连接池配置选项
 func defaultPoolOptions() *poolOptions {
 	return &poolOptions{
 		initialCap: 5,
 		maxCap:     30,
 		maxIdle:    time.Minute * 10,
 		zapLog:     defaultLogger,
+		connOpts:   []ConnectionOption{},
 	}
 }
 
@@ -69,45 +75,51 @@ func WithPoolLogger(zapLog *zap.Logger) PoolOption {
 	}
 }
 
+// WithConnOptions 设置连接选项
+func WithConnOptions(connOpts ...ConnectionOption) PoolOption {
+	return func(o *poolOptions) {
+		o.connOpts = connOpts
+	}
+}
+
 // poolConn 连接池中的连接
 type poolConn struct {
-	conn       *Connection
-	createTime time.Time
-	lastUsed   time.Time
+	conn       *Connection // RabbitMQ 连接
+	createTime time.Time   // 创建时间
+	lastUsed   time.Time   // 最后使用时间
 }
 
 // Pool 连接池结构
 type Pool struct {
-	mutex      sync.Mutex
-	cond       *sync.Cond
-	conns      []*poolConn
-	url        string
-	connOpts   []ConnectionOption
-	poolOpts   *poolOptions
-	closed     bool
-	totalConns int64 // 原子计数器，跟踪总连接数
+	mutex      sync.Mutex     // 互斥锁
+	cond       *sync.Cond     // 条件变量
+	conns      []*poolConn    // 连接池中的连接列表
+	url        string         // 连接 URL
+	poolOpts   *poolOptions   // 连接池配置选项
+	closed     bool           // 连接池是否已关闭
+	totalConns int64          // 原子计数器，跟踪总连接数
 }
 
 // NewPool 创建新的连接池
-func NewPool(url string, poolOpts ...PoolOption) (*Pool, error) {
+func NewPool(url string, opts ...PoolOption) (*Pool, error) {
 	if url == "" {
 		return nil, errors.New("url is empty")
 	}
 
-	opts := defaultPoolOptions()
-	opts.apply(poolOpts...)
+	poolOpts := defaultPoolOptions()
+	poolOpts.apply(opts...)
 
 	pool := &Pool{
-		conns:    make([]*poolConn, 0, opts.maxCap),
+		conns:    make([]*poolConn, 0, poolOpts.maxCap),
 		url:      url,
-		poolOpts: opts,
+		poolOpts: poolOpts,
 	}
 
 	pool.cond = sync.NewCond(&pool.mutex)
 
 	// 初始化连接
-	for i := 0; i < opts.initialCap; i++ {
-		conn, err := NewConnection(url)
+	for i := 0; i < poolOpts.initialCap; i++ {
+		conn, err := NewConnection(url, poolOpts.connOpts...)
 		if err != nil {
 			// 关闭已经创建的连接
 			pool.Close()
@@ -127,8 +139,8 @@ func NewPool(url string, poolOpts ...PoolOption) (*Pool, error) {
 
 	pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
 		zap.String("url", url),
-		zap.Int("initialCap", opts.initialCap),
-		zap.Int("maxCap", opts.maxCap))
+		zap.Int("initialCap", poolOpts.initialCap),
+		zap.Int("maxCap", poolOpts.maxCap))
 
 	return pool, nil
 }
@@ -150,7 +162,7 @@ func (p *Pool) Get() (*Connection, error) {
 				// 从池中移除该连接
 				p.conns = append(p.conns[:i], p.conns[i+1:]...)
 				pc.lastUsed = time.Now()
-				p.poolOpts.zapLog.Debug("[rabbitmq pool] get existing connection")
+				p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
 				return pc.conn, nil
 			}
 		}
@@ -158,13 +170,13 @@ func (p *Pool) Get() (*Connection, error) {
 		// 检查是否可以创建新连接
 		if int(atomic.LoadInt64(&p.totalConns)) < p.poolOpts.maxCap {
 			// 创建新连接
-			conn, err := NewConnection(p.url, p.connOpts...)
+			conn, err := NewConnection(p.url, p.poolOpts.connOpts...)
 			if err != nil {
 				return nil, err
 			}
 
 			atomic.AddInt64(&p.totalConns, 1)
-			p.poolOpts.zapLog.Debug("[rabbitmq pool] created new connection")
+			p.poolOpts.zapLog.Info("[rabbitmq pool] created new connection")
 			return conn, nil
 		}
 
@@ -201,7 +213,7 @@ func (p *Pool) Put(conn *Connection) error {
 	}
 	p.conns = append(p.conns, pc)
 
-	p.poolOpts.zapLog.Debug("[rabbitmq pool] put connection back to pool",
+	p.poolOpts.zapLog.Info("[rabbitmq pool] put connection back to pool",
 		zap.Int("poolSize", len(p.conns)))
 
 	// 通知等待的goroutine

@@ -15,31 +15,33 @@ import (
 	"go.uber.org/zap"
 )
 
-// DefaultURL default rabbitmq url
+// DefaultURL 默认的 RabbitMQ 连接 URL
 const DefaultURL = "amqp://guest:guest@localhost:5672/"
 
 var defaultLogger, _ = zap.NewProduction()
 
-// ConnectionOption connection option.
+// ConnectionOption 连接配置选项函数类型
 type ConnectionOption func(*connectionOptions)
 
+// connectionOptions 连接配置选项
 type connectionOptions struct {
-	tlsConfig       *tls.Config   // tls config, if the url is amqps this field must be set
-	reconnectTime   time.Duration // reconnect time interval, default is 3s
-	dialTimeout     time.Duration // dial timeout for the connection, default is 5s
-	heartbeat       time.Duration
-	deadlineTimeout time.Duration
-	zapLog          *zap.Logger
-	maxRetries      int // 最大重连次数，0表示无限重试
+	tlsConfig       *tls.Config   // TLS 配置，如果使用 amqps 协议则必须设置
+	reconnectTime   time.Duration // 重连时间间隔，默认为 3 秒
+	dialTimeout     time.Duration // 连接超时时间，默认为 5 秒
+	heartbeat       time.Duration // 心跳间隔
+	deadlineTimeout time.Duration // 截止时间超时
+	zapLog          *zap.Logger   // 日志记录器
+	maxRetries      int           // 最大重连次数，0 表示无限重试
 }
 
+// apply 应用连接配置选项
 func (o *connectionOptions) apply(opts ...ConnectionOption) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
-// default connection settings
+// defaultConnectionOptions 默认连接配置选项
 func defaultConnectionOptions() *connectionOptions {
 	return &connectionOptions{
 		tlsConfig:       nil,
@@ -52,7 +54,7 @@ func defaultConnectionOptions() *connectionOptions {
 	}
 }
 
-// WithTLSConfig set tls config option.
+// WithTLSConfig 设置 TLS 配置选项
 func WithTLSConfig(tlsConfig *tls.Config) ConnectionOption {
 	return func(o *connectionOptions) {
 		if tlsConfig == nil {
@@ -64,7 +66,7 @@ func WithTLSConfig(tlsConfig *tls.Config) ConnectionOption {
 	}
 }
 
-// WithReconnectTime set reconnect time interval option.
+// WithReconnectTime 设置重连时间间隔选项
 func WithReconnectTime(d time.Duration) ConnectionOption {
 	return func(o *connectionOptions) {
 		if d == 0 {
@@ -74,7 +76,7 @@ func WithReconnectTime(d time.Duration) ConnectionOption {
 	}
 }
 
-// WithDialTimeout set dial timeout option.
+// WithDialTimeout 设置连接超时时间选项
 func WithDialTimeout(d time.Duration) ConnectionOption {
 	return func(o *connectionOptions) {
 		if d == 0 {
@@ -83,6 +85,8 @@ func WithDialTimeout(d time.Duration) ConnectionOption {
 		o.dialTimeout = d
 	}
 }
+
+// WithHeartbeat 设置心跳间隔选项
 func WithHeartbeat(d time.Duration) ConnectionOption {
 	return func(o *connectionOptions) {
 		if d == 0 {
@@ -92,6 +96,7 @@ func WithHeartbeat(d time.Duration) ConnectionOption {
 	}
 }
 
+// WithDeadlineTimeout 设置截止时间超时选项
 func WithDeadlineTimeout(d time.Duration) ConnectionOption {
 	return func(o *connectionOptions) {
 		if d == 0 {
@@ -101,7 +106,7 @@ func WithDeadlineTimeout(d time.Duration) ConnectionOption {
 	}
 }
 
-// WithLogger set logger option.
+// WithLogger 设置日志记录器选项
 func WithLogger(zapLog *zap.Logger) ConnectionOption {
 	return func(o *connectionOptions) {
 		if zapLog == nil {
@@ -111,7 +116,7 @@ func WithLogger(zapLog *zap.Logger) ConnectionOption {
 	}
 }
 
-// WithMaxRetries 设置最大重连次数，-1表示无限重试，默认为-1
+// WithMaxRetries 设置最大重连次数，0表示无限重试，默认为0
 func WithMaxRetries(maxRetries int) ConnectionOption {
 	return func(o *connectionOptions) {
 		o.maxRetries = maxRetries
@@ -120,32 +125,32 @@ func WithMaxRetries(maxRetries int) ConnectionOption {
 
 // -------------------------------------------------------------------------------------------
 
-// Connection rabbitmq connection
+// Connection RabbitMQ 连接结构体
 type Connection struct {
 	mutex sync.Mutex
 
-	url             string
-	tlsConfig       *tls.Config
-	reconnectTime   time.Duration
-	dialTimeout     time.Duration
-	heartbeat       time.Duration
-	deadlineTimeout time.Duration
-	maxRetries      int
-	exit            chan struct{}
-	zapLog          *zap.Logger
+	url             string        // 连接 URL
+	tlsConfig       *tls.Config   // TLS 配置
+	reconnectTime   time.Duration // 重连时间间隔
+	dialTimeout     time.Duration // 连接超时时间
+	heartbeat       time.Duration // 心跳间隔
+	deadlineTimeout time.Duration // 截止时间超时
+	maxRetries      int           // 最大重连次数
+	exit            chan struct{} // 退出信号通道
+	zapLog          *zap.Logger   // 日志记录器
 
-	conn        *amqp.Connection
-	blockChan   chan amqp.Blocking
-	closeChan   chan *amqp.Error
-	isConnected bool
+	conn        *amqp.Connection // AMQP 连接对象
+	blockChan   chan amqp.Blocking // 阻塞通知通道
+	closeChan   chan *amqp.Error   // 关闭通知通道
+	isConnected bool             // 是否已连接
 
 	// 连接状态统计
-	reconnectCount int64
-	lastError      error
-	lastErrorTime  time.Time
+	reconnectCount int64     // 重连次数
+	lastError      error     // 最后一次错误
+	lastErrorTime  time.Time // 最后一次错误时间
 }
 
-// NewConnection rabbitmq connection
+// NewConnection 创建新的 RabbitMQ 连接
 func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 	if url == "" {
 		return nil, errors.New("url is empty")
@@ -182,6 +187,7 @@ func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 	return connection, nil
 }
 
+// connect 建立 AMQP 连接
 func connect(c *Connection) (*amqp.Connection, error) {
 	url := c.url
 	tlsConfig := c.tlsConfig
@@ -231,6 +237,7 @@ func (c *Connection) CheckConnected() bool {
 	return c.isConnected && c.conn != nil && !c.conn.IsClosed()
 }
 
+// monitor 监控连接状态
 func (c *Connection) monitor() {
 	reconnectTip := fmt.Sprintf("[rabbitmq connection] lost connection, attempting reconnect in %s", c.reconnectTime)
 
@@ -257,6 +264,7 @@ func (c *Connection) monitor() {
 			retryCount := c.GetReconnectCount()
 
 			// 检查是否超过最大重试次数
+			fmt.Println(c.maxRetries, int(retryCount))
 			if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
 				c.zapLog.Error("[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
 					zap.Int64("retryCount", retryCount),
@@ -305,7 +313,7 @@ func (c *Connection) monitor() {
 	}
 }
 
-// Close rabbitmq connection
+// Close 关闭 RabbitMQ 连接
 func (c *Connection) Close() {
 	c.mutex.Lock()
 	if c.isConnected {
@@ -315,6 +323,7 @@ func (c *Connection) Close() {
 	c.mutex.Unlock()
 }
 
+// closeConn 关闭 AMQP 连接
 func (c *Connection) closeConn() error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -358,7 +367,7 @@ func (c *Connection) GetConnectionStatus() map[string]interface{} {
 	return status
 }
 
-// GetConn 获取AMQP连接
+// GetConn 获取 AMQP 连接
 func (c *Connection) GetConn() *amqp.Connection {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

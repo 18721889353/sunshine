@@ -13,33 +13,33 @@ import (
 
 // Producer RabbitMQ 生产者结构体
 type Producer struct {
-	conn       *Connection
-	channel    *amqp091.Channel
-	queue      amqp091.Queue
-	exchange   string
-	routingKey string
-	mu         sync.RWMutex
-	config     ProducerConfig
+	conn       *Connection         // RabbitMQ 连接
+	channel    *amqp091.Channel    // AMQP 通道
+	queue      amqp091.Queue       // 队列
+	exchange   string              // 交换机名称
+	routingKey string              // 路由键
+	mu         sync.RWMutex        // 读写锁
+	config     ProducerConfig      // 生产者配置
 }
 
 // ProducerConfig RabbitMQ 生产者配置
 type ProducerConfig struct {
-	Exchange     string
-	ExchangeType string
-	QueueName    string
-	RoutingKey   string
-	Durable      bool
-	AutoDelete   bool
-	Exclusive    bool
-	NoWait       bool
-	Args         amqp091.Table
+	Exchange     string          // 交换机名称
+	ExchangeType string          // 交换机类型
+	QueueName    string          // 队列名称
+	RoutingKey   string          // 路由键
+	Durable      bool            // 是否持久化
+	AutoDelete   bool            // 是否自动删除
+	Exclusive    bool            // 是否独占
+	NoWait       bool            // 是否非阻塞
+	Args         amqp091.Table   // 其他参数
 }
 
 // Message 消息结构体
 type Message struct {
-	ID        string      `json:"id"`
-	Timestamp time.Time   `json:"timestamp"`
-	Body      interface{} `json:"body"`
+	ID        string      `json:"id"`        // 消息ID
+	Timestamp time.Time   `json:"timestamp"` // 时间戳
+	Body      interface{} `json:"body"`      // 消息体
 }
 
 // DelayedMessage 延迟消息结构体
