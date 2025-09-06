@@ -7,11 +7,20 @@ import (
 )
 
 func main() {
-	//// 创建SM2实例，使用默认配置
-	//sm2Instance :=gogm.NewSM2()
 
 	//// 创建SM2实例，去除PEM格式的头部和尾部
-	//sm2Instance :=gogm.NewSM2(sm2.WithStripHeader(true))
+	sm2Instance := gosm2.NewSM2(
+		gosm2.WithStripHeader(true),
+		gosm2.WithSave("cert/private.key", "cert/public.key"),
+	)
+	keyPair, err := sm2Instance.GenerateKeyPair()
+	if err != nil {
+		log.Fatalf("Failed to generate key pair: %v", err)
+	}
+	fmt.Printf("Private Key (PEM):\n%s\n", keyPair.PrivateKeyPEM)
+	fmt.Printf("Public Key (PEM):\n%s\n", keyPair.PublicKeyPEM)
+	fmt.Printf("Private Key (hex):\n%s\n", keyPair.PrivateKeyHex)
+	fmt.Printf("Public Key (hex):\n%s\n", keyPair.PublicKeyHex)
 
 	// 创建SM2实例，自动生成并保存密钥对到文件
 	//sm2Instance :=gogm.NewSM2(
@@ -34,7 +43,7 @@ func main() {
 	//fmt.Printf("Public Key (hex):\n%s\n", keyPair.PublicKeyHex)
 
 	// 创建SM2实例
-	sm2Instance := gosm2.NewSM2(gosm2.WithUnescapeHTML(false))
+	//sm2Instance := gosm2.NewSM2(gosm2.WithUnescapeHTML(false))
 
 	//// 生成密钥对
 	//keyPair, err := sm2Instance.GenerateKeyPair()
