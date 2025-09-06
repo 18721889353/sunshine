@@ -1,12 +1,10 @@
 package gosm4
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"html"
-	"io"
 )
 
 // 添加gmsm/sm4导入以支持SM4加密
@@ -19,15 +17,13 @@ type SM4Option func(*sm4Options)
 
 // sm4Options 包含SM4的所有可配置选项
 type sm4Options struct {
-	rand     io.Reader
-	save     bool
-	saveFile string
+	unescapeHTML bool
 }
 
 // defaultSM4Options 返回默认的SM4选项
 func defaultSM4Options() *sm4Options {
 	return &sm4Options{
-		rand: rand.Reader,
+		unescapeHTML: true, // 默认进行HTML转义处理，保持向后兼容
 	}
 }
 
@@ -38,17 +34,16 @@ func (o *sm4Options) apply(opts ...SM4Option) {
 	}
 }
 
-// WithRand 设置随机数生成器
-func WithRand(reader io.Reader) SM4Option {
+// WithUnescapeHTML 设置是否进行HTML转义处理
+func WithUnescapeHTML(unescape bool) SM4Option {
 	return func(o *sm4Options) {
-		o.rand = reader
+		o.unescapeHTML = unescape
 	}
 }
 
 // SM4 封装了SM4算法相关的操作
 type SM4 struct {
-	rand io.Reader
-	save bool
+	unescapeHTML bool
 }
 
 // NewSM4 创建一个新的SM4实例
@@ -56,14 +51,15 @@ func NewSM4(opts ...SM4Option) *SM4 {
 	o := defaultSM4Options()
 	o.apply(opts...)
 	return &SM4{
-		rand: o.rand,
-		save: o.save,
+		unescapeHTML: o.unescapeHTML,
 	}
 }
 
 // EncryptECB 使用SM4 ECB模式加密数据
 func (s *SM4) EncryptECB(plaintextByte, keyByte []byte) *EncryptResult {
-	plaintextByte = []byte(html.UnescapeString(string(plaintextByte)))
+	if s.unescapeHTML {
+		plaintextByte = []byte(html.UnescapeString(string(plaintextByte)))
+	}
 	ciphertext, err := sm4.Sm4Ecb(keyByte, plaintextByte, true)
 	if err != nil {
 		return &EncryptResult{&Result{nil, fmt.Errorf("failed to encrypt with SM4 ECB: %w", err)}}
@@ -114,6 +110,9 @@ func (s *SM4) DecryptECBFromBase64(ciphertextBase64 string, keyByte []byte) *Dec
 
 // EncryptCBC 使用SM4 CBC模式加密数据
 func (s *SM4) EncryptCBC(plaintextByte, keyByte, ivByte []byte) *EncryptResult {
+	if s.unescapeHTML {
+		plaintextByte = []byte(html.UnescapeString(string(plaintextByte)))
+	}
 	err := sm4.SetIV(ivByte) //设置SM4算法实现的IV值,不设置则使用默认值
 	if err != nil {
 		return &EncryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", err)}}

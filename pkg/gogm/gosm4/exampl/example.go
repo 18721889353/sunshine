@@ -10,7 +10,7 @@ func main() {
 	iv := []byte("1234567890123456")
 	fmt.Println(string(iv), string(key))
 	data := []byte("hello world")
-	sm4 := gosm4.NewSM4()
+	sm4 := gosm4.NewSM4(gosm4.WithUnescapeHTML(false))
 	//enData, err := sm4.EncryptECB(data, key).ToHex()
 	//if err != nil {
 	//	panic(err)
