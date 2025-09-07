@@ -2,377 +2,329 @@ package gorabbitmq
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
-	"sync"
-	"time"
 
-	"github.com/rabbitmq/amqp091-go"
+	amqp "github.com/rabbitmq/amqp091-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.uber.org/zap"
 )
 
-// Producer RabbitMQ 生产者结构体
+// producerOptions 生产者配置选项
+type producerOptions struct {
+	logger             *zap.Logger
+	customerDeadLetter *CustomerDeadLetterOptions
+	durable            bool // is it persistent
+	mandatory          bool
+}
+
+// ProducerOption 生产者配置选项函数类型
+type ProducerOption func(*producerOptions)
+
+// apply 应用生产者配置选项
+func (o *producerOptions) apply(opts ...ProducerOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+// defaultProducerOptions 默认生产者配置选项
+func defaultProducerOptions() *producerOptions {
+	return &producerOptions{
+		logger:             defaultLogger,
+		customerDeadLetter: defaultCustomerDeadLetterOptions(),
+		durable:            true,
+		mandatory:          true,
+	}
+}
+
+// WithProducerCustomerDeadLetterOptions set dead letter options.
+func WithProducerCustomerDeadLetterOptions(opts ...CustomerDeadLetterOption) ProducerOption {
+	return func(o *producerOptions) {
+		o.customerDeadLetter.apply(opts...)
+	}
+}
+
+// WithProducerDurable set producer persistent option.
+func WithProducerDurable(enable bool) ProducerOption {
+	return func(o *producerOptions) {
+		o.durable = enable
+	}
+}
+
+// WithProducerMandatory set producer mandatory option.
+func WithProducerMandatory(enable bool) ProducerOption {
+	return func(o *producerOptions) {
+		o.mandatory = enable
+	}
+}
+
+// -------------------------------------------------------------------------------------------
+
+// Producer RabbitMQ生产者结构体
 type Producer struct {
-	conn       *Connection         // RabbitMQ 连接
-	channel    *amqp091.Channel    // AMQP 通道
-	queue      amqp091.Queue       // 队列
-	exchange   string              // 交换机名称
-	routingKey string              // 路由键
-	mu         sync.RWMutex        // 读写锁
-	config     ProducerConfig      // 生产者配置
+	zapLog    *zap.Logger
+	Exchange  *Exchange        // exchange
+	QueueName string           // queue name
+	conn      *amqp.Connection // rabbitmq connection
+	channel   *amqp.Channel    // rabbitmq channel
+
+	// persistent or not
+	isPersistent bool
+	deliveryMode uint8 // amqp.Persistent or amqp.Transient
+
+	// If true, the message will be returned to the sender if the queue cannot be
+	// found according to its own exchange type and routeKey rules.
+	mandatory          bool
+	customerDeadLetter *CustomerDeadLetterOptions
 }
 
-// ProducerConfig RabbitMQ 生产者配置
-type ProducerConfig struct {
-	Exchange     string          // 交换机名称
-	ExchangeType string          // 交换机类型
-	QueueName    string          // 队列名称
-	RoutingKey   string          // 路由键
-	Durable      bool            // 是否持久化
-	AutoDelete   bool            // 是否自动删除
-	Exclusive    bool            // 是否独占
-	NoWait       bool            // 是否非阻塞
-	Args         amqp091.Table   // 其他参数
-}
-
-// Message 消息结构体
-type Message struct {
-	ID        string      `json:"id"`        // 消息ID
-	Timestamp time.Time   `json:"timestamp"` // 时间戳
-	Body      interface{} `json:"body"`      // 消息体
-}
-
-// DelayedMessage 延迟消息结构体
-type DelayedMessage struct {
-	Message
-	Delay time.Duration `json:"delay"` // 延迟时间
-}
-
-// NewProducer 创建新的生产者实例
-func NewProducer(conn *Connection, config ProducerConfig) (*Producer, error) {
-	producer := &Producer{
-		conn:   conn,
-		config: config,
-	}
-
-	if err := producer.init(); err != nil {
-		return nil, fmt.Errorf("failed to initialize producer: %w", err)
-	}
-
-	return producer, nil
-}
-
-// init 初始化生产者
-func (p *Producer) init() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.conn.CheckConnected() {
-		return fmt.Errorf("rabbitmq connection is not available")
-	}
-
-	amqpConn := p.conn.GetConn()
-	if amqpConn == nil {
-		return fmt.Errorf("failed to get amqp connection")
-	}
-
-	var err error
-	// 创建通道
-	p.channel, err = amqpConn.Channel()
+// NewProducer 创建一个新的生产者实例
+// conn: RabbitMQ连接
+// opts: 生产者配置选项
+// 返回生产者实例和可能的错误
+func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
+	o := defaultProducerOptions()
+	o.apply(opts...)
+	// crate a new channel
+	amqpConn := connection.GetConn()
+	channel, err := amqpConn.Channel()
 	if err != nil {
-		return fmt.Errorf("failed to open a channel: %w", err)
+		return nil, err
 	}
 
-	// 声明交换机
-	if p.config.Exchange != "" {
-		err = p.channel.ExchangeDeclare(
-			p.config.Exchange,
-			p.config.ExchangeType,
-			p.config.Durable,
-			p.config.AutoDelete,
-			false, // internal
-			p.config.NoWait,
-			p.config.Args,
+	// customerDeadLetter a queue and create it automatically if it doesn't exist, or skip creation if it does.
+	if o.customerDeadLetter.isEnabled() {
+		// 声明交换机
+		err = channel.ExchangeDeclare(
+			exchange.name,  //交换机名称
+			exchange.eType, // 交换机类型  (direct, topic, fanout, headers)
+			o.durable,      //是否持久化
+			o.customerDeadLetter.exchangeDeclare.autoDelete, //是否自动删除
+			o.customerDeadLetter.exchangeDeclare.internal,   //是否是内部交换机
+			o.customerDeadLetter.exchangeDeclare.noWait,     //是否非阻塞
+			o.customerDeadLetter.exchangeDeclare.args,       //其他参数
 		)
 		if err != nil {
-			return fmt.Errorf("failed to declare exchange: %w", err)
+			_ = channel.Close()
+			return nil, err
 		}
-		p.exchange = p.config.Exchange
+		//------------------------------------------------------------------------------------
+		//  声明死信队列并设置异常策略
+		if o.customerDeadLetter.deadQueueDeclare.args == nil {
+			o.customerDeadLetter.deadQueueDeclare.args = amqp.Table{
+				"x-dead-letter-exchange":    exchange.name,
+				"x-dead-letter-routing-key": o.customerDeadLetter.errRoutingKey,
+				"x-message-ttl":             int32(600000), // 600秒后过期
+			}
+		}
+		// QueueDeclare 声明队列
+		dlq, err := channel.QueueDeclare(
+			o.customerDeadLetter.deadQueueName, //队列名称
+			o.durable,                          //是否持久化
+			o.customerDeadLetter.deadQueueDeclare.autoDelete, //是否自动删除
+			o.customerDeadLetter.deadQueueDeclare.exclusive,  //是否排他
+			o.customerDeadLetter.deadQueueDeclare.noWait,     //是否非阻塞
+			o.customerDeadLetter.deadQueueDeclare.args,       //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+		// BindQueue 绑定队列到交换机
+		err = channel.QueueBind(
+			dlq.Name,                            //队列名称
+			o.customerDeadLetter.deadRoutingKey, //路由键
+			exchange.name,                       //交换机名称
+			o.customerDeadLetter.deadQueueBind.noWait, //是否非阻塞
+			o.customerDeadLetter.deadQueueBind.args,   //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+
+		//------------------------------------------------------------------------------------
+		// 声明异常队列并设置死信策略
+		if o.customerDeadLetter.errQueueDeclare.args == nil {
+			o.customerDeadLetter.errQueueDeclare.args = amqp.Table{
+				"x-dead-letter-exchange":    exchange.name,
+				"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
+			}
+		}
+		// QueueDeclare 声明队列
+		elq, err := channel.QueueDeclare(
+			o.customerDeadLetter.errQueueName, //队列名称
+			o.durable,                         //是否持久化
+			o.customerDeadLetter.errQueueDeclare.autoDelete, //是否自动删除
+			o.customerDeadLetter.errQueueDeclare.exclusive,  //是否排他
+			o.customerDeadLetter.errQueueDeclare.noWait,     //是否非阻塞
+			o.customerDeadLetter.errQueueDeclare.args,       //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+		// BindQueue 绑定队列到交换机
+		err = channel.QueueBind(
+			elq.Name,                                 //队列名称
+			o.customerDeadLetter.errRoutingKey,       //路由键
+			exchange.name,                            //交换机名称
+			o.customerDeadLetter.errQueueBind.noWait, //是否非阻塞
+			o.customerDeadLetter.errQueueBind.args,   //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+		//------------------------------------------------------------------------------------
+		// 声明普通队列并设置死信策略
+		if o.customerDeadLetter.normalQueueDeclare.args == nil {
+			o.customerDeadLetter.normalQueueDeclare.args = amqp.Table{
+				"x-dead-letter-exchange":    exchange.name,
+				"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
+			}
+		}
+		// QueueDeclare 声明队列
+		lq, err := channel.QueueDeclare(
+			o.customerDeadLetter.normalQueueName, //队列名称
+			o.durable,                            //是否持久化
+			o.customerDeadLetter.normalQueueDeclare.autoDelete, //是否自动删除
+			o.customerDeadLetter.normalQueueDeclare.exclusive,  //是否排他
+			o.customerDeadLetter.normalQueueDeclare.noWait,     //是否非阻塞
+			o.customerDeadLetter.normalQueueDeclare.args,       //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+		// BindQueue 绑定队列到交换机
+		err = channel.QueueBind(
+			lq.Name,                               //队列名称
+			o.customerDeadLetter.normalRoutingKey, //路由键
+			exchange.name,                         //交换机名称
+			o.customerDeadLetter.normalQueueDeclare.noWait, //是否非阻塞
+			o.customerDeadLetter.normalQueueDeclare.args,   //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
 	}
 
-	// 声明队列
-	p.queue, err = p.channel.QueueDeclare(
-		p.config.QueueName,
-		p.config.Durable,
-		p.config.AutoDelete,
-		p.config.Exclusive,
-		p.config.NoWait,
-		p.config.Args,
+	//------------------------------------------------------------------------------------
+	deliveryMode := amqp.Persistent
+	if !o.durable {
+		deliveryMode = amqp.Transient
+	}
+	return &Producer{
+		zapLog:             connection.zapLog,
+		conn:               amqpConn,
+		channel:            channel,
+		Exchange:           exchange,
+		isPersistent:       o.durable,
+		deliveryMode:       deliveryMode,
+		mandatory:          o.mandatory,
+		customerDeadLetter: o.customerDeadLetter,
+	}, nil
+}
+
+// PublishDirect send direct type message
+func (p *Producer) PublishDirect(ctx context.Context, body []byte) error {
+	if p.Exchange.eType != exchangeTypeDirect {
+		return fmt.Errorf("invalid exchange type (%s), only supports direct type", p.Exchange.eType)
+	}
+	// ctx: 上下文
+	// exchange: 交换机名称
+	// key: 路由键
+	// mandatory: 是否强制发送
+	// immediate: 是否立即发送
+	// msg: 消息内容
+	return p.channel.PublishWithContext(
+		ctx,
+		p.Exchange.name,
+		p.Exchange.routingKey,
+		p.mandatory,
+		false,
+		amqp.Publishing{
+			DeliveryMode: p.deliveryMode,
+			ContentType:  "text/plain",
+			Body:         body,
+		},
+	)
+}
+
+// PublishFanout send fanout type message
+func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
+	if p.Exchange.eType != exchangeTypeFanout {
+		return fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
+	}
+	return p.channel.PublishWithContext(
+		ctx,
+		p.Exchange.name,
+		p.Exchange.routingKey,
+		p.mandatory,
+		false,
+		amqp.Publishing{
+			DeliveryMode: p.deliveryMode,
+			ContentType:  "text/plain",
+			Body:         body,
+		},
+	)
+}
+
+// PublishTopic send topic type message
+func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) (err error) {
+	tracer := otel.Tracer("PublishTopic")
+	ctx, span := tracer.Start(ctx, "PublishTopic")
+	defer span.End()
+
+	if p.Exchange.eType != exchangeTypeTopic {
+		err = fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
+		span.RecordError(err)
+		return err
+	}
+	span.SetAttributes(attribute.String("body", string(body)))
+	err = p.channel.PublishWithContext(
+		ctx,
+		p.Exchange.name,
+		topicKey,
+		p.mandatory,
+		false,
+		amqp.Publishing{
+			DeliveryMode: p.deliveryMode,
+			ContentType:  "text/plain",
+			Body:         body,
+		},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to declare queue: %w", err)
+		span.RecordError(err)
 	}
-
-	// 绑定队列到交换机（如果指定了交换机）
-	if p.config.Exchange != "" && p.config.RoutingKey != "" {
-		err = p.channel.QueueBind(
-			p.queue.Name,
-			p.config.RoutingKey,
-			p.config.Exchange,
-			p.config.NoWait,
-			p.config.Args,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to bind queue: %w", err)
-		}
-		p.routingKey = p.config.RoutingKey
-	}
-
-	return nil
+	return err
 }
 
-// Publish 发布消息
-func (p *Producer) Publish(ctx context.Context, body interface{}) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if !p.conn.CheckConnected() {
-		return fmt.Errorf("not connected to RabbitMQ")
+// PublishHeaders send headers type message
+func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) error {
+	if p.Exchange.eType != exchangeTypeHeaders {
+		return fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
 	}
-
-	if p.channel == nil {
-		return fmt.Errorf("channel is not available")
-	}
-
-	// 构造消息
-	msg := Message{
-		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
-		Timestamp: time.Now(),
-		Body:      body,
-	}
-
-	// 序列化消息
-	jsonBody, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
-	}
-
-	// 发布消息
-	err = p.channel.PublishWithContext(
+	return p.channel.PublishWithContext(
 		ctx,
-		p.exchange,
-		p.routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp091.Publishing{
-			ContentType: "application/json",
-			Body:        jsonBody,
-			Timestamp:   time.Now(),
-			MessageId:   msg.ID,
-		})
-
-	if err != nil {
-		return fmt.Errorf("failed to publish message: %w", err)
-	}
-
-	return nil
-}
-
-// PublishWithTTL 发布带有 TTL 的消息
-func (p *Producer) PublishWithTTL(ctx context.Context, body interface{}, ttl time.Duration) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if !p.conn.CheckConnected() {
-		return fmt.Errorf("not connected to RabbitMQ")
-	}
-
-	if p.channel == nil {
-		return fmt.Errorf("channel is not available")
-	}
-
-	// 构造消息
-	msg := Message{
-		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
-		Timestamp: time.Now(),
-		Body:      body,
-	}
-
-	// 序列化消息
-	jsonBody, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal message: %w", err)
-	}
-
-	// 发布带有 TTL 的消息
-	err = p.channel.PublishWithContext(
-		ctx,
-		p.exchange,
-		p.routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp091.Publishing{
-			ContentType: "application/json",
-			Body:        jsonBody,
-			Timestamp:   time.Now(),
-			MessageId:   msg.ID,
-			Expiration:  fmt.Sprintf("%d", ttl.Milliseconds()), // 设置消息 TTL（毫秒）
-		})
-
-	if err != nil {
-		return fmt.Errorf("failed to publish message with TTL: %w", err)
-	}
-
-	return nil
-}
-
-// PublishDelayed 发布延迟消息
-// 注意：需要安装 RabbitMQ 延迟消息插件（rabbitmq-delayed-message-exchange）
-func (p *Producer) PublishDelayed(ctx context.Context, body interface{}, delay time.Duration) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if !p.conn.CheckConnected() {
-		return fmt.Errorf("not connected to RabbitMQ")
-	}
-
-	if p.channel == nil {
-		return fmt.Errorf("channel is not available")
-	}
-
-	// 构造延迟消息
-	delayedMsg := DelayedMessage{
-		Message: Message{
-			ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
-			Timestamp: time.Now(),
-			Body:      body,
+		p.Exchange.name,
+		p.Exchange.routingKey,
+		p.mandatory,
+		false,
+		amqp.Publishing{
+			DeliveryMode: p.deliveryMode,
+			Headers:      headersKeys,
+			ContentType:  "text/plain",
+			Body:         body,
 		},
-		Delay: delay,
-	}
-
-	// 序列化消息
-	jsonBody, err := json.Marshal(delayedMsg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal delayed message: %w", err)
-	}
-
-	// 发布延迟消息
-	headers := amqp091.Table{
-		"x-delay": int64(delay / time.Millisecond), // 延迟时间（毫秒）
-	}
-
-	err = p.channel.PublishWithContext(
-		ctx,
-		p.exchange,
-		p.routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp091.Publishing{
-			ContentType: "application/json",
-			Body:        jsonBody,
-			Timestamp:   time.Now(),
-			MessageId:   delayedMsg.ID,
-			Headers:     headers,
-		})
-
-	if err != nil {
-		return fmt.Errorf("failed to publish delayed message: %w", err)
-	}
-
-	return nil
+	)
 }
 
-// PublishRaw 发布原始消息（不包装）
-func (p *Producer) PublishRaw(ctx context.Context, contentType string, body []byte) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if !p.conn.CheckConnected() {
-		return fmt.Errorf("not connected to RabbitMQ")
-	}
-
-	if p.channel == nil {
-		return fmt.Errorf("channel is not available")
-	}
-
-	// 发布消息
-	err := p.channel.PublishWithContext(
-		ctx,
-		p.exchange,
-		p.routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp091.Publishing{
-			ContentType: contentType,
-			Body:        body,
-			Timestamp:   time.Now(),
-			MessageId:   fmt.Sprintf("%d", time.Now().UnixNano()),
-		})
-
-	if err != nil {
-		return fmt.Errorf("failed to publish message: %w", err)
-	}
-
-	return nil
-}
-
-// PublishRawWithTTL 发布带有 TTL 的原始消息
-func (p *Producer) PublishRawWithTTL(ctx context.Context, contentType string, body []byte, ttl time.Duration) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if !p.conn.CheckConnected() {
-		return fmt.Errorf("not connected to RabbitMQ")
-	}
-
-	if p.channel == nil {
-		return fmt.Errorf("channel is not available")
-	}
-
-	// 发布带有 TTL 的消息
-	err := p.channel.PublishWithContext(
-		ctx,
-		p.exchange,
-		p.routingKey,
-		false, // mandatory
-		false, // immediate
-		amqp091.Publishing{
-			ContentType: contentType,
-			Body:        body,
-			Timestamp:   time.Now(),
-			MessageId:   fmt.Sprintf("%d", time.Now().UnixNano()),
-			Expiration:  fmt.Sprintf("%d", ttl.Milliseconds()), // 设置消息 TTL（毫秒）
-		})
-
-	if err != nil {
-		return fmt.Errorf("failed to publish message with TTL: %w", err)
-	}
-
-	return nil
-}
-
-// Close 关闭生产者
+// Close 关闭生产者通道
+// 返回可能的错误
 func (p *Producer) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.channel != nil {
-		if err := p.channel.Close(); err != nil {
-			log.Printf("Error closing channel: %v", err)
-		}
-	}
-
-	return nil
-}
-
-// IsConnected 检查是否已连接
-func (p *Producer) IsConnected() bool {
-	return p.conn.CheckConnected()
-}
-
-// GetQueueInfo 获取队列信息
-func (p *Producer) GetQueueInfo() amqp091.Queue {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.queue
+	return p.channel.Close()
 }

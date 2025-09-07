@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -68,50 +67,6 @@ func main() {
 
 	// 等待所有 goroutine 完成
 	wg.Wait()
-
-	// 再次打印连接池状态
-	printAntsExampleStats(pool)
-
-	// 演示如何创建生产者
-	conn, err := pool.Get()
-	if err != nil {
-		logger.Error("Failed to get connection from pool", zap.Error(err))
-		return
-	}
-
-	// 创建生产者配置
-	config := gorabbitmq.ProducerConfig{
-		Exchange:     "test_exchange",
-		ExchangeType: "direct",
-		QueueName:    "test_queue",
-		RoutingKey:   "test_routing_key",
-		Durable:      true,
-	}
-
-	// 创建生产者
-	producer, err := gorabbitmq.NewProducer(conn, config)
-	if err != nil {
-		logger.Error("Failed to create producer", zap.Error(err))
-		pool.Put(conn) // 记得将连接放回池中
-		return
-	}
-
-	// 发送消息
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	defer cancel()
-
-	err = producer.Publish(ctx, fmt.Sprintf("Hello, RabbitMQ! Message time: %s", time.Now().String()))
-	if err != nil {
-		logger.Error("Failed to publish message", zap.Error(err))
-	} else {
-		fmt.Println("Message published successfully")
-	}
-
-	// 将连接放回池中
-	pool.Put(conn)
-
-	// 最后打印连接池状态
-	printAntsExampleStats(pool)
 
 	// 等待一段时间以便观察ants协程池的状态
 	for {
