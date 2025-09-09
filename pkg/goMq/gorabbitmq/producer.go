@@ -12,10 +12,11 @@ import (
 
 // producerOptions 生产者配置选项
 type producerOptions struct {
-	logger             *zap.Logger
-	customerDeadLetter *CustomerDeadLetterOptions
-	durable            bool // is it persistent
-	mandatory          bool
+	logger             *zap.Logger                // 日志记录器
+	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
+	normalLetter       *NormalLetterOptions       // 正常队列选项
+	msgDurable         bool                       // 消息是否持久化
+	mandatory          bool                       // 消息不可路由时是否返回给发送者
 }
 
 // ProducerOption 生产者配置选项函数类型
@@ -33,8 +34,12 @@ func defaultProducerOptions() *producerOptions {
 	return &producerOptions{
 		logger:             defaultLogger,
 		customerDeadLetter: defaultCustomerDeadLetterOptions(),
-		durable:            true,
-		mandatory:          true,
+		normalLetter:       defaultNormalLetterOptions(),
+		//用于控制消息是否持久化存储。当设置为 true 时，表示消息需要被持久化，以确保在 RabbitMQ 服务器重启后消息不会丢失。
+		msgDurable: true,
+		//mandatory 设置为 true 时，如果消息无法根据 exchange 类型和 routing key 规则路由到任何队列，消息会被返回给发送者
+		//mandatory 设置为 false 时，无法路由的消息会被直接丢弃
+		mandatory: true,
 	}
 }
 
@@ -43,16 +48,21 @@ func WithProducerCustomerDeadLetterOptions(opts ...CustomerDeadLetterOption) Pro
 	return func(o *producerOptions) {
 		o.customerDeadLetter.apply(opts...)
 	}
-}
-
-// WithProducerDurable set producer persistent option.
-func WithProducerDurable(enable bool) ProducerOption {
+} // WithProducerNormalLetterOptions set dead letter options.
+func WithProducerNormalLetterOptions(opts ...NormalLetterOption) ProducerOption {
 	return func(o *producerOptions) {
-		o.durable = enable
+		o.normalLetter.apply(opts...)
 	}
 }
 
-// WithProducerMandatory set producer mandatory option.
+// WithProducerMsgDurable 消息是否持久化 set producer persistent option.
+func WithProducerMsgDurable(enable bool) ProducerOption {
+	return func(o *producerOptions) {
+		o.msgDurable = enable
+	}
+}
+
+// WithProducerMandatory  消息不可路由时是否返回给发送者 set producer mandatory option.
 func WithProducerMandatory(enable bool) ProducerOption {
 	return func(o *producerOptions) {
 		o.mandatory = enable
@@ -63,24 +73,24 @@ func WithProducerMandatory(enable bool) ProducerOption {
 
 // Producer RabbitMQ生产者结构体
 type Producer struct {
-	zapLog    *zap.Logger
-	Exchange  *Exchange        // exchange
-	QueueName string           // queue name
-	conn      *amqp.Connection // rabbitmq connection
-	channel   *amqp.Channel    // rabbitmq channel
+	zapLog     *zap.Logger // 日志记录器
+	Exchange   *Exchange   // 交换机
+	QueueName  string      // 队列名称
+	connection *Connection
+	conn       *amqp.Connection // RabbitMQ连接
+	channel    *amqp.Channel    // RabbitMQ通道
 
-	// persistent or not
-	isPersistent bool
-	deliveryMode uint8 // amqp.Persistent or amqp.Transient
+	deliveryMode uint8 // 消息投递模式 amqp.Persistent 或 amqp.Transient
 
 	// If true, the message will be returned to the sender if the queue cannot be
 	// found according to its own exchange type and routeKey rules.
-	mandatory          bool
-	customerDeadLetter *CustomerDeadLetterOptions
+	mandatory          bool                       // 消息不可路由时是否返回给发送者
+	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
 }
 
 // NewProducer 创建一个新的生产者实例
-// conn: RabbitMQ连接
+// exchange: 交换机配置
+// connection: RabbitMQ连接
 // opts: 生产者配置选项
 // 返回生产者实例和可能的错误
 func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
@@ -92,14 +102,17 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 	if err != nil {
 		return nil, err
 	}
+	if o.customerDeadLetter.exchangeName != "sunshine" && o.normalLetter.exchangeName != "sunshine" {
+		return nil, fmt.Errorf("cannot set both customerDeadLetter and normalLetter")
+	}
 
-	// customerDeadLetter a queue and create it automatically if it doesn't exist, or skip creation if it does.
-	if o.customerDeadLetter.isEnabled() {
+	//--------------------------------自定义死信队列队列----------------------------------------------------
+	if o.customerDeadLetter.exchangeName != "sunshine" {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,  //交换机名称
 			exchange.eType, // 交换机类型  (direct, topic, fanout, headers)
-			o.durable,      //是否持久化
+			o.customerDeadLetter.exchangeDeclare.durable,    //是否持久化
 			o.customerDeadLetter.exchangeDeclare.autoDelete, //是否自动删除
 			o.customerDeadLetter.exchangeDeclare.internal,   //是否是内部交换机
 			o.customerDeadLetter.exchangeDeclare.noWait,     //是否非阻塞
@@ -109,7 +122,6 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 			_ = channel.Close()
 			return nil, err
 		}
-		//------------------------------------------------------------------------------------
 		//  声明死信队列并设置异常策略
 		if o.customerDeadLetter.deadQueueDeclare.args == nil {
 			o.customerDeadLetter.deadQueueDeclare.args = amqp.Table{
@@ -119,9 +131,22 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 			}
 		}
 		// QueueDeclare 声明队列
+		//exclusive 当设置为 true 时，队列变为排他队列（Exclusive Queue）
+		//排他队列只能被当前连接（Connection）中的信道（Channel）访问
+		//当连接关闭时，排他队列会自动删除
+		//当 noWait = false（默认值）时：
+		//客户端发送队列声明或交换机声明请求
+		//客户端等待服务器返回确认响应
+		//只有收到服务器确认后，方法才返回
+		//如果操作失败，会返回错误
+		//当 noWait = true 时：
+		//客户端发送队列声明或交换机声明请求
+		//客户端不等待服务器的确认响应，立即返回
+		//无法知道操作是否成功执行
+		//即使操作失败，也不会返回错误
 		dlq, err := channel.QueueDeclare(
-			o.customerDeadLetter.deadQueueName, //队列名称
-			o.durable,                          //是否持久化
+			o.customerDeadLetter.deadQueueName,               //队列名称
+			o.customerDeadLetter.deadQueueDeclare.durable,    //是否持久化
 			o.customerDeadLetter.deadQueueDeclare.autoDelete, //是否自动删除
 			o.customerDeadLetter.deadQueueDeclare.exclusive,  //是否排他
 			o.customerDeadLetter.deadQueueDeclare.noWait,     //是否非阻塞
@@ -144,7 +169,6 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 			return nil, err
 		}
 
-		//------------------------------------------------------------------------------------
 		// 声明异常队列并设置死信策略
 		if o.customerDeadLetter.errQueueDeclare.args == nil {
 			o.customerDeadLetter.errQueueDeclare.args = amqp.Table{
@@ -154,8 +178,8 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 		}
 		// QueueDeclare 声明队列
 		elq, err := channel.QueueDeclare(
-			o.customerDeadLetter.errQueueName, //队列名称
-			o.durable,                         //是否持久化
+			o.customerDeadLetter.errQueueName,               //队列名称
+			o.customerDeadLetter.errQueueDeclare.durable,    //是否持久化
 			o.customerDeadLetter.errQueueDeclare.autoDelete, //是否自动删除
 			o.customerDeadLetter.errQueueDeclare.exclusive,  //是否排他
 			o.customerDeadLetter.errQueueDeclare.noWait,     //是否非阻塞
@@ -177,7 +201,6 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 			_ = channel.Close()
 			return nil, err
 		}
-		//------------------------------------------------------------------------------------
 		// 声明普通队列并设置死信策略
 		if o.customerDeadLetter.normalQueueDeclare.args == nil {
 			o.customerDeadLetter.normalQueueDeclare.args = amqp.Table{
@@ -187,8 +210,8 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 		}
 		// QueueDeclare 声明队列
 		lq, err := channel.QueueDeclare(
-			o.customerDeadLetter.normalQueueName, //队列名称
-			o.durable,                            //是否持久化
+			o.customerDeadLetter.normalQueueName,               //队列名称
+			o.customerDeadLetter.normalQueueDeclare.durable,    //是否持久化
 			o.customerDeadLetter.normalQueueDeclare.autoDelete, //是否自动删除
 			o.customerDeadLetter.normalQueueDeclare.exclusive,  //是否排他
 			o.customerDeadLetter.normalQueueDeclare.noWait,     //是否非阻塞
@@ -211,25 +234,73 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 			return nil, err
 		}
 	}
+	//--------------------------------正常队列----------------------------------------------------
+	if o.normalLetter.exchangeName != "sunshine" {
+		// 声明交换机
+		err = channel.ExchangeDeclare(
+			exchange.name,                             //交换机名称
+			exchange.eType,                            // 交换机类型  (direct, topic, fanout, headers)
+			o.normalLetter.exchangeDeclare.durable,    //是否持久化
+			o.normalLetter.exchangeDeclare.autoDelete, //是否自动删除
+			o.normalLetter.exchangeDeclare.internal,   //是否是内部交换机
+			o.normalLetter.exchangeDeclare.noWait,     //是否非阻塞
+			o.normalLetter.exchangeDeclare.args,       //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+
+		// QueueDeclare 声明队列
+		nlq, err := channel.QueueDeclare(
+			o.normalLetter.normalQueueName,               //队列名称
+			o.normalLetter.normalQueueDeclare.durable,    //是否持久化
+			o.normalLetter.normalQueueDeclare.autoDelete, //是否自动删除
+			o.normalLetter.normalQueueDeclare.exclusive,  //是否排他
+			o.normalLetter.normalQueueDeclare.noWait,     //是否非阻塞
+			o.normalLetter.normalQueueDeclare.args,       //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+		// BindQueue 绑定队列到交换机
+		err = channel.QueueBind(
+			nlq.Name,                                 //队列名称
+			o.normalLetter.normalRoutingKey,          //路由键
+			exchange.name,                            //交换机名称
+			o.normalLetter.normalQueueDeclare.noWait, //是否非阻塞
+			o.normalLetter.normalQueueDeclare.args,   //其他参数
+		)
+		if err != nil {
+			_ = channel.Close()
+			return nil, err
+		}
+	}
 
 	//------------------------------------------------------------------------------------
+	//amqp.Persistent: 这是一个常量，值为2，表示消息是持久化的。当设置为持久化模式时，消息会被写入磁盘，即使RabbitMQ服务器重启，消息也不会丢失。
+	//amqp.Transient: 这是一个常量，值为1，表示消息是瞬态的。瞬态消息只保存在内存中，不进行磁盘持久化。如果RabbitMQ服务器重启，这些消息会丢失
 	deliveryMode := amqp.Persistent
-	if !o.durable {
+	if !o.msgDurable {
 		deliveryMode = amqp.Transient
 	}
 	return &Producer{
 		zapLog:             connection.zapLog,
+		connection:         connection,
 		conn:               amqpConn,
 		channel:            channel,
 		Exchange:           exchange,
-		isPersistent:       o.durable,
 		deliveryMode:       deliveryMode,
 		mandatory:          o.mandatory,
 		customerDeadLetter: o.customerDeadLetter,
 	}, nil
 }
 
-// PublishDirect send direct type message
+// PublishDirect 发送direct类型消息
+// ctx: 上下文
+// body: 消息体
+// 返回可能的错误
 func (p *Producer) PublishDirect(ctx context.Context, body []byte) error {
 	if p.Exchange.eType != exchangeTypeDirect {
 		return fmt.Errorf("invalid exchange type (%s), only supports direct type", p.Exchange.eType)
@@ -237,7 +308,7 @@ func (p *Producer) PublishDirect(ctx context.Context, body []byte) error {
 	// ctx: 上下文
 	// exchange: 交换机名称
 	// key: 路由键
-	// mandatory: 是否强制发送
+	// mandatory: 不可路由时是否返回消息
 	// immediate: 是否立即发送
 	// msg: 消息内容
 	return p.channel.PublishWithContext(
@@ -254,7 +325,10 @@ func (p *Producer) PublishDirect(ctx context.Context, body []byte) error {
 	)
 }
 
-// PublishFanout send fanout type message
+// PublishFanout 发送fanout类型消息
+// ctx: 上下文
+// body: 消息体
+// 返回可能的错误
 func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
 	if p.Exchange.eType != exchangeTypeFanout {
 		return fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
@@ -273,7 +347,11 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
 	)
 }
 
-// PublishTopic send topic type message
+// PublishTopic 发送topic类型消息
+// ctx: 上下文
+// topicKey: topic路由键
+// body: 消息体
+// 返回可能的错误
 func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) (err error) {
 	tracer := otel.Tracer("PublishTopic")
 	ctx, span := tracer.Start(ctx, "PublishTopic")
@@ -303,7 +381,11 @@ func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byt
 	return err
 }
 
-// PublishHeaders send headers type message
+// PublishHeaders 发送headers类型消息
+// ctx: 上下文
+// headersKeys: 消息头键值对
+// body: 消息体
+// 返回可能的错误
 func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) error {
 	if p.Exchange.eType != exchangeTypeHeaders {
 		return fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
