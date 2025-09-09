@@ -99,6 +99,8 @@ type Producer struct {
 func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
 	o := defaultProducerOptions()
 	o.apply(opts...)
+	var fields []zap.Field
+
 	// crate a new channel
 	amqpConn := connection.GetConn(ctx)
 	channel, err := amqpConn.Channel()
@@ -108,9 +110,14 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	if o.customerDeadLetter.exchangeName != "sunshine" && o.normalLetter.exchangeName != "sunshine" {
 		return nil, fmt.Errorf("cannot set both customerDeadLetter and normalLetter")
 	}
-
 	//--------------------------------自定义死信队列队列----------------------------------------------------
 	if o.customerDeadLetter.exchangeName != "sunshine" {
+		fields = logFields(exchange, map[string]any{
+			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", o.customerDeadLetter.exchangeDeclare),
+			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", o.customerDeadLetter.deadQueueDeclare),
+			"customerDeadLetter.errQueueDeclare":    fmt.Sprintf("%+v", o.customerDeadLetter.errQueueDeclare),
+			"customerDeadLetter.normalQueueDeclare": fmt.Sprintf("%+v", o.customerDeadLetter.normalQueueDeclare),
+		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,  //交换机名称
@@ -239,6 +246,10 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	}
 	//--------------------------------正常队列----------------------------------------------------
 	if o.normalLetter.exchangeName != "sunshine" {
+		fields = logFields(exchange, map[string]any{
+			"normalLetter.exchangeDeclare":    fmt.Sprintf("%+v", o.normalLetter.exchangeDeclare),
+			"normalLetter.normalQueueDeclare": fmt.Sprintf("%+v", o.normalLetter.normalQueueDeclare),
+		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,                             //交换机名称
@@ -288,6 +299,8 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	if !o.msgDurable {
 		deliveryMode = amqp.Transient
 	}
+
+	connection.zapLog.Info("[rabbit producer] initialized", fields...)
 	return &Producer{
 		zapLog:             connection.zapLog,
 		connection:         connection,
@@ -416,7 +429,7 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 		return err
 	}
 	span.SetAttributes(
-		attribute.Int("body.size", len(body)), // 记录消息大小而不是内容
+		attribute.Int("body.size", len(body)),            // 记录消息大小而不是内容
 		attribute.Int("headers.count", len(headersKeys)), // 记录headers数量
 	)
 	err = p.channel.PublishWithContext(
@@ -442,4 +455,23 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 // 返回可能的错误
 func (p *Producer) Close() error {
 	return p.channel.Close()
+}
+
+func logFields(exchange *Exchange, data map[string]any) []zap.Field {
+	body := map[string]any{
+		"exchange": exchange.name,
+		"type":     exchange.eType,
+	}
+	for s, a := range data {
+		body[s] = a
+	}
+	switch exchange.eType {
+	case exchangeTypeDirect, exchangeTypeTopic:
+		body["routingKey"] = exchange.routingKey
+	case exchangeTypeHeaders:
+		body["headersKeys"] = exchange.headersKeys
+	}
+	return []zap.Field{
+		zap.Any("body", body),
+	}
 }
