@@ -1,12 +1,17 @@
 package gorabbitmq
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/panjf2000/ants/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -15,12 +20,12 @@ type PoolOption func(*poolOptions)
 
 // poolOptions 连接池配置选项
 type poolOptions struct {
-	initialCap int           // 初始连接数
-	maxCap     int           // 最大连接数
-	maxIdle    time.Duration // 连接最大空闲时间
-	zapLog     *zap.Logger   // 日志记录器
+	initialCap int                // 初始连接数
+	maxCap     int                // 最大连接数
+	maxIdle    time.Duration      // 连接最大空闲时间
+	zapLog     *zap.Logger        // 日志记录器
 	connOpts   []ConnectionOption // 连接选项
-	antsCap    int           // ants协程池容量
+	antsCap    int                // ants协程池容量
 }
 
 // apply 应用连接池配置选项
@@ -103,18 +108,19 @@ type poolConn struct {
 
 // Pool 连接池结构
 type Pool struct {
-	mutex      sync.Mutex     // 互斥锁
-	cond       *sync.Cond     // 条件变量
-	conns      []*poolConn    // 连接池中的连接列表
-	url        string         // 连接 URL
-	poolOpts   *poolOptions   // 连接池配置选项
-	closed     bool           // 连接池是否已关闭
-	totalConns int64          // 原子计数器，跟踪总连接数
-	antsPool   *ants.Pool     // ants协程池，用于处理后台任务
+	mutex      sync.Mutex   // 互斥锁
+	cond       *sync.Cond   // 条件变量
+	conns      []*poolConn  // 连接池中的连接列表
+	url        string       // 连接 URL
+	poolOpts   *poolOptions // 连接池配置选项
+	closed     bool         // 连接池是否已关闭
+	totalConns int64        // 原子计数器，跟踪总连接数
+	antsPool   *ants.Pool   // ants协程池，用于处理后台任务
+	tracer     trace.Tracer // OpenTelemetry tracer
 }
 
 // NewPool 创建新的连接池
-func NewPool(url string, opts ...PoolOption) (*Pool, error) {
+func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error) {
 	if url == "" {
 		return nil, errors.New("url is empty")
 	}
@@ -131,7 +137,7 @@ func NewPool(url string, opts ...PoolOption) (*Pool, error) {
 		// 使用ants库的默认配置
 		antsPool, err = ants.NewPool(-1)
 	}
-	
+
 	if err != nil {
 		return nil, err
 	}
@@ -141,16 +147,17 @@ func NewPool(url string, opts ...PoolOption) (*Pool, error) {
 		url:      url,
 		poolOpts: poolOpts,
 		antsPool: antsPool,
+		tracer:   otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}
 
 	pool.cond = sync.NewCond(&pool.mutex)
 
 	// 初始化连接
 	for i := 0; i < poolOpts.initialCap; i++ {
-		conn, err := NewConnection(url, poolOpts.connOpts...)
+		conn, err := NewConnection(ctx, url, poolOpts.connOpts...)
 		if err != nil {
 			// 关闭已经创建的连接
-			pool.Close()
+			pool.Close(ctx)
 			return nil, err
 		}
 
@@ -163,7 +170,7 @@ func NewPool(url string, opts ...PoolOption) (*Pool, error) {
 	}
 
 	// 启动空闲连接清理协程
-	go pool.idleCleanup()
+	go pool.idleCleanup(ctx)
 
 	pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
 		zap.String("url", url),
@@ -174,23 +181,38 @@ func NewPool(url string, opts ...PoolOption) (*Pool, error) {
 }
 
 // Get 从连接池获取一个连接
-func (p *Pool) Get() (*Connection, error) {
+func (p *Pool) Get(ctx context.Context) (*Connection, error) {
+	// 创建追踪 span
+	ctx, span := p.tracer.Start(ctx, "pool.get")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("url", p.url),
+	)
+
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	for {
 		if p.closed {
-			return nil, errors.New("pool is closed")
+			err := errors.New("pool is closed")
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 
 		// 尝试从池中获取一个可用连接
 		for i := len(p.conns) - 1; i >= 0; i-- {
 			pc := p.conns[i]
-			if pc.conn.CheckConnected() {
+			if pc.conn.CheckConnected(ctx) {
 				// 从池中移除该连接
 				p.conns = append(p.conns[:i], p.conns[i+1:]...)
 				pc.lastUsed = time.Now()
 				p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
+				span.SetAttributes(
+					attribute.Bool("new_connection", false),
+					attribute.Int("pool_size", len(p.conns)),
+				)
 				return pc.conn, nil
 			}
 		}
@@ -198,13 +220,19 @@ func (p *Pool) Get() (*Connection, error) {
 		// 检查是否可以创建新连接
 		if int(atomic.LoadInt64(&p.totalConns)) < p.poolOpts.maxCap {
 			// 创建新连接
-			conn, err := NewConnection(p.url, p.poolOpts.connOpts...)
+			conn, err := NewConnection(ctx, p.url, p.poolOpts.connOpts...)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
 				return nil, err
 			}
 
 			atomic.AddInt64(&p.totalConns, 1)
 			p.poolOpts.zapLog.Info("[rabbitmq pool] created new connection")
+			span.SetAttributes(
+				attribute.Bool("new_connection", true),
+				attribute.Int64("total_conns", atomic.LoadInt64(&p.totalConns)),
+			)
 			return conn, nil
 		}
 
@@ -214,8 +242,13 @@ func (p *Pool) Get() (*Connection, error) {
 }
 
 // Put 将连接放回连接池
-func (p *Pool) Put(conn *Connection) error {
+func (p *Pool) Put(ctx context.Context, conn *Connection) error {
+	// 创建追踪 span
+	ctx, span := p.tracer.Start(ctx, "pool.put")
+	defer span.End()
+
 	if conn == nil {
+		span.SetStatus(codes.Ok, "nil connection")
 		return nil
 	}
 
@@ -224,13 +257,15 @@ func (p *Pool) Put(conn *Connection) error {
 
 	if p.closed {
 		conn.Close()
+		span.SetStatus(codes.Ok, "pool closed, connection closed")
 		return nil
 	}
 
 	// 检查连接是否有效
-	if !conn.CheckConnected() {
+	if !conn.CheckConnected(ctx) {
 		atomic.AddInt64(&p.totalConns, -1)
 		conn.Close()
+		span.SetStatus(codes.Ok, "connection invalid, closed")
 		return nil
 	}
 
@@ -244,13 +279,17 @@ func (p *Pool) Put(conn *Connection) error {
 	p.poolOpts.zapLog.Info("[rabbitmq pool] put connection back to pool",
 		zap.Int("poolSize", len(p.conns)))
 
+	span.SetAttributes(
+		attribute.Int("pool_size", len(p.conns)),
+	)
+
 	// 通知等待的goroutine
 	p.cond.Signal()
 	return nil
 }
 
 // idleCleanup 定期清理空闲连接
-func (p *Pool) idleCleanup() {
+func (p *Pool) idleCleanup(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
@@ -259,18 +298,24 @@ func (p *Pool) idleCleanup() {
 		case <-ticker.C:
 			// 使用ants协程池处理空闲连接清理任务
 			_ = p.antsPool.Submit(func() {
-				p.doCleanup()
+				p.doCleanup(ctx)
 			})
 		}
 	}
 }
 
 // doCleanup 实际执行清理工作的函数
-func (p *Pool) doCleanup() {
+func (p *Pool) doCleanup(ctx context.Context) {
+	// 创建追踪 span
+	var span trace.Span
+	ctx, span = p.tracer.Start(ctx, "pool.cleanup")
+	defer span.End()
+
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if p.closed {
+		span.SetStatus(codes.Ok, "pool closed")
 		return
 	}
 
@@ -281,6 +326,7 @@ func (p *Pool) doCleanup() {
 		minKeep = len(p.conns)
 	}
 
+	removedCount := 0
 	// 从后往前遍历，移除空闲时间过长的连接
 	for i := len(p.conns) - 1; i >= minKeep; i-- {
 		pc := p.conns[i]
@@ -288,6 +334,7 @@ func (p *Pool) doCleanup() {
 			// 关闭连接
 			pc.conn.Close()
 			atomic.AddInt64(&p.totalConns, -1)
+			removedCount++
 
 			// 从池中移除
 			p.conns = append(p.conns[:i], p.conns[i+1:]...)
@@ -296,23 +343,35 @@ func (p *Pool) doCleanup() {
 				zap.Duration("idleTime", now.Sub(pc.lastUsed)))
 		}
 	}
+
+	span.SetAttributes(
+		attribute.Int("removed_count", removedCount),
+		attribute.Int("final_pool_size", len(p.conns)),
+	)
 }
 
 // Close 关闭连接池
-func (p *Pool) Close() {
+func (p *Pool) Close(ctx context.Context) error {
+	// 创建追踪 span
+	ctx, span := p.tracer.Start(ctx, "pool.close")
+	defer span.End()
+
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if p.closed {
-		return
+		span.SetStatus(codes.Ok, "already closed")
+		return nil
 	}
 
 	p.closed = true
 
 	// 关闭所有连接
+	closedCount := 0
 	for _, pc := range p.conns {
 		pc.conn.Close()
 		atomic.AddInt64(&p.totalConns, -1)
+		closedCount++
 	}
 
 	p.conns = nil
@@ -324,28 +383,46 @@ func (p *Pool) Close() {
 	p.antsPool.Release()
 
 	p.poolOpts.zapLog.Info("[rabbitmq pool] closed")
+	span.SetAttributes(
+		attribute.Int("closed_connections", closedCount),
+	)
+
+	return nil
 }
 
 // Stats 返回连接池统计信息
-func (p *Pool) Stats() map[string]interface{} {
+func (p *Pool) Stats(ctx context.Context) map[string]interface{} {
+	// 创建追踪 span
+	ctx, span := p.tracer.Start(ctx, "pool.stats")
+	defer span.End()
+
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	// 计算可用连接数
 	available := 0
 	for _, pc := range p.conns {
-		if pc.conn.CheckConnected() {
+		if pc.conn.CheckConnected(ctx) {
 			available++
 		}
 	}
 
-	return map[string]interface{}{
-		"totalConns": atomic.LoadInt64(&p.totalConns),
-		"available":  available,
-		"poolSize":   len(p.conns),
-		"maxCap":     p.poolOpts.maxCap,
-		"closed":     p.closed,
+	stats := map[string]interface{}{
+		"totalConns":      atomic.LoadInt64(&p.totalConns),
+		"available":       available,
+		"poolSize":        len(p.conns),
+		"maxCap":          p.poolOpts.maxCap,
+		"closed":          p.closed,
 		"antsPoolRunning": p.antsPool.Running(),
-		"antsPoolCap": p.antsPool.Cap(),
+		"antsPoolCap":     p.antsPool.Cap(),
 	}
+
+	span.SetAttributes(
+		attribute.Int64("total_conns", stats["totalConns"].(int64)),
+		attribute.Int("available", stats["available"].(int)),
+		attribute.Int("pool_size", stats["poolSize"].(int)),
+		attribute.Bool("closed", stats["closed"].(bool)),
+	)
+
+	return stats
 }

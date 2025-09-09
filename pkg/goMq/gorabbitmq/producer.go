@@ -7,6 +7,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -86,18 +87,20 @@ type Producer struct {
 	// found according to its own exchange type and routeKey rules.
 	mandatory          bool                       // 消息不可路由时是否返回给发送者
 	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
+	tracer             trace.Tracer               // OpenTelemetry tracer for reuse
 }
 
 // NewProducer 创建一个新的生产者实例
+// ctx: 上下文
 // exchange: 交换机配置
 // connection: RabbitMQ连接
 // opts: 生产者配置选项
 // 返回生产者实例和可能的错误
-func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
+func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
 	o := defaultProducerOptions()
 	o.apply(opts...)
 	// crate a new channel
-	amqpConn := connection.GetConn()
+	amqpConn := connection.GetConn(ctx)
 	channel, err := amqpConn.Channel()
 	if err != nil {
 		return nil, err
@@ -294,6 +297,7 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 		deliveryMode:       deliveryMode,
 		mandatory:          o.mandatory,
 		customerDeadLetter: o.customerDeadLetter,
+		tracer:             otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}, nil
 }
 
@@ -301,17 +305,22 @@ func NewProducer(exchange *Exchange, connection *Connection, opts ...ProducerOpt
 // ctx: 上下文
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishDirect(ctx context.Context, body []byte) error {
+func (p *Producer) PublishDirect(ctx context.Context, body []byte) (err error) {
+	ctx, span := p.tracer.Start(ctx, "PublishDirect")
+	defer span.End()
 	if p.Exchange.eType != exchangeTypeDirect {
-		return fmt.Errorf("invalid exchange type (%s), only supports direct type", p.Exchange.eType)
+		err = fmt.Errorf("invalid exchange type (%s), only supports direct type", p.Exchange.eType)
+		span.RecordError(err)
+		return err
 	}
+	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
 	// ctx: 上下文
 	// exchange: 交换机名称
 	// key: 路由键
 	// mandatory: 不可路由时是否返回消息
 	// immediate: 是否立即发送
 	// msg: 消息内容
-	return p.channel.PublishWithContext(
+	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
 		p.Exchange.routingKey,
@@ -323,17 +332,26 @@ func (p *Producer) PublishDirect(ctx context.Context, body []byte) error {
 			Body:         body,
 		},
 	)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
 }
 
 // PublishFanout 发送fanout类型消息
 // ctx: 上下文
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
+func (p *Producer) PublishFanout(ctx context.Context, body []byte) (err error) {
+	ctx, span := p.tracer.Start(ctx, "PublishFanout")
+	defer span.End()
 	if p.Exchange.eType != exchangeTypeFanout {
-		return fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
+		err = fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
+		span.RecordError(err)
+		return err
 	}
-	return p.channel.PublishWithContext(
+	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
+	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
 		p.Exchange.routingKey,
@@ -345,6 +363,10 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
 			Body:         body,
 		},
 	)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
 }
 
 // PublishTopic 发送topic类型消息
@@ -353,8 +375,7 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte) error {
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) (err error) {
-	tracer := otel.Tracer("PublishTopic")
-	ctx, span := tracer.Start(ctx, "PublishTopic")
+	ctx, span := p.tracer.Start(ctx, "PublishTopic")
 	defer span.End()
 
 	if p.Exchange.eType != exchangeTypeTopic {
@@ -362,7 +383,7 @@ func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byt
 		span.RecordError(err)
 		return err
 	}
-	span.SetAttributes(attribute.String("body", string(body)))
+	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
 	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
@@ -386,11 +407,19 @@ func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byt
 // headersKeys: 消息头键值对
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) error {
+func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) (err error) {
+	ctx, span := p.tracer.Start(ctx, "PublishHeaders")
+	defer span.End()
 	if p.Exchange.eType != exchangeTypeHeaders {
-		return fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
+		err = fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
+		span.RecordError(err)
+		return err
 	}
-	return p.channel.PublishWithContext(
+	span.SetAttributes(
+		attribute.Int("body.size", len(body)), // 记录消息大小而不是内容
+		attribute.Int("headers.count", len(headersKeys)), // 记录headers数量
+	)
+	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
 		p.Exchange.routingKey,
@@ -403,6 +432,10 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 			Body:         body,
 		},
 	)
+	if err != nil {
+		span.RecordError(err)
+	}
+	return err
 }
 
 // Close 关闭生产者通道
