@@ -51,6 +51,10 @@ func (e *Exchange) HeadersKeys() map[string]interface{} {
 
 // NewDirectExchange create a direct exchange
 func NewDirectExchange(exchangeName string, routingKey string) *Exchange {
+	if exchangeName == "" || routingKey == "" {
+		// 处理 exchangeName 为空的情况
+		panic("exchangeName or routingKey cannot be empty")
+	}
 	return &Exchange{
 		name:       exchangeName,
 		eType:      exchangeTypeDirect,
@@ -60,6 +64,10 @@ func NewDirectExchange(exchangeName string, routingKey string) *Exchange {
 
 // NewTopicExchange create a topic exchange
 func NewTopicExchange(exchangeName string, routingKey string) *Exchange {
+	if exchangeName == "" || routingKey == "" {
+		// 处理 exchangeName 为空的情况
+		panic("exchangeName or routingKey cannot be empty")
+	}
 	return &Exchange{
 		name:       exchangeName,
 		eType:      exchangeTypeTopic,
@@ -69,6 +77,10 @@ func NewTopicExchange(exchangeName string, routingKey string) *Exchange {
 
 // NewFanoutExchange create a fanout exchange
 func NewFanoutExchange(exchangeName string) *Exchange {
+	if exchangeName == "" {
+		// 处理 exchangeName 为空的情况
+		panic("exchangeName  cannot be empty")
+	}
 	return &Exchange{
 		name:       exchangeName,
 		eType:      exchangeTypeFanout,
@@ -78,6 +90,10 @@ func NewFanoutExchange(exchangeName string) *Exchange {
 
 // NewHeadersExchange create a headers exchange, the headerType supports "all" and "any"
 func NewHeadersExchange(exchangeName string, headersType HeadersType, keys map[string]interface{}) *Exchange {
+	if exchangeName == "" {
+		// 处理 exchangeName 为空的情况
+		panic("exchangeName  cannot be empty")
+	}
 	if keys == nil {
 		keys = make(map[string]interface{})
 	}
@@ -99,6 +115,10 @@ func NewHeadersExchange(exchangeName string, headersType HeadersType, keys map[s
 
 // NewDelayedMessageExchange create a delayed message exchange
 func NewDelayedMessageExchange(exchangeName string, e *Exchange) *Exchange {
+	if exchangeName == "" {
+		// 处理 exchangeName 为空的情况
+		panic("exchangeName  cannot be empty")
+	}
 	return &Exchange{
 		name:        exchangeName,
 		eType:       exchangeTypeDelayedMessage,
@@ -277,6 +297,68 @@ func WithQueueBindArgs(args map[string]interface{}) QueueBindOption {
 
 // -------------------------------------------------------------------------------------------
 
+// NormalLetterOption declare dead letter option.
+type NormalLetterOption func(*NormalLetterOptions)
+
+type NormalLetterOptions struct {
+	exchangeName     string
+	normalQueueName  string
+	normalRoutingKey string
+
+	exchangeDeclare    *exchangeDeclareOptions
+	normalQueueDeclare *queueDeclareOptions
+	normalQueueBind    *queueBindOptions
+}
+
+func (o *NormalLetterOptions) apply(opts ...NormalLetterOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+func defaultNormalLetterOptions() *NormalLetterOptions {
+	return &NormalLetterOptions{
+		exchangeName:       "sunshine",
+		exchangeDeclare:    defaultExchangeDeclareOptions(),
+		normalQueueName:    "normalQueue",
+		normalRoutingKey:   "normalRouting",
+		normalQueueDeclare: defaultQueueDeclareOptions(),
+		normalQueueBind:    defaultQueueBindOptions(),
+	}
+}
+
+// WithNormalLetterExchangeDeclareOptions set dead letter exchange declare option.
+func WithNormalLetterExchangeDeclareOptions(opts ...ExchangeDeclareOption) NormalLetterOption {
+	return func(o *NormalLetterOptions) {
+		o.exchangeDeclare.apply(opts...)
+	}
+}
+
+// WithNormalLetterNormalQueueDeclareOptions set dead letter queue declare option.
+func WithNormalLetterNormalQueueDeclareOptions(opts ...QueueDeclareOption) NormalLetterOption {
+	return func(o *NormalLetterOptions) {
+		o.normalQueueDeclare.apply(opts...)
+	}
+}
+
+// WithNormalLetterNormalQueueBindOptions set dead letter queue declare option.
+func WithNormalLetterNormalQueueBindOptions(opts ...QueueBindOption) NormalLetterOption {
+	return func(o *NormalLetterOptions) {
+		o.normalQueueBind.apply(opts...)
+	}
+}
+
+// WithNormalLetter set dead letter exchange, queue, routing key.
+func WithNormalLetter(exchangeName string, normalQueueName string, normalRoutingKey string) NormalLetterOption {
+	return func(o *NormalLetterOptions) {
+		o.exchangeName = exchangeName
+		o.normalQueueName = normalQueueName
+		o.normalRoutingKey = normalRoutingKey
+	}
+}
+
+// -------------------------------------------------------------------------------------------
+
 // CustomerDeadLetterOption declare dead letter option.
 type CustomerDeadLetterOption func(*CustomerDeadLetterOptions)
 
@@ -305,16 +387,9 @@ func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
 	}
 }
 
-func (o *CustomerDeadLetterOptions) isEnabled() bool {
-	if o.exchangeName != "" {
-		return true
-	}
-	return false
-}
-
 func defaultCustomerDeadLetterOptions() *CustomerDeadLetterOptions {
 	return &CustomerDeadLetterOptions{
-		exchangeName:       "exchange",
+		exchangeName:       "sunshine",
 		exchangeDeclare:    defaultExchangeDeclareOptions(),
 		deadRoutingKey:     "deadRouting",
 		deadQueueName:      "deadQueue",
