@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -14,9 +15,10 @@ import (
 func main() {
 	// 创建一个 zap logger 实例
 	logger.Init()
-
+	ctx := context.Background()
 	// 创建连接池，配置 ants 协程池大小
 	pool, err := gorabbitmq.NewPool(
+		ctx,
 		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
 		gorabbitmq.WithInitialCap(10),           // 初始连接数
 		gorabbitmq.WithMaxCap(1000),             // 最大连接数
@@ -32,10 +34,10 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to create connection pool", zap.Error(err))
 	}
-	defer pool.Close()
+	defer pool.Close(ctx)
 
 	// 打印连接池状态
-	printAntsExampleStats(pool)
+	printAntsExampleStats(ctx, pool)
 
 	// 使用连接池中的连接
 	var wg sync.WaitGroup
@@ -44,7 +46,7 @@ func main() {
 		go func(id int) {
 			defer wg.Done()
 			// 从连接池获取连接
-			conn, err := pool.Get()
+			conn, err := pool.Get(ctx)
 			if err != nil {
 				logger.Error("Failed to get connection from pool", zap.Error(err))
 				return
@@ -55,7 +57,7 @@ func main() {
 			time.Sleep(time.Millisecond * 100)
 
 			// 将连接放回连接池
-			err = pool.Put(conn)
+			err = pool.Put(ctx, conn)
 			if err != nil {
 				logger.Error("Failed to put connection back to pool", zap.Error(err))
 				return
@@ -72,12 +74,12 @@ func main() {
 	for {
 		select {
 		case <-time.After(time.Second * 1):
-			printAntsExampleStats(pool)
+			printAntsExampleStats(ctx, pool)
 		}
 	}
 }
 
-func printAntsExampleStats(pool *gorabbitmq.Pool) {
-	stats := pool.Stats()
+func printAntsExampleStats(ctx context.Context, pool *gorabbitmq.Pool) {
+	stats := pool.Stats(ctx)
 	fmt.Printf("Pool Stats: %+v\n", stats)
 }

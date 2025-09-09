@@ -20,8 +20,10 @@ type Message struct {
 
 // ProducerExample 生产者使用示例
 func main() {
+	ctx := context.Background()
 	// 创建 RabbitMQ 连接
 	conn, err := gorabbitmq.NewConnection(
+		ctx,
 		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
 		gorabbitmq.WithLogger(logger.Get()),
 		gorabbitmq.WithMaxRetries(0), // 无限重试
@@ -86,7 +88,7 @@ func main() {
 			),
 		),
 	}
-	producer, err := gorabbitmq.NewProducer(exchange, conn, deadOpts...)
+	producer, err := gorabbitmq.NewProducer(ctx, exchange, conn, deadOpts...)
 	if err != nil {
 		log.Fatalf("创建生产者失败: %v", err)
 	}
@@ -95,7 +97,7 @@ func main() {
 	fmt.Println(producer)
 
 	err = producer.PublishDirect(
-		context.Background(),
+		ctx,
 		[]byte("Hello"),
 	)
 	if err != nil {
