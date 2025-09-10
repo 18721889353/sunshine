@@ -87,7 +87,8 @@ type Producer struct {
 	// found according to its own exchange type and routeKey rules.
 	mandatory          bool                       // 消息不可路由时是否返回给发送者
 	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
-	tracer             trace.Tracer               // OpenTelemetry tracer for reuse
+	normalLetter       *NormalLetterOptions
+	tracer             trace.Tracer // OpenTelemetry tracer for reuse
 }
 
 // NewProducer 创建一个新的生产者实例
@@ -310,6 +311,7 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 		deliveryMode:       deliveryMode,
 		mandatory:          o.mandatory,
 		customerDeadLetter: o.customerDeadLetter,
+		normalLetter:       o.normalLetter,
 		tracer:             otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}, nil
 }

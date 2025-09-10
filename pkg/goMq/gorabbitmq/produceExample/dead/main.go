@@ -94,8 +94,6 @@ func main() {
 	}
 	defer producer.Close()
 
-	fmt.Println(producer)
-
 	err = producer.PublishDirect(
 		ctx,
 		[]byte("Hello"),
