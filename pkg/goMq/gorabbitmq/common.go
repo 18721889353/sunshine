@@ -6,27 +6,27 @@ import amqp "github.com/rabbitmq/amqp091-go"
 var ErrClosed = amqp.ErrClosed
 
 const (
-	exchangeTypeDirect         = "direct"
-	exchangeTypeTopic          = "topic"
-	exchangeTypeFanout         = "fanout"
-	exchangeTypeHeaders        = "headers"
-	exchangeTypeDelayedMessage = "x-delayed-message"
+	exchangeTypeDirect         = "direct"            // exchangeTypeDirect 直连交换机类型
+	exchangeTypeTopic          = "topic"             // exchangeTypeTopic 主题交换机类型
+	exchangeTypeFanout         = "fanout"            // exchangeTypeFanout 广播交换机类型
+	exchangeTypeHeaders        = "headers"           // exchangeTypeHeaders 头交换机类型
+	exchangeTypeDelayedMessage = "x-delayed-message" // exchangeTypeDelayedMessage 延迟消息交换机类型
 
 	// HeadersTypeAll all
-	HeadersTypeAll HeadersType = "all"
+	HeadersTypeAll HeadersType = "all" // HeadersTypeAll 匹配headers中所有键值对
 	// HeadersTypeAny any
-	HeadersTypeAny HeadersType = "any"
+	HeadersTypeAny HeadersType = "any" // HeadersTypeAny 匹配headers中任意键值对
 )
 
 // HeadersType headers type
-type HeadersType = string
+type HeadersType = string // HeadersType 头交换机类型别名
 
 // Exchange rabbitmq minimum management unit
 type Exchange struct {
-	name        string                 // exchange name
-	eType       string                 // exchange type: direct, topic, fanout, headers, x-delayed-message
-	routingKey  string                 // route key
-	headersKeys map[string]interface{} // this field is required if eType=headers.
+	name        string                 // name 交换机名称
+	eType       string                 // eType 交换机类型: direct, topic, fanout, headers, x-delayed-message
+	routingKey  string                 // routingKey 路由键
+	headersKeys map[string]interface{} // headersKeys 头交换机的键值对配置
 }
 
 // Name exchange name
@@ -133,11 +133,11 @@ func NewDelayedMessageExchange(exchangeName string, e *Exchange) *Exchange {
 type ExchangeDeclareOption func(*exchangeDeclareOptions)
 
 type exchangeDeclareOptions struct {
-	durable    bool
-	autoDelete bool       // delete automatically
-	internal   bool       // public or not, false means public
-	noWait     bool       // block processing
-	args       amqp.Table // additional properties
+	durable    bool       // durable 交换机是否持久化，即使服务器重启也保留
+	autoDelete bool       // autoDelete 是否自动删除，当最后一个消费者断开连接时是否自动删除
+	internal   bool       // internal 是否为内部使用，true表示只用于exchange到exchange的绑定
+	noWait     bool       // noWait 是否非阻塞处理，true表示不等待服务器确认
+	args       amqp.Table // args 交换机的其他属性参数
 }
 
 func (o *exchangeDeclareOptions) apply(opts ...ExchangeDeclareOption) {
@@ -149,11 +149,11 @@ func (o *exchangeDeclareOptions) apply(opts ...ExchangeDeclareOption) {
 // default exchange declare settings
 func defaultExchangeDeclareOptions() *exchangeDeclareOptions {
 	return &exchangeDeclareOptions{
-		durable:    true,
-		autoDelete: false,
-		internal:   false,
-		noWait:     false,
-		args:       nil,
+		durable:    true,  // 默认持久化
+		autoDelete: false, // 默认不自动删除
+		internal:   false, // 默认非内部使用
+		noWait:     false, // 默认阻塞等待确认
+		args:       nil,   // 默认无额外参数
 	}
 }
 
@@ -198,11 +198,11 @@ func WithExchangeDeclareArgs(args map[string]interface{}) ExchangeDeclareOption 
 type QueueDeclareOption func(*queueDeclareOptions)
 
 type queueDeclareOptions struct {
-	durable    bool
-	autoDelete bool       // delete automatically
-	exclusive  bool       // exclusive (only available to the program that created it)
-	noWait     bool       // block processing
-	args       amqp.Table // additional properties
+	durable    bool       // durable 队列是否持久化，即使服务器重启也保留
+	autoDelete bool       // autoDelete 是否自动删除，当最后一个消费者断开连接时是否自动删除
+	exclusive  bool       // exclusive 是否排他，只有创建它的连接才能访问
+	noWait     bool       // noWait 是否非阻塞处理，true表示不等待服务器确认
+	args       amqp.Table // args 队列的其他属性参数
 }
 
 func (o *queueDeclareOptions) apply(opts ...QueueDeclareOption) {
@@ -214,11 +214,11 @@ func (o *queueDeclareOptions) apply(opts ...QueueDeclareOption) {
 // default queue declare settings
 func defaultQueueDeclareOptions() *queueDeclareOptions {
 	return &queueDeclareOptions{
-		durable:    true,
-		autoDelete: false,
-		exclusive:  false,
-		noWait:     false,
-		args:       nil,
+		durable:    true,  // 默认持久化
+		autoDelete: false, // 默认不自动删除
+		exclusive:  false, // 默认非排他
+		noWait:     false, // 默认阻塞等待确认
+		args:       nil,   // 默认无额外参数
 	}
 }
 
@@ -263,8 +263,8 @@ func WithQueueDeclareArgs(args map[string]interface{}) QueueDeclareOption {
 type QueueBindOption func(*queueBindOptions)
 
 type queueBindOptions struct {
-	noWait bool       // block processing
-	args   amqp.Table // this parameter is invalid if the type is headers.
+	noWait bool       // noWait 是否非阻塞处理，true表示不等待服务器确认
+	args   amqp.Table // args 绑定的其他属性参数，对于headers类型的交换机此参数无效
 }
 
 func (o *queueBindOptions) apply(opts ...QueueBindOption) {
@@ -276,8 +276,8 @@ func (o *queueBindOptions) apply(opts ...QueueBindOption) {
 // default queue bind settings
 func defaultQueueBindOptions() *queueBindOptions {
 	return &queueBindOptions{
-		noWait: false,
-		args:   nil,
+		noWait: false, // 默认阻塞等待确认
+		args:   nil,   // 默认无额外参数
 	}
 }
 
@@ -301,13 +301,13 @@ func WithQueueBindArgs(args map[string]interface{}) QueueBindOption {
 type NormalLetterOption func(*NormalLetterOptions)
 
 type NormalLetterOptions struct {
-	exchangeName     string
-	normalQueueName  string
-	normalRoutingKey string
+	exchangeName     string // exchangeName 普通交换机名称
+	normalQueueName  string // normalQueueName 普通队列名称
+	normalRoutingKey string // normalRoutingKey 普通路由键
 
-	exchangeDeclare    *exchangeDeclareOptions
-	normalQueueDeclare *queueDeclareOptions
-	normalQueueBind    *queueBindOptions
+	exchangeDeclare    *exchangeDeclareOptions // exchangeDeclare 交换机声明选项
+	normalQueueDeclare *queueDeclareOptions    // normalQueueDeclare 普通队列声明选项
+	normalQueueBind    *queueBindOptions       // normalQueueBind 普通队列绑定选项
 }
 
 func (o *NormalLetterOptions) apply(opts ...NormalLetterOption) {
@@ -318,12 +318,12 @@ func (o *NormalLetterOptions) apply(opts ...NormalLetterOption) {
 
 func defaultNormalLetterOptions() *NormalLetterOptions {
 	return &NormalLetterOptions{
-		exchangeName:       "sunshine",
-		exchangeDeclare:    defaultExchangeDeclareOptions(),
-		normalQueueName:    "normalQueue",
-		normalRoutingKey:   "normalRouting",
-		normalQueueDeclare: defaultQueueDeclareOptions(),
-		normalQueueBind:    defaultQueueBindOptions(),
+		exchangeName:       "sunshine",                      // 默认交换机名称
+		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
+		normalQueueName:    "normalQueue",                   // 默认普通队列名称
+		normalRoutingKey:   "normalRouting",                 // 默认普通路由键
+		normalQueueDeclare: defaultQueueDeclareOptions(),    // 默认普通队列声明选项
+		normalQueueBind:    defaultQueueBindOptions(),       // 默认普通队列绑定选项
 	}
 }
 
@@ -363,22 +363,22 @@ func WithNormalLetter(exchangeName string, normalQueueName string, normalRouting
 type CustomerDeadLetterOption func(*CustomerDeadLetterOptions)
 
 type CustomerDeadLetterOptions struct {
-	exchangeName string
+	exchangeName string // exchangeName 死信交换机名称
 
-	deadRoutingKey   string
-	deadQueueName    string
-	errRoutingKey    string
-	errQueueName     string
-	normalQueueName  string
-	normalRoutingKey string
+	deadRoutingKey   string // deadRoutingKey 死信路由键
+	deadQueueName    string // deadQueueName 死信队列名称
+	errRoutingKey    string // errRoutingKey 错误路由键
+	errQueueName     string // errQueueName 错误队列名称
+	normalQueueName  string // normalQueueName 普通队列名称
+	normalRoutingKey string // normalRoutingKey 普通路由键
 
-	exchangeDeclare    *exchangeDeclareOptions
-	deadQueueDeclare   *queueDeclareOptions
-	deadQueueBind      *queueBindOptions
-	errQueueDeclare    *queueDeclareOptions
-	errQueueBind       *queueBindOptions
-	normalQueueDeclare *queueDeclareOptions
-	normalQueueBind    *queueBindOptions
+	exchangeDeclare    *exchangeDeclareOptions // exchangeDeclare 交换机声明选项
+	deadQueueDeclare   *queueDeclareOptions    // deadQueueDeclare 死信队列声明选项
+	deadQueueBind      *queueBindOptions       // deadQueueBind 死信队列绑定选项
+	errQueueDeclare    *queueDeclareOptions    // errQueueDeclare 错误队列声明选项
+	errQueueBind       *queueBindOptions       // errQueueBind 错误队列绑定选项
+	normalQueueDeclare *queueDeclareOptions    // normalQueueDeclare 普通队列声明选项
+	normalQueueBind    *queueBindOptions       // normalQueueBind 普通队列绑定选项
 }
 
 func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
@@ -389,20 +389,20 @@ func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
 
 func defaultCustomerDeadLetterOptions() *CustomerDeadLetterOptions {
 	return &CustomerDeadLetterOptions{
-		exchangeName:       "sunshine",
-		exchangeDeclare:    defaultExchangeDeclareOptions(),
-		deadRoutingKey:     "deadRouting",
-		deadQueueName:      "deadQueue",
-		errRoutingKey:      "errRouting",
-		errQueueName:       "errQueue",
-		normalQueueName:    "normalQueue",
-		normalRoutingKey:   "normalRouting",
-		deadQueueDeclare:   defaultQueueDeclareOptions(),
-		deadQueueBind:      defaultQueueBindOptions(),
-		errQueueDeclare:    defaultQueueDeclareOptions(),
-		errQueueBind:       defaultQueueBindOptions(),
-		normalQueueDeclare: defaultQueueDeclareOptions(),
-		normalQueueBind:    defaultQueueBindOptions(),
+		exchangeName:       "sunshine",                      // 默认死信交换机名称
+		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
+		deadRoutingKey:     "deadRouting",                   // 默认死信路由键
+		deadQueueName:      "deadQueue",                     // 默认死信队列名称
+		errRoutingKey:      "errRouting",                    // 默认错误路由键
+		errQueueName:       "errQueue",                      // 默认错误队列名称
+		normalQueueName:    "normalQueue",                   // 默认普通队列名称
+		normalRoutingKey:   "normalRouting",                 // 默认普通路由键
+		deadQueueDeclare:   defaultQueueDeclareOptions(),    // 默认死信队列声明选项
+		deadQueueBind:      defaultQueueBindOptions(),       // 默认死信队列绑定选项
+		errQueueDeclare:    defaultQueueDeclareOptions(),    // 默认错误队列声明选项
+		errQueueBind:       defaultQueueBindOptions(),       // 默认错误队列绑定选项
+		normalQueueDeclare: defaultQueueDeclareOptions(),    // 默认普通队列声明选项
+		normalQueueBind:    defaultQueueBindOptions(),       // 默认普通队列绑定选项
 	}
 }
 
@@ -476,11 +476,11 @@ type ConsumeOption func(*consumeOptions)
 
 // consumeOptions 消费配置选项结构体
 type consumeOptions struct {
-	consumer  string     // 用于区分多个消费者
-	exclusive bool       // 是否独占，只有创建它的程序才能访问
-	noLocal   bool       // 如果设置为true，同一个Connection中的生产者发送的消息不能传递给该Connection中的消费者
-	noWait    bool       // 是否阻塞处理
-	args      amqp.Table // 额外属性
+	consumer  string     // consumer 消费者标识，用于区分多个消费者
+	exclusive bool       // exclusive 是否独占，只有创建它的程序才能访问
+	noLocal   bool       // noLocal 如果设置为true，同一个Connection中的生产者发送的消息不能传递给该Connection中的消费者
+	noWait    bool       // noWait 是否阻塞处理
+	args      amqp.Table // args 额外属性
 }
 
 // apply 应用消费选项
@@ -493,11 +493,11 @@ func (o *consumeOptions) apply(opts ...ConsumeOption) {
 // defaultConsumeOptions 默认消费设置
 func defaultConsumeOptions() *consumeOptions {
 	return &consumeOptions{
-		consumer:  "",
-		exclusive: false,
-		noLocal:   false,
-		noWait:    false,
-		args:      nil,
+		consumer:  "",    // 默认消费者标识为空
+		exclusive: false, // 默认非独占
+		noLocal:   false, // 默认允许本地消费
+		noWait:    false, // 默认阻塞处理
+		args:      nil,   // 默认无额外参数
 	}
 }
 
@@ -545,10 +545,10 @@ type QosOption func(*qosOptions)
 // qosOptions QoS配置选项结构体
 // 包含所有与QoS相关的配置参数
 type qosOptions struct {
-	enable        bool // 是否启用QoS功能
-	prefetchCount int  // 预取消息数量，0表示无限制
-	prefetchSize  int  // 预取消息大小，0表示无限制
-	global        bool // 是否全局生效（对整个通道生效，而不仅仅是当前消费者）
+	enable        bool // enable 是否启用QoS功能
+	prefetchCount int  // prefetchCount 预取消息数量，0表示无限制
+	prefetchSize  int  // prefetchSize 预取消息大小，0表示无限制
+	global        bool // global 是否全局生效（对整个通道生效，而不仅仅是当前消费者）
 }
 
 // apply 应用QoS选项
@@ -562,10 +562,10 @@ func (o *qosOptions) apply(opts ...QosOption) {
 // 返回包含默认QoS配置的选项结构体
 func defaultQosOptions() *qosOptions {
 	return &qosOptions{
-		enable:        false,
-		prefetchCount: 0,
-		prefetchSize:  0,
-		global:        false,
+		enable:        false, // 默认不启用QoS
+		prefetchCount: 1,     //指定消费者可以同时处理的消息数量上限。例如，如果设置为 1，则消费者在处理完前 1 条消息之前不会接收新的消息。 prefetchCount 为 0，表示不限制消息数量
+		prefetchSize:  0,     // 默认预取消息大小无限制
+		global:        false, // 默认仅对当前消费者生效
 	}
 }
 
