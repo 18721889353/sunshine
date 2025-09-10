@@ -468,3 +468,141 @@ func WithCustomerDeadLetter(exchangeName string, deadQueueName string, deadRouti
 		o.normalRoutingKey = normalRoutingKey
 	}
 }
+
+// -------------------------------------------------------------------------------------------
+
+// ConsumeOption 消费选项类型
+type ConsumeOption func(*consumeOptions)
+
+// consumeOptions 消费配置选项结构体
+type consumeOptions struct {
+	consumer  string     // 用于区分多个消费者
+	exclusive bool       // 是否独占，只有创建它的程序才能访问
+	noLocal   bool       // 如果设置为true，同一个Connection中的生产者发送的消息不能传递给该Connection中的消费者
+	noWait    bool       // 是否阻塞处理
+	args      amqp.Table // 额外属性
+}
+
+// apply 应用消费选项
+func (o *consumeOptions) apply(opts ...ConsumeOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+// defaultConsumeOptions 默认消费设置
+func defaultConsumeOptions() *consumeOptions {
+	return &consumeOptions{
+		consumer:  "",
+		exclusive: false,
+		noLocal:   false,
+		noWait:    false,
+		args:      nil,
+	}
+}
+
+// WithConsumeConsumer 设置消费消费者选项
+func WithConsumeConsumer(consumer string) ConsumeOption {
+	return func(o *consumeOptions) {
+		o.consumer = consumer
+	}
+}
+
+// WithConsumeExclusive 设置消费独占选项
+func WithConsumeExclusive(enable bool) ConsumeOption {
+	return func(o *consumeOptions) {
+		o.exclusive = enable
+	}
+}
+
+// WithConsumeNoLocal 设置消费noLocal选项
+func WithConsumeNoLocal(enable bool) ConsumeOption {
+	return func(o *consumeOptions) {
+		o.noLocal = enable
+	}
+}
+
+// WithConsumeNoWait 设置消费不等待选项
+func WithConsumeNoWait(enable bool) ConsumeOption {
+	return func(o *consumeOptions) {
+		o.noWait = enable
+	}
+}
+
+// WithConsumeArgs 设置消费参数选项
+func WithConsumeArgs(args map[string]interface{}) ConsumeOption {
+	return func(o *consumeOptions) {
+		o.args = args
+	}
+}
+
+// -------------------------------------------------------------------------------------------
+
+// QosOption QoS选项类型
+// 用于配置RabbitMQ消费者的QoS（服务质量）参数
+type QosOption func(*qosOptions)
+
+// qosOptions QoS配置选项结构体
+// 包含所有与QoS相关的配置参数
+type qosOptions struct {
+	enable        bool // 是否启用QoS功能
+	prefetchCount int  // 预取消息数量，0表示无限制
+	prefetchSize  int  // 预取消息大小，0表示无限制
+	global        bool // 是否全局生效（对整个通道生效，而不仅仅是当前消费者）
+}
+
+// apply 应用QoS选项
+func (o *qosOptions) apply(opts ...QosOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+// defaultQosOptions 默认QoS设置
+// 返回包含默认QoS配置的选项结构体
+func defaultQosOptions() *qosOptions {
+	return &qosOptions{
+		enable:        false,
+		prefetchCount: 0,
+		prefetchSize:  0,
+		global:        false,
+	}
+}
+
+// WithQosEnable 设置启用QoS功能选项
+// 用于开启消费者的QoS（服务质量）控制，配合其他QoS选项使用可以限制消费者预取消息的数量，
+// 实现流量控制、负载均衡和资源管理，防止消费者被大量消息淹没
+func WithQosEnable() QosOption {
+	return func(o *qosOptions) {
+		o.enable = true
+	}
+}
+
+// WithQosPrefetchCount 设置QoS预取消息数量选项
+// 控制消费者在任意时刻可以预取并处理的最大消息数量
+// prefetchCount > 0 时启用，值为0表示无限制
+// 通过限制预取消息数量可以实现消费者间的负载均衡
+func WithQosPrefetchCount(count int) QosOption {
+	return func(o *qosOptions) {
+		o.prefetchCount = count
+	}
+}
+
+// WithQosPrefetchSize 设置QoS预取消息大小选项
+// 控制消费者在任意时刻可以预取消息的总大小（以字节为单位）
+// prefetchSize > 0 时启用，值为0表示无限制
+// 注意：该参数在RabbitMQ中很少使用，通常设置为0
+func WithQosPrefetchSize(size int) QosOption {
+	return func(o *qosOptions) {
+		o.prefetchSize = size
+	}
+}
+
+// WithQosPrefetchGlobal 设置QoS全局生效选项
+// 控制QoS设置是否应用于整个通道（true）还是仅应用于当前消费者（false）
+// 当设置为true时，QoS设置将应用于该通道上的所有消费者
+func WithQosPrefetchGlobal(enable bool) QosOption {
+	return func(o *qosOptions) {
+		o.global = enable
+	}
+}
