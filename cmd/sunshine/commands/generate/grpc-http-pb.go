@@ -134,7 +134,7 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 			"systemCode_http.go", "systemCode_rpc.go",
 		},
 		"internal/routers": {
-			"routers_pbExample.go",
+			"routers_pbExample.go", "customResponse.go",
 		},
 		"internal/server": {
 			"http.go", "http_option.go", "grpc.go", "grpc_option.go", "cron.go", "cron_option.go", "rabbitmqConsumer.go", "rabbitmqConsumer_option.go",
