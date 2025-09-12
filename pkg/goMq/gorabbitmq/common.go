@@ -471,6 +471,93 @@ func WithCustomerDeadLetter(exchangeName string, deadQueueName string, deadRouti
 
 // -------------------------------------------------------------------------------------------
 
+// DeadLetterOption declare dead letter option.
+type DeadLetterOption func(*DeadLetterOptions)
+
+type DeadLetterOptions struct {
+	exchangeName string // exchangeName 死信交换机名称
+
+	deadRoutingKey   string // deadRoutingKey 死信路由键
+	deadQueueName    string // deadQueueName 死信队列名称
+	normalQueueName  string // normalQueueName 普通队列名称
+	normalRoutingKey string // normalRoutingKey 普通路由键
+
+	exchangeDeclare    *exchangeDeclareOptions // exchangeDeclare 交换机声明选项
+	deadQueueDeclare   *queueDeclareOptions    // deadQueueDeclare 死信队列声明选项
+	deadQueueBind      *queueBindOptions       // deadQueueBind 死信队列绑定选项
+	normalQueueDeclare *queueDeclareOptions    // normalQueueDeclare 普通队列声明选项
+	normalQueueBind    *queueBindOptions       // normalQueueBind 普通队列绑定选项
+}
+
+func (o *DeadLetterOptions) apply(opts ...DeadLetterOption) {
+	for _, opt := range opts {
+		opt(o)
+	}
+}
+
+func defaultDeadLetterOptions() *DeadLetterOptions {
+	return &DeadLetterOptions{
+		exchangeName:       "sunshine",                      // 默认死信交换机名称
+		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
+		deadRoutingKey:     "deadRouting",                   // 默认死信路由键
+		deadQueueName:      "deadQueue",                     // 默认死信队列名称
+		normalQueueName:    "normalQueue",                   // 默认普通队列名称
+		normalRoutingKey:   "normalRouting",                 // 默认普通路由键
+		deadQueueDeclare:   defaultQueueDeclareOptions(),    // 默认死信队列声明选项
+		deadQueueBind:      defaultQueueBindOptions(),       // 默认死信队列绑定选项
+		normalQueueDeclare: defaultQueueDeclareOptions(),    // 默认普通队列声明选项
+		normalQueueBind:    defaultQueueBindOptions(),       // 默认普通队列绑定选项
+	}
+}
+
+// WithDeadLetterExchangeDeclareOptions set dead letter exchange declare option.
+func WithDeadLetterExchangeDeclareOptions(opts ...ExchangeDeclareOption) DeadLetterOption {
+	return func(o *DeadLetterOptions) {
+		o.exchangeDeclare.apply(opts...)
+	}
+}
+
+// WithDeadLetterDeadQueueDeclareOptions set dead letter queue declare option.
+func WithDeadLetterDeadQueueDeclareOptions(opts ...QueueDeclareOption) DeadLetterOption {
+	return func(o *DeadLetterOptions) {
+		o.deadQueueDeclare.apply(opts...)
+	}
+}
+
+// WithDeadLetterDeadQueueBindOptions set dead letter queue declare option.
+func WithDeadLetterDeadQueueBindOptions(opts ...QueueBindOption) DeadLetterOption {
+	return func(o *DeadLetterOptions) {
+		o.deadQueueBind.apply(opts...)
+	}
+}
+
+// WithDeadLetterNormalQueueDeclareOptions set dead letter queue declare option.
+func WithDeadLetterNormalQueueDeclareOptions(opts ...QueueDeclareOption) DeadLetterOption {
+	return func(o *DeadLetterOptions) {
+		o.normalQueueDeclare.apply(opts...)
+	}
+}
+
+// WithDeadLetterNormalQueueBindOptions set dead letter queue declare option.
+func WithDeadLetterNormalQueueBindOptions(opts ...QueueBindOption) DeadLetterOption {
+	return func(o *DeadLetterOptions) {
+		o.normalQueueBind.apply(opts...)
+	}
+}
+
+// WithDeadLetter set dead letter exchange, queue, routing key.
+func WithDeadLetter(exchangeName string, deadQueueName string, deadRoutingKey string, normalQueueName string, normalRoutingKey string) DeadLetterOption {
+	return func(o *DeadLetterOptions) {
+		o.exchangeName = exchangeName
+		o.deadQueueName = deadQueueName
+		o.deadRoutingKey = deadRoutingKey
+		o.normalQueueName = normalQueueName
+		o.normalRoutingKey = normalRoutingKey
+	}
+}
+
+// -------------------------------------------------------------------------------------------
+
 // ConsumeOption 消费选项类型
 type ConsumeOption func(*consumeOptions)
 

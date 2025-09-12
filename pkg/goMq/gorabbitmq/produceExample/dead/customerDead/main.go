@@ -11,13 +11,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )
 
-// Message 示例消息结构体
-type Message struct {
-	ID      int    `json:"id"`
-	Content string `json:"content"`
-	Time    string `json:"time"`
-}
-
 // ProducerExample 生产者使用示例
 func main() {
 	ctx := context.Background()
@@ -33,12 +26,20 @@ func main() {
 	if err != nil {
 		log.Fatalf("创建连接失败: %v", err)
 	}
+	exchangeName := "exchange"
+
+	deadQueueName := "customerDeadDeadQueueName"
+	deadRoutingKey := "customerDeadDeadRoutingKey"
+	errQueueName := "customerDeadErrQueueName"
+	errRoutingKey := "customerDeadErrRoutingKey"
+	normalQueueName := "customerDeadNormalQueueName"
+	normalRoutineKey := "customerDeadNormalRoutingKey"
 	defer conn.Close()
-	exchange := gorabbitmq.NewDirectExchange("exchange", "deadNormalRoutingKey")
+	exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
 	// 创建生产者
 	deadOpts := []gorabbitmq.ProducerOption{
 		gorabbitmq.WithProducerCustomerDeadLetterOptions(
-			gorabbitmq.WithCustomerDeadLetter(exchange.Name(), "deadQueueName", "deadRoutingKey", "errQueueName", "errRoutingKey", "deadNormalQueueName", exchange.RoutingKey()),
+			gorabbitmq.WithCustomerDeadLetter(exchange.Name(), deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, exchange.RoutingKey()),
 			gorabbitmq.WithCustomerDeadLetterExchangeDeclareOptions(
 				gorabbitmq.WithExchangeDeclareDurable(true),
 				gorabbitmq.WithExchangeDeclareAutoDelete(false),
@@ -53,7 +54,7 @@ func main() {
 				gorabbitmq.WithQueueDeclareNoWait(false),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
 					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": "errRoutingKey",
+					"x-dead-letter-routing-key": errRoutingKey,
 					"x-message-ttl":             10000,
 				})),
 			gorabbitmq.WithCustomerDeadLetterDeadQueueBindOptions(
@@ -67,7 +68,7 @@ func main() {
 				gorabbitmq.WithQueueDeclareNoWait(false),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
 					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": "deadRoutingKey",
+					"x-dead-letter-routing-key": deadRoutingKey,
 				})),
 			gorabbitmq.WithCustomerDeadLetterErrQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(false),
@@ -80,7 +81,7 @@ func main() {
 				gorabbitmq.WithQueueDeclareNoWait(false),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
 					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": "deadRoutingKey",
+					"x-dead-letter-routing-key": deadRoutingKey,
 				})),
 			gorabbitmq.WithCustomerDeadLetterNormalQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(false),
