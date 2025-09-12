@@ -16,7 +16,7 @@ type producerOptions struct {
 	logger             *zap.Logger                // 日志记录器
 	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
 	normalLetter       *NormalLetterOptions       // 正常队列选项
-	deadLetter         *DeadLetterOptions         // 自定义死信队列选项
+	deadLetter         *DeadLetterOptions         // 死信队列选项
 	msgDurable         bool                       // 消息是否持久化
 	mandatory          bool                       // 消息不可路由时是否返回给发送者
 }
