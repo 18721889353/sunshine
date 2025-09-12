@@ -51,13 +51,13 @@ func defaultConsumerOptions() *consumerOptions {
 }
 
 // WithConsumerCustomerDeadLetterOptions set dead letter options.
-func WithConsumerCustomerDeadLetterOptions(opts ...CustomerDeadLetterOption) ProducerOption {
-	return func(o *producerOptions) {
+func WithConsumerCustomerDeadLetterOptions(opts ...CustomerDeadLetterOption) ConsumerOption {
+	return func(o *consumerOptions) {
 		o.customerDeadLetter.apply(opts...)
 	}
 } // WithConsumerNormalLetterOptions set dead letter options.
-func WithConsumerNormalLetterOptions(opts ...NormalLetterOption) ProducerOption {
-	return func(o *producerOptions) {
+func WithConsumerNormalLetterOptions(opts ...NormalLetterOption) ConsumerOption {
+	return func(o *consumerOptions) {
 		o.normalLetter.apply(opts...)
 	}
 }
