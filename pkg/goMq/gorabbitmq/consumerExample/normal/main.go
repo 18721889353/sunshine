@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -27,10 +28,13 @@ func main() {
 		log.Fatalf("创建连接失败: %v", err)
 	}
 	defer conn.Close()
-	exchange := gorabbitmq.NewDirectExchange("exchange", "normalRoutingKey")
+	exchangeName := "exchange"
+	normalQueueName := "normalQueueName"
+	normalRoutineKey := "normalRoutingKey"
+	exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
 	normalOpts := []gorabbitmq.ConsumerOption{
 		gorabbitmq.WithConsumerNormalLetterOptions(
-			gorabbitmq.WithNormalLetter(exchange.Name(), "normalQueueName", exchange.RoutingKey()),
+			gorabbitmq.WithNormalLetter(exchange.Name(), normalQueueName, exchange.RoutingKey()),
 			gorabbitmq.WithNormalLetterExchangeDeclareOptions(
 				gorabbitmq.WithExchangeDeclareDurable(true),
 				gorabbitmq.WithExchangeDeclareAutoDelete(false),
@@ -63,13 +67,15 @@ func main() {
 			gorabbitmq.WithConsumeNoWait(false),
 			gorabbitmq.WithConsumeArgs(nil),
 		),
+		gorabbitmq.WithConsumerAutoAck(false),
+		gorabbitmq.WithConsumerMsgDurable(true),
 	}
 
 	consumer, err := gorabbitmq.NewConsumer(exchange, "normalQueueName", conn, normalOpts...)
 	consumer.Consume(ctx, func(ctx context.Context, data []byte, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(tagID)
-		return nil
+		return errors.New("fuck")
 	})
 	forever := make(chan struct{})
 	<-forever
