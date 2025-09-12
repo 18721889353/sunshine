@@ -1,0 +1,112 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
+
+	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
+)
+
+// ProducerExample 生产者使用示例
+func main() {
+	ctx := context.Background()
+	// 创建 RabbitMQ 连接
+	conn, err := gorabbitmq.NewConnection(
+		ctx,
+		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
+		gorabbitmq.WithLogger(logger.Get()),
+		gorabbitmq.WithMaxRetries(0), // 无限重试
+		gorabbitmq.WithReconnectTime(2*time.Second),
+		gorabbitmq.WithDialTimeout(5*time.Second),
+	)
+	if err != nil {
+		log.Fatalf("创建连接失败: %v", err)
+	}
+	defer conn.Close()
+	exchange := gorabbitmq.NewDirectExchange("exchange", "deadNormalRoutingKey")
+	// 创建生产者
+	deadOpts := []gorabbitmq.ConsumerOption{
+		gorabbitmq.WithConsumerCustomerDeadLetterOptions(
+			gorabbitmq.WithCustomerDeadLetter(exchange.Name(), "deadQueueName", "deadRoutingKey", "errQueueName", "errRoutingKey", "deadNormalQueueName", exchange.RoutingKey()),
+			gorabbitmq.WithCustomerDeadLetterExchangeDeclareOptions(
+				gorabbitmq.WithExchangeDeclareDurable(true),
+				gorabbitmq.WithExchangeDeclareAutoDelete(false),
+				gorabbitmq.WithExchangeDeclareInternal(false),
+				gorabbitmq.WithExchangeDeclareNoWait(false),
+				gorabbitmq.WithExchangeDeclareArgs(nil),
+			),
+			gorabbitmq.WithCustomerDeadLetterDeadQueueDeclareOptions(
+				gorabbitmq.WithQueueDeclareDurable(true),
+				gorabbitmq.WithQueueDeclareExclusive(false),
+				gorabbitmq.WithQueueDeclareAutoDelete(false),
+				gorabbitmq.WithQueueDeclareNoWait(false),
+				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
+					"x-dead-letter-exchange":    exchange.Name(),
+					"x-dead-letter-routing-key": "errRoutingKey",
+					"x-message-ttl":             10000,
+				})),
+			gorabbitmq.WithCustomerDeadLetterDeadQueueBindOptions(
+				gorabbitmq.WithQueueBindNoWait(false),
+				gorabbitmq.WithQueueBindArgs(nil),
+			),
+			gorabbitmq.WithCustomerDeadLetterErrQueueDeclareOptions(
+				gorabbitmq.WithQueueDeclareDurable(true),
+				gorabbitmq.WithQueueDeclareExclusive(false),
+				gorabbitmq.WithQueueDeclareAutoDelete(false),
+				gorabbitmq.WithQueueDeclareNoWait(false),
+				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
+					"x-dead-letter-exchange":    exchange.Name(),
+					"x-dead-letter-routing-key": "deadRoutingKey",
+				})),
+			gorabbitmq.WithCustomerDeadLetterErrQueueBindOptions(
+				gorabbitmq.WithQueueBindNoWait(false),
+				gorabbitmq.WithQueueBindArgs(nil),
+			),
+			gorabbitmq.WithCustomerDeadLetterNormalQueueDeclareOptions(
+				gorabbitmq.WithQueueDeclareDurable(true),
+				gorabbitmq.WithQueueDeclareExclusive(false),
+				gorabbitmq.WithQueueDeclareAutoDelete(false),
+				gorabbitmq.WithQueueDeclareNoWait(false),
+				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
+					"x-dead-letter-exchange":    exchange.Name(),
+					"x-dead-letter-routing-key": "deadRoutingKey",
+				})),
+			gorabbitmq.WithCustomerDeadLetterNormalQueueBindOptions(
+				gorabbitmq.WithQueueBindNoWait(false),
+				gorabbitmq.WithQueueBindArgs(nil),
+			),
+		),
+		gorabbitmq.WithConsumerQosOptions(
+			gorabbitmq.WithQosEnable(),
+			gorabbitmq.WithQosPrefetchCount(1),
+			gorabbitmq.WithQosPrefetchSize(0),
+			gorabbitmq.WithQosPrefetchGlobal(false),
+		),
+		gorabbitmq.WithConsumerConsumeOptions(
+			gorabbitmq.WithConsumeConsumer("hello"),
+			gorabbitmq.WithConsumeExclusive(false),
+			gorabbitmq.WithConsumeNoLocal(false),
+			gorabbitmq.WithConsumeNoWait(false),
+			gorabbitmq.WithConsumeArgs(nil),
+		),
+	}
+	consumer, err := gorabbitmq.NewConsumer(exchange, "deadNormalQueueName", conn, deadOpts...)
+	consumer.Consume(ctx, func(ctx context.Context, data []byte, tagID string) error {
+		fmt.Println(string(data))
+		fmt.Println(tagID)
+		return nil
+	})
+	consumer1, err := gorabbitmq.NewConsumer(exchange, "errQueueName", conn, deadOpts...)
+	consumer1.Consume(ctx, func(ctx context.Context, data []byte, tagID string) error {
+		fmt.Println(string(data))
+		fmt.Println(tagID)
+		return nil
+	})
+	time.Sleep(time.Second * 60)
+	forever := make(chan struct{})
+	<-forever
+}
