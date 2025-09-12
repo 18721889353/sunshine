@@ -34,11 +34,14 @@ func main() {
 		log.Fatalf("创建连接失败: %v", err)
 	}
 	defer conn.Close()
-	exchange := gorabbitmq.NewDirectExchange("exchange", "normalRoutingKey")
+	exchangeName := "exchange"
+	normalQueueName := "normalQueueName"
+	normalRoutineKey := "normalRoutingKey"
+	exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
 	// 创建生产者
 	normalOpts := []gorabbitmq.ProducerOption{
 		gorabbitmq.WithProducerNormalLetterOptions(
-			gorabbitmq.WithNormalLetter(exchange.Name(), "normalQueueName", exchange.RoutingKey()),
+			gorabbitmq.WithNormalLetter(exchange.Name(), normalQueueName, exchange.RoutingKey()),
 			gorabbitmq.WithNormalLetterExchangeDeclareOptions(
 				gorabbitmq.WithExchangeDeclareDurable(true),
 				gorabbitmq.WithExchangeDeclareAutoDelete(false),
