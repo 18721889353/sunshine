@@ -6,12 +6,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -105,10 +105,11 @@ type Consumer struct {
 	qosOption          *qosOptions     // QoS选项
 	consumeOption      *consumeOptions // 消费选项
 
-	msgDurable bool       // 消息是否持久化
-	isAutoAck  bool       // 是否自动确认
-	count      int64      // 消费成功的消息数量
-	mu         sync.Mutex // 互斥锁
+	msgDurable bool         // 消息是否持久化
+	isAutoAck  bool         // 是否自动确认
+	mu         sync.RWMutex // 读写锁，保护所有字段访问
+
+	tracer trace.Tracer // OpenTelemetry tracer for reuse
 }
 
 // Handler 消息处理函数类型
@@ -132,6 +133,8 @@ func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ..
 
 		msgDurable: o.msgDurable,
 		isAutoAck:  o.isAutoAck,
+
+		tracer: otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}
 
 	return c, nil
@@ -141,6 +144,7 @@ func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ..
 func (c *Consumer) initialize() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.conn.mutex.Lock()
 	// 创建一个新的通道
 	channel, err := c.conn.conn.Channel()
@@ -360,6 +364,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 		ticker := time.NewTicker(time.Second * 2)
 		isFirst := true
 		for {
+
 			if isFirst {
 				isFirst = false
 				ticker.Reset(time.Millisecond * 10)
@@ -391,10 +396,10 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				continue
 			}
 			//c.zapLog.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
-			tracer := otel.Tracer("rabbitmq-Consume")
 
 			isContinueConsume := false
 			for {
+
 				select {
 				case <-c.conn.exit:
 					c.Close()
@@ -406,7 +411,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 						break
 					}
 					// 开始一个新的 span
-					ctx, span := tracer.Start(ctx, "consume message")
+					ctx, span := c.tracer.Start(ctx, "consume message")
 					span.SetAttributes(attribute.String("message.body", string(d.Body)))
 
 					tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
@@ -419,21 +424,18 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 						if err = d.Reject(false); err != nil {
 							span.RecordError(err)
 							c.zapLog.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
-							continue
 						}
 						//c.zapLog.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
-
+						span.End()
 						continue
 					}
 					if !c.isAutoAck {
 						if err = d.Ack(false); err != nil {
 							span.RecordError(err)
 							c.zapLog.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
-							continue
 						}
 						//c.zapLog.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
-					atomic.AddInt64(&c.count, 1)
 					// 结束 span
 					span.End()
 				}
@@ -449,12 +451,10 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 
 // Close 关闭消费者
 func (c *Consumer) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.ch != nil {
 		_ = c.ch.Close()
 	}
-}
-
-// Count 获取消费成功的消息数量
-func (c *Consumer) Count() int64 {
-	return atomic.LoadInt64(&c.count)
 }
