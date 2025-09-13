@@ -19,6 +19,7 @@ type producerOptions struct {
 	deadLetter         *DeadLetterOptions         // 死信队列选项
 	msgDurable         bool                       // 消息是否持久化
 	mandatory          bool                       // 消息不可路由时是否返回给发送者
+	isDelay            bool                       // 是否延迟消息
 }
 
 // ProducerOption 生产者配置选项函数类型
@@ -43,6 +44,7 @@ func defaultProducerOptions() *producerOptions {
 		//mandatory 设置为 true 时，如果消息无法根据 exchange 类型和 routing key 规则路由到任何队列，消息会被返回给发送者
 		//mandatory 设置为 false 时，无法路由的消息会被直接丢弃
 		mandatory: true,
+		isDelay:   false,
 	}
 }
 
@@ -80,6 +82,11 @@ func WithProducerMandatory(enable bool) ProducerOption {
 		o.mandatory = enable
 	}
 }
+func WithProducerIsDelay(enable bool) ProducerOption {
+	return func(o *producerOptions) {
+		o.isDelay = enable
+	}
+}
 
 // -------------------------------------------------------------------------------------------
 
@@ -101,6 +108,7 @@ type Producer struct {
 	deadLetter         *DeadLetterOptions         // 自定义死信队列选项
 	normalLetter       *NormalLetterOptions
 	tracer             trace.Tracer // OpenTelemetry tracer for reuse
+	isDelay            bool
 }
 
 // NewProducer 创建一个新的生产者实例
@@ -432,6 +440,7 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 		customerDeadLetter: o.customerDeadLetter,
 		deadLetter:         o.deadLetter,
 		normalLetter:       o.normalLetter,
+		isDelay:            o.isDelay,
 		tracer:             otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}, nil
 }
@@ -449,6 +458,10 @@ func (p *Producer) PublishDirect(ctx context.Context, body []byte) (err error) {
 		return err
 	}
 	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
+	routingKey := p.Exchange.routingKey
+	if p.isDelay {
+		routingKey = p.deadLetter.deadRoutingKey
+	}
 	// ctx: 上下文
 	// exchange: 交换机名称
 	// key: 路由键
@@ -458,7 +471,7 @@ func (p *Producer) PublishDirect(ctx context.Context, body []byte) (err error) {
 	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
-		p.Exchange.routingKey,
+		routingKey,
 		p.mandatory,
 		false,
 		amqp.Publishing{
@@ -477,101 +490,106 @@ func (p *Producer) PublishDirect(ctx context.Context, body []byte) (err error) {
 // ctx: 上下文
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishFanout(ctx context.Context, body []byte) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishFanout")
-	defer span.End()
-	if p.Exchange.eType != exchangeTypeFanout {
-		err = fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
-		span.RecordError(err)
-		return err
-	}
-	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
-	err = p.channel.PublishWithContext(
-		ctx,
-		p.Exchange.name,
-		p.Exchange.routingKey,
-		p.mandatory,
-		false,
-		amqp.Publishing{
-			DeliveryMode: p.deliveryMode,
-			ContentType:  "text/plain",
-			Body:         body,
-		},
-	)
-	if err != nil {
-		span.RecordError(err)
-	}
-	return err
-}
+//func (p *Producer) PublishFanout(ctx context.Context, body []byte) (err error) {
+//	ctx, span := p.tracer.Start(ctx, "PublishFanout")
+//	defer span.End()
+//	if p.Exchange.eType != exchangeTypeFanout {
+//		err = fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
+//		span.RecordError(err)
+//		return err
+//	}
+//	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
+//	routingKey := p.Exchange.routingKey
+//	if p.isDelay {
+//		routingKey = p.deadLetter.deadRoutingKey
+//	}
+//
+//	err = p.channel.PublishWithContext(
+//		ctx,
+//		p.Exchange.name,
+//		routingKey,
+//		p.mandatory,
+//		false,
+//		amqp.Publishing{
+//			DeliveryMode: p.deliveryMode,
+//			ContentType:  "text/plain",
+//			Body:         body,
+//		},
+//	)
+//	if err != nil {
+//		span.RecordError(err)
+//	}
+//	return err
+//}
 
 // PublishTopic 发送topic类型消息
 // ctx: 上下文
 // topicKey: topic路由键
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishTopic")
-	defer span.End()
-
-	if p.Exchange.eType != exchangeTypeTopic {
-		err = fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
-		span.RecordError(err)
-		return err
-	}
-	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
-	err = p.channel.PublishWithContext(
-		ctx,
-		p.Exchange.name,
-		topicKey,
-		p.mandatory,
-		false,
-		amqp.Publishing{
-			DeliveryMode: p.deliveryMode,
-			ContentType:  "text/plain",
-			Body:         body,
-		},
-	)
-	if err != nil {
-		span.RecordError(err)
-	}
-	return err
-}
+//func (p *Producer) PublishTopic(ctx context.Context, topicKey string, body []byte) (err error) {
+//	ctx, span := p.tracer.Start(ctx, "PublishTopic")
+//	defer span.End()
+//
+//	if p.Exchange.eType != exchangeTypeTopic {
+//		err = fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
+//		span.RecordError(err)
+//		return err
+//	}
+//	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
+//	err = p.channel.PublishWithContext(
+//		ctx,
+//		p.Exchange.name,
+//		topicKey,
+//		p.mandatory,
+//		false,
+//		amqp.Publishing{
+//			DeliveryMode: p.deliveryMode,
+//			ContentType:  "text/plain",
+//			Body:         body,
+//		},
+//	)
+//	if err != nil {
+//		span.RecordError(err)
+//	}
+//	return err
+//}
 
 // PublishHeaders 发送headers类型消息
 // ctx: 上下文
 // headersKeys: 消息头键值对
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishHeaders")
-	defer span.End()
-	if p.Exchange.eType != exchangeTypeHeaders {
-		err = fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
-		span.RecordError(err)
-		return err
-	}
-	span.SetAttributes(
-		attribute.Int("body.size", len(body)),            // 记录消息大小而不是内容
-		attribute.Int("headers.count", len(headersKeys)), // 记录headers数量
-	)
-	err = p.channel.PublishWithContext(
-		ctx,
-		p.Exchange.name,
-		p.Exchange.routingKey,
-		p.mandatory,
-		false,
-		amqp.Publishing{
-			DeliveryMode: p.deliveryMode,
-			Headers:      headersKeys,
-			ContentType:  "text/plain",
-			Body:         body,
-		},
-	)
-	if err != nil {
-		span.RecordError(err)
-	}
-	return err
-}
+//func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) (err error) {
+//	ctx, span := p.tracer.Start(ctx, "PublishHeaders")
+//	defer span.End()
+//	if p.Exchange.eType != exchangeTypeHeaders {
+//		err = fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
+//		span.RecordError(err)
+//		return err
+//	}
+//	span.SetAttributes(
+//		attribute.Int("body.size", len(body)),            // 记录消息大小而不是内容
+//		attribute.Int("headers.count", len(headersKeys)), // 记录headers数量
+//	)
+//	err = p.channel.PublishWithContext(
+//		ctx,
+//		p.Exchange.name,
+//		p.Exchange.routingKey,
+//		p.mandatory,
+//		false,
+//		amqp.Publishing{
+//			DeliveryMode: p.deliveryMode,
+//			Headers:      headersKeys,
+//			ContentType:  "text/plain",
+//			Body:         body,
+//		},
+//	)
+//	if err != nil {
+//		span.RecordError(err)
+//	}
+//	return err
+//}
 
 // Close 关闭生产者通道
 // 返回可能的错误

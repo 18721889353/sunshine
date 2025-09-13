@@ -36,6 +36,7 @@ func main() {
 	exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
 	// 创建生产者
 	deadOpts := []gorabbitmq.ProducerOption{
+		gorabbitmq.WithProducerIsDelay(true),
 		gorabbitmq.WithProducerDeadLetterOptions(
 			gorabbitmq.WithDeadLetter(exchange.Name(), deadQueueName, deadRoutingKey, normalQueueName, exchange.RoutingKey()),
 			gorabbitmq.WithDeadLetterExchangeDeclareOptions(
@@ -53,7 +54,7 @@ func main() {
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
 					"x-dead-letter-exchange":    exchange.Name(),
 					"x-dead-letter-routing-key": normalRoutineKey,
-					"x-message-ttl":             10000,
+					"x-message-ttl":             20000,
 				})),
 			gorabbitmq.WithDeadLetterDeadQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(false),
