@@ -179,6 +179,8 @@ func (c *Consumer) initialize() error {
 	//--------------------------------自定义死信队列队列----------------------------------------------------
 	if c.customerDeadLetter.exchangeName != "sunshine" {
 		fields = logFields(c.exchange, map[string]any{
+			"msgDurable":                            c.msgDurable,
+			"isAutoAck":                             c.isAutoAck,
 			"queueName":                             c.QueueName,
 			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", c.customerDeadLetter.exchangeDeclare),
 			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", c.customerDeadLetter.deadQueueDeclare),
@@ -314,6 +316,9 @@ func (c *Consumer) initialize() error {
 	//--------------------------------死信队列队列----------------------------------------------------
 	if c.deadLetter.exchangeName != "sunshine" {
 		fields = logFields(c.exchange, map[string]any{
+			"msgDurable":                            c.msgDurable,
+			"isAutoAck":                             c.isAutoAck,
+			"queueName":                             c.QueueName,
 			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", c.deadLetter.exchangeDeclare),
 			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", c.deadLetter.deadQueueDeclare),
 			"customerDeadLetter.normalQueueDeclare": fmt.Sprintf("%+v", c.deadLetter.normalQueueDeclare),
@@ -415,6 +420,9 @@ func (c *Consumer) initialize() error {
 	//--------------------------------正常队列----------------------------------------------------
 	if c.normalLetter.exchangeName != "sunshine" {
 		fields = logFields(c.exchange, map[string]any{
+			"msgDurable":                      c.msgDurable,
+			"isAutoAck":                       c.isAutoAck,
+			"queueName":                       c.QueueName,
 			"normalLetter.exchangeDeclare":    fmt.Sprintf("%+v", c.normalLetter.exchangeDeclare),
 			"normalLetter.normalQueueDeclare": fmt.Sprintf("%+v", c.normalLetter.normalQueueDeclare),
 		})
