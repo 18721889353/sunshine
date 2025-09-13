@@ -67,8 +67,7 @@ func main() {
 			gorabbitmq.WithConsumeNoWait(false),
 			gorabbitmq.WithConsumeArgs(nil),
 		),
-		gorabbitmq.WithConsumerAutoAck(false),
-		gorabbitmq.WithConsumerMsgDurable(true),
+		gorabbitmq.WithConsumerAutoAck(true),
 	}
 
 	consumer, err := gorabbitmq.NewConsumer(exchange, "normalQueueName", conn, normalOpts...)
