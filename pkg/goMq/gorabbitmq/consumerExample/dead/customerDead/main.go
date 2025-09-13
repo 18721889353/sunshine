@@ -103,6 +103,8 @@ func main() {
 			gorabbitmq.WithConsumeNoWait(false),
 			gorabbitmq.WithConsumeArgs(nil),
 		),
+		gorabbitmq.WithConsumerAutoAck(false),
+		gorabbitmq.WithConsumerMsgDurable(true),
 	}
 	consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, conn, deadOpts...)
 	consumer.Consume(ctx, func(ctx context.Context, data []byte, tagID string) error {
