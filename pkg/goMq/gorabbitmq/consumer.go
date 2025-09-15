@@ -175,18 +175,8 @@ func (c *Consumer) initialize() error {
 	if c.normalLetter.exchangeName != "sunshine" && c.deadLetter.exchangeName != "sunshine" {
 		return fmt.Errorf("cannot set both normalLetter and deadLetter")
 	}
-	var fields []zap.Field
 	//--------------------------------自定义死信队列队列----------------------------------------------------
 	if c.customerDeadLetter.exchangeName != "sunshine" {
-		fields = logFields(c.exchange, map[string]any{
-			"msgDurable":                            c.msgDurable,
-			"isAutoAck":                             c.isAutoAck,
-			"queueName":                             c.QueueName,
-			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", c.customerDeadLetter.exchangeDeclare),
-			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", c.customerDeadLetter.deadQueueDeclare),
-			"customerDeadLetter.errQueueDeclare":    fmt.Sprintf("%+v", c.customerDeadLetter.errQueueDeclare),
-			"customerDeadLetter.normalQueueDeclare": fmt.Sprintf("%+v", c.customerDeadLetter.normalQueueDeclare),
-		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			c.exchange.name,  //交换机名称
@@ -315,14 +305,6 @@ func (c *Consumer) initialize() error {
 	}
 	//--------------------------------死信队列队列----------------------------------------------------
 	if c.deadLetter.exchangeName != "sunshine" {
-		fields = logFields(c.exchange, map[string]any{
-			"msgDurable":                            c.msgDurable,
-			"isAutoAck":                             c.isAutoAck,
-			"queueName":                             c.QueueName,
-			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", c.deadLetter.exchangeDeclare),
-			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", c.deadLetter.deadQueueDeclare),
-			"customerDeadLetter.normalQueueDeclare": fmt.Sprintf("%+v", c.deadLetter.normalQueueDeclare),
-		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			c.exchange.name,                         //交换机名称
@@ -419,13 +401,6 @@ func (c *Consumer) initialize() error {
 	}
 	//--------------------------------正常队列----------------------------------------------------
 	if c.normalLetter.exchangeName != "sunshine" {
-		fields = logFields(c.exchange, map[string]any{
-			"msgDurable":                      c.msgDurable,
-			"isAutoAck":                       c.isAutoAck,
-			"queueName":                       c.QueueName,
-			"normalLetter.exchangeDeclare":    fmt.Sprintf("%+v", c.normalLetter.exchangeDeclare),
-			"normalLetter.normalQueueDeclare": fmt.Sprintf("%+v", c.normalLetter.normalQueueDeclare),
-		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			c.exchange.name,                           //交换机名称
@@ -467,7 +442,6 @@ func (c *Consumer) initialize() error {
 			return err
 		}
 	}
-	c.zapLog.Info("[rabbitmq consumer] initialized", fields...)
 	return nil
 }
 
@@ -522,7 +496,6 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				c.zapLog.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
-			//c.zapLog.Info("[rabbitmq consumer] queue is ready and waiting for messages, queue=" + c.QueueName)
 
 			isContinueConsume := false
 			for {
@@ -545,7 +518,6 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					err = handler(ctx, d.Body, tagID)
 					if err != nil {
 						span.RecordError(err)
-						c.zapLog.Warn("[rabbitmq consumer] handle message error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 						if !c.isAutoAck {
 							//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 							//如果设置为 false，则将消息从队列中移除，不再重新排队
@@ -554,7 +526,6 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 								c.zapLog.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 							}
 						}
-						//c.zapLog.Info("[rabbitmq consumer] manual Reject done", zap.String("tagID", tagID))
 						span.End()
 						continue
 					}
@@ -563,7 +534,6 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 							span.RecordError(err)
 							c.zapLog.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
 						}
-						//c.zapLog.Info("[rabbitmq consumer] manual ack done", zap.String("tagID", tagID))
 					}
 					// 结束 span
 					span.End()
