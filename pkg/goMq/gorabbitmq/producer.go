@@ -120,7 +120,7 @@ type Producer struct {
 func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
 	o := defaultProducerOptions()
 	o.apply(opts...)
-	var fields []zap.Field
+	//var fields []zap.Field
 
 	// crate a new channel
 	amqpConn := connection.GetConn(ctx)
@@ -139,12 +139,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	}
 	//--------------------------------自定义死信队列队列----------------------------------------------------
 	if o.customerDeadLetter.exchangeName != "sunshine" {
-		fields = logFields(exchange, map[string]any{
-			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", o.customerDeadLetter.exchangeDeclare),
-			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", o.customerDeadLetter.deadQueueDeclare),
-			"customerDeadLetter.errQueueDeclare":    fmt.Sprintf("%+v", o.customerDeadLetter.errQueueDeclare),
-			"customerDeadLetter.normalQueueDeclare": fmt.Sprintf("%+v", o.customerDeadLetter.normalQueueDeclare),
-		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,  //交换机名称
@@ -273,11 +267,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	}
 	//--------------------------------死信队列队列----------------------------------------------------
 	if o.deadLetter.exchangeName != "sunshine" {
-		fields = logFields(exchange, map[string]any{
-			"customerDeadLetter.exchangeDeclare":    fmt.Sprintf("%+v", o.deadLetter.exchangeDeclare),
-			"customerDeadLetter.deadQueueDeclare":   fmt.Sprintf("%+v", o.deadLetter.deadQueueDeclare),
-			"customerDeadLetter.normalQueueDeclare": fmt.Sprintf("%+v", o.deadLetter.normalQueueDeclare),
-		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,                           //交换机名称
@@ -374,10 +363,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	}
 	//--------------------------------正常队列----------------------------------------------------
 	if o.normalLetter.exchangeName != "sunshine" {
-		fields = logFields(exchange, map[string]any{
-			"normalLetter.exchangeDeclare":    fmt.Sprintf("%+v", o.normalLetter.exchangeDeclare),
-			"normalLetter.normalQueueDeclare": fmt.Sprintf("%+v", o.normalLetter.normalQueueDeclare),
-		})
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,                             //交换机名称
@@ -428,7 +413,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 		deliveryMode = amqp.Transient
 	}
 
-	connection.zapLog.Info("[rabbit producer] initialized", fields...)
 	return &Producer{
 		zapLog:             connection.zapLog,
 		connection:         connection,
