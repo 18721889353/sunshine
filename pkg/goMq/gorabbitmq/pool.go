@@ -183,11 +183,11 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 	// 启动空闲连接清理协程
 	go pool.idleCleanup(ctx)
 
-	pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
-		zap.String("url", url),
-		zap.Int("initialCap", poolOpts.initialCap),
-		zap.Int("maxCap", poolOpts.maxCap),
-		zap.Duration("healthCheckPeriod", poolOpts.healthCheckPeriod))
+	//pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
+	//	zap.String("url", url),
+	//	zap.Int("initialCap", poolOpts.initialCap),
+	//	zap.Int("maxCap", poolOpts.maxCap),
+	//	zap.Duration("healthCheckPeriod", poolOpts.healthCheckPeriod))
 
 	return pool, nil
 }
@@ -224,7 +224,7 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 					// 从池中移除该连接
 					p.conns = append(p.conns[:i], p.conns[i+1:]...)
 					pc.lastUsed = time.Now()
-					p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
+					//p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
 					span.SetAttributes(
 						attribute.Bool("new_connection", false),
 						attribute.Int("pool_size", len(p.conns)),
@@ -250,7 +250,7 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 			}
 
 			atomic.AddInt64(&p.totalConns, 1)
-			p.poolOpts.zapLog.Info("[rabbitmq pool] created new connection")
+			//p.poolOpts.zapLog.Info("[rabbitmq pool] created new connection")
 			span.SetAttributes(
 				attribute.Bool("new_connection", true),
 				attribute.Int64("total_conns", atomic.LoadInt64(&p.totalConns)),
@@ -358,8 +358,7 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 	}
 	p.conns = append(p.conns, pc)
 
-	p.poolOpts.zapLog.Info("[rabbitmq pool] put connection back to pool",
-		zap.Int("poolSize", len(p.conns)))
+	//p.poolOpts.zapLog.Info("[rabbitmq pool] put connection back to pool", zap.Int("poolSize", len(p.conns)))
 
 	span.SetAttributes(
 		attribute.Int("pool_size", len(p.conns)),
@@ -494,7 +493,7 @@ func (p *Pool) Close(ctx context.Context) error {
 	// 释放ants协程池资源
 	p.antsPool.Release()
 
-	p.poolOpts.zapLog.Info("[rabbitmq pool] closed")
+	//p.poolOpts.zapLog.Info("[rabbitmq pool] closed")
 	span.SetAttributes(
 		attribute.Int("closed_connections", closedCount),
 	)
