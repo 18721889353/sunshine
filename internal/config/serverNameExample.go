@@ -39,6 +39,7 @@ type Config struct {
 	Jaeger        Jaeger        `yaml:"jaeger" json:"jaeger"`
 	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
 	Logger        Logger        `yaml:"logger" json:"logger"`
+	Rabbitmq      Rabbitmq      `yaml:"rabbitmq" json:"rabbitmq"`
 	Redis         Redis         `yaml:"redis" json:"redis"`
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
 	Sign          Sign          `yaml:"sign" json:"sign"`
@@ -76,10 +77,44 @@ type Jaeger struct {
 	AgentPort int    `yaml:"agentPort" json:"agentPort"`
 }
 
+type Pool struct {
+	AntsCap           int    `yaml:"antsCap" json:"antsCap"`
+	DialTimeout       int    `yaml:"dialTimeout" json:"dialTimeout"`
+	HealthCheckPeriod int    `yaml:"healthCheckPeriod" json:"healthCheckPeriod"`
+	Heartbeat         int    `yaml:"heartbeat" json:"heartbeat"`
+	InitialCap        int    `yaml:"initialCap" json:"initialCap"`
+	MaxCap            int    `yaml:"maxCap" json:"maxCap"`
+	MaxIdle           int    `yaml:"maxIdle" json:"maxIdle"`
+	ReconnectTime     int    `yaml:"reconnectTime" json:"reconnectTime"`
+	URL               string `yaml:"url" json:"url"`
+}
+
 type ClientToken struct {
 	AppID  string `yaml:"appID" json:"appID"`
 	AppKey string `yaml:"appKey" json:"appKey"`
 	Enable bool   `yaml:"enable" json:"enable"`
+}
+
+type DeadQueueDeclareOption struct {
+	Args       Args `yaml:"args" json:"args"`
+	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
+	Durable    bool `yaml:"durable" json:"durable"`
+	Exclusive  bool `yaml:"exclusive" json:"exclusive"`
+	NoWait     bool `yaml:"noWait" json:"noWait"`
+}
+
+type NormalQueueDeclareOption struct {
+	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
+	Durable    bool `yaml:"durable" json:"durable"`
+	Exclusive  bool `yaml:"exclusive" json:"exclusive"`
+	NoWait     bool `yaml:"noWait" json:"noWait"`
+}
+
+type ExchangeDeclareOptions struct {
+	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
+	Durable    bool `yaml:"durable" json:"durable"`
+	Internal   bool `yaml:"internal" json:"internal"`
+	NoWait     bool `yaml:"noWait" json:"noWait"`
 }
 
 type ClientSecure struct {
@@ -147,6 +182,37 @@ type Mysql struct {
 	MaxOpenConns    int    `yaml:"maxOpenConns" json:"maxOpenConns"`
 }
 
+type ConsumerOption struct {
+	Consumer      string `yaml:"consumer" json:"consumer"`
+	Exclusive     bool   `yaml:"exclusive" json:"exclusive"`
+	Global        bool   `yaml:"global" json:"global"`
+	IsAutoAck     bool   `yaml:"isAutoAck" json:"isAutoAck"`
+	MsgDurable    bool   `yaml:"msgDurable" json:"msgDurable"`
+	NoLocal       bool   `yaml:"noLocal" json:"noLocal"`
+	NoWait        bool   `yaml:"noWait" json:"noWait"`
+	PrefetchCount int    `yaml:"prefetchCount" json:"prefetchCount"`
+	PrefetchSize  int    `yaml:"prefetchSize" json:"prefetchSize"`
+}
+
+type TestOrder struct {
+	ConsumerNum       int               `yaml:"consumerNum" json:"consumerNum"`
+	DeadLetterOptions DeadLetterOptions `yaml:"deadLetterOptions" json:"deadLetterOptions"`
+	DeadQueueName     string            `yaml:"deadQueueName" json:"deadQueueName"`
+	Enable            bool              `yaml:"enable" json:"enable"`
+	ExchangeName      string            `yaml:"exchangeName" json:"exchangeName"`
+	NormalQueueName   string            `yaml:"normalQueueName" json:"normalQueueName"`
+	QueueType         string            `yaml:"queueType" json:"queueType"`
+}
+
+type DeadLetterOptions struct {
+	ConsumerOption           ConsumerOption           `yaml:"consumerOption" json:"consumerOption"`
+	DeadQueueBindOption      DeadQueueBindOption      `yaml:"deadQueueBindOption" json:"deadQueueBindOption"`
+	DeadQueueDeclareOption   DeadQueueDeclareOption   `yaml:"deadQueueDeclareOption" json:"deadQueueDeclareOption"`
+	ExchangeDeclareOptions   ExchangeDeclareOptions   `yaml:"exchangeDeclareOptions" json:"exchangeDeclareOptions"`
+	NormalQueueBindOption    DeadQueueBindOption      `yaml:"normalQueueBindOption" json:"normalQueueBindOption"`
+	NormalQueueDeclareOption NormalQueueDeclareOption `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
+}
+
 type Redis struct {
 	DialTimeout  int    `yaml:"dialTimeout" json:"dialTimeout"`
 	Dsn          string `yaml:"dsn" json:"dsn"`
@@ -165,6 +231,12 @@ type Database struct {
 
 type Mongodb struct {
 	Dsn string `yaml:"dsn" json:"dsn"`
+}
+
+type Rabbitmq struct {
+	Enable    bool      `yaml:"enable" json:"enable"`
+	Pool      Pool      `yaml:"pool" json:"pool"`
+	TestOrder TestOrder `yaml:"testOrder" json:"testOrder"`
 }
 
 type Grpc struct {
@@ -211,6 +283,10 @@ type Sign struct {
 	SignKey         string        `yaml:"signKey" json:"signKey"`
 }
 
+type DeadQueueBindOption struct {
+	NoWait bool `yaml:"noWait" json:"noWait"`
+}
+
 type HTTP struct {
 	Port    int `yaml:"port" json:"port"`
 	Timeout int `yaml:"timeout" json:"timeout"`
@@ -224,4 +300,8 @@ type Rules struct {
 
 type Sentinel struct {
 	Rules []Rules `yaml:"rules" json:"rules"`
+}
+
+type Args struct {
+	X_message_ttl int `yaml:"x-message-ttl" json:"x-message-ttl"`
 }
