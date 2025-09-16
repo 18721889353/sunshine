@@ -20,12 +20,13 @@ type PoolOption func(*poolOptions)
 
 // poolOptions 连接池配置选项
 type poolOptions struct {
-	initialCap int                // 初始连接数
-	maxCap     int                // 最大连接数
-	maxIdle    time.Duration      // 连接最大空闲时间
-	zapLog     *zap.Logger        // 日志记录器
-	connOpts   []ConnectionOption // 连接选项
-	antsCap    int                // ants协程池容量
+	initialCap        int                // 初始连接数
+	maxCap            int                // 最大连接数
+	maxIdle           time.Duration      // 连接最大空闲时间
+	zapLog            *zap.Logger        // 日志记录器
+	connOpts          []ConnectionOption // 连接选项
+	antsCap           int                // ants协程池容量
+	healthCheckPeriod time.Duration      // 健康检查周期
 }
 
 // apply 应用连接池配置选项
@@ -38,12 +39,13 @@ func (o *poolOptions) apply(opts ...PoolOption) {
 // defaultPoolOptions 默认连接池配置选项
 func defaultPoolOptions() *poolOptions {
 	return &poolOptions{
-		initialCap: 5,
-		maxCap:     30,
-		maxIdle:    time.Minute * 10,
-		zapLog:     defaultLogger,
-		connOpts:   []ConnectionOption{},
-		antsCap:    0, // 默认使用ants库的默认容量
+		initialCap:        5,
+		maxCap:            30,
+		maxIdle:           time.Minute * 10,
+		zapLog:            defaultLogger,
+		connOpts:          []ConnectionOption{},
+		antsCap:           0,           // 默认使用ants库的默认容量
+		healthCheckPeriod: time.Minute, // 默认健康检查周期为1分钟
 	}
 }
 
@@ -95,6 +97,15 @@ func WithAntsPoolSize(cap int) PoolOption {
 	return func(o *poolOptions) {
 		if cap >= 0 {
 			o.antsCap = cap
+		}
+	}
+}
+
+// WithHealthCheckPeriod 设置健康检查周期
+func WithHealthCheckPeriod(d time.Duration) PoolOption {
+	return func(o *poolOptions) {
+		if d > 0 {
+			o.healthCheckPeriod = d
 		}
 	}
 }
@@ -175,7 +186,8 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 	pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
 		zap.String("url", url),
 		zap.Int("initialCap", poolOpts.initialCap),
-		zap.Int("maxCap", poolOpts.maxCap))
+		zap.Int("maxCap", poolOpts.maxCap),
+		zap.Duration("healthCheckPeriod", poolOpts.healthCheckPeriod))
 
 	return pool, nil
 }
@@ -205,15 +217,25 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 		for i := len(p.conns) - 1; i >= 0; i-- {
 			pc := p.conns[i]
 			if pc.conn.CheckConnected(ctx) {
-				// 从池中移除该连接
+				// 执行一次轻量级操作验证连接是否真正可用
+				// 这里使用一个轻量级的验证操作，而不是直接返回连接
+				verified, err := p.verifyConnection(pc.conn)
+				if verified && err == nil {
+					// 从池中移除该连接
+					p.conns = append(p.conns[:i], p.conns[i+1:]...)
+					pc.lastUsed = time.Now()
+					p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
+					span.SetAttributes(
+						attribute.Bool("new_connection", false),
+						attribute.Int("pool_size", len(p.conns)),
+					)
+					return pc.conn, nil
+				}
+
+				// 连接实际上不可用，关闭并移除
+				pc.conn.Close()
+				atomic.AddInt64(&p.totalConns, -1)
 				p.conns = append(p.conns[:i], p.conns[i+1:]...)
-				pc.lastUsed = time.Now()
-				p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
-				span.SetAttributes(
-					attribute.Bool("new_connection", false),
-					attribute.Int("pool_size", len(p.conns)),
-				)
-				return pc.conn, nil
 			}
 		}
 
@@ -239,6 +261,66 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 		// 等待连接释放
 		p.cond.Wait()
 	}
+}
+
+// GetWithRetry 从连接池获取一个连接，带重试机制
+func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, error) {
+	var lastErr error
+
+	for i := 0; i <= maxRetries; i++ {
+		conn, err := p.Get(ctx)
+		if err == nil {
+			return conn, nil
+		}
+
+		lastErr = err
+		// 如果是连接池关闭错误，则不重试
+		if err.Error() == "pool is closed" {
+			break
+		}
+
+		// 指数退避延迟
+		if i < maxRetries {
+			delay := time.Duration(1<<uint(i)) * time.Millisecond * 100
+			if delay > time.Second*3 {
+				delay = time.Second * 3
+			}
+
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+				timer.Stop()
+			}
+		}
+	}
+
+	return nil, lastErr
+}
+
+// verifyConnection 验证连接是否真正可用
+func (p *Pool) verifyConnection(conn *Connection) (bool, error) {
+	// 通过获取底层AMQP连接并创建一个临时通道来验证连接
+	amqpConn := conn.GetConn(context.Background())
+	if amqpConn == nil {
+		return false, errors.New("underlying amqp connection is nil")
+	}
+
+	// 创建一个临时通道来验证连接
+	ch, err := amqpConn.Channel()
+	if err != nil {
+		return false, err
+	}
+
+	// 关闭临时通道
+	err = ch.Close()
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // Put 将连接放回连接池
@@ -293,12 +375,21 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
+	// 使用配置的健康检查周期
+	healthCheckTicker := time.NewTicker(p.poolOpts.healthCheckPeriod)
+	defer healthCheckTicker.Stop()
+
 	for {
 		select {
 		case <-ticker.C:
 			// 使用ants协程池处理空闲连接清理任务
 			_ = p.antsPool.Submit(func() {
 				p.doCleanup(ctx)
+			})
+		case <-healthCheckTicker.C:
+			// 定期执行健康检查
+			_ = p.antsPool.Submit(func() {
+				p.HealthCheck(ctx)
 			})
 		}
 	}
@@ -425,4 +516,44 @@ func (p *Pool) Stats(ctx context.Context) map[string]interface{} {
 	)
 
 	return stats
+}
+
+// HealthCheck 健康检查连接池中的连接
+func (p *Pool) HealthCheck(ctx context.Context) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	if p.closed {
+		return
+	}
+
+	removedCount := 0
+	// 检查连接池中的连接是否仍然有效
+	for i := len(p.conns) - 1; i >= 0; i-- {
+		pc := p.conns[i]
+		// 检查连接是否有效
+		if !pc.conn.CheckConnected(ctx) {
+			// 连接无效，关闭并移除
+			pc.conn.Close()
+			atomic.AddInt64(&p.totalConns, -1)
+			p.conns = append(p.conns[:i], p.conns[i+1:]...)
+			removedCount++
+			continue
+		}
+
+		// 执行更严格的验证
+		verified, err := p.verifyConnection(pc.conn)
+		if !verified || err != nil {
+			// 连接实际上不可用，关闭并移除
+			pc.conn.Close()
+			atomic.AddInt64(&p.totalConns, -1)
+			p.conns = append(p.conns[:i], p.conns[i+1:]...)
+			removedCount++
+		}
+	}
+
+	if removedCount > 0 {
+		p.poolOpts.zapLog.Info("[rabbitmq pool] health check removed invalid connections",
+			zap.Int("removedCount", removedCount))
+	}
 }

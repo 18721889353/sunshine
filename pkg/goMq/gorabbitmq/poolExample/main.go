@@ -20,17 +20,19 @@ func main() {
 	pool, err := gorabbitmq.NewPool(
 		ctx,
 		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
-		gorabbitmq.WithInitialCap(10),           // 初始连接数
-		gorabbitmq.WithMaxCap(1000),             // 最大连接数
-		gorabbitmq.WithMaxIdle(time.Minute*10),  // 最大空闲时间
-		gorabbitmq.WithPoolLogger(logger.Get()), // 日志记录器
-		gorabbitmq.WithAntsPoolSize(10),         // 配置 ants 协程池大小为 10
+		gorabbitmq.WithInitialCap(10),                    // 初始连接数
+		gorabbitmq.WithMaxCap(1000),                      // 最大连接数
+		gorabbitmq.WithMaxIdle(time.Minute*1),            // 最大空闲时间
+		gorabbitmq.WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
+		gorabbitmq.WithPoolLogger(logger.Get()),          // 日志记录器
+		gorabbitmq.WithAntsPoolSize(10),                  // 配置 ants 协程池大小为 10
 		gorabbitmq.WithConnOptions( // 连接选项
 			gorabbitmq.WithReconnectTime(time.Second*3),
 			gorabbitmq.WithDialTimeout(time.Second*5),
 			gorabbitmq.WithHeartbeat(time.Second*3),
 		),
 	)
+
 	if err != nil {
 		logger.Fatal("Failed to create connection pool", zap.Error(err))
 	}
