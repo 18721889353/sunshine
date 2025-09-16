@@ -70,6 +70,7 @@ func main() {
 
 	err = producer.PublishDirect(
 		ctx,
+		normalRoutineKey,
 		[]byte("Hello"),
 	)
 	if err != nil {
