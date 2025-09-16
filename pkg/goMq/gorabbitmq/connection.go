@@ -191,7 +191,7 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 
 	go connection.monitor(ctx)
 
-	connection.zapLog.Info("[rabbitmq connection] connected successfully", zap.String("url", url))
+	//connection.zapLog.Info("[rabbitmq connection] connected successfully", zap.String("url", url))
 	return connection, nil
 }
 
@@ -289,7 +289,7 @@ func (c *Connection) monitor(ctx context.Context) {
 			select {
 			case <-c.exit:
 				_ = c.closeConn()
-				c.zapLog.Info("[rabbitmq connection] closed")
+				//c.zapLog.Info("[rabbitmq connection] closed")
 				return
 			case b := <-c.blockChan:
 				if b.Active {
@@ -354,9 +354,9 @@ func (c *Connection) monitor(ctx context.Context) {
 					return
 				}
 
-				c.zapLog.Info("[rabbitmq connection] reconnected successfully",
-					zap.Int64("retryCount", retryCount),
-					zap.String("url", c.url))
+				//c.zapLog.Info("[rabbitmq connection] reconnected successfully",
+				//	zap.Int64("retryCount", retryCount),
+				//	zap.String("url", c.url))
 
 				// 设置新连接
 				c.mutex.Lock()
@@ -374,7 +374,7 @@ func (c *Connection) monitor(ctx context.Context) {
 		select {
 		case <-c.exit:
 			_ = c.closeConn()
-			c.zapLog.Info("[rabbitmq connection] closed")
+			//c.zapLog.Info("[rabbitmq connection] closed")
 			return
 		case <-time.After(time.Millisecond * 100):
 			// 继续下一次循环
