@@ -114,8 +114,8 @@ func (s *rabbitmqConsumerServer) String() string {
 }
 
 // NewRabbitmqConsumerServer 创建新的RabbitMQ消费者服务
-func NewRabbitmqConsumerServer(consumers []mq.Consumer, opts ...CRONOption) app.IServer {
-	o := defaultCRONOptions()
+func NewRabbitmqConsumerServer(consumers []mq.Consumer, opts ...RABBITQMCONSUMEROption) app.IServer {
+	o := defaultRABBITQMCONSUMEROptions()
 	o.apply(opts...)
 	return &rabbitmqConsumerServer{
 		isRunning: false,
