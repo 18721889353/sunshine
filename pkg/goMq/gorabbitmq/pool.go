@@ -380,17 +380,38 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 	defer healthCheckTicker.Stop()
 
 	for {
+		// 使用 defer/recover 防止清理 goroutine 因异常而退出
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					p.poolOpts.zapLog.Error("[rabbitmq pool] idleCleanup recovered from panic",
+						zap.Any("panic", r))
+				}
+			}()
+
+			select {
+			case <-ticker.C:
+				// 使用ants协程池处理空闲连接清理任务
+				_ = p.antsPool.Submit(func() {
+					p.doCleanup(ctx)
+				})
+			case <-healthCheckTicker.C:
+				// 定期执行健康检查
+				_ = p.antsPool.Submit(func() {
+					p.HealthCheck(ctx)
+				})
+			case <-ctx.Done():
+				// 上下文取消，退出清理循环
+				return
+			}
+		}()
+
+		// 防止过快重试
 		select {
-		case <-ticker.C:
-			// 使用ants协程池处理空闲连接清理任务
-			_ = p.antsPool.Submit(func() {
-				p.doCleanup(ctx)
-			})
-		case <-healthCheckTicker.C:
-			// 定期执行健康检查
-			_ = p.antsPool.Submit(func() {
-				p.HealthCheck(ctx)
-			})
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Millisecond * 100):
+			// 继续下一次循环
 		}
 	}
 }
