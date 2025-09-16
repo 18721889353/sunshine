@@ -26,12 +26,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("创建连接失败: %v", err)
 	}
-	exchangeName := "testOrderExchange"
-
-	deadQueueName := "testOrderQueueDL"
-	deadRoutingKey := "testOrderExchange.testOrderQueueDL"
-	normalQueueName := "testOrderQueue"
-	normalRoutineKey := "testOrderExchange.testOrderQueue"
+	exchangeName := "exchange"
+	deadQueueName := "deadQueueName"
+	normalQueueName := "deadNormalQueueName"
+	deadRoutingKey := exchangeName + "." + deadQueueName
+	normalRoutineKey := exchangeName + "." + normalQueueName
 	defer conn.Close()
 	exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
 	// 创建生产者
