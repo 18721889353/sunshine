@@ -344,7 +344,8 @@ func (c *Connection) monitor(ctx context.Context) {
 				}
 				time.Sleep(c.reconnectTime)
 
-				amqpConn, amqpErr := connect(ctx, c)
+				// 使用background context避免使用被取消的上下文
+				amqpConn, amqpErr := connect(context.Background(), c)
 				if amqpErr != nil {
 					if retryCount%10 == 1 {
 						c.zapLog.Warn("[rabbitmq connection] reconnect error",
