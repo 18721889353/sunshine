@@ -48,23 +48,23 @@ type Config struct {
 type Elasticsearch struct {
 	Addresses             []string `yaml:"addresses" json:"addresses"`
 	APIKey                string   `yaml:"apiKey" json:"apiKey"`
-	ConnectionKeepAlive   int      `yaml:"connection_keep_alive" json:"connection_keep_alive"`
-	ConnectionTimeout     int      `yaml:"connection_timeout" json:"connection_timeout"`
-	EnableHealthCheck     bool     `yaml:"enable_health_check" json:"enable_health_check"`
-	EnablePingCheck       bool     `yaml:"enable_ping_check" json:"enable_ping_check"`
-	ExpectContinueTimeout int      `yaml:"expect_continue_timeout" json:"expect_continue_timeout"`
-	IdleConnTimeout       int      `yaml:"idle_conn_timeout" json:"idle_conn_timeout"`
+	ConnectionKeepAlive   int      `yaml:"connectionKeepAlive" json:"connectionKeepAlive"`
+	ConnectionTimeout     int      `yaml:"connectionTimeout" json:"connectionTimeout"`
+	EnableHealthCheck     bool     `yaml:"enableHealthCheck" json:"enableHealthCheck"`
+	EnablePingCheck       bool     `yaml:"enablePingCheck" json:"enablePingCheck"`
+	ExpectContinueTimeout int      `yaml:"expectContinueTimeout" json:"expectContinueTimeout"`
+	IdleConnTimeout       int      `yaml:"idleConnTimeout" json:"idleConnTimeout"`
 	IsOpen                bool     `yaml:"isOpen" json:"isOpen"`
-	MaxConnsPerHost       int      `yaml:"max_conns_per_host" json:"max_conns_per_host"`
-	MaxIdleConns          int      `yaml:"max_idle_conns" json:"max_idle_conns"`
-	MaxIdleConnsPerHost   int      `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
-	MaxRetries            int      `yaml:"max_retries" json:"max_retries"`
+	MaxConnsPerHost       int      `yaml:"maxConnsPerHost" json:"maxConnsPerHost"`
+	MaxIdleConns          int      `yaml:"maxIdleConns" json:"maxIdleConns"`
+	MaxIdleConnsPerHost   int      `yaml:"maxIdleConnsPerHost" json:"maxIdleConnsPerHost"`
+	MaxRetries            int      `yaml:"maxRetries" json:"maxRetries"`
 	Password              string   `yaml:"password" json:"password"`
-	ResponseHeaderTimeout int      `yaml:"response_header_timeout" json:"response_header_timeout"`
-	RetryBackoff          int      `yaml:"retry_backoff" json:"retry_backoff"`
-	RetryOnStatus         []int    `yaml:"retry_on_status" json:"retry_on_status"`
+	ResponseHeaderTimeout int      `yaml:"responseHeaderTimeout" json:"responseHeaderTimeout"`
+	RetryBackoff          int      `yaml:"retryBackoff" json:"retryBackoff"`
+	RetryOnStatus         []int    `yaml:"retryOnStatus" json:"retryOnStatus"`
 	Timeout               int      `yaml:"timeout" json:"timeout"`
-	TLSHandshakeTimeout   int      `yaml:"tls_handshake_timeout" json:"tls_handshake_timeout"`
+	TLSHandshakeTimeout   int      `yaml:"tlsHandshakeTimeout" json:"tlsHandshakeTimeout"`
 	Username              string   `yaml:"username" json:"username"`
 }
 
@@ -165,20 +165,14 @@ type GrpcClient struct {
 	Timeout               int          `yaml:"timeout" json:"timeout"`
 }
 
-type Sqlite struct {
-	ConnMaxLifetime int    `yaml:"connMaxLifetime" json:"connMaxLifetime"`
-	DBFile          string `yaml:"dbFile" json:"dbFile"`
-	EnableLog       bool   `yaml:"enableLog" json:"enableLog"`
-	MaxIdleConns    int    `yaml:"maxIdleConns" json:"maxIdleConns"`
-	MaxOpenConns    int    `yaml:"maxOpenConns" json:"maxOpenConns"`
-}
-
 type Mysql struct {
-	ConnMaxLifetime int    `yaml:"connMaxLifetime" json:"connMaxLifetime"`
-	Dsn             string `yaml:"dsn" json:"dsn"`
-	EnableLog       bool   `yaml:"enableLog" json:"enableLog"`
-	MaxIdleConns    int    `yaml:"maxIdleConns" json:"maxIdleConns"`
-	MaxOpenConns    int    `yaml:"maxOpenConns" json:"maxOpenConns"`
+	ConnMaxLifetime int      `yaml:"connMaxLifetime" json:"connMaxLifetime"`
+	Dsn             string   `yaml:"dsn" json:"dsn"`
+	EnableLog       bool     `yaml:"enableLog" json:"enableLog"`
+	MastersDsn      []string `yaml:"mastersDsn" json:"mastersDsn"`
+	MaxIdleConns    int      `yaml:"maxIdleConns" json:"maxIdleConns"`
+	MaxOpenConns    int      `yaml:"maxOpenConns" json:"maxOpenConns"`
+	SlavesDsn       []string `yaml:"slavesDsn" json:"slavesDsn"`
 }
 
 type ConsumerOption struct {
@@ -223,15 +217,8 @@ type Rabbitmq struct {
 }
 
 type Database struct {
-	Driver     string  `yaml:"driver" json:"driver"`
-	Mongodb    Mongodb `yaml:"mongodb" json:"mongodb"`
-	Mysql      Mysql   `yaml:"mysql" json:"mysql"`
-	Postgresql Mysql   `yaml:"postgresql" json:"postgresql"`
-	Sqlite     Sqlite  `yaml:"sqlite" json:"sqlite"`
-}
-
-type Mongodb struct {
-	Dsn string `yaml:"dsn" json:"dsn"`
+	Driver string `yaml:"driver" json:"driver"`
+	Mysql  Mysql  `yaml:"mysql" json:"mysql"`
 }
 
 type Grpc struct {
