@@ -4,8 +4,13 @@
 package initial
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"github.com/panjf2000/ants/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.uber.org/zap"
 	"strconv"
 	"time"
 
@@ -30,27 +35,104 @@ var (
 	version            string
 	configFile         string
 	enableConfigCenter bool
+	logPool            *ants.Pool
 )
 
-func customHook(entry zapcore.Entry, fields []logger.Field) error {
-	fmt.Printf("Level: %s\nMessage: %s\nCaller: %s\nTime: %s\n", entry.Level, entry.Message, entry.Caller.TrimmedPath(), entry.Time.Format("2006-01-02 15:04:05.000000"))
-	// 分析字段数据并打印键值对
-	for _, field := range fields {
-		fmt.Printf("Key: %s, Value: %v\n", field.Key, logger.GGetFieldValue(field))
+// 初始化协程池（建议在init()中调用）
+func initLogPool() {
+	var err error
+	// 增加池容量到500，并添加非阻塞选项和最大阻塞任务数限制
+	logPool, err = ants.NewPool(500,
+		ants.WithPreAlloc(true),
+		ants.WithNonblocking(false),     // 设置为阻塞模式，确保任务不会丢失
+		ants.WithMaxBlockingTasks(1000), // 最多允许1000个任务等待
+	)
+	if err != nil {
+		panic(err)
 	}
+}
+
+// sendLogToMQ 发送日志到消息队列
+func sendLogToMQ(ctx context.Context, entry zapcore.Entry, fields []logger.Field) {
+	ctx, span := otel.Tracer(config.Get().App.Name).Start(ctx, "sendLogToMQ")
+	defer span.End()
+	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*2)
+	defer cancelFunc()
+
+	// 添加重试机制
+	var err error
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		err = database.GetRabbitMQ().SendMessage(timeoutCtx, config.Get().Rabbitmq.DoingOrder.ExchangeName, config.Get().Rabbitmq.DoingOrder.NormalQueueName, fmt.Sprintf("[%s] [%s] [%s]", entry.Caller.TrimmedPath(), entry.Level, logger.ToJSON(append(fields, zap.String("current_time", entry.Time.Format("2006-01-02 15:04:05.000000")), zap.String("log_msg", entry.Message)))))
+		if err == nil {
+			break
+		}
+		// 如果不是最后一次尝试，等待一段时间后重试
+		if i < maxRetries-1 {
+			time.Sleep(time.Millisecond * 100 * time.Duration(i+1))
+		}
+	}
+
+	if err != nil {
+		// 记录错误到 span
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		// 同时打印到标准输出，确保关键错误不丢失
+		fmt.Printf("Failed to send log to MQ: %v\n", err)
+	}
+}
+
+func customHook(entry zapcore.Entry, fields []logger.Field) error {
+	// 分析字段数据并打印键值对
+	// 参数 entry 介绍
+	// entry  参数就是单条日志结构体，主要包括字段如下：
+	//Level      日志等级
+	//Time       当前时间
+	//LoggerName  日志名称
+	//Message    日志内容
+	//Caller     各个文件调用路径
+	//Stack      代码调用栈
+	// 如果协程池为nil，直接同步发送日志
+	if logPool == nil {
+		// 同步发送日志，确保不会丢失
+		ctx := context.Background()
+		sendLogToMQ(ctx, entry, fields)
+		return nil
+	}
+	//这里启动一个协程，hook丝毫不会影响程序性能，
+	// 使用协程池
+	err := logPool.Submit(func() {
+		ctx := context.Background()
+		sendLogToMQ(ctx, entry, fields)
+	})
+	// 如果提交任务失败，采用同步方式发送日志，防止日志丢失
+	if err != nil {
+		// 记录任务提交失败的错误
+		logger.Error("Failed to submit log task to pool",
+			zap.Error(err),
+			zap.String("log_message", entry.Message),
+		)
+		// 同步发送日志作为降级处理
+		go func() {
+			ctx := context.Background()
+			sendLogToMQ(ctx, entry, fields)
+		}()
+	}
+
 	return nil
 }
 
 // InitApp initial app configuration
 func InitApp() {
 	initConfig()
+	initLogPool()
 	cfg := config.Get()
 
 	// initializing log
 	_, err := logger.Init(
 		logger.WithLevel(cfg.Logger.Level),
 		logger.WithFormat(cfg.Logger.Format),
-		logger.WithCustomHooks(customHook),
+		//logger.WithCustomHooks(customHook),
 		logger.WithSave(
 			cfg.Logger.IsSave,
 			logger.WithSaveDay(cfg.Logger.LogFileConfig.IsSaveDay),
@@ -126,6 +208,10 @@ func InitApp() {
 	if int64(cfg.App.MachineID) > 0 {
 		database.GetSnowNode()
 		logger.Info("init SnowNode  succeeded")
+	}
+	if cfg.Rabbitmq.Enable {
+		database.InitRabbitmq()
+		logger.Info("init RabbitMQ succeeded")
 	}
 }
 

@@ -2,10 +2,11 @@ package initial
 
 import (
 	"fmt"
-	"strconv"
-
 	"github.com/18721889353/sunshine/internal/cron"
+	_ "github.com/18721889353/sunshine/internal/cron/tasks"
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
+	_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
+	"strconv"
 
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/server"
@@ -40,7 +41,7 @@ func CreateServices() []app.IServer {
 		// 添加cron服务示例
 		servers = append(servers, server.NewCronServer(cron.GetTasks()))
 	}
-	if cfg.App.OpenRabbitmqConsumer {
+	if cfg.Rabbitmq.Enable {
 		// 添加mq消费者服务示例
 		servers = append(servers, server.NewRabbitmqConsumerServer(mq.GetConsumers()))
 	}
