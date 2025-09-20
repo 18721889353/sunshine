@@ -21,7 +21,6 @@ app:
   openJwt: true
   openSign: true
   openCron: false
-  openRabbitmqConsumer: false
 
 # todo generate http or rpc server configuration here
 # delete the templates code start
@@ -186,55 +185,54 @@ sentinel:
       statIntervalInMs: 2000
 
 rabbitmq:
-  enable: true #是否启用rabbitmq
+  enable: false #是否启用rabbitmq
   pool:
     url: "amqp://sunjianguo:jianguo123@43.143.78.234:5672/"
     initialCap: 10 #初始连接数
-    maxCap: 200 #初始连接数
+    maxCap: 100 #初始连接数
     healthCheckPeriod: 60 #健康检查间隔秒
-    maxIdle: 600  #最大空闲时间 秒
+    maxIdle: 300  #最大空闲时间 秒
     antsCap: 1 #如果您希望使用动态调整的协程池，可以将 antsCap 设置为 0
     reconnectTime: 3 #设置重连时间间隔选项 秒
     dialTimeout: 5 #设置连接超时时间选项
     heartbeat: 3 #设置心跳间隔选项
-  testOrder:
-    enable: false #是否启用
+  DoingOrder:
+    enable: true #是否启用
     queueType: "dead" #队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
-    exchangeName: "testOrderExchange" #交换机名称
-    normalQueueName: "testOrderQueue" #正常队列名称
-    deadQueueName: "testOrderQueueDL" #死信队列名称
-    deadLetterOptions: #死信队列选项
-      exchangeDeclareOptions: #死信队列交换机选项
-        durable: true #交换机是否持久化，即使服务器重启也保留
-        autoDelete: false #是否自动删除，当最后一个消费者断开连接时是否自动删除
-        internal: false #是否为内部使用，true表示只用于exchange到exchange的绑定
-        noWait: false #是否非阻塞处理，true表示不等待服务器确认
-      deadQueueDeclareOption: #死信队列队列选项
-        durable: true #队列是否持久化，即使服务器重启也保留
-        autoDelete: false #是否自动删除，当最后一个消费者断开连接时是否自动删除
-        exclusive: false #是否排他，只有创建它的连接才能访问
-        noWait: false #是否非阻塞处理，true表示不等待服务器确认
-        args:
-          "x-message-ttl": 20000 #消息过期时间（队列级别）,毫秒
-      deadQueueBindOption: #死信队列队列绑定选项
-        noWait: false #是否非阻塞处理，true表示不等待服务器确认
-      normalQueueDeclareOption:
-        durable: true #队列是否持久化，即使服务器重启也保留
-        autoDelete: false #是否自动删除，当最后一个消费者断开连接时是否自动删除
-        exclusive: false #是否排他，只有创建它的连接才能访问
-        noWait: false #是否非阻塞处理，true表示不等待服务器确认
-      normalQueueBindOption:
-        noWait: false #是否非阻塞处理，true表示不等待服务器确认
-      consumerOption: #消费者选项
-        prefetchCount: 1 #指定消费者可以同时处理的消息数量上限。例如，如果设置为 1，则消费者在处理完前 1 条消息之前不会接收新的消息。 prefetchCount 为 0，表示不限制消息数量
-        prefetchSize: 0 #预取消息大小，0表示无限制
-        global: false #是否全局生效（对整个通道生效，而不仅仅是当前消费者）
-        consumer: "testOrder" #消费者标识，用于区分多个消费者
-        exclusive: false #是否独占，只有创建它的程序才能访问
-        noLocal: false #如果设置为true，同一个Connection中的生产者发送的消息不能传递给该Connection中的消费者
-        noWait: false #是是否阻塞处理
-        msgDurable: true #消息是否持久化
-        isAutoAck: false #是否自动确认消息
+    exchangeName: "DoingOrderExchange" #交换机名称
+    normalQueueName: "DoingOrderQueue" #正常队列名称
+    deadQueueName: "DoingOrderQueueDL" #死信队列名称
+    exchangeDeclareOptions: #死信队列交换机选项
+      durable: true #交换机是否持久化，即使服务器重启也保留
+      autoDelete: false #是否自动删除，当最后一个消费者断开连接时是否自动删除
+      internal: false #是否为内部使用，true表示只用于exchange到exchange的绑定
+      noWait: false #是否非阻塞处理，true表示不等待服务器确认
+    deadQueueDeclareOption: #死信队列队列选项
+      durable: true #队列是否持久化，即使服务器重启也保留
+      autoDelete: false #是否自动删除，当最后一个消费者断开连接时是否自动删除
+      exclusive: false #是否排他，只有创建它的连接才能访问
+      noWait: false #是否非阻塞处理，true表示不等待服务器确认
+      args:
+        xMessageTtl: 60000 #消息过期时间（队列级别）,毫秒
+    deadQueueBindOption: #死信队列队列绑定选项
+      noWait: false #是否非阻塞处理，true表示不等待服务器确认
+    normalQueueDeclareOption:
+      durable: true #队列是否持久化，即使服务器重启也保留
+      autoDelete: false #是否自动删除，当最后一个消费者断开连接时是否自动删除
+      exclusive: false #是否排他，只有创建它的连接才能访问
+      noWait: false #是否非阻塞处理，true表示不等待服务器确认
+    normalQueueBindOption:
+      noWait: false #是否非阻塞处理，true表示不等待服务器确认
+    consumerOption: #消费者选项
+      prefetchCount: 1 #指定消费者可以同时处理的消息数量上限。例如，如果设置为 1，则消费者在处理完前 1 条消息之前不会接收新的消息。 prefetchCount 为 0，表示不限制消息数量
+      prefetchSize: 0 #预取消息大小，0表示无限制
+      global: false #是否全局生效（对整个通道生效，而不仅仅是当前消费者）
+      consumer: "testOrder" #消费者标识，用于区分多个消费者
+      exclusive: false #是否独占，只有创建它的程序才能访问
+      noLocal: false #如果设置为true，同一个Connection中的生产者发送的消息不能传递给该Connection中的消费者
+      noWait: false #是是否阻塞处理
+      msgDurable: true #消息是否持久化
+      isAutoAck: false #是否自动确认消息
     consumerNum: 10 #消费者数量
 
 elasticsearch:

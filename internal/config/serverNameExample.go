@@ -147,7 +147,6 @@ type App struct {
 	OpenCron              bool    `yaml:"openCron" json:"openCron"`
 	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
 	OpenJwt               bool    `yaml:"openJwt" json:"openJwt"`
-	OpenRabbitmqConsumer  bool    `yaml:"openRabbitmqConsumer" json:"openRabbitmqConsumer"`
 	OpenSign              bool    `yaml:"openSign" json:"openSign"`
 	OpenXSS               bool    `yaml:"openXSS" json:"openXSS"`
 	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
@@ -194,23 +193,19 @@ type ConsumerOption struct {
 	PrefetchSize  int    `yaml:"prefetchSize" json:"prefetchSize"`
 }
 
-type TestOrder struct {
-	ConsumerNum       int               `yaml:"consumerNum" json:"consumerNum"`
-	DeadLetterOptions DeadLetterOptions `yaml:"deadLetterOptions" json:"deadLetterOptions"`
-	DeadQueueName     string            `yaml:"deadQueueName" json:"deadQueueName"`
-	Enable            bool              `yaml:"enable" json:"enable"`
-	ExchangeName      string            `yaml:"exchangeName" json:"exchangeName"`
-	NormalQueueName   string            `yaml:"normalQueueName" json:"normalQueueName"`
-	QueueType         string            `yaml:"queueType" json:"queueType"`
-}
-
-type DeadLetterOptions struct {
+type DoingOrder struct {
+	ConsumerNum              int                      `yaml:"consumerNum" json:"consumerNum"`
 	ConsumerOption           ConsumerOption           `yaml:"consumerOption" json:"consumerOption"`
 	DeadQueueBindOption      DeadQueueBindOption      `yaml:"deadQueueBindOption" json:"deadQueueBindOption"`
 	DeadQueueDeclareOption   DeadQueueDeclareOption   `yaml:"deadQueueDeclareOption" json:"deadQueueDeclareOption"`
+	DeadQueueName            string                   `yaml:"deadQueueName" json:"deadQueueName"`
+	Enable                   bool                     `yaml:"enable" json:"enable"`
 	ExchangeDeclareOptions   ExchangeDeclareOptions   `yaml:"exchangeDeclareOptions" json:"exchangeDeclareOptions"`
+	ExchangeName             string                   `yaml:"exchangeName" json:"exchangeName"`
 	NormalQueueBindOption    DeadQueueBindOption      `yaml:"normalQueueBindOption" json:"normalQueueBindOption"`
 	NormalQueueDeclareOption NormalQueueDeclareOption `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
+	NormalQueueName          string                   `yaml:"normalQueueName" json:"normalQueueName"`
+	QueueType                string                   `yaml:"queueType" json:"queueType"`
 }
 
 type Redis struct {
@@ -219,6 +214,12 @@ type Redis struct {
 	PoolSize     int    `yaml:"poolSize" json:"poolSize"`
 	ReadTimeout  int    `yaml:"readTimeout" json:"readTimeout"`
 	WriteTimeout int    `yaml:"writeTimeout" json:"writeTimeout"`
+}
+
+type Rabbitmq struct {
+	DoingOrder DoingOrder `yaml:"DoingOrder" json:"DoingOrder"`
+	Enable     bool       `yaml:"enable" json:"enable"`
+	Pool       Pool       `yaml:"pool" json:"pool"`
 }
 
 type Database struct {
@@ -231,12 +232,6 @@ type Database struct {
 
 type Mongodb struct {
 	Dsn string `yaml:"dsn" json:"dsn"`
-}
-
-type Rabbitmq struct {
-	Enable    bool      `yaml:"enable" json:"enable"`
-	Pool      Pool      `yaml:"pool" json:"pool"`
-	TestOrder TestOrder `yaml:"testOrder" json:"testOrder"`
 }
 
 type Grpc struct {
@@ -303,5 +298,5 @@ type Sentinel struct {
 }
 
 type Args struct {
-	X_message_ttl int `yaml:"x-message-ttl" json:"x-message-ttl"`
+	XMessageTTL int `yaml:"xMessageTtl" json:"xMessageTtl"`
 }
