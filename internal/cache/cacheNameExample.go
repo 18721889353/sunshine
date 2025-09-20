@@ -30,9 +30,8 @@ var _ CacheNameExampleCache = (*cacheNameExampleCache)(nil)
 
 // CacheNameExampleCache cache interface
 type CacheNameExampleCache interface {
-	GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error
-	GetLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error
-	ReleaseLock(ctx context.Context) error
+	GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) (*redsync.Mutex, error)
+	GetLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) (*redsync.Mutex, error)
 	Set(ctx context.Context, keyNameExample keyTypeExample, valueNameExample valueTypeExample, duration time.Duration) error
 	Get(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error)
 	Del(ctx context.Context, keyNameExample keyTypeExample) error
@@ -64,17 +63,14 @@ func NewCacheNameExampleCache(cacheType *database.CacheType) CacheNameExampleCac
 func (c *cacheNameExampleCache) getCacheKey(keyNameExample keyTypeExample) string {
 	return fmt.Sprintf("%s%v", cacheNameExampleCachePrefixKey, keyNameExample)
 }
-func (c *cacheNameExampleCache) GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error {
+func (c *cacheNameExampleCache) GetLoopLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getCacheKey(keyNameExample)
 	return c.cache.GetLoopLock(ctx, cacheKey, options...)
 }
-func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) error {
+func (c *cacheNameExampleCache) GetLock(ctx context.Context, keyNameExample keyTypeExample, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getCacheKey(keyNameExample)
 	return c.cache.GetLock(ctx, cacheKey, options...)
 
-}
-func (c *cacheNameExampleCache) ReleaseLock(ctx context.Context) error {
-	return c.cache.ReleaseLock(ctx)
 }
 
 // Set cache
