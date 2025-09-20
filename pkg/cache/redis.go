@@ -33,11 +33,9 @@ type redisCache struct {
 	DefaultExpireTime time.Duration
 	newObject         func() interface{}
 	redsSync          *redsync.Redsync
-	mutex             *redsync.Mutex // Redis 分布式锁
 }
 
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
-
 func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
@@ -52,8 +50,8 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 	}
 }
 
-// GetLoopLock acquires a distributed lock with the given key
-func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
+// GetLoopLock acquires a distributed lock with the given key (blocking)
+func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	begin := time.Now()
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
@@ -64,26 +62,28 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 		zap.String("log_from", "Cache msg GetLoopLock"),
 		zap.Any("sql", map[string]any{"key": key, "options": options}),
 	}
-	//Lock 阻塞直到获取到锁或上下文被取消
-	// 开始锁定
-	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
-	err := c.mutex.LockContext(ctx)
+
+	// 创建新的互斥锁
+	mutex := c.redsSync.NewMutex(lockKey, options...)
+
+	// Lock 阻塞直到获取到锁或上下文被取消
+	err := mutex.LockContext(ctx)
 	if err != nil {
 		logFields = append(logFields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		c.log.Warn("Cache msg", logFields...)
-		return err
-	} else {
-		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-		if elapsed > 10 {
-			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-			c.log.Info("Cache msg", logFields...)
-		}
-		return nil
+		return nil, err
 	}
+
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 10 {
+		logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		c.log.Info("Cache msg", logFields...)
+	}
+	return mutex, nil
 }
 
-// GetLock acquires a distributed lock with the given key
-func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync.Option) error {
+// GetLock acquires a distributed lock with the given key (non-blocking)
+func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	begin := time.Now()
 	// 初始化锁
 	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
@@ -94,47 +94,24 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 		zap.String("log_from", "Cache msg RedisLock"),
 		zap.Any("sql", map[string]any{"key": key, "options": options}),
 	}
-	c.mutex = c.redsSync.NewMutex(lockKey, options...) // 创建分布式互斥锁
+
+	// 创建新的互斥锁
+	mutex := c.redsSync.NewMutex(lockKey, options...)
+
 	// TryLock 尝试获取锁而不阻塞
-	err := c.mutex.TryLockContext(ctx)
+	err := mutex.TryLockContext(ctx)
 	if err != nil {
 		logFields = append(logFields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 		c.log.Warn("Cache msg", logFields...)
-		return err
-	} else {
-		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-		if elapsed > 10 {
-			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-			c.log.Info("Cache msg", logFields...)
-		}
-		return nil
+		return nil, err
 	}
 
-}
-
-// ReleaseLock releases the distributed lock
-func (c *redisCache) ReleaseLock(ctx context.Context) error {
-	begin := time.Now()
-	// 构建日志字段
-	requestID := requestIDField(ctx, "request_id")
-	logFields := []zap.Field{
-		requestID,
-		zap.String("log_from", "Cache msg ReleaseLock"),
+	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
+	if elapsed > 10 {
+		logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
+		c.log.Info("Cache msg", logFields...)
 	}
-	// 解锁操作
-	_, err := c.mutex.UnlockContext(ctx)
-	if err != nil {
-		logFields = append(logFields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
-		c.log.Warn("Cache msg", logFields...)
-		return err
-	} else {
-		elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
-		if elapsed > 10 {
-			logFields = append(logFields, zap.String("ms", fmt.Sprintf("%v", elapsed)))
-			c.log.Info("Cache msg", logFields...)
-		}
-		return nil
-	}
+	return mutex, nil
 }
 
 // Set one value

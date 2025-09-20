@@ -27,9 +27,8 @@ var (
 
 // Cache driver interface
 type Cache interface {
-	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
-	GetLock(ctx context.Context, key string, options ...redsync.Option) error
-	ReleaseLock(ctx context.Context) error
+	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
+	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) error
 	Get(ctx context.Context, key string, val interface{}) error
 	MultiSet(ctx context.Context, valMap map[string]interface{}, expireTime time.Duration) error
@@ -39,15 +38,12 @@ type Cache interface {
 	SetCacheWithNotFound(ctx context.Context, key string) error
 }
 
-func GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
+func GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	return DefaultClient.GetLoopLock(ctx, key, options...)
 }
 
-func GetLock(ctx context.Context, key string, options ...redsync.Option) error {
+func GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	return DefaultClient.GetLock(ctx, key, options...)
-}
-func ReleaseLock(ctx context.Context) error {
-	return DefaultClient.ReleaseLock(ctx)
 }
 
 // Set data
