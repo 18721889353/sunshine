@@ -27,9 +27,8 @@ var _ {{.TableNameCamel}}Cache = (*{{.TableNameCamelFCL}}Cache)(nil)
 
 // {{.TableNameCamel}}Cache cache interface
 type {{.TableNameCamel}}Cache interface {
-    GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
-	GetLock(ctx context.Context, key string, options ...redsync.Option) error
-	ReleaseLock(ctx context.Context) error
+    GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
+	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 
 	Set(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}, data *model.{{.TableNameCamel}}, duration time.Duration) error
 	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
@@ -81,17 +80,14 @@ func (c *{{.TableNameCamelFCL}}Cache) getLockCacheKey(key string) string {
 }
 
 
-func (c *{{.TableNameCamelFCL}}Cache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
+func (c *{{.TableNameCamelFCL}}Cache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	lockCacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLoopLock(ctx, lockCacheKey, options...)
 }
 
-func (c *{{.TableNameCamelFCL}}Cache) GetLock(ctx context.Context, key string, options ...redsync.Option) error {
+func (c *{{.TableNameCamelFCL}}Cache) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	lockCacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLock(ctx, lockCacheKey, options...)
-}
-func (c *{{.TableNameCamelFCL}}Cache) ReleaseLock(ctx context.Context) error {
-	return c.cache.ReleaseLock(ctx)
 }
 
 

@@ -29,9 +29,8 @@ var _ UserExampleCache = (*userExampleCache)(nil)
 
 // UserExampleCache cache interface
 type UserExampleCache interface {
-	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error
-	GetLock(ctx context.Context, key string, options ...redsync.Option) error
-	ReleaseLock(ctx context.Context) error
+	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
+	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
 	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
@@ -87,17 +86,14 @@ func (c *userExampleCache) getLockCacheKey(key string) string {
 	return fmt.Sprintf("%s%v", UserExampleCachePrefixKeyLock, key)
 }
 
-func (c *userExampleCache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) error {
+func (c *userExampleCache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLoopLock(ctx, cacheKey, options...)
 }
 
-func (c *userExampleCache) GetLock(ctx context.Context, key string, options ...redsync.Option) error {
+func (c *userExampleCache) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLock(ctx, cacheKey, options...)
-}
-func (c *userExampleCache) ReleaseLock(ctx context.Context) error {
-	return c.cache.ReleaseLock(ctx)
 }
 
 // Set write to cache
