@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/18721889353/sunshine/internal/config"
+	"go.uber.org/zap"
 	"sync"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
@@ -176,15 +177,25 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 
 // SendMessage 发送消息到指定的交换机和路由键
 func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueName string, message string) error {
+	start := time.Now()
+	var err error
+	defer func() {
+		// 记录耗时
+		logger.Info("SendMessage completed",
+			zap.String("exchange", exchangeName),
+			zap.String("queue", normalQueueName),
+			zap.String("message", message),
+			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
+			zap.Error(err))
+	}()
 	// 获取producer
 	producer, err := r.getProducerFromCache(ctx, exchangeName, normalQueueName)
 	if err != nil {
 		return err
 	}
-	normalRoutineKey := exchangeName + "." + normalQueueName
-
 	// 发送消息
-	return producer.PublishDirect(ctx, normalRoutineKey, []byte(message))
+	err = producer.PublishDirect(ctx, exchangeName+"."+normalQueueName, []byte(message))
+	return err
 }
 
 // GetPoolStats 获取连接池统计信息
