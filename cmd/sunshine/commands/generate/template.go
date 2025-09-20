@@ -535,7 +535,7 @@ database:
   # mysql settings
   mysql:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
-    dsn: "root:123456@(192.168.3.37:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
+    dsn: "root:jianguo123@(127.0.0.1:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
     maxOpenConns: 100       # set the maximum number of open database connections

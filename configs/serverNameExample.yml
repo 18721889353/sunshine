@@ -92,51 +92,28 @@ logger:
 # delete the templates code start
 # database setting
 database:
-  driver: "mysql"           # database driver, currently support mysql, postgresql, sqlite
+  driver: "mysql"           # database driver
   # mysql settings
   mysql:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
-    dsn: "root:123456@(192.168.3.37:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
+    dsn: "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 10     # sets the maximum time for which the connection can be reused, in minutes
-    #slavesDsn:             # sets slaves mysql dsn, array type
-    #  - "your slave dsn 1"
-    #  - "your slave dsn 2"
-    #mastersDsn:            # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
-    #  - "your master dsn"
+    maxOpenConns: 10       # set the maximum number of open database connections
+    connMaxLifetime: 1     # sets the maximum time for which the connection can be reused, in minutes
+    slavesDsn: # sets slaves mysql dsn, array type
+      - "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
+    mastersDsn: # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
+      - "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
 
-  # postgresql settings
-  postgresql:
-    # dsn format,  <username>:<password>@<hostname>:<port>/<db>?[k=v& ......]
-    dsn: "root:123456@192.168.3.37:5432/account?sslmode=disable"
-    enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 10     # sets the maximum time for which the connection can be reused, in minutes
 
-  # sqlite settings
-  sqlite:
-    dbFile: "test/sql/sqlite/sunshine.db"   # if you are in a Windows environment, the path separator is \\
-    enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 10     # sets the maximum time for which the connection can be reused, in minutes
-
-  # mongodb settings
-  mongodb:
-    # dsn format,  [scheme://]<username>:<password>@<hostname1>:<port1>[,<hostname2>:<port2>,......]/<db>?[k=v& ......]
-    # default scheme is mongodb://, scheme can be omitted, if you want to use ssl, you can use mongodb+srv:// scheme, the scheme must be filled in
-    # parameter k=v see https://www.mongodb.com/docs/drivers/go/current/fundamentals/connections/connection-guide/#connection-options
-    dsn: "root:123456@192.168.3.37:27017/account?connectTimeoutMS=15000"
 
 # delete the templates code end
 
 # redis settings
 redis:
   # dsn format, [user]:<pass>@127.0.0.1:6379/[db], the default user is default, redis version 6.0 and above only supports user.
-  dsn: "default:123456@192.168.132.142:6379/0"
+  dsn: ":jianguo123@127.0.0.1:6379/0"
   dialTimeout: 10           # connection timeout, unit(second)
   readTimeout: 2            # read timeout, unit(second)
   writeTimeout: 2           # write timeout, unit(second)
@@ -145,13 +122,13 @@ redis:
 
 # jaeger settings
 jaeger:
-  agentHost: "192.168.132.142"
+  agentHost: "127.0.0.1"
   agentPort: 6831
 
 
 # etcd settings
 etcd:
-  addrs: [ "192.168.132.142:2379" ]
+  addrs: [ "127.0.0.1:2379" ]
 
 
 sign:
@@ -249,19 +226,19 @@ elasticsearch:
   # 超时时间(秒)
   timeout: 30
   # 连接池配置
-  max_idle_conns: 20              # 最大空闲连接数
-  max_idle_conns_per_host: 5      # 每个主机最大空闲连接数
-  max_conns_per_host: 20          # 每个主机最大连接数
-  idle_conn_timeout: 90           # 空闲连接超时时间(秒)
-  tls_handshake_timeout: 10       # TLS握手超时时间(秒)
-  expect_continue_timeout: 1      # 期望继续超时时间(秒)
-  response_header_timeout: 10     # 响应头超时时间(秒)
-  connection_timeout: 30          # 连接超时时间(秒)
-  connection_keep_alive: 30       # 连接保持时间(秒)
+  maxIdleConns: 20              # 最大空闲连接数
+  maxIdleConnsPerHost: 5      # 每个主机最大空闲连接数
+  maxConnsPerHost: 20          # 每个主机最大连接数
+  idleConnTimeout: 90           # 空闲连接超时时间(秒)
+  tlsHandshakeTimeout: 10       # TLS握手超时时间(秒)
+  expectContinueTimeout: 1      # 期望继续超时时间(秒)
+  responseHeaderTimeout: 10     # 响应头超时时间(秒)
+  connectionTimeout: 30          # 连接超时时间(秒)
+  connectionKeepAlive: 30       # 连接保持时间(秒)
   # 重试配置
-  retry_on_status: [ 502, 503, 504, 429 ]  # 需要重试的HTTP状态码
-  max_retries: 3                         # 最大重试次数
-  retry_backoff: 100                     # 重试间隔基础时间(毫秒)
+  retryOnStatus: [ 502, 503, 504, 429 ]  # 需要重试的HTTP状态码
+  maxRetries: 3                         # 最大重试次数
+  retryBackoff: 100                     # 重试间隔基础时间(毫秒)
   # 健康检查
-  enable_ping_check: true                # 是否启用ping检查
-  enable_health_check: true              # 是否启用健康检查
+  enablePingCheck: true                # 是否启用ping检查
+  enableHealthCheck: true              # 是否启用健康检查
