@@ -7,12 +7,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/panjf2000/ants/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/zap"
-	"strconv"
-	"time"
 
 	"github.com/18721889353/sunshine/pkg/jwt"
 	v5 "github.com/golang-jwt/jwt/v5"
@@ -63,7 +64,13 @@ func sendLogToMQ(ctx context.Context, entry zapcore.Entry, fields []logger.Field
 	var err error
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
-		err = database.GetRabbitMQ().SendMessage(timeoutCtx, config.Get().Rabbitmq.DoingOrder.ExchangeName, config.Get().Rabbitmq.DoingOrder.NormalQueueName, fmt.Sprintf("[%s] [%s] [%s]", entry.Caller.TrimmedPath(), entry.Level, logger.ToJSON(append(fields, zap.String("current_time", entry.Time.Format("2006-01-02 15:04:05.000000")), zap.String("log_msg", entry.Message)))))
+		err = database.GetRabbitMQ().SendMessage(
+			timeoutCtx,
+			config.Get().Rabbitmq.DoingOrder.ExchangeName,
+			config.Get().Rabbitmq.DoingOrder.NormalQueueName,
+			fmt.Sprintf("[%s] [%s] [%s]", entry.Caller.TrimmedPath(), entry.Level, logger.ToJSON(append(fields, zap.String("current_time", entry.Time.Format("2006-01-02 15:04:05.000000")), zap.String("log_msg", entry.Message)))),
+			fmt.Sprintf("%v", time.Now().Nanosecond()),
+		)
 		if err == nil {
 			break
 		}

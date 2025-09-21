@@ -3,6 +3,7 @@ package gorabbitmq
 import (
 	"context"
 	"fmt"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
@@ -433,7 +434,7 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 // ctx: 上下文
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []byte) (err error) {
+func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
 	ctx, span := p.tracer.Start(ctx, "PublishDirect")
 	defer span.End()
 	if p.Exchange.eType != exchangeTypeDirect {
@@ -458,6 +459,8 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 			DeliveryMode: p.deliveryMode,
 			ContentType:  "text/plain",
 			Body:         body,
+			Timestamp:    time.Now(),
+			MessageId:    messageID,
 		},
 	)
 	if err != nil {
@@ -470,7 +473,7 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 // ctx: 上下文
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishFanout(ctx context.Context, body []byte) (err error) {
+func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID string) (err error) {
 	ctx, span := p.tracer.Start(ctx, "PublishFanout")
 	defer span.End()
 	if p.Exchange.eType != exchangeTypeFanout {
@@ -494,6 +497,8 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte) (err error) {
 			DeliveryMode: p.deliveryMode,
 			ContentType:  "text/plain",
 			Body:         body,
+			Timestamp:    time.Now(),
+			MessageId:    messageID,
 		},
 	)
 	if err != nil {
@@ -507,7 +512,7 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte) (err error) {
 // topicKey: topic路由键
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []byte) (err error) {
+func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
 	ctx, span := p.tracer.Start(ctx, "PublishTopic")
 	defer span.End()
 
@@ -527,6 +532,8 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 			DeliveryMode: p.deliveryMode,
 			ContentType:  "text/plain",
 			Body:         body,
+			Timestamp:    time.Now(),
+			MessageId:    messageID,
 		},
 	)
 	if err != nil {
@@ -540,7 +547,7 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 // headersKeys: 消息头键值对
 // body: 消息体
 // 返回可能的错误
-func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte) (err error) {
+func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte, messageID string) (err error) {
 	ctx, span := p.tracer.Start(ctx, "PublishHeaders")
 	defer span.End()
 	if p.Exchange.eType != exchangeTypeHeaders {
@@ -563,6 +570,8 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 			Headers:      headersKeys,
 			ContentType:  "text/plain",
 			Body:         body,
+			Timestamp:    time.Now(),
+			MessageId:    messageID,
 		},
 	)
 	if err != nil {

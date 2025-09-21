@@ -2,10 +2,11 @@ package mq
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/internal/database"
 	"strconv"
 	"sync"
+
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/database"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -20,7 +21,7 @@ type BaseConsumer struct {
 }
 
 // MessageHandler 定义消息处理函数类型
-type MessageHandler func(ctx context.Context, data []byte, tagID string) error
+type MessageHandler func(ctx context.Context, data []byte, messageId string, tagID string) error
 
 // NewBaseConsumer 创建一个新的基础消费者
 func NewBaseConsumer(name string, handler MessageHandler) *BaseConsumer {
@@ -37,10 +38,10 @@ func (bc *BaseConsumer) Name() string {
 }
 
 // handleMessage 内部消息处理函数，适配gorabbitmq的Handler类型
-func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, tagID string) error {
+func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageId string, tagID string) error {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
-	return bc.handler(ctx, data, tagID)
+	return bc.handler(ctx, data, messageId, tagID)
 }
 
 // Start 启动消费者

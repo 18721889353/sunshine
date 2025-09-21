@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"go.uber.org/zap"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
@@ -114,9 +115,10 @@ func main() {
 		gorabbitmq.WithConsumerMsgDurable(true),
 	}
 	consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, conn, deadOpts...)
-	consumer.Consume(ctx, func(ctx context.Context, data []byte, tagID string) error {
+	consumer.Consume(ctx, func(ctx context.Context, data []byte, messageId string, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(tagID)
+		fmt.Println(messageId)
 		return errors.New("fuck")
 	})
 	forever := make(chan struct{})

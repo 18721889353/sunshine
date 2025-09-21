@@ -3,13 +3,15 @@ package database
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	"github.com/18721889353/sunshine/internal/config"
 	"go.uber.org/zap"
-	"sync"
+
+	"time"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/18721889353/sunshine/pkg/logger"
-	"time"
 )
 
 var (
@@ -176,7 +178,7 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 }
 
 // SendMessage 发送消息到指定的交换机和路由键
-func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueName string, message string) error {
+func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueName string, message string, messageId string) error {
 	start := time.Now()
 	var err error
 	defer func() {
@@ -194,7 +196,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueNam
 		return err
 	}
 	// 发送消息
-	err = producer.PublishDirect(ctx, exchangeName+"."+normalQueueName, []byte(message))
+	err = producer.PublishDirect(ctx, exchangeName+"."+normalQueueName, []byte(message), messageId)
 	return err
 }
 
