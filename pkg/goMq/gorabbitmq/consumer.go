@@ -123,7 +123,7 @@ type Consumer struct {
 }
 
 // Handler 消息处理函数类型
-type Handler func(ctx context.Context, data []byte, tagID string) error
+type Handler func(ctx context.Context, data []byte, messageId string, tagID string) error
 
 // NewConsumer 创建一个消费者
 func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ...ConsumerOption) (*Consumer, error) {
@@ -515,7 +515,8 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					span.SetAttributes(attribute.String("message.body", string(d.Body)))
 
 					tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
-					err = handler(ctx, d.Body, tagID)
+
+					err = handler(ctx, d.Body, d.MessageId, tagID)
 					if err != nil {
 						span.RecordError(err)
 						if !c.isAutoAck {

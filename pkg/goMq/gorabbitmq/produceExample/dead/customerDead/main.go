@@ -6,6 +6,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
@@ -99,6 +101,7 @@ func main() {
 		ctx,
 		normalRoutineKey,
 		[]byte("Hello"),
+		uuid.New().String(),
 	)
 	if err != nil {
 		panic(err)

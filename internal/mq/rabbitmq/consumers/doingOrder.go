@@ -3,6 +3,7 @@ package consumers
 import (
 	"context"
 	"fmt"
+
 	"github.com/18721889353/sunshine/internal/config"
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
 )
@@ -29,9 +30,9 @@ func (s *orderConsumer) Start() error {
 }
 
 // handleOrderMessage 处理订单消息
-func handleOrderMessage(ctx context.Context, data []byte, tagID string) error {
+func handleOrderMessage(ctx context.Context, data []byte, messageId, tagID string) error {
 	// 解析订单数据
-	fmt.Println(string(data), tagID, "111111111111111111111111")
+	fmt.Println(string(data), messageId, "111111111111111111111111", tagID)
 	// 在这里添加实际的订单处理逻辑
 	return nil
 }
