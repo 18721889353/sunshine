@@ -206,7 +206,11 @@ type DoingOrder struct {
 type Redis struct {
 	DialTimeout  int    `yaml:"dialTimeout" json:"dialTimeout"`
 	Dsn          string `yaml:"dsn" json:"dsn"`
+	IdleTimeout  int    `yaml:"idleTimeout" json:"idleTimeout"`
+	MaxConnAge   int    `yaml:"maxConnAge" json:"maxConnAge"`
+	MinIdleConns int    `yaml:"minIdleConns" json:"minIdleConns"`
 	PoolSize     int    `yaml:"poolSize" json:"poolSize"`
+	PoolTimeout  int    `yaml:"poolTimeout" json:"poolTimeout"`
 	ReadTimeout  int    `yaml:"readTimeout" json:"readTimeout"`
 	WriteTimeout int    `yaml:"writeTimeout" json:"writeTimeout"`
 }
