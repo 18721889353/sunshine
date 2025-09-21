@@ -4,14 +4,15 @@ package mysql
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"os"
+
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	mysqlDriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 	"gorm.io/plugin/dbresolver"
-	"log"
-	"os"
 
 	"github.com/18721889353/sunshine/pkg/sgorm/dbclose"
 	"github.com/18721889353/sunshine/pkg/sgorm/glog"
@@ -81,9 +82,10 @@ func getDb(dsn string, o *options) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	sqlDB.SetMaxIdleConns(o.maxIdleConns)       // set the maximum number of connections in the idle connection pool
-	sqlDB.SetMaxOpenConns(o.maxOpenConns)       // set the maximum number of open database connections
-	sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // set the maximum time a connection can be reused
+	sqlDB.SetMaxIdleConns(o.maxIdleConns)       // 设置空闲连接池中最大连接数
+	sqlDB.SetMaxOpenConns(o.maxOpenConns)       // 设置数据库最大打开连接数
+	sqlDB.SetConnMaxLifetime(o.connMaxLifetime) // 设置连接可重用的最大时间
+	sqlDB.SetConnMaxIdleTime(o.maxIdleTime)     // 设置空闲连接的最大空闲时间
 
 	db, err := gorm.Open(mysqlDriver.New(mysqlDriver.Config{Conn: sqlDB}), gormConfig(o))
 	if err != nil {
