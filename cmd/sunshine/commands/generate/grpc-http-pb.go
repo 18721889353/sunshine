@@ -148,9 +148,6 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 		"internal/mq": {
 			"rabbitmq/mq.go", "rabbitmq/baseConsumer.go", "rabbitmq/consumers/doingOrder.go",
 		},
-		"internal/database": {
-			"goRabbitmq.go",
-		},
 	}
 
 	if g.suitedMonoRepo {
