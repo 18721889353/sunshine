@@ -18,6 +18,7 @@ type options struct {
 	maxIdleConns    int
 	maxOpenConns    int
 	connMaxLifetime time.Duration
+	maxIdleTime     time.Duration
 
 	disableForeignKey bool
 	enableTrace       bool
@@ -44,10 +45,10 @@ func defaultOptions() *options {
 		isLog:         false,            // whether to output logs, default off
 		slowThreshold: time.Duration(0), // if greater than 0, only print logs that are longer than the threshold, higher priority than isLog
 
-		maxIdleConns:    3,                // set the maximum number of connections in the idle connection pool
-		maxOpenConns:    50,               // set the maximum number of open database connections
-		connMaxLifetime: 30 * time.Minute, // sets the maximum amount of time a connection can be reused
-
+		maxIdleConns:      3,                // set the maximum number of connections in the idle connection pool
+		maxOpenConns:      50,               // set the maximum number of open database connections
+		connMaxLifetime:   30 * time.Minute, // sets the maximum amount of time a connection can be reused
+		maxIdleTime:       10 * time.Minute,
 		disableForeignKey: true,  // disables the use of foreign keys, true is recommended for production environments, enabled by default
 		enableTrace:       false, // whether to enable link tracing, default is off
 
@@ -94,6 +95,13 @@ func WithMaxOpenConns(size int) Option {
 func WithConnMaxLifetime(t time.Duration) Option {
 	return func(o *options) {
 		o.connMaxLifetime = t
+	}
+}
+
+// WithMaxIdleTime 设置连接最大空闲时间
+func WithMaxIdleTime(t time.Duration) Option {
+	return func(o *options) {
+		o.maxIdleTime = t
 	}
 }
 
