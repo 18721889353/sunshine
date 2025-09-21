@@ -490,9 +490,10 @@ database:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
     dsn: "root:123456@(192.168.3.37:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 30     # sets the maximum time for which the connection can be reused, in minutes
+    maxIdleConns: 10        # 设置空闲连接池中最大连接数
+    maxOpenConns: 100       # 设置数据库最大打开连接数
+    connMaxLifetime: 30     # 设置连接可重用的最大时间
+    maxIdleTime: 10         # 设置空闲连接的最大空闲时间
     #slavesDsn:             # sets slaves mysql dsn, array type
     #  - "your slave dsn 1"
     #  - "your slave dsn 2"
@@ -537,9 +538,10 @@ database:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
     dsn: "root:jianguo123@(127.0.0.1:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 30     # sets the maximum time for which the connection can be reused, in minutes
+    maxIdleConns: 10        # 设置空闲连接池中最大连接数
+    maxOpenConns: 100       # 设置数据库最大打开连接数
+    connMaxLifetime: 30     # 设置连接可重用的最大时间
+    maxIdleTime: 10         # 设置空闲连接的最大空闲时间
 `
 
 	modelInitDBFileMysqlCode = `// InitDB connect database
