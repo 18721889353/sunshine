@@ -173,13 +173,20 @@ func log2File(encoding string, levelName string, fo *fileOptions) *zap.Logger {
 		}
 		ws = zapcore.AddSync(logWriter)
 	} else {
-		ws = zapcore.AddSync(&lumberjack.Logger{
+		// lumberjack配置
+		lumberjackLogger := &lumberjack.Logger{
 			Filename:   fo.filename,      // file name
 			MaxSize:    fo.maxSize,       // maximum file size (MB)
 			MaxBackups: fo.maxBackups,    // maximum number of old files
 			MaxAge:     fo.maxAge,        // maximum number of days for old documents
 			Compress:   fo.isCompression, // whether to compress and archive old files
-		})
+		}
+
+		// 如果设置了使用本地时间，则设置lumberjack的LocalTime选项
+		if fo.isLocalTime {
+			lumberjackLogger.LocalTime = true
+		}
+		ws = zapcore.AddSync(lumberjackLogger)
 	}
 	if fo.noPrint {
 		// 使用自定义的 NopWriteSyncer（禁止终端/文件输出）
