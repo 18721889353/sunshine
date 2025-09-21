@@ -171,6 +171,7 @@ type Mysql struct {
 	EnableLog       bool     `yaml:"enableLog" json:"enableLog"`
 	MastersDsn      []string `yaml:"mastersDsn" json:"mastersDsn"`
 	MaxIdleConns    int      `yaml:"maxIdleConns" json:"maxIdleConns"`
+	MaxIdleTime     int      `yaml:"maxIdleTime" json:"maxIdleTime"`
 	MaxOpenConns    int      `yaml:"maxOpenConns" json:"maxOpenConns"`
 	SlavesDsn       []string `yaml:"slavesDsn" json:"slavesDsn"`
 }

@@ -98,9 +98,10 @@ database:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
     dsn: "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 10       # set the maximum number of open database connections
-    connMaxLifetime: 1     # sets the maximum time for which the connection can be reused, in minutes
+    maxIdleConns: 10        # 设置空闲连接池中最大连接数
+    maxOpenConns: 10        # 设置数据库最大打开连接数
+    connMaxLifetime: 30     # s设置连接可重用的最大时间
+    maxIdleTime: 10         # 设置空闲连接的最大空闲时间
     slavesDsn: # sets slaves mysql dsn, array type
       - "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
     mastersDsn: # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.

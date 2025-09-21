@@ -18,6 +18,7 @@ func InitMysql() *sgorm.DB {
 		mysql.WithMaxIdleConns(mysqlCfg.MaxIdleConns),
 		mysql.WithMaxOpenConns(mysqlCfg.MaxOpenConns),
 		mysql.WithConnMaxLifetime(time.Duration(mysqlCfg.ConnMaxLifetime) * time.Minute),
+		mysql.WithMaxIdleTime(time.Duration(mysqlCfg.MaxIdleTime) * time.Minute),
 	}
 	if mysqlCfg.EnableLog {
 		opts = append(opts,
