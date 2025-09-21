@@ -166,14 +166,15 @@ type GrpcClient struct {
 }
 
 type Mysql struct {
-	ConnMaxLifetime int      `yaml:"connMaxLifetime" json:"connMaxLifetime"`
-	Dsn             string   `yaml:"dsn" json:"dsn"`
-	EnableLog       bool     `yaml:"enableLog" json:"enableLog"`
-	MastersDsn      []string `yaml:"mastersDsn" json:"mastersDsn"`
-	MaxIdleConns    int      `yaml:"maxIdleConns" json:"maxIdleConns"`
-	MaxIdleTime     int      `yaml:"maxIdleTime" json:"maxIdleTime"`
-	MaxOpenConns    int      `yaml:"maxOpenConns" json:"maxOpenConns"`
-	SlavesDsn       []string `yaml:"slavesDsn" json:"slavesDsn"`
+	ConnMaxLifetime      int      `yaml:"connMaxLifetime" json:"connMaxLifetime"`
+	Dsn                  string   `yaml:"dsn" json:"dsn"`
+	EnableLog            bool     `yaml:"enableLog" json:"enableLog"`
+	MastersDsn           []string `yaml:"mastersDsn" json:"mastersDsn"`
+	MaxIdleConns         int      `yaml:"maxIdleConns" json:"maxIdleConns"`
+	MaxIdleTime          int      `yaml:"maxIdleTime" json:"maxIdleTime"`
+	MaxOpenConns         int      `yaml:"maxOpenConns" json:"maxOpenConns"`
+	SlavesDsn            []string `yaml:"slavesDsn" json:"slavesDsn"`
+	SlowQueryThresholdMs int      `yaml:"slowQueryThresholdMs" json:"slowQueryThresholdMs"`
 }
 
 type ConsumerOption struct {

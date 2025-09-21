@@ -19,6 +19,7 @@ func InitMysql() *sgorm.DB {
 		mysql.WithMaxOpenConns(mysqlCfg.MaxOpenConns),
 		mysql.WithConnMaxLifetime(time.Duration(mysqlCfg.ConnMaxLifetime) * time.Minute),
 		mysql.WithMaxIdleTime(time.Duration(mysqlCfg.MaxIdleTime) * time.Minute),
+		mysql.WithSlowThreshold(time.Duration(mysqlCfg.SlowQueryThresholdMs) * time.Millisecond),
 	}
 	if mysqlCfg.EnableLog {
 		opts = append(opts,
@@ -32,10 +33,12 @@ func InitMysql() *sgorm.DB {
 	}
 
 	// setting mysql slave and master dsn addresses
-	//opts = append(opts, mysql.WithRWSeparation(
-	//	mysqlCfg.SlavesDsn,
-	//	mysqlCfg.MastersDsn...,
-	//))
+	if mysqlCfg.SlavesDsn != nil && len(mysqlCfg.SlavesDsn) > 0 && mysqlCfg.MastersDsn != nil && len(mysqlCfg.MastersDsn) > 0 {
+		opts = append(opts, mysql.WithRWSeparation(
+			mysqlCfg.SlavesDsn,
+			mysqlCfg.MastersDsn...,
+		))
+	}
 
 	// add custom gorm plugin
 	//opts = append(opts, mysql.WithGormPlugin(yourPlugin))
