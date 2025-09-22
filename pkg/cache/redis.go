@@ -284,7 +284,7 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	logFields := []zap.Field{
 		requestID,
 		zap.String("log_from", "Cache msg GetLoopLock"),
-		zap.Any("sql", map[string]any{"key": key, "options": options}),
+		zap.Any("sql", map[string]any{"key": key}),
 	}
 
 	// 创建新的互斥锁
@@ -329,7 +329,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	logFields := []zap.Field{
 		requestID,
 		zap.String("log_from", "Cache msg RedisLock"),
-		zap.Any("sql", map[string]any{"key": key, "options": options}),
+		zap.Any("sql", map[string]any{"key": key}),
 	}
 
 	// 创建新的互斥锁
