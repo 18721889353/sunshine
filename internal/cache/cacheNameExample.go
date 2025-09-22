@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/go-redsync/redsync/v4"
 	"strings"
 	"time"
@@ -52,7 +53,7 @@ func NewCacheNameExampleCache(cacheType *database.CacheType) CacheNameExampleCac
 	cType := strings.ToLower(cacheType.CType)
 	switch cType {
 	case "redis":
-		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, newObject)
+		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, newObject, cache.WithCacheLog(logger.Get()), cache.WithInitBloomFilterOnCreate())
 		return &cacheNameExampleCache{cache: c}
 	}
 
