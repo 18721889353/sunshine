@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/go-redsync/redsync/v4"
 
 	"github.com/18721889353/sunshine/pkg/cache"
@@ -66,7 +67,7 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	case "redis":
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.{{.TableNameCamel}}{}
-		})
+		},cache.WithCacheLog(logger.Get()), cache.WithInitBloomFilterOnCreate())
 		return &{{.TableNameCamelFCL}}Cache{cache: c}
 	}
 

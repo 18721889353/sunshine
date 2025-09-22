@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func NewUserExampleCache(cacheType *database.CacheType) UserExampleCache {
 	case "redis":
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.UserExample{}
-		})
+		}, cache.WithCacheLog(logger.Get()), cache.WithInitBloomFilterOnCreate())
 		return &userExampleCache{cache: c}
 	}
 
