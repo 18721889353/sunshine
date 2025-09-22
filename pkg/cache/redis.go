@@ -45,6 +45,7 @@ type redisCache struct {
 	bloomFilter       *bloom.BloomFilter
 	bloomFilterMutex  sync.RWMutex
 	bloomFilterStats  *BloomFilterStats
+	rebuildMutex      sync.Mutex // 用于防止并发重建
 }
 
 // BloomFilterStats 布隆过滤器统计信息
@@ -56,8 +57,24 @@ type BloomFilterStats struct {
 	ElementsAdded  int64 `json:"elements_added"`
 }
 
+// NewRedisCacheOption 是NewRedisCache的可选配置
+type NewRedisCacheOption func(*redisCache)
+
+// WithInitBloomFilterOnCreate 设置在创建时自动初始化布隆过滤器
+func WithInitBloomFilterOnCreate() NewRedisCacheOption {
+	return func(rc *redisCache) {
+		// 使用后台上下文初始化布隆过滤器
+		ctx := context.Background()
+		if err := rc.InitBloomFilter(ctx); err != nil {
+			rc.log.Error("Failed to init bloom filter on create",
+				zap.Error(err),
+				zap.String("log_from", "Cache msg NewRedisCache"))
+		}
+	}
+}
+
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
-func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}) Cache {
+func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, opts ...NewRedisCacheOption) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
 
@@ -66,7 +83,8 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 		DefaultBloomFilterExpectedElements,
 		DefaultBloomFilterFalsePositiveRate,
 	)
-	return &redisCache{
+	
+	rc := &redisCache{
 		log:               logger.Get(),
 		client:            client,
 		KeyPrefix:         keyPrefix,
@@ -77,6 +95,13 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 		bloomFilter:       bloomFilter,
 		bloomFilterStats:  &BloomFilterStats{},
 	}
+	
+	// 应用可选配置
+	for _, opt := range opts {
+		opt(rc)
+	}
+	
+	return rc
 }
 
 // InitBloomFilter 初始化布隆过滤器（从现有缓存键）
@@ -193,8 +218,41 @@ func (c *redisCache) GetBloomFilterStats(ctx context.Context) BloomFilterStats {
 	return *c.bloomFilterStats
 }
 
+// CheckBloomFilterHealth 检查布隆过滤器健康状态
+func (c *redisCache) CheckBloomFilterHealth(ctx context.Context) map[string]interface{} {
+	c.bloomFilterMutex.RLock()
+	defer c.bloomFilterMutex.RUnlock()
+
+	stats := c.GetBloomFilterStats(ctx)
+
+	// 计算误判率（如果有的话）
+	var falsePositiveRate float64
+	if stats.Hits+stats.Misses > 0 {
+		falsePositiveRate = float64(stats.FalsePositives) / float64(stats.Hits+stats.Misses) * 100
+	}
+
+	healthInfo := map[string]interface{}{
+		"elements_added":                 stats.ElementsAdded,
+		"hits":                           stats.Hits,
+		"misses":                         stats.Misses,
+		"false_positives":                stats.FalsePositives,
+		"true_negatives":                 stats.TrueNegatives,
+		"false_positive_rate":            falsePositiveRate,
+		"estimated_capacity":             DefaultBloomFilterExpectedElements,
+		"configured_false_positive_rate": DefaultBloomFilterFalsePositiveRate * 100, // 转换为百分比
+	}
+
+	return healthInfo
+}
+
 // RebuildBloomFilter 重建布隆过滤器
 func (c *redisCache) RebuildBloomFilter(ctx context.Context) (err error) {
+	// 防止并发重建
+	if !c.rebuildMutex.TryLock() {
+		return errors.New("rebuild already in progress")
+	}
+	defer c.rebuildMutex.Unlock()
+
 	// 添加panic处理机制
 	defer func() {
 		if r := recover(); r != nil {
@@ -258,6 +316,20 @@ func (c *redisCache) RebuildBloomFilter(ctx context.Context) (err error) {
 	c.log.Info("Cache msg", fields...)
 
 	return nil
+}
+
+// RebuildBloomFilterAsync 异步重建布隆过滤器
+func (c *redisCache) RebuildBloomFilterAsync(ctx context.Context) {
+	go func() {
+		// 创建一个新的context，避免原始context被取消影响重建过程
+		bgCtx := context.Background()
+		if err := c.RebuildBloomFilter(bgCtx); err != nil {
+			c.log.Error("Failed to rebuild bloom filter asynchronously",
+				requestIDField(ctx, "request_id"),
+				zap.String("log_from", "Cache msg RebuildBloomFilterAsync"),
+				zap.Error(err))
+		}
+	}()
 }
 
 // GetLoopLock acquires a distributed lock with the given key (blocking)

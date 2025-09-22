@@ -2,6 +2,14 @@
 
 memory and redis cache libraries.
 
+## Features
+
+- Redis and in-memory cache implementations
+- Distributed locking with redsync
+- Bloom filter support for reducing cache misses
+- Automatic serialization with multiple encoding options
+- Comprehensive logging and error handling
+
 ## Example of use
 
 ```go
@@ -61,3 +69,26 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExa
 	return nil, err
 }
 ```
+
+## Bloom Filter Features
+
+The Redis cache implementation includes a Bloom filter to reduce unnecessary Redis queries:
+
+- **False Positive Rate**: Configured at 0.1% by default
+- **Expected Elements**: 10,000,000 by default
+- **Auto-initialization**: Automatically populated from existing Redis keys
+- **Statistics Tracking**: Tracks hits, misses, false positives, and true negatives
+- **Rebuilding**: Supports both synchronous and asynchronous rebuilding of the filter
+- **Health Monitoring**: Provides health metrics to monitor filter effectiveness
+
+### Bloom Filter Methods
+
+- `InitBloomFilter`: Initialize the Bloom filter from existing Redis keys
+- `AddToBloomFilter`: Add a key to the Bloom filter
+- `BloomFilter`: Test if a key might be in the cache
+- `GetBloomFilterStats`: Get statistics about the Bloom filter usage
+- `CheckBloomFilterHealth`: Get health metrics of the Bloom filter
+- `RebuildBloomFilter`: Synchronously rebuild the Bloom filter
+- `RebuildBloomFilterAsync`: Asynchronously rebuild the Bloom filter
+
+The Bloom filter helps reduce cache penetration and unnecessary database queries by quickly determining if a key definitely does not exist in the cache.

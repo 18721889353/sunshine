@@ -36,6 +36,14 @@ type Cache interface {
 	Del(ctx context.Context, keys ...string) error
 	DelByPrefix(ctx context.Context, prefix string) error
 	SetCacheWithNotFound(ctx context.Context, key string) error
+	// 以下是新增的接口方法
+	InitBloomFilter(ctx context.Context) error
+	AddToBloomFilter(ctx context.Context, key string)
+	BloomFilter(ctx context.Context, key string) bool
+	GetBloomFilterStats(ctx context.Context) BloomFilterStats
+	CheckBloomFilterHealth(ctx context.Context) map[string]interface{}
+	RebuildBloomFilter(ctx context.Context) error
+	RebuildBloomFilterAsync(ctx context.Context)
 }
 
 func GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
@@ -79,4 +87,39 @@ func DelByPrefix(ctx context.Context, prefix string) error {
 // SetCacheWithNotFound .
 func SetCacheWithNotFound(ctx context.Context, key string) error {
 	return DefaultClient.SetCacheWithNotFound(ctx, key)
+}
+
+// InitBloomFilter 初始化布隆过滤器
+func InitBloomFilter(ctx context.Context) error {
+	return DefaultClient.InitBloomFilter(ctx)
+}
+
+// AddToBloomFilter 添加键到布隆过滤器
+func AddToBloomFilter(ctx context.Context, key string) {
+	DefaultClient.AddToBloomFilter(ctx, key)
+}
+
+// BloomFilter 检查键是否可能在布隆过滤器中
+func BloomFilter(ctx context.Context, key string) bool {
+	return DefaultClient.BloomFilter(ctx, key)
+}
+
+// GetBloomFilterStats 获取布隆过滤器统计信息
+func GetBloomFilterStats(ctx context.Context) BloomFilterStats {
+	return DefaultClient.GetBloomFilterStats(ctx)
+}
+
+// CheckBloomFilterHealth 检查布隆过滤器健康状态
+func CheckBloomFilterHealth(ctx context.Context) map[string]interface{} {
+	return DefaultClient.CheckBloomFilterHealth(ctx)
+}
+
+// RebuildBloomFilter 重建布隆过滤器
+func RebuildBloomFilter(ctx context.Context) error {
+	return DefaultClient.RebuildBloomFilter(ctx)
+}
+
+// RebuildBloomFilterAsync 异步重建布隆过滤器
+func RebuildBloomFilterAsync(ctx context.Context) {
+	DefaultClient.RebuildBloomFilterAsync(ctx)
 }
