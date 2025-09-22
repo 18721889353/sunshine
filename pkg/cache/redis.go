@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/bits-and-blooms/bloom/v3"
 	"reflect"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 
@@ -73,17 +72,24 @@ func WithInitBloomFilterOnCreate() NewRedisCacheOption {
 	}
 }
 
+// WithCacheLog set log
+func WithCacheLog(log *zap.Logger) NewRedisCacheOption {
+	return func(rc *redisCache) {
+		if log != nil {
+			rc.log = log
+		}
+	}
+}
+
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
 func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, opts ...NewRedisCacheOption) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
-
 	// 初始化布隆过滤器
 	bloomFilter := bloom.NewWithEstimates(
 		DefaultBloomFilterExpectedElements,
 		DefaultBloomFilterFalsePositiveRate,
 	)
-	
 	rc := &redisCache{
 		log:               logger.Get(),
 		client:            client,
@@ -95,12 +101,12 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 		bloomFilter:       bloomFilter,
 		bloomFilterStats:  &BloomFilterStats{},
 	}
-	
+
 	// 应用可选配置
 	for _, opt := range opts {
 		opt(rc)
 	}
-	
+
 	return rc
 }
 
