@@ -41,10 +41,29 @@ type redisCache struct {
 	DefaultExpireTime time.Duration
 	newObject         func() interface{}
 	redsSync          *redsync.Redsync
-	bloomFilter       *bloom.BloomFilter
-	bloomFilterMutex  sync.RWMutex
 	bloomFilterStats  *BloomFilterStats
 	rebuildMutex      sync.Mutex // 用于防止并发重建
+}
+
+// 全局布隆过滤器单例及相关变量
+var (
+	globalBloomFilter      *bloom.BloomFilter
+	globalBloomFilterMutex sync.RWMutex
+	globalBloomFilterStats *BloomFilterStats
+	globalBloomOnce        sync.Once
+)
+
+// 初始化全局布隆过滤器
+func initGlobalBloomFilter() {
+	globalBloomOnce.Do(func() {
+		if globalBloomFilter == nil {
+			globalBloomFilter = bloom.NewWithEstimates(
+				DefaultBloomFilterExpectedElements,
+				DefaultBloomFilterFalsePositiveRate,
+			)
+			globalBloomFilterStats = &BloomFilterStats{}
+		}
+	})
 }
 
 // BloomFilterStats 布隆过滤器统计信息
@@ -85,11 +104,8 @@ func WithCacheLog(log *zap.Logger) NewRedisCacheOption {
 func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, opts ...NewRedisCacheOption) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
-	// 初始化布隆过滤器
-	bloomFilter := bloom.NewWithEstimates(
-		DefaultBloomFilterExpectedElements,
-		DefaultBloomFilterFalsePositiveRate,
-	)
+	// 初始化全局布隆过滤器
+	initGlobalBloomFilter()
 	rc := &redisCache{
 		log:               logger.Get(),
 		client:            client,
@@ -98,8 +114,7 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 		newObject:         newObject,
 		redsSync:          rs,
 		DefaultExpireTime: time.Second * 5,
-		bloomFilter:       bloomFilter,
-		bloomFilterStats:  &BloomFilterStats{},
+		bloomFilterStats:  globalBloomFilterStats,
 	}
 
 	// 应用可选配置
@@ -177,11 +192,11 @@ func (c *redisCache) AddToBloomFilter(ctx context.Context, key string) {
 		}
 	}()
 
-	c.bloomFilterMutex.Lock()
-	defer c.bloomFilterMutex.Unlock()
+	globalBloomFilterMutex.Lock()
+	defer globalBloomFilterMutex.Unlock()
 
-	c.bloomFilter.Add([]byte(key))
-	c.bloomFilterStats.ElementsAdded++
+	globalBloomFilter.Add([]byte(key))
+	globalBloomFilterStats.ElementsAdded++
 }
 
 // BloomFilter 测试键是否可能在布隆过滤器中
@@ -199,10 +214,10 @@ func (c *redisCache) BloomFilter(ctx context.Context, key string) bool {
 
 	}()
 
-	c.bloomFilterMutex.RLock()
-	defer c.bloomFilterMutex.RUnlock()
+	globalBloomFilterMutex.RLock()
+	defer globalBloomFilterMutex.RUnlock()
 
-	return c.bloomFilter.Test([]byte(key))
+	return globalBloomFilter.Test([]byte(key))
 }
 
 // GetBloomFilterStats 获取布隆过滤器统计信息
@@ -218,16 +233,16 @@ func (c *redisCache) GetBloomFilterStats(ctx context.Context) BloomFilterStats {
 		}
 	}()
 
-	c.bloomFilterMutex.RLock()
-	defer c.bloomFilterMutex.RUnlock()
+	globalBloomFilterMutex.RLock()
+	defer globalBloomFilterMutex.RUnlock()
 
-	return *c.bloomFilterStats
+	return *globalBloomFilterStats
 }
 
 // CheckBloomFilterHealth 检查布隆过滤器健康状态
 func (c *redisCache) CheckBloomFilterHealth(ctx context.Context) map[string]interface{} {
-	c.bloomFilterMutex.RLock()
-	defer c.bloomFilterMutex.RUnlock()
+	globalBloomFilterMutex.RLock()
+	defer globalBloomFilterMutex.RUnlock()
 
 	stats := c.GetBloomFilterStats(ctx)
 
@@ -310,11 +325,11 @@ func (c *redisCache) RebuildBloomFilter(ctx context.Context) (err error) {
 	}
 
 	// 替换旧的布隆过滤器
-	c.bloomFilterMutex.Lock()
-	c.bloomFilter = newBloomFilter
-	c.bloomFilterStats = newStats
-	c.bloomFilterStats.ElementsAdded = count
-	c.bloomFilterMutex.Unlock()
+	globalBloomFilterMutex.Lock()
+	globalBloomFilter = newBloomFilter
+	globalBloomFilterStats = newStats
+	globalBloomFilterStats.ElementsAdded = count
+	globalBloomFilterMutex.Unlock()
 
 	fields = append(fields,
 		zap.Int64("keys_processed", count),
@@ -510,9 +525,9 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err 
 
 	// 1. 先检查布隆过滤器
 	if !c.BloomFilter(ctx, key) {
-		c.bloomFilterMutex.Lock()
-		c.bloomFilterStats.TrueNegatives++
-		c.bloomFilterMutex.Unlock()
+		globalBloomFilterMutex.Lock()
+		globalBloomFilterStats.TrueNegatives++
+		globalBloomFilterMutex.Unlock()
 
 		fields = append(fields,
 			zap.Bool("bloom_filter_miss", true),
@@ -533,18 +548,18 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err 
 	// but leave it to the upstream for processing
 	if err != nil {
 		if errors.Is(err, CacheNotFound) {
-			c.bloomFilterMutex.Lock()
-			c.bloomFilterStats.Misses++
-			c.bloomFilterMutex.Unlock()
+			globalBloomFilterMutex.Lock()
+			globalBloomFilterStats.Misses++
+			globalBloomFilterMutex.Unlock()
 			// 缓存未命中，可能是布隆过滤器误判
 			fields = append(fields,
 				zap.Bool("bloom_filter_false_positive", true),
 				zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
 			c.log.Warn("Cache msg bloom filter false positive", fields...)
 
-			c.bloomFilterMutex.Lock()
-			c.bloomFilterStats.FalsePositives++
-			c.bloomFilterMutex.Unlock()
+			globalBloomFilterMutex.Lock()
+			globalBloomFilterStats.FalsePositives++
+			globalBloomFilterMutex.Unlock()
 			return err
 		}
 		fields = append(fields, zap.Error(err), zap.String("ms", fmt.Sprintf("%v", float64(time.Since(begin).Nanoseconds())/1e6)))
@@ -567,9 +582,9 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err 
 			err, key, cacheKey, reflect.TypeOf(val), string(bytes))
 	}
 
-	c.bloomFilterMutex.Lock()
-	c.bloomFilterStats.Hits++
-	c.bloomFilterMutex.Unlock()
+	globalBloomFilterMutex.Lock()
+	globalBloomFilterStats.Hits++
+	globalBloomFilterMutex.Unlock()
 
 	elapsed := float64(time.Since(begin).Nanoseconds()) / 1e6
 	if elapsed > 10 {
@@ -607,9 +622,12 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 		expireTime = c.DefaultExpireTime
 	}
 
-	// 添加到布隆过滤器
+	// 添加到布隆过滤器（使用全局布隆过滤器）
 	for key := range valueMap {
-		c.AddToBloomFilter(ctx, key)
+		globalBloomFilterMutex.Lock()
+		globalBloomFilter.Add([]byte(key))
+		globalBloomFilterStats.ElementsAdded++
+		globalBloomFilterMutex.Unlock()
 	}
 
 	// the key-value is paired and has twice the capacity of a map
@@ -867,7 +885,12 @@ func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) (err 
 	}
 
 	// 添加到布隆过滤器（即使是空值也添加，防止缓存穿透）
-	c.AddToBloomFilter(ctx, key)
+	// 使用全局布隆过滤器直接操作
+	globalBloomFilterMutex.Lock()
+	defer globalBloomFilterMutex.Unlock()
+
+	globalBloomFilter.Add([]byte(key))
+	globalBloomFilterStats.ElementsAdded++
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
