@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/bits-and-blooms/bloom/v3"
 	"reflect"
 	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/bits-and-blooms/bloom/v3"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 
@@ -371,7 +372,15 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 
 	begin := time.Now()
 	// 初始化锁
-	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	//lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	// 使用strings.Builder优化字符串拼接性能
+	var lockKeyBuilder strings.Builder
+	lockKeyBuilder.Grow(len(c.KeyPrefix) + 5 + len(key)) // 预分配容量 "lock:"占5个字符
+	lockKeyBuilder.WriteString(c.KeyPrefix)
+	lockKeyBuilder.WriteString("lock:")
+	lockKeyBuilder.WriteString(key)
+	lockKey := lockKeyBuilder.String()
+
 	// 构建日志字段
 	requestID := requestIDField(ctx, "request_id")
 	logFields := []zap.Field{
@@ -416,7 +425,15 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 
 	begin := time.Now()
 	// 初始化锁
-	lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	//lockKey := fmt.Sprintf("%slock:%s", c.KeyPrefix, key)
+	// 使用strings.Builder优化字符串拼接性能
+	var lockKeyBuilder strings.Builder
+	lockKeyBuilder.Grow(len(c.KeyPrefix) + 5 + len(key)) // 预分配容量 "lock:"占5个字符
+	lockKeyBuilder.WriteString(c.KeyPrefix)
+	lockKeyBuilder.WriteString("lock:")
+	lockKeyBuilder.WriteString(key)
+	lockKey := lockKeyBuilder.String()
+
 	// 构建日志字段
 	requestID := requestIDField(ctx, "request_id")
 	logFields := []zap.Field{
