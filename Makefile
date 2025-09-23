@@ -97,7 +97,7 @@ image-build-sunshine:
 .PHONY: run
 # Build and run service
 run:
-	@bash scripts/run.sh
+	@bash scripts/run.sh $(CONFIGFILE)
 
 
 .PHONY: run-nohup
