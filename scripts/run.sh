@@ -3,6 +3,7 @@
 serverName="serverNameExample_mixExample"
 
 binaryFile="cmd/${serverName}/${serverName}"
+configFile=$1
 
 osType=$(uname -s)
 if [ "${osType%%_*}"x = "MINGW64"x ];then
@@ -26,4 +27,8 @@ go build -o ${binaryFile} cmd/${serverName}/main.go
 checkResult $?
 
 # running server
-./${binaryFile}
+if [ -n "$configFile" ]; then
+  ./${binaryFile} -c $configFile
+else
+  ./${binaryFile}
+fi
