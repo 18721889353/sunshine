@@ -53,7 +53,7 @@ func NewCacheNameExampleCache(cacheType *database.CacheType) CacheNameExampleCac
 	cType := strings.ToLower(cacheType.CType)
 	switch cType {
 	case "redis":
-		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, newObject, cache.WithCacheLog(logger.Get()), cache.WithInitBloomFilterOnCreate())
+		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, newObject, cache.WithCacheLog(logger.Get()))
 		return &cacheNameExampleCache{cache: c}
 	}
 
