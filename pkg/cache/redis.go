@@ -68,7 +68,7 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	// 初始化锁
 	lockKey := c.buildLockKey(key)
 	defer func() {
-		c.logOperation(ctx, "GetLoopLock", start, err, zap.String("lockKey", lockKey), zap.Any("options", options))
+		c.logOperation(ctx, "GetLoopLock", start, err, zap.String("lockKey", lockKey))
 	}()
 	// 创建新的互斥锁
 	mutex := c.redsSync.NewMutex(lockKey, options...)
@@ -89,7 +89,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	// 初始化锁
 	lockKey := c.buildLockKey(key)
 	defer func() {
-		c.logOperation(ctx, "GetLock", start, err, zap.String("lockKey", lockKey), zap.Any("options", options))
+		c.logOperation(ctx, "GetLock", start, err, zap.String("lockKey", lockKey))
 	}()
 
 	// 创建新的互斥锁
@@ -432,7 +432,7 @@ func (c *redisCache) logOperation(ctx context.Context, operation string, start t
 	if err != nil {
 		c.log.Warn("cache_operation", logFields...)
 	} else if duration > 50*time.Millisecond { // 慢操作
-		c.log.Warn("cache_slow_operation", logFields...)
+		c.log.Info("cache_slow_operation", logFields...)
 	} else {
 		c.log.Info("cache_operation", logFields...)
 	}
