@@ -4,51 +4,45 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/18721889353/sunshine/internal/cache"
-
-	"github.com/18721889353/sunshine/internal/database"
-	"github.com/18721889353/sunshine/internal/model"
+	"golang.org/x/sync/singleflight"
+	"gorm.io/gorm"
 
 	"github.com/18721889353/sunshine/pkg/gocrypto"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
-	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
+
+	"github.com/18721889353/sunshine/internal/cache"
+	"github.com/18721889353/sunshine/internal/database"
+	"github.com/18721889353/sunshine/internal/model"
 )
 
-var _ CpDealerDao = (*cpDealerDao)(nil)
+var _ UserExampleDao = (*userExampleDao)(nil)
 
-// CpDealerDao defining the dao interface
-type CpDealerDao interface {
+// UserExampleDao defining the dao interface
+type UserExampleDao interface {
 	Create(ctx context.Context, table *model.UserExample) error
 	CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error
-	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error)
-	CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error
-
 	DeleteByID(ctx context.Context, id uint64) error
-	DeleteByIDs(ctx context.Context, ids []uint64) error
-	DeleteByCondition(ctx context.Context, c *query.Conditions) error
-	DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error
-	DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error
-	DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
-
 	UpdateByID(ctx context.Context, table *model.UserExample) error
-	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.UserExample) error
-	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
-	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
-
 	GetByID(ctx context.Context, id uint64) (*model.UserExample, error)
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error)
 	GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error)
-	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
+
+	DeleteByIDs(ctx context.Context, ids []uint64) error
+	DeleteByCondition(ctx context.Context, c *query.Conditions) error
+
+	GetByCondition(ctx context.Context, condition *query.Conditions) ([]uint64, error)
 	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error)
-	CountByCondition(ctx context.Context, c *query.Conditions) (int64, error)
 
-	ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error)
+	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error)
+	DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error
+	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
+	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.UserExample) error
+	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
+
 	// 通用方法
 	ClearCache(ctx context.Context) error
 }
@@ -128,8 +122,8 @@ func (m *cacheManager) get(ctx context.Context, id uint64, queryFunc func() (*mo
 func (m *cacheManager) getByConditionKey(ctx context.Context, key string, queryFunc func() (interface{}, error)) (interface{}, error) {
 	cacheKey := m.getConditionCacheKey(key)
 
-	// 先尝试从缓存获取
-	cachedData, err := m.cache.GetDataByKey(ctx, cacheKey)
+	// 先尝试从缓存获取ID列表
+	cachedData, err := m.cache.GetIdsByKey(ctx, cacheKey)
 	if err == nil {
 		return cachedData, nil
 	}
@@ -150,8 +144,10 @@ func (m *cacheManager) getByConditionKey(ctx context.Context, key string, queryF
 				return nil, dbErr
 			}
 			// 设置缓存
-			if cacheErr := m.cache.SetDataByKey(ctx, cacheKey, data, cache.UserExampleExpireTime); cacheErr != nil {
-				logger.Warn("cache.SetDataByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey))
+			if ids, ok := data.([]uint64); ok {
+				if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, ids, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey))
+				}
 			}
 			return data, nil
 		})
@@ -388,16 +384,16 @@ func (m *cacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFun
 	return itemMap, nil
 }
 
-type cpDealerDao struct {
+type userExampleDao struct {
 	db          *gorm.DB
 	cache       cache.UserExampleCache // if nil, the cache is not used.
 	cacheManger *cacheManager          // 缓存管理器
 	sfg         *singleflight.Group    // if cache is nil, the sfg is not used.
 }
 
-// NewCpDealerDao creating the dao interface
-func NewCpDealerDao(db *gorm.DB, xCache cache.UserExampleCache) CpDealerDao {
-	dao := &cpDealerDao{
+// NewUserExampleDao creating the dao interface
+func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDao {
+	dao := &userExampleDao{
 		db:    db,
 		cache: xCache,
 		sfg:   new(singleflight.Group),
@@ -410,7 +406,7 @@ func NewCpDealerDao(db *gorm.DB, xCache cache.UserExampleCache) CpDealerDao {
 	return dao
 }
 
-func (d *cpDealerDao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
+func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
 	if d.cache == nil {
 		return nil
 	}
@@ -428,7 +424,7 @@ func (d *cpDealerDao) deleteCache(ctx context.Context, id uint64, deleteType str
 }
 
 // Create a record, insert the record and the id value is written back to the table
-func (d *cpDealerDao) Create(ctx context.Context, table *model.UserExample) error {
+func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
 	defer func() {
 		// 创建操作只清除条件查询缓存，保留单条记录缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -436,7 +432,7 @@ func (d *cpDealerDao) Create(ctx context.Context, table *model.UserExample) erro
 	return d.db.WithContext(ctx).Create(table).Error
 }
 
-func (d *cpDealerDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
+func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
 	defer func() {
 		// 批量创建操作只清除条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -445,7 +441,7 @@ func (d *cpDealerDao) CreateInBatches(ctx context.Context, tables []*model.UserE
 }
 
 // DeleteByID delete a record by id
-func (d *cpDealerDao) DeleteByID(ctx context.Context, id uint64) error {
+func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
 	defer func() {
 		// 删除操作只清除相关记录和条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -462,7 +458,7 @@ func (d *cpDealerDao) DeleteByID(ctx context.Context, id uint64) error {
 }
 
 // UpdateByID update a record by id
-func (d *cpDealerDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
+func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
 	err := d.updateDataByID(ctx, d.db, table)
 
 	// delete cache
@@ -473,7 +469,7 @@ func (d *cpDealerDao) UpdateByID(ctx context.Context, table *model.UserExample) 
 	return err
 }
 
-func (d *cpDealerDao) updateDataByID(ctx context.Context, db *gorm.DB, table *model.UserExample) error {
+func (d *userExampleDao) updateDataByID(ctx context.Context, db *gorm.DB, table *model.UserExample) error {
 	if table.ID < 1 {
 		return errors.New("id cannot be 0")
 	}
@@ -505,12 +501,13 @@ func (d *cpDealerDao) updateDataByID(ctx context.Context, db *gorm.DB, table *mo
 	if table.LoginAt > 0 {
 		update["login_at"] = table.LoginAt
 	}
+	// delete the templates code end
 
 	return db.WithContext(ctx).Model(table).Updates(update).Error
 }
 
 // GetByID get a record by id
-func (d *cpDealerDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
+func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
 	// no cache
 	if d.cacheManger == nil {
 		record := &model.UserExample{}
@@ -559,7 +556,7 @@ func (d *cpDealerDao) GetByID(ctx context.Context, id uint64) (*model.UserExampl
 //			Value: "male",
 //		},
 //	}
-func (d *cpDealerDao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error) {
+func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, errors.New("query params error: " + err.Error())
@@ -606,7 +603,7 @@ func (d *cpDealerDao) GetByColumns(ctx context.Context, params *query.Params) ([
 }
 
 // queryByColumns 实际执行查询的函数
-func (d *cpDealerDao) queryByColumns(ctx context.Context, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
+func (d *userExampleDao) queryByColumns(ctx context.Context, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
 	var total int64
 	var records []*model.UserExample
 	// 统计总数（若需要）
@@ -636,7 +633,7 @@ func (d *cpDealerDao) queryByColumns(ctx context.Context, params *query.Params, 
 	}{records: records, total: total}, nil
 }
 
-func (d *cpDealerDao) GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error) {
+func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, errors.New("query params error: " + err.Error())
@@ -666,7 +663,7 @@ func (d *cpDealerDao) GetOneByColumns(ctx context.Context, params *query.Params)
 }
 
 // DeleteByIDs delete records by batch id
-func (d *cpDealerDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
+func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 	defer func() {
 		// 批量删除操作清除条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -686,7 +683,7 @@ func (d *cpDealerDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 	return nil
 }
 
-func (d *cpDealerDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
+func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
 	defer func() {
 		// 条件删除操作清除所有缓存
 		_ = d.deleteCache(ctx, 0, "all")
@@ -723,7 +720,7 @@ func (d *cpDealerDao) DeleteByCondition(ctx context.Context, c *query.Conditions
 //			Value: "male",
 //		},
 //	}
-func (d *cpDealerDao) GetByCondition(ctx context.Context, c *query.Conditions) (ids []uint64, err error) {
+func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions) ([]uint64, error) {
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, err
@@ -760,7 +757,7 @@ func (d *cpDealerDao) GetByCondition(ctx context.Context, c *query.Conditions) (
 }
 
 // GetByIDs get records by batch id
-func (d *cpDealerDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error) {
+func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error) {
 	// no cache
 	if d.cacheManger == nil {
 		var records []*model.UserExample
@@ -784,7 +781,7 @@ func (d *cpDealerDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*m
 }
 
 // GetByLastID get paging records by last id and limit
-func (d *cpDealerDao) GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error) {
+func (d *userExampleDao) GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error) {
 	page := query.NewPage(0, limit, sort)
 
 	records := []*model.UserExample{}
@@ -796,7 +793,7 @@ func (d *cpDealerDao) GetByLastID(ctx context.Context, lastID uint64, limit int,
 }
 
 // CreateByTx create a record in the database using the provided transaction
-func (d *cpDealerDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
+func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
 	defer func() {
 		// 事务创建操作只清除条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -805,24 +802,13 @@ func (d *cpDealerDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.
 	return table.ID, err
 }
 
-func (d *cpDealerDao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
-	defer func() {
-		// 事务批量创建操作只清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
-	return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
-}
-
 // DeleteByTx delete a record by id in the database using the provided transaction
-func (d *cpDealerDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
+func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
 	defer func() {
 		// 事务删除操作清除条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
 	}()
-	update := map[string]interface{}{
-		"deleted_at": time.Now(),
-	}
-	err := tx.WithContext(ctx).Model(&model.UserExample{}).Where("id = ?", id).Updates(update).Error
+	err := tx.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
 	}
@@ -833,44 +819,8 @@ func (d *cpDealerDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) er
 	return nil
 }
 
-func (d *cpDealerDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	defer func() {
-		// 事务批量删除操作清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
-	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return err
-	}
-
-	// delete cache
-	if d.cache != nil {
-		for _, id := range ids {
-			_ = d.deleteCache(ctx, id, "single")
-		}
-	}
-
-	return nil
-}
-
-func (d *cpDealerDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
-	defer func() {
-		// 事务条件删除操作清除所有缓存
-		_ = d.deleteCache(ctx, 0, "all")
-	}()
-	queryStr, args, err := c.ConvertToGorm()
-	if err != nil {
-		return err
-	}
-	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // UpdateByTx update a record by id in the database using the provided transaction
-func (d *cpDealerDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
+func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
 	defer func() {
 		// 事务更新操作清除条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -883,8 +833,50 @@ func (d *cpDealerDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.
 	return err
 }
 
+// UpdateByCondition update records by condition
+func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.UserExample) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+
+	// 构建更新映射
+	update := map[string]interface{}{}
+
+	if updates.Name != "" {
+		update["name"] = updates.Name
+	}
+	if updates.Password != "" {
+		update["password"] = updates.Password
+	}
+	if updates.Email != "" {
+		update["email"] = updates.Email
+	}
+	if updates.Phone != "" {
+		update["phone"] = updates.Phone
+	}
+	if updates.Avatar != "" {
+		update["avatar"] = updates.Avatar
+	}
+	if updates.Age > 0 {
+		update["age"] = updates.Age
+	}
+	if updates.Gender > 0 {
+		update["gender"] = updates.Gender
+	}
+	if updates.LoginAt > 0 {
+		update["login_at"] = updates.LoginAt
+	}
+
+	return d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+}
+
 // UpdateByConditionTx update records by condition in the database using the provided transaction
-func (d *cpDealerDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
+func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error {
 	defer func() {
 		// 事务更新操作清除条件查询缓存
 		_ = d.deleteCache(ctx, 0, "condition")
@@ -898,107 +890,38 @@ func (d *cpDealerDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *q
 	// 构建更新映射
 	update := map[string]interface{}{}
 
-	if table.Name != "" {
-		update["name"] = table.Name
+	if updates.Name != "" {
+		update["name"] = updates.Name
 	}
-	if table.Password != "" {
-		update["password"] = table.Password
+	if updates.Password != "" {
+		update["password"] = updates.Password
 	}
-	if table.Email != "" {
-		update["email"] = table.Email
+	if updates.Email != "" {
+		update["email"] = updates.Email
 	}
-	if table.Phone != "" {
-		update["phone"] = table.Phone
+	if updates.Phone != "" {
+		update["phone"] = updates.Phone
 	}
-	if table.Avatar != "" {
-		update["avatar"] = table.Avatar
+	if updates.Avatar != "" {
+		update["avatar"] = updates.Avatar
 	}
-	if table.Age > 0 {
-		update["age"] = table.Age
+	if updates.Age > 0 {
+		update["age"] = updates.Age
 	}
-	if table.Gender > 0 {
-		update["gender"] = table.Gender
+	if updates.Gender > 0 {
+		update["gender"] = updates.Gender
 	}
-	if table.LoginAt > 0 {
-		update["login_at"] = table.LoginAt
+	if updates.LoginAt > 0 {
+		update["login_at"] = updates.LoginAt
 	}
 
 	return tx.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
 }
 
 // ClearCache clears all cache
-func (d *cpDealerDao) ClearCache(ctx context.Context) error {
+func (d *userExampleDao) ClearCache(ctx context.Context) error {
 	if d.cache != nil {
 		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
 	}
 	return nil
-}
-
-// CountByCondition count records by condition
-func (d *cpDealerDao) CountByCondition(ctx context.Context, c *query.Conditions) (int64, error) {
-	queryStr, args, err := c.ConvertToGorm()
-	if err != nil {
-		return 0, err
-	}
-
-	var count int64
-	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
-	return count, err
-}
-
-// ExistsByCondition check if records exist by condition
-func (d *cpDealerDao) ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error) {
-	queryStr, args, err := c.ConvertToGorm()
-	if err != nil {
-		return false, err
-	}
-
-	var count int64
-	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Limit(1).Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-// UpdateByCondition update records by condition
-func (d *cpDealerDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
-
-	queryStr, args, err := c.ConvertToGorm()
-	if err != nil {
-		return err
-	}
-
-	// 构建更新映射
-	update := map[string]interface{}{}
-
-	if table.Name != "" {
-		update["name"] = table.Name
-	}
-	if table.Password != "" {
-		update["password"] = table.Password
-	}
-	if table.Email != "" {
-		update["email"] = table.Email
-	}
-	if table.Phone != "" {
-		update["phone"] = table.Phone
-	}
-	if table.Avatar != "" {
-		update["avatar"] = table.Avatar
-	}
-	if table.Age > 0 {
-		update["age"] = table.Age
-	}
-	if table.Gender > 0 {
-		update["gender"] = table.Gender
-	}
-	if table.LoginAt > 0 {
-		update["login_at"] = table.LoginAt
-	}
-
-	return d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
 }
