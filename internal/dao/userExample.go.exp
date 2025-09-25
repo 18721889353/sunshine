@@ -5,17 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"time"
-    "github.com/18721889353/sunshine/pkg/gocrypto"
-	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
 
+	"github.com/18721889353/sunshine/internal/cache"
+
+	"github.com/18721889353/sunshine/internal/database"
+	"github.com/18721889353/sunshine/internal/model"
+
+	"github.com/18721889353/sunshine/pkg/gocrypto"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
-
-	"github.com/18721889353/sunshine/internal/cache"
-	"github.com/18721889353/sunshine/internal/database"
-	"github.com/18721889353/sunshine/internal/model"
+	"golang.org/x/sync/singleflight"
+	"gorm.io/gorm"
 )
 
 var _ UserExampleDao = (*userExampleDao)(nil)
@@ -24,79 +25,439 @@ var _ UserExampleDao = (*userExampleDao)(nil)
 type UserExampleDao interface {
 	Create(ctx context.Context, table *model.UserExample) error
 	CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error
+	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error)
+	CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error
+
 	DeleteByID(ctx context.Context, id uint64) error
+	DeleteByIDs(ctx context.Context, ids []uint64) error
+	DeleteByCondition(ctx context.Context, c *query.Conditions) error
+	DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error
+	DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error
+	DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
+	ClearCache(ctx context.Context) error
+
 	UpdateByID(ctx context.Context, table *model.UserExample) error
+	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.UserExample) error
+	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
+	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
+
 	GetByID(ctx context.Context, id uint64) (*model.UserExample, error)
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error)
 	GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error)
-
-	DeleteByIDs(ctx context.Context, ids []uint64) error
-	DeleteByCondition(ctx context.Context, c *query.Conditions) error
-
 	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
 	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error)
-
-	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error)
-	CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error
-	DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error
-	DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
-	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
+	CountByCondition(ctx context.Context, c *query.Conditions) (int64, error)
+	ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error)
 }
 
-type userExampleDao struct {
-	db    *gorm.DB
-	cache cache.UserExampleCache // if nil, the cache is not used.
-	sfg   *singleflight.Group    // if cache is nil, the sfg is not used.
+// cacheManager 统一管理缓存操作
+type cacheManager struct {
+	cache cache.UserExampleCache
+	sfg   *singleflight.Group
 }
 
-// NewUserExampleDao creating the dao interface
-func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDao {
-	if xCache == nil {
-		return &userExampleDao{db: db,sfg: new(singleflight.Group)}
-	}
-	return &userExampleDao{
-		db:    db,
-		cache: xCache,
+// newCacheManager 创建缓存管理器
+func newCacheManager(c cache.UserExampleCache) *cacheManager {
+	return &cacheManager{
+		cache: c,
 		sfg:   new(singleflight.Group),
 	}
 }
 
-func (d *userExampleDao) deleteCache(ctx context.Context, id uint64) error {
-	if d.cache != nil {
-		if id == 0 || id == 88888888 {
-			defer func() {
-				if id == 88888888 {
-					_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
-				} else {
-					_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition:")
-				}
-			}()
-		}
-		return d.cache.Del(ctx, id)
-	}
-	return nil
+// getCacheKey 生成基于ID的缓存键
+func (m *cacheManager) getCacheKey(id uint64) string {
+	return cache.UserExampleCachePrefixKey + utils.Uint64ToStr(id)
 }
 
-// Create a record, insert the record and the id value is written back to the table
+// getConditionCacheKey 生成基于条件的缓存键
+func (m *cacheManager) getConditionCacheKey(key string) string {
+	return cache.UserExampleCachePrefixKey + "condition:" + key
+}
+
+// cacheManager.get 通过singleflight和缓存获取数据
+func (m *cacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	// 先从缓存获取
+	record, err := m.cache.Get(ctx, id)
+	if err == nil {
+		return record, nil
+	}
+
+	// 缓存未命中，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
+			table, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+					if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
+						logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, dbErr
+			}
+			// 设置缓存
+			if cacheErr := m.cache.Set(ctx, id, table, cache.UserExampleExpireTime); cacheErr != nil {
+				logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
+			}
+			return table, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		table, ok := val.(*model.UserExample)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return table, nil
+	}
+
+	// 如果是占位符错误，返回记录未找到
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+
+	return nil, err
+}
+
+// cacheManager.getByConditionKey 通过指定条件key获取缓存数据
+func (m *cacheManager) getByConditionKey(ctx context.Context, key string, queryFunc func() (interface{}, error)) (interface{}, error) {
+	cacheKey := m.getConditionCacheKey(key)
+
+	// 先尝试从缓存获取
+	cachedData, err := m.cache.GetDataByKey(ctx, cacheKey)
+	if err == nil {
+		return cachedData, nil
+	}
+
+	// 缓存未命中，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do("condition:"+key, func() (interface{}, error) {
+			data, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
+						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, dbErr
+			}
+			// 设置缓存
+			if cacheErr := m.cache.SetDataByKey(ctx, cacheKey, data, cache.UserExampleExpireTime); cacheErr != nil {
+				logger.Warn("cache.SetDataByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey))
+			}
+			return data, nil
+		})
+		return val, err
+	}
+
+	// 如果是占位符错误，返回记录未找到
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+
+	return nil, err
+}
+
+// cacheManager.getOneByConditionKey 通过条件获取单条记录
+func (m *cacheManager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	cacheKey := m.getConditionCacheKey(key)
+
+	// 先尝试从缓存获取ID
+	cachedID, err := m.cache.GetIdByKey(ctx, cacheKey)
+	if err == nil && cachedID != 0 {
+		// 通过ID获取完整信息
+		record, getErr := m.get(ctx, cachedID, func() (*model.UserExample, error) {
+			// 直接从数据库获取完整记录
+			return &model.UserExample{}, nil
+		})
+		if getErr == nil && record.ID == cachedID {
+			return record, nil
+		}
+		// 如果通过ID获取失败，则回退到直接查询
+	}
+
+	// 缓存未命中或通过ID获取失败，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) || cachedID == 0 {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
+			record, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
+						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, dbErr
+			}
+
+			// 如果记录存在，将其ID缓存起来
+			if record != nil {
+				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
+				}
+				// 同时缓存完整记录
+				if cacheErr := m.cache.Set(ctx, record.ID, record, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
+				}
+			}
+			return record, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		record, ok := val.(*model.UserExample)
+		if !ok {
+			return nil, nil
+		}
+		return record, nil
+	}
+
+	// 如果是占位符错误，返回空
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, nil
+	}
+
+	// 其他错误直接返回
+	return nil, err
+}
+
+// cacheManager.getByCondition 通过条件获取ID列表
+func (m *cacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
+	cacheKey := m.getConditionCacheKey(key)
+
+	// 先从缓存获取
+	ids, err := m.cache.GetIdsByKey(ctx, cacheKey)
+	if err == nil {
+		// 检查ID列表大小，如果过大则不使用缓存，直接查询数据库
+		if len(ids) > 10000 {
+			logger.Warn("cached id list too large, querying database directly", logger.Any("count", len(ids)), logger.Any("key", key))
+			return queryFunc()
+		}
+		return ids, nil
+	}
+
+	// 缓存未命中，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
+			result, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
+					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+				}
+				return nil, dbErr
+			}
+
+			// 对于大数据量的结果集，不进行缓存，直接返回
+			if len(result) > 10000 {
+				logger.Warn("result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key))
+				return result, nil
+			}
+
+			// 设置缓存
+			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, cache.UserExampleExpireTime); cacheErr != nil {
+				logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
+			}
+			return result, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		result, ok := val.([]uint64)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return result, nil
+	}
+
+	// 如果是占位符错误，返回记录未找到
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+
+	return nil, err
+}
+
+// cacheManager.getByIDs 批量获取记录
+func (m *cacheManager) getByIDs(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+	// 对于大数据量请求，分批处理以避免内存峰值
+	if len(ids) > 1000 {
+		result := make(map[uint64]*model.UserExample)
+		// 分批处理，每批1000个ID
+		for i := 0; i < len(ids); i += 1000 {
+			end := i + 1000
+			if end > len(ids) {
+				end = len(ids)
+			}
+
+			batch := ids[i:end]
+			batchResult, err := m.getByIDsBatch(ctx, batch, queryFunc)
+			if err != nil {
+				return nil, err
+			}
+
+			// 合并结果
+			for id, record := range batchResult {
+				result[id] = record
+			}
+		}
+		return result, nil
+	}
+
+	// 小数据量直接处理
+	return m.getByIDsBatch(ctx, ids, queryFunc)
+}
+
+// getByIDsBatch 批量获取记录的实际实现
+func (m *cacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+	// 先从缓存获取
+	itemMap, err := m.cache.MultiGet(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// 查找未命中的ID
+	var missedIDs []uint64
+	for _, id := range ids {
+		if _, ok := itemMap[id]; !ok {
+			missedIDs = append(missedIDs, id)
+		}
+	}
+
+	// 获取未命中的数据
+	if len(missedIDs) > 0 {
+		// 过滤掉占位符ID：直接使用 MultiGet 返回的结果来判断
+		var realMissedIDs []uint64
+		for _, id := range missedIDs {
+			// 如果 MultiGet 没有返回且没有错误，则可能是占位符或真正缺失
+			_, err := m.cache.Get(ctx, id)
+			if err == nil || !m.cache.IsPlaceholderErr(err) {
+				// 只有当不是占位符错误时才认为需要查询数据库
+				realMissedIDs = append(realMissedIDs, id)
+			}
+			// 如果是占位符错误，跳过即可
+		}
+
+		// 从数据库获取未命中的数据
+		if len(realMissedIDs) > 0 {
+			records, err := queryFunc(realMissedIDs)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(records) > 0 {
+				// 添加到结果映射中
+				for _, record := range records {
+					itemMap[record.ID] = record
+				}
+				// 批量设置缓存
+				if cacheErr := m.cache.MultiSet(ctx, records, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", realMissedIDs))
+				}
+			}
+
+			// 对于数据库中也不存在的记录，设置占位符
+			if len(records) < len(realMissedIDs) {
+				existingIDs := make(map[uint64]bool)
+				for _, record := range records {
+					existingIDs[record.ID] = true
+				}
+
+				for _, id := range realMissedIDs {
+					if !existingIDs[id] {
+						if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
+							logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return itemMap, nil
+}
+
+type userExampleDao struct {
+	db          *gorm.DB
+	cache       cache.UserExampleCache // if nil, the cache is not used.
+	cacheManger *cacheManager          // 缓存管理器
+	sfg         *singleflight.Group    // if cache is nil, the sfg is not used.
+}
+
+// NewUserExampleDao creating the dao interface
+func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDao {
+	dao := &userExampleDao{
+		db:    db,
+		cache: xCache,
+		sfg:   new(singleflight.Group),
+	}
+
+	if xCache != nil {
+		dao.cacheManger = newCacheManager(xCache)
+	}
+
+	return dao
+}
+
 func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		// 创建操作只清除条件查询缓存，保留单条记录缓存
+		_ = d.deleteCache(ctx, 0, "condition")
 	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
-
 func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		// 批量创建操作只清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
 	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
+func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
+	defer func() {
+		// 事务创建操作只清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	err := tx.WithContext(ctx).Create(table).Error
+	return table.ID, err
+}
+func (d *userExampleDao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
+	defer func() {
+		// 事务批量创建操作只清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+}
+func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
+	if d.cache == nil {
+		return nil
+	}
 
-// DeleteByID delete a record by id
+	switch deleteType {
+	case "single":
+		return d.cache.Del(ctx, id)
+	case "all":
+		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
+	case "condition":
+		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition:")
+	default:
+		return nil
+	}
+}
+
 func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		// 删除操作只清除相关记录和条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
 	}()
 	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
 	if err != nil {
@@ -104,19 +465,101 @@ func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
 	}
 
 	// delete cache
-	_ = d.deleteCache(ctx, id)
+	_ = d.deleteCache(ctx, id, "single")
 
 	return nil
 }
-
-// UpdateByID update a record by id
-func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
-	err := d.updateDataByID(ctx, d.db, table)
+func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
+	defer func() {
+		// 批量删除操作清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return err
+	}
 
 	// delete cache
-	_ = d.deleteCache(ctx, table.ID)
+	if d.cache != nil {
+		for _, id := range ids {
+			_ = d.deleteCache(ctx, id, "single")
+		}
+	}
 
-	return err
+	return nil
+}
+func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
+	defer func() {
+		// 条件删除操作清除所有缓存
+		_ = d.deleteCache(ctx, 0, "all")
+	}()
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
+	defer func() {
+		// 事务删除操作清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	update := map[string]interface{}{
+		"deleted_at": time.Now(),
+	}
+	err := tx.WithContext(ctx).Model(&model.UserExample{}).Where("id = ?", id).Updates(update).Error
+	if err != nil {
+		return err
+	}
+
+	// delete cache
+	_ = d.deleteCache(ctx, id, "single")
+
+	return nil
+}
+func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
+	defer func() {
+		// 事务批量删除操作清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return err
+	}
+
+	// delete cache
+	if d.cache != nil {
+		for _, id := range ids {
+			_ = d.deleteCache(ctx, id, "single")
+		}
+	}
+
+	return nil
+}
+func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+	defer func() {
+		// 事务条件删除操作清除所有缓存
+		_ = d.deleteCache(ctx, 0, "all")
+	}()
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return err
+	}
+	return nil
+}
+func (d *userExampleDao) ClearCache(ctx context.Context) error {
+	if d.cache != nil {
+		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
+	}
+	return nil
 }
 
 func (d *userExampleDao) updateDataByID(ctx context.Context, db *gorm.DB, table *model.UserExample) error {
@@ -151,63 +594,157 @@ func (d *userExampleDao) updateDataByID(ctx context.Context, db *gorm.DB, table 
 	if table.LoginAt > 0 {
 		update["login_at"] = table.LoginAt
 	}
-	// delete the templates code end
 
 	return db.WithContext(ctx).Model(table).Updates(update).Error
 }
+func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
+	err := d.updateDataByID(ctx, d.db, table)
 
-// GetByID get a record by id
+	// delete cache
+	_ = d.deleteCache(ctx, table.ID, "single")
+	// 同时清除条件缓存，因为更新可能影响条件查询结果
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	return err
+}
+func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
+	defer func() {
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+
+	// 构建更新映射
+	update := map[string]interface{}{}
+
+	if table.Name != "" {
+		update["name"] = table.Name
+	}
+	if table.Password != "" {
+		update["password"] = table.Password
+	}
+	if table.Email != "" {
+		update["email"] = table.Email
+	}
+	if table.Phone != "" {
+		update["phone"] = table.Phone
+	}
+	if table.Avatar != "" {
+		update["avatar"] = table.Avatar
+	}
+	if table.Age > 0 {
+		update["age"] = table.Age
+	}
+	if table.Gender > 0 {
+		update["gender"] = table.Gender
+	}
+	if table.LoginAt > 0 {
+		update["login_at"] = table.LoginAt
+	}
+
+	return d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+}
+func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
+	defer func() {
+		// 事务更新操作清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	err := d.updateDataByID(ctx, tx, table)
+
+	// delete cache
+	_ = d.deleteCache(ctx, table.ID, "single")
+
+	return err
+}
+func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
+	defer func() {
+		// 事务更新操作清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+
+	// 构建更新映射
+	update := map[string]interface{}{}
+
+	if table.Name != "" {
+		update["name"] = table.Name
+	}
+	if table.Password != "" {
+		update["password"] = table.Password
+	}
+	if table.Email != "" {
+		update["email"] = table.Email
+	}
+	if table.Phone != "" {
+		update["phone"] = table.Phone
+	}
+	if table.Avatar != "" {
+		update["avatar"] = table.Avatar
+	}
+	if table.Age > 0 {
+		update["age"] = table.Age
+	}
+	if table.Gender > 0 {
+		update["gender"] = table.Gender
+	}
+	if table.LoginAt > 0 {
+		update["login_at"] = table.LoginAt
+	}
+
+	return tx.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+}
+
 func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
 	// no cache
-	if d.cache == nil {
+	if d.cacheManger == nil {
 		record := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where("id = ?", id).First(record).Error
 		return record, err
 	}
 
-	// get from cache
-	record, err := d.cache.Get(ctx, id)
-	if err == nil {
-		return record, nil
-	}
+	// 使用缓存管理器获取数据
+	return d.cacheManger.get(ctx, id, func() (*model.UserExample, error) {
+		table := &model.UserExample{}
+		err := d.db.WithContext(ctx).Where("id = ?", id).First(table).Error
+		return table, err
+	})
+}
 
-	// get from database
-	if errors.Is(err, database.ErrCacheNotFound) {
-		// for the same id, prevent high concurrent simultaneous access to database
-		val, err, _ := d.sfg.Do(utils.Uint64ToStr(id), func() (interface{}, error) {
-			table := &model.UserExample{}
-			err = d.db.WithContext(ctx).Where("id = ?", id).First(table).Error
-			if err != nil {
-				// set placeholder cache to prevent cache penetration, default expiration time 10 minutes
-				if errors.Is(err, database.ErrRecordNotFound) {
-					if err = d.cache.SetPlaceholder(ctx, id); err != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(err), logger.Any("id", id))
-					}
-					return nil, database.ErrRecordNotFound
-				}
-				return nil, err
-			}
-			// set cache
-			if err = d.cache.Set(ctx, id, table, cache.UserExampleExpireTime); err != nil {
-				logger.Warn("cache.Set error", logger.Err(err), logger.Any("id", id))
-			}
-			return table, nil
-		})
+func (d *userExampleDao) queryByColumns(ctx context.Context, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
+	var total int64
+	var records []*model.UserExample
+	// 统计总数（若需要）
+	if params.Sort != "ignore count" {
+		err := d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Count(&total).Error
 		if err != nil {
 			return nil, err
 		}
-		table, ok := val.(*model.UserExample)
-		if !ok {
-			return nil, database.ErrRecordNotFound
+		if total == 0 {
+			return struct {
+				records []*model.UserExample
+				total   int64
+			}{records: []*model.UserExample{}, total: 0}, nil
 		}
-		return table, nil
 	}
 
-	if d.cache.IsPlaceholderErr(err) {
-		return nil, database.ErrRecordNotFound
+	// 分页查询
+	order, limit, offset := params.ConvertToPage()
+	err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, err
+	return struct {
+		records []*model.UserExample
+		total   int64
+	}{records: records, total: total}, nil
 }
 
 // GetByColumns get paging records by column information,
@@ -222,10 +759,10 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExa
 //
 // query parameters (not required):
 //
-//	name: column name
-//  exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
-//	value: column value, if exp=in, multiple values are separated by commas
-//	logic: logical type, defaults to and when value is null, only &(and), ||(or)
+//		name: column name
+//	 exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
+//		value: column value, if exp=in, multiple values are separated by commas
+//		logic: logical type, defaults to and when value is null, only &(and), ||(or)
 //
 // example: search for a male over 20 years of age
 //
@@ -244,54 +781,43 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExa
 //		},
 //	}
 func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error) {
-    queryStr, args, err := params.ConvertToGormConditions()
+	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, errors.New("query params error: " + err.Error())
 	}
 
 	// 生成唯一 key
-    key := "columns:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	var result struct {
 		records []*model.UserExample
 		total   int64
 	}
 
-	// 使用 singleflight 避免并发重复查询
-	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-		var total int64
-		var records []*model.UserExample
-		// 统计总数（若需要）
-		if params.Sort != "ignore count" {
-			err := d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Count(&total).Error
-			if err != nil {
-				return nil, err
-			}
-			if total == 0 {
-				return struct {
-					records []*model.UserExample
-					total   int64
-				}{records: []*model.UserExample{}, total: 0}, nil
-			}
-		}
+	// 使用缓存管理器或singleflight避免并发重复查询
+	var val interface{}
+	if d.cacheManger != nil {
+		// 通过缓存管理器处理
+		val, err = d.cacheManger.getByConditionKey(ctx, key, func() (interface{}, error) {
+			return d.queryByColumns(ctx, params, queryStr, args)
+		})
+	} else {
+		// 不使用缓存，仅使用singleflight
+		val, err, _ = d.sfg.Do("columns:"+key, func() (interface{}, error) {
+			return d.queryByColumns(ctx, params, queryStr, args)
+		})
+	}
 
-		// 分页查询
-		order, limit, offset := params.ConvertToPage()
-		err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
-		if err != nil {
-			return nil, err
-		}
-
-		return struct {
-			records []*model.UserExample
-			total   int64
-		}{records: records, total: total}, nil
-	})
-
+	// 处理错误情况
 	if err != nil {
+		// 如果是数据库记录未找到的错误，返回空结果而非错误
+		if errors.Is(err, database.ErrRecordNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.UserExample{}, 0, nil
+		}
 		return nil, 0, err
 	}
 
+	// 类型断言获取查询结果
 	result = val.(struct {
 		records []*model.UserExample
 		total   int64
@@ -299,16 +825,17 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 
 	return result.records, result.total, nil
 }
+
 func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, errors.New("query params error: " + err.Error())
 	}
-    // 生成唯一 key
-    key := "condition:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	// 生成唯一 key
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	// no cache
-	if d.cache == nil {
+	if d.cacheManger == nil {
 		record := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -317,79 +844,22 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 		return record, err
 	}
 
-	// 有缓存的情况
-	// 先尝试从缓存获取ID
-	cachedID, err := d.cache.GetIdByKey(ctx, key)
-	if err == nil && cachedID != 0 {
-		// 通过ID获取完整信息
-		return d.GetByID(ctx, cachedID)
-	}
-
-
-	record := &model.UserExample{}
-	// 从数据库获取
-	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
+	// 使用缓存管理器获取数据
+	return d.cacheManger.getOneByConditionKey(ctx, key, func() (*model.UserExample, error) {
+		record := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
-		if err != nil {
-			return nil, err
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
 		}
-
-		// 将查询结果的ID缓存起来
-		if err = d.cache.SetIdByKey(ctx, key, record.ID, cache.UserExampleExpireTime); err != nil {
-			logger.Warn("cache.SetIdByKey error", logger.Err(err), logger.Any("key", key), logger.Any("id", record.ID))
-		}
-
-		// 通过ID获取完整信息
-        return d.GetByID(ctx, record.ID)
+		return record, err
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	record = val.(*model.UserExample)
-	return record, nil
-}
-
-
-// DeleteByIDs delete records by batch id
-func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return err
-	}
-
-	// delete cache
-	for _, id := range ids {
-		_ = d.deleteCache(ctx, id)
-	}
-
-	return nil
-}
-
-func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 88888888)
-	}()
-	queryStr, args, err := c.ConvertToGorm()
-	if err != nil {
-		return err
-	}
-	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // GetByCondition get a record by condition
 // query conditions:
 //
 //	name: column name
-//  exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
+//	exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
 //	value: column value, if exp=in, multiple values are separated by commas
 //	logic: logical type, defaults to and when value is null, only &(and), ||(or)
 //
@@ -407,82 +877,44 @@ func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditi
 //		},
 //	}
 func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions) (ids []uint64, err error) {
-queryStr, args, err := c.ConvertToGorm()
+	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, err
 	}
+
 	var tables []*model.UserExample
-	key := "condition:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
-	if d.cache == nil {
-		// for the same id, prevent high concurrent simultaneous access to database
-		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
-			if err != nil {
-				return nil, err
-			}
-			for _, table := range tables {
-				ids = append(ids, table.ID)
-			}
-			return ids, nil
-		})
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+
+	// no cache
+	if d.cacheManger == nil {
+		err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
 		}
-		ids, ok := val.([]uint64)
-		if !ok {
-			return nil, database.ErrRecordNotFound
+		var result []uint64
+		for _, table := range tables {
+			result = append(result, table.ID)
 		}
-		return ids, nil
+		return result, nil
 	}
 
-	// get from cache
-	ids, err = d.cache.GetIdsByKey(ctx, key)
-	if err == nil {
-		return ids, nil
-	}
-	// get from database
-	if errors.Is(err, database.ErrCacheNotFound) {
-		// for the same id, prevent high concurrent simultaneous access to database
-		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
-			if err != nil {
-				// set placeholder cache to prevent cache penetration, default expiration time 10 minutes
-				if errors.Is(err, database.ErrRecordNotFound) {
-					if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
-						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(err), logger.Any("key", key))
-					}
-					return nil, database.ErrRecordNotFound
-				}
-				return nil, err
-			}
-			for _, table := range tables {
-				ids = append(ids, table.ID)
-			}
-			// set cache
-			if err = d.cache.SetIdsByKey(ctx, key, ids, cache.UserExampleExpireTime); err != nil {
-				logger.Warn("cache.Set error", logger.Err(err), logger.Any("ids", ids))
-			}
-			return ids, nil
-		})
+	// 使用缓存管理器获取数据
+	return d.cacheManger.getByCondition(ctx, key, func() ([]uint64, error) {
+		err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
 		}
-		ids, ok := val.([]uint64)
-		if !ok {
-			return nil, database.ErrRecordNotFound
+		var result []uint64
+		for _, table := range tables {
+			result = append(result, table.ID)
 		}
-		return ids, nil
-	}
-	if d.cache.IsPlaceholderErr(err) {
-		return nil, database.ErrRecordNotFound
-	}
-	return nil, err
+		return result, nil
+	})
 }
 
-// GetByIDs get records by batch id
 func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error) {
 	// no cache
-	if d.cache == nil {
+	if d.cacheManger == nil {
 		var records []*model.UserExample
 		err := d.db.WithContext(ctx).Where("id IN (?)", ids).Find(&records).Error
 		if err != nil {
@@ -495,65 +927,14 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64
 		return itemMap, nil
 	}
 
-	// get form cache
-	itemMap, err := d.cache.MultiGet(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-
-	var missedIDs []uint64
-	for _, id := range ids {
-		if _, ok := itemMap[id]; !ok {
-			missedIDs = append(missedIDs, id)
-		}
-	}
-
-	// get missed data
-	if len(missedIDs) > 0 {
-		// find the id of an active placeholder, i.e. an id that does not exist in database
-		var realMissedIDs []uint64
-		for _, id := range missedIDs {
-			_, err = d.cache.Get(ctx, id)
-			if d.cache.IsPlaceholderErr(err) {
-				continue
-			}
-			realMissedIDs = append(realMissedIDs, id)
-		}
-
-		// get missed id from database
-		if len(realMissedIDs) > 0 {
-			var records []*model.UserExample
-			var recordIDMap = make(map[uint64]struct{})
-			err = d.db.WithContext(ctx).Where("id IN (?)", realMissedIDs).Find(&records).Error
-			if err != nil {
-				return nil, err
-			}
-			if len(records) > 0 {
-				for _, record := range records {
-					itemMap[record.ID] = record
-					recordIDMap[record.ID] = struct{}{}
-				}
-				if err = d.cache.MultiSet(ctx, records, cache.UserExampleExpireTime); err != nil {
-					logger.Warn("cache.MultiSet error", logger.Err(err), logger.Any("ids", records))
-				}
-				if len(records) == len(realMissedIDs) {
-					return itemMap, nil
-				}
-			}
-			for _, id := range realMissedIDs {
-				if _, ok := recordIDMap[id]; !ok {
-					if err = d.cache.SetPlaceholder(ctx, id); err != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(err), logger.Any("id", id))
-					}
-				}
-			}
-		}
-	}
-
-	return itemMap, nil
+	// 使用缓存管理器获取数据
+	return d.cacheManger.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.UserExample, error) {
+		var records []*model.UserExample
+		err := d.db.WithContext(ctx).Where("id IN (?)", missedIDs).Find(&records).Error
+		return records, err
+	})
 }
 
-// GetByLastID get paging records by last id and limit
 func (d *userExampleDao) GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error) {
 	page := query.NewPage(0, limit, sort)
 
@@ -565,65 +946,27 @@ func (d *userExampleDao) GetByLastID(ctx context.Context, lastID uint64, limit i
 	return records, nil
 }
 
-// CreateByTx create a record in the database using the provided transaction
-func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	err := tx.WithContext(ctx).Create(table).Error
-	return table.ID, err
-}
-
-func (d *userExampleDao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-    return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
-}
-
-// DeleteByTx delete a record by id in the database using the provided transaction
-func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	update := map[string]interface{}{
-		"deleted_at": time.Now(),
-	}
-	err := tx.WithContext(ctx).Model(&model.UserExample{}).Where("id = ?", id).Updates(update).Error
-	if err != nil {
-		return err
-	}
-
-	// delete cache
-	_ = d.deleteCache(ctx, id)
-
-	return nil
-}
-
-func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 88888888)
-	}()
+func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions) (int64, error) {
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
-		return err
+		return 0, err
 	}
-	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return err
-	}
-	return nil
+
+	var count int64
+	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
+	return count, err
 }
 
-// UpdateByTx update a record by id in the database using the provided transaction
-func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	err := d.updateDataByID(ctx, tx, table)
+func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error) {
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return false, err
+	}
 
-	// delete cache
-	_ = d.deleteCache(ctx, table.ID)
-
-	return err
+	var count int64
+	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Limit(1).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
