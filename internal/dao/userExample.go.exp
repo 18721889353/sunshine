@@ -51,32 +51,32 @@ type UserExampleDao interface {
 	ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error)
 }
 
-// cacheManager 统一管理缓存操作
-type cacheManager struct {
+// userExampleCacheManager 统一管理缓存操作
+type userExampleCacheManager struct {
 	cache cache.UserExampleCache
 	sfg   *singleflight.Group
 }
 
-// newCacheManager 创建缓存管理器
-func newCacheManager(c cache.UserExampleCache) *cacheManager {
-	return &cacheManager{
+// newUserExampleCacheManager 创建缓存管理器
+func newUserExampleCacheManager(c cache.UserExampleCache) *userExampleCacheManager {
+	return &userExampleCacheManager{
 		cache: c,
 		sfg:   new(singleflight.Group),
 	}
 }
 
 // getCacheKey 生成基于ID的缓存键
-func (m *cacheManager) getCacheKey(id uint64) string {
+func (m *userExampleCacheManager) getCacheKey(id uint64) string {
 	return cache.UserExampleCachePrefixKey + utils.Uint64ToStr(id)
 }
 
 // getConditionCacheKey 生成基于条件的缓存键
-func (m *cacheManager) getConditionCacheKey(key string) string {
+func (m *userExampleCacheManager) getConditionCacheKey(key string) string {
 	return cache.UserExampleCachePrefixKey + "condition:" + key
 }
 
-// cacheManager.get 通过singleflight和缓存获取数据
-func (m *cacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+// get 通过singleflight和缓存获取数据
+func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
 	// 先从缓存获取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -122,8 +122,8 @@ func (m *cacheManager) get(ctx context.Context, id uint64, queryFunc func() (*mo
 	return nil, err
 }
 
-// cacheManager.getOneByConditionKey 通过条件获取单条记录
-func (m *cacheManager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+// getOneByConditionKey 通过条件获取单条记录
+func (m *userExampleCacheManager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先尝试从缓存获取ID
@@ -187,8 +187,8 @@ func (m *cacheManager) getOneByConditionKey(ctx context.Context, key string, que
 	return nil, err
 }
 
-// cacheManager.getByCondition 通过条件获取ID列表
-func (m *cacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
+// getByCondition 通过条件获取ID列表
+func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先从缓存获取
@@ -245,8 +245,8 @@ func (m *cacheManager) getByCondition(ctx context.Context, key string, queryFunc
 	return nil, err
 }
 
-// cacheManager.getByIDs 批量获取记录
-func (m *cacheManager) getByIDs(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+// getByIDs 批量获取记录
+func (m *userExampleCacheManager) getByIDs(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
 	// 对于大数据量请求，分批处理以避免内存峰值
 	if len(ids) > 1000 {
 		result := make(map[uint64]*model.UserExample)
@@ -276,7 +276,7 @@ func (m *cacheManager) getByIDs(ctx context.Context, ids []uint64, queryFunc fun
 }
 
 // getByIDsBatch 批量获取记录的实际实现
-func (m *cacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
 	// 先从缓存获取
 	itemMap, err := m.cache.MultiGet(ctx, ids)
 	if err != nil {
@@ -347,8 +347,8 @@ func (m *cacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFun
 type userExampleDao struct {
 	db          *gorm.DB
 	cache       cache.UserExampleCache // if nil, the cache is not used.
-	cacheManger *cacheManager          // 缓存管理器
-	sfg         *singleflight.Group    // if cache is nil, the sfg is not used.
+	cacheManager *userExampleCacheManager  // 缓存管理器
+	sfg         *singleflight.Group       // if cache is nil, the sfg is not used.
 }
 
 // NewUserExampleDao creating the dao interface
@@ -360,7 +360,7 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 	}
 
 	if xCache != nil {
-		dao.cacheManger = newCacheManager(xCache)
+		dao.cacheManager = newUserExampleCacheManager(xCache)
 	}
 
 	return dao
@@ -588,14 +588,14 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 
 func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
 	// no cache
-	if d.cacheManger == nil {
+	if d.cacheManager == nil {
 		record := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where("id = ?", id).First(record).Error
 		return record, err
 	}
 
 	// 使用缓存管理器获取数据
-	return d.cacheManger.get(ctx, id, func() (*model.UserExample, error) {
+	return d.cacheManager.get(ctx, id, func() (*model.UserExample, error) {
 		table := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where("id = ?", id).First(table).Error
 		return table, err
@@ -712,7 +712,7 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	// no cache
-	if d.cacheManger == nil {
+	if d.cacheManager == nil {
 		record := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -722,7 +722,7 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 	}
 
 	// 使用缓存管理器获取数据
-	return d.cacheManger.getOneByConditionKey(ctx, key, func() (*model.UserExample, error) {
+	return d.cacheManager.getOneByConditionKey(ctx, key, func() (*model.UserExample, error) {
 		record := &model.UserExample{}
 		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -763,7 +763,7 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	// no cache
-	if d.cacheManger == nil {
+	if d.cacheManager == nil {
 		err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
@@ -776,7 +776,7 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 	}
 
 	// 使用缓存管理器获取数据
-	return d.cacheManger.getByCondition(ctx, key, func() ([]uint64, error) {
+	return d.cacheManager.getByCondition(ctx, key, func() ([]uint64, error) {
 		err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
@@ -791,7 +791,7 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 
 func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error) {
 	// no cache
-	if d.cacheManger == nil {
+	if d.cacheManager == nil {
 		var records []*model.UserExample
 		err := d.db.WithContext(ctx).Where("id IN (?)", ids).Find(&records).Error
 		if err != nil {
@@ -805,7 +805,7 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64
 	}
 
 	// 使用缓存管理器获取数据
-	return d.cacheManger.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.UserExample, error) {
+	return d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.UserExample, error) {
 		var records []*model.UserExample
 		err := d.db.WithContext(ctx).Where("id IN (?)", missedIDs).Find(&records).Error
 		return records, err
