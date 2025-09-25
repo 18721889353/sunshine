@@ -46,6 +46,300 @@ type {{.TableNameCamel}}Dao interface {
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error
 }
 
+
+
+type {{.TableNameCamel}}CacheManager struct {
+	cache cache.{{.TableNameCamel}}Cache
+	sfg   *singleflight.Group
+}
+
+func new{{.TableNameCamel}}CacheManager(c cache.{{.TableNameCamel}}Cache) *{{.TableNameCamelFCL}}Manager {
+	return &{{.TableNameCamel}}CacheManager{
+		cache: c,
+		sfg:   new(singleflight.Group),
+	}
+}
+
+// getCacheKey 生成基于ID的缓存键
+func (m *{{.TableNameCamelFCL}}Manager) getCacheKey(id uint64) string {
+	return cache.{{.TableNameCamel}}CachePrefixKey + utils.Uint64ToStr(id)
+}
+
+// getConditionCacheKey 生成基于条件的缓存键
+func (m *{{.TableNameCamelFCL}}Manager) getConditionCacheKey(key string) string {
+	return cache.{{.TableNameCamel}}CachePrefixKey + "condition:" + key
+}
+
+// get 通过singleflight和缓存获取数据
+func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	// 先从缓存获取
+	record, err := m.cache.Get(ctx, id)
+	if err == nil {
+		return record, nil
+	}
+
+	// 缓存未命中，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
+			table, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+					if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
+						logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, dbErr
+			}
+			// 设置缓存
+			if cacheErr := m.cache.Set(ctx, id, table, cache.UserExampleExpireTime); cacheErr != nil {
+				logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
+			}
+			return table, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		table, ok := val.(*model.UserExample)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return table, nil
+	}
+
+	// 如果是占位符错误，返回记录未找到
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+
+	return nil, err
+}
+
+// getOneByConditionKey 通过条件获取单条记录
+func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	cacheKey := m.getConditionCacheKey(key)
+
+	// 先尝试从缓存获取ID
+	cachedID, err := m.cache.GetIdByKey(ctx, cacheKey)
+	if err == nil && cachedID != 0 {
+		// 通过ID获取完整信息
+		record, getErr := m.get(ctx, cachedID, func() (*model.UserExample, error) {
+			// 直接从数据库获取完整记录
+			return &model.UserExample{}, nil
+		})
+		if getErr == nil && record.ID == cachedID {
+			return record, nil
+		}
+		// 如果通过ID获取失败，则回退到直接查询
+	}
+
+	// 缓存未命中或通过ID获取失败，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) || cachedID == 0 {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
+			record, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
+						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+					}
+					return nil, database.ErrRecordNotFound
+				}
+				return nil, dbErr
+			}
+
+			// 如果记录存在，将其ID缓存起来
+			if record != nil {
+				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
+				}
+				// 同时缓存完整记录
+				if cacheErr := m.cache.Set(ctx, record.ID, record, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
+				}
+			}
+			return record, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		record, ok := val.(*model.UserExample)
+		if !ok {
+			return nil, nil
+		}
+		return record, nil
+	}
+
+	// 如果是占位符错误，返回空
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, nil
+	}
+
+	// 其他错误直接返回
+	return nil, err
+}
+
+// getByCondition 通过条件获取ID列表
+func (m *{{.TableNameCamelFCL}}Manager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
+	cacheKey := m.getConditionCacheKey(key)
+
+	// 先从缓存获取
+	ids, err := m.cache.GetIdsByKey(ctx, cacheKey)
+	if err == nil {
+		// 检查ID列表大小，如果过大则不使用缓存，直接查询数据库
+		if len(ids) > 10000 {
+			logger.Warn("cached id list too large, querying database directly", logger.Any("count", len(ids)), logger.Any("key", key))
+			return queryFunc()
+		}
+		return ids, nil
+	}
+
+	// 缓存未命中，从数据库获取
+	if errors.Is(err, database.ErrCacheNotFound) {
+		// 使用singleflight防止并发请求同时访问数据库
+		val, err, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
+			result, dbErr := queryFunc()
+			if dbErr != nil {
+				// 设置占位符缓存防止缓存穿透
+				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
+					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+				}
+				return nil, dbErr
+			}
+
+			// 对于大数据量的结果集，不进行缓存，直接返回
+			if len(result) > 10000 {
+				logger.Warn("result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key))
+				return result, nil
+			}
+
+			// 设置缓存
+			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, cache.UserExampleExpireTime); cacheErr != nil {
+				logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
+			}
+			return result, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		result, ok := val.([]uint64)
+		if !ok {
+			return nil, database.ErrRecordNotFound
+		}
+		return result, nil
+	}
+
+	// 如果是占位符错误，返回记录未找到
+	if m.cache.IsPlaceholderErr(err) {
+		return nil, database.ErrRecordNotFound
+	}
+
+	return nil, err
+}
+
+// getByIDs 批量获取记录
+func (m *{{.TableNameCamelFCL}}Manager) getByIDs(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+	// 对于大数据量请求，分批处理以避免内存峰值
+	if len(ids) > 1000 {
+		result := make(map[uint64]*model.UserExample)
+		// 分批处理，每批1000个ID
+		for i := 0; i < len(ids); i += 1000 {
+			end := i + 1000
+			if end > len(ids) {
+				end = len(ids)
+			}
+
+			batch := ids[i:end]
+			batchResult, err := m.getByIDsBatch(ctx, batch, queryFunc)
+			if err != nil {
+				return nil, err
+			}
+
+			// 合并结果
+			for id, record := range batchResult {
+				result[id] = record
+			}
+		}
+		return result, nil
+	}
+
+	// 小数据量直接处理
+	return m.getByIDsBatch(ctx, ids, queryFunc)
+}
+
+// getByIDsBatch 批量获取记录的实际实现
+func (m *{{.TableNameCamelFCL}}Manager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+	// 先从缓存获取
+	itemMap, err := m.cache.MultiGet(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	// 查找未命中的ID
+	var missedIDs []uint64
+	for _, id := range ids {
+		if _, ok := itemMap[id]; !ok {
+			missedIDs = append(missedIDs, id)
+		}
+	}
+
+	// 获取未命中的数据
+	if len(missedIDs) > 0 {
+		// 过滤掉占位符ID：直接使用 MultiGet 返回的结果来判断
+		var realMissedIDs []uint64
+		for _, id := range missedIDs {
+			// 如果 MultiGet 没有返回且没有错误，则可能是占位符或真正缺失
+			_, err := m.cache.Get(ctx, id)
+			if err == nil || !m.cache.IsPlaceholderErr(err) {
+				// 只有当不是占位符错误时才认为需要查询数据库
+				realMissedIDs = append(realMissedIDs, id)
+			}
+			// 如果是占位符错误，跳过即可
+		}
+
+		// 从数据库获取未命中的数据
+		if len(realMissedIDs) > 0 {
+			records, err := queryFunc(realMissedIDs)
+			if err != nil {
+				return nil, err
+			}
+
+			if len(records) > 0 {
+				// 添加到结果映射中
+				for _, record := range records {
+					itemMap[record.ID] = record
+				}
+				// 批量设置缓存
+				if cacheErr := m.cache.MultiSet(ctx, records, cache.UserExampleExpireTime); cacheErr != nil {
+					logger.Warn("cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", realMissedIDs))
+				}
+			}
+
+			// 对于数据库中也不存在的记录，设置占位符
+			if len(records) < len(realMissedIDs) {
+				existingIDs := make(map[uint64]bool)
+				for _, record := range records {
+					existingIDs[record.ID] = true
+				}
+
+				for _, id := range realMissedIDs {
+					if !existingIDs[id] {
+						if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
+							logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return itemMap, nil
+}
+
+
 type {{.TableNameCamelFCL}}Dao struct {
 	db    *gorm.DB
 	cache cache.{{.TableNameCamel}}Cache // if nil, the cache is not used.
