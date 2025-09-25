@@ -37,12 +37,10 @@ type UserExampleCache interface {
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
 	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
 	SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
-	SetDataByKey(ctx context.Context, key string, data interface{}, duration time.Duration) error
 
 	Get(ctx context.Context, id uint64) (*model.UserExample, error)
 	GetIdByKey(ctx context.Context, key string) (id uint64, err error)
 	GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error)
-	GetDataByKey(ctx context.Context, key string) (data interface{}, err error)
 
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	MultiSet(ctx context.Context, data []*model.UserExample, duration time.Duration) error
@@ -135,17 +133,6 @@ func (c *userExampleCache) SetIdsByKey(ctx context.Context, key string, ids []ui
 	}
 	return nil
 }
-func (c *userExampleCache) SetDataByKey(ctx context.Context, key string, data interface{}, duration time.Duration) error {
-	if key == "" || data == nil {
-		return nil
-	}
-	cacheKey := c.GetUserExampleCacheKeyString(key)
-	err := c.cache.Set(ctx, cacheKey, data, duration)
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
 // Get cache value
 func (c *userExampleCache) Get(ctx context.Context, id uint64) (*model.UserExample, error) {
@@ -173,19 +160,6 @@ func (c *userExampleCache) GetIdsByKey(ctx context.Context, key string) (ids []u
 		return nil, err
 	}
 	return ids, nil
-}
-
-func (c *userExampleCache) GetDataByKey(ctx context.Context, key string) (data interface{}, err error) {
-	cacheKey := c.GetUserExampleCacheKeyString(key)
-	var result struct {
-		Records []*model.UserExample `json:"records"`
-		Total   int64                `json:"total"`
-	}
-	err = c.cache.Get(ctx, cacheKey, &result)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 // MultiSet multiple set cache

@@ -122,48 +122,6 @@ func (m *cacheManager) get(ctx context.Context, id uint64, queryFunc func() (*mo
 	return nil, err
 }
 
-// cacheManager.getByConditionKey 通过指定条件key获取缓存数据
-func (m *cacheManager) getByConditionKey(ctx context.Context, key string, queryFunc func() (interface{}, error)) (interface{}, error) {
-	cacheKey := m.getConditionCacheKey(key)
-
-	// 先尝试从缓存获取
-	cachedData, err := m.cache.GetDataByKey(ctx, cacheKey)
-	if err == nil {
-		return cachedData, nil
-	}
-
-	// 缓存未命中，从数据库获取
-	if errors.Is(err, database.ErrCacheNotFound) {
-		// 使用singleflight防止并发请求同时访问数据库
-		val, err, _ := m.sfg.Do("condition:"+key, func() (interface{}, error) {
-			data, dbErr := queryFunc()
-			if dbErr != nil {
-				// 设置占位符缓存防止缓存穿透
-				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
-						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
-					}
-					return nil, database.ErrRecordNotFound
-				}
-				return nil, dbErr
-			}
-			// 设置缓存
-			if cacheErr := m.cache.SetDataByKey(ctx, cacheKey, data, cache.UserExampleExpireTime); cacheErr != nil {
-				logger.Warn("cache.SetDataByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey))
-			}
-			return data, nil
-		})
-		return val, err
-	}
-
-	// 如果是占位符错误，返回记录未找到
-	if m.cache.IsPlaceholderErr(err) {
-		return nil, database.ErrRecordNotFound
-	}
-
-	return nil, err
-}
-
 // cacheManager.getOneByConditionKey 通过条件获取单条记录
 func (m *cacheManager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
 	cacheKey := m.getConditionCacheKey(key)
@@ -796,18 +754,10 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 
 	// 使用缓存管理器或singleflight避免并发重复查询
 	var val interface{}
-	if d.cacheManger != nil {
-		// 通过缓存管理器处理
-		val, err = d.cacheManger.getByConditionKey(ctx, key, func() (interface{}, error) {
-			return d.queryByColumns(ctx, params, queryStr, args)
-		})
-	} else {
-		// 不使用缓存，仅使用singleflight
-		val, err, _ = d.sfg.Do("columns:"+key, func() (interface{}, error) {
-			return d.queryByColumns(ctx, params, queryStr, args)
-		})
-	}
-
+	//仅使用singleflight
+	val, err, _ = d.sfg.Do("columns:"+key, func() (interface{}, error) {
+		return d.queryByColumns(ctx, params, queryStr, args)
+	})
 	// 处理错误情况
 	if err != nil {
 		// 如果是数据库记录未找到的错误，返回空结果而非错误
