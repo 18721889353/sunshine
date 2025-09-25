@@ -147,9 +147,6 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err 
 	// NOTE: don't handle the case where redis value is nil
 	// but leave it to the upstream for processing
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return err
-		}
 		return err
 	}
 
@@ -233,7 +230,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	}
 	values, err := c.client.MGet(ctx, cacheKeys...).Result()
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, CacheNotFound) {
 			return err
 		}
 		return fmt.Errorf("c.client.MGet error: %v, keys=%+v", err, cacheKeys)
@@ -398,9 +395,13 @@ func (c *redisCache) buildLockKey(key string) string {
 
 // 统一的日志记录函数
 func (c *redisCache) logOperation(ctx context.Context, operation string, start time.Time, err error, fields ...zap.Field) {
+	// 缓存未命中是正常情况，不记录日志
+	if errors.Is(err, CacheNotFound) {
+		return
+	}
 	duration := time.Since(start)
-	// 只记录慢操作（超过10ms）或错误
-	if duration < 10*time.Millisecond && err == nil {
+	// 只记录慢操作（超过20ms）或错误
+	if duration < 20*time.Millisecond && err == nil {
 		return
 	}
 
