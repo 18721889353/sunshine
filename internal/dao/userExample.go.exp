@@ -527,31 +527,6 @@ func (d *userExampleDao) updateDataByID(ctx context.Context, db *gorm.DB, table 
 
 	update := map[string]interface{}{}
 	// todo generate the update fields code to here
-	// delete the templates code start
-	if table.Name != "" {
-		update["name"] = table.Name
-	}
-	if table.Password != "" {
-		update["password"] = table.Password
-	}
-	if table.Email != "" {
-		update["email"] = table.Email
-	}
-	if table.Phone != "" {
-		update["phone"] = table.Phone
-	}
-	if table.Avatar != "" {
-		update["avatar"] = table.Avatar
-	}
-	if table.Age > 0 {
-		update["age"] = table.Age
-	}
-	if table.Gender > 0 {
-		update["gender"] = table.Gender
-	}
-	if table.LoginAt > 0 {
-		update["login_at"] = table.LoginAt
-	}
 
 	return db.WithContext(ctx).Model(table).Updates(update).Error
 }
@@ -577,31 +552,7 @@ func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditi
 
 	// 构建更新映射
 	update := map[string]interface{}{}
-
-	if table.Name != "" {
-		update["name"] = table.Name
-	}
-	if table.Password != "" {
-		update["password"] = table.Password
-	}
-	if table.Email != "" {
-		update["email"] = table.Email
-	}
-	if table.Phone != "" {
-		update["phone"] = table.Phone
-	}
-	if table.Avatar != "" {
-		update["avatar"] = table.Avatar
-	}
-	if table.Age > 0 {
-		update["age"] = table.Age
-	}
-	if table.Gender > 0 {
-		update["gender"] = table.Gender
-	}
-	if table.LoginAt > 0 {
-		update["login_at"] = table.LoginAt
-	}
+	// todo generate the update fields code to here
 
 	return d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
 }
@@ -630,31 +581,7 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 
 	// 构建更新映射
 	update := map[string]interface{}{}
-
-	if table.Name != "" {
-		update["name"] = table.Name
-	}
-	if table.Password != "" {
-		update["password"] = table.Password
-	}
-	if table.Email != "" {
-		update["email"] = table.Email
-	}
-	if table.Phone != "" {
-		update["phone"] = table.Phone
-	}
-	if table.Avatar != "" {
-		update["avatar"] = table.Avatar
-	}
-	if table.Age > 0 {
-		update["age"] = table.Age
-	}
-	if table.Gender > 0 {
-		update["gender"] = table.Gender
-	}
-	if table.LoginAt > 0 {
-		update["login_at"] = table.LoginAt
-	}
+	// todo generate the update fields code to here
 
 	return tx.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
 }
