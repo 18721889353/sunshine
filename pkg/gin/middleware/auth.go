@@ -106,7 +106,8 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 				fields = append(fields, zap.String(ContextRequestIDKey, reqID))
 			}
 		}
-		if _, ok := o.ignoreMethods[c.Request.URL.String()]; ok {
+		//c.Request.URL.String()
+		if _, ok := o.ignoreMethods[c.Request.URL.Path]; ok {
 			c.Next()
 		} else {
 			authorization := c.GetHeader(HeaderAuthorizationKey)
