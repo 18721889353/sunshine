@@ -339,8 +339,6 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error)
 		return fmt.Errorf("pipeline.Del error: %v", err)
 	}
 
-	// 记录删除统计信息
-	c.log.Info("DelByPrefix completed", zap.String("prefix", prefix), zap.Int64("deleted_keys", totalDeleted))
 	return nil
 }
 
