@@ -8,6 +8,7 @@ cmdStr="cmd/${serverName}/${serverName}"
 pidFile="cmd/${serverName}/${serverName}.pid"
 configFile=$1
 
+
 function checkResult() {
     result=$1
     if [ ${result} -ne 0 ]; then
@@ -61,13 +62,18 @@ function startService() {
     printf "%s" "${pid}" > "${pidFile}"
     sleep 1
 
-    local processInfo=`ps -p "${pid}" | grep "${cmdStr}"`
-    if [ -n "${processInfo}" ]; then
+    # 检查进程是否在运行，使用更可靠的方法
+    if ps -p "${pid}" > /dev/null 2>&1; then
         echo "Started the ${NAME} service successfully, process ID=${pid}"
     else
-        echo "Failed to start ${NAME} service"
-        rm -f ${pidFile}
+        # 如果直接检查PID失败，尝试通过进程名检查
+        if ps aux | grep "${cmdStr}" | grep -v grep > /dev/null 2>&1; then
+            echo "Started the ${NAME} service successfully, process ID=${pid}"
+        else
+            echo "Failed to start ${NAME} service"
+            rm -f ${pidFile}
 		    return 1
+        fi
     fi
     return 0
 }
