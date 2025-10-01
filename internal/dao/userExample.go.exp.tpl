@@ -36,7 +36,6 @@ type {{.TableNameCamel}}Dao interface {
 
 	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
 	GetBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
-	GetByLast{{.ColumnNameCamel}}(ctx context.Context, last{{.ColumnNameCamel}} {{.GoType}}, limit int, sort string) ([]*model.{{.TableNameCamel}}, error)
 
 	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) ({{.GoType}}, error)
 	CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error
@@ -64,10 +63,13 @@ func new{{.TableNameCamel}}CacheManager(c cache.{{.TableNameCamel}}Cache) *{{.Ta
 func (m *{{.TableNameCamelFCL}}Manager) getCacheKey(id uint64) string {
 	return cache.{{.TableNameCamel}}CachePrefixKey + utils.Uint64ToStr(id)
 }
+func (m *{{.TableNameCamelFCL}}Manager) getOneConditionCacheKey(key string) string {
+	return cache.{{.TableNameCamel}}CachePrefixKey + "condition:" + key
+}
 
 // getConditionCacheKey 生成基于条件的缓存键
 func (m *{{.TableNameCamelFCL}}Manager) getConditionCacheKey(key string) string {
-	return cache.{{.TableNameCamel}}CachePrefixKey + "condition:" + key
+	return cache.{{.TableNameCamel}}CachePrefixKey + "conditions:" + key
 }
 
 // get 通过singleflight和缓存获取数据
@@ -119,7 +121,7 @@ func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, quer
 
 // getOneByConditionKey 通过条件获取单条记录
 func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
-	cacheKey := m.getConditionCacheKey(key)
+	cacheKey := m.getOneConditionCacheKey(key)
 
 	// 先尝试从缓存获取ID
 	cachedID, err := m.cache.GetIdByKey(ctx, cacheKey)
@@ -859,20 +861,6 @@ func (d *{{.TableNameCamelFCL}}Dao) GetBy{{.ColumnNamePluralCamel}}(ctx context.
 	return itemMap, nil
 }
 
-// GetByLast{{.ColumnNameCamel}} get paging records by last {{.ColumnNameCamelFCL}} and limit
-func (d *{{.TableNameCamelFCL}}Dao) GetByLast{{.ColumnNameCamel}}(ctx context.Context, last{{.ColumnNameCamel}} {{.GoType}}, limit int, sort string) ([]*model.{{.TableNameCamel}}, error) {
-	if sort == "" {
-		sort = "-{{.ColumnName}}"
-	}
-	page := query.NewPage(0, limit, sort)
-
-	records := []*model.{{.TableNameCamel}}{}
-	err := d.db.WithContext(ctx).Order(page.Sort()).Limit(page.Limit()).Where("{{.ColumnName}} < ?", last{{.ColumnNameCamel}}).Find(&records).Error
-	if err != nil {
-		return nil, err
-	}
-	return records, nil
-}
 
 // CreateByTx create a record in the database using the provided transaction
 func (d *{{.TableNameCamelFCL}}Dao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) ({{.GoType}}, error) {

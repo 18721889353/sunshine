@@ -46,7 +46,6 @@ type UserExampleDao interface {
 	GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error)
 	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
 	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
-	GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error)
 	CountByCondition(ctx context.Context, c *query.Conditions) (int64, error)
 	ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error)
 }
@@ -70,9 +69,13 @@ func (m *userExampleCacheManager) getCacheKey(id uint64) string {
 	return cache.UserExampleCachePrefixKey + utils.Uint64ToStr(id)
 }
 
+func (m *userExampleCacheManager) getOneConditionCacheKey(key string) string {
+	return cache.UserExampleCachePrefixKey + "condition:" + key
+}
+
 // getConditionCacheKey 生成基于条件的缓存键
 func (m *userExampleCacheManager) getConditionCacheKey(key string) string {
-	return cache.UserExampleCachePrefixKey + "condition:" + key
+	return cache.UserExampleCachePrefixKey + "conditions:" + key
 }
 
 // get 通过singleflight和缓存获取数据
@@ -124,7 +127,7 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 
 // getOneByConditionKey 通过条件获取单条记录
 func (m *userExampleCacheManager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
-	cacheKey := m.getConditionCacheKey(key)
+	cacheKey := m.getOneConditionCacheKey(key)
 
 	// 先尝试从缓存获取ID
 	cachedID, err := m.cache.GetIdByKey(ctx, cacheKey)
@@ -345,10 +348,10 @@ func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint6
 }
 
 type userExampleDao struct {
-	db          *gorm.DB
-	cache       cache.UserExampleCache // if nil, the cache is not used.
-	cacheManager *userExampleCacheManager  // 缓存管理器
-	sfg         *singleflight.Group       // if cache is nil, the sfg is not used.
+	db           *gorm.DB
+	cache        cache.UserExampleCache   // if nil, the cache is not used.
+	cacheManager *userExampleCacheManager // 缓存管理器
+	sfg          *singleflight.Group      // if cache is nil, the sfg is not used.
 }
 
 // NewUserExampleDao creating the dao interface
@@ -406,7 +409,7 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType 
 	case "all":
 		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
 	case "condition":
-		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition:")
+		return d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition")
 	default:
 		return nil
 	}
@@ -810,17 +813,6 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64
 		err := d.db.WithContext(ctx).Where("id IN (?)", missedIDs).Find(&records).Error
 		return records, err
 	})
-}
-
-func (d *userExampleDao) GetByLastID(ctx context.Context, lastID uint64, limit int, sort string) ([]*model.UserExample, error) {
-	page := query.NewPage(0, limit, sort)
-
-	records := []*model.UserExample{}
-	err := d.db.WithContext(ctx).Order(page.Sort()).Limit(page.Limit()).Where("id < ?", lastID).Find(&records).Error
-	if err != nil {
-		return nil, err
-	}
-	return records, nil
 }
 
 func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions) (int64, error) {
