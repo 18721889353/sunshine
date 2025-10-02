@@ -73,7 +73,7 @@ func (m *{{.TableNameCamelFCL}}Manager) getConditionCacheKey(key string) string 
 }
 
 // get 通过singleflight和缓存获取数据
-func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
 	// 先从缓存获取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -104,7 +104,7 @@ func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, quer
 		if err != nil {
 			return nil, err
 		}
-		table, ok := val.(*model.UserExample)
+		table, ok := val.(*model.{{.TableNameCamel}})
 		if !ok {
 			return nil, database.ErrRecordNotFound
 		}
@@ -120,16 +120,21 @@ func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, quer
 }
 
 // getOneByConditionKey 通过条件获取单条记录
-func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
 	cacheKey := m.getOneConditionCacheKey(key)
 
 	// 先尝试从缓存获取ID
 	cachedID, err := m.cache.GetIdByKey(ctx, cacheKey)
 	if err == nil && cachedID != 0 {
 		// 通过ID获取完整信息
-		record, getErr := m.get(ctx, cachedID, func() (*model.UserExample, error) {
+		record, getErr := m.get(ctx, cachedID, func() (*model.{{.TableNameCamel}}, error) {
 			// 直接从数据库获取完整记录
-			return &model.UserExample{}, nil
+			table := &model.{{.TableNameCamel}}{}
+			err = database.GetDB().WithContext(ctx).Where("id = ?", cachedID).First(table).Error
+			if err != nil {
+				return nil, err
+			}
+			return table, nil
 		})
 		if getErr == nil && record.ID == cachedID {
 			return record, nil
@@ -168,7 +173,7 @@ func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context
 		if err != nil {
 			return nil, err
 		}
-		record, ok := val.(*model.UserExample)
+		record, ok := val.(*model.{{.TableNameCamel}})
 		if !ok {
 			return nil, nil
 		}

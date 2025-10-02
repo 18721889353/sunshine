@@ -135,7 +135,12 @@ func (m *userExampleCacheManager) getOneByConditionKey(ctx context.Context, key 
 		// 通过ID获取完整信息
 		record, getErr := m.get(ctx, cachedID, func() (*model.UserExample, error) {
 			// 直接从数据库获取完整记录
-			return &model.UserExample{}, nil
+			table := &model.UserExample{}
+			err = database.GetDB().WithContext(ctx).Where("id = ?", cachedID).First(table).Error
+			if err != nil {
+				return nil, err
+			}
+			return table, nil
 		})
 		if getErr == nil && record.ID == cachedID {
 			return record, nil
