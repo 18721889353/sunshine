@@ -122,6 +122,7 @@ func NewHTTPServer_pbExample(addr string, opts ...HTTPOption) app.IServer { //no
 		Handler: router,
 		//ReadTimeout:    time.Second*30,
 		//WriteTimeout:   time.Second*60,
+		IdleTimeout:    time.Second * 60, //当 HTTP 连接在 60 秒内没有任何活动时，服务器将主动关闭该连接
 		MaxHeaderBytes: 1 << 20,
 	}
 
