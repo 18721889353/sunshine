@@ -421,44 +421,55 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType 
 }
 
 func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
-	defer func() {
-		// 删除操作只清除相关记录和条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
+	// 先删除缓存
+	_ = d.deleteCache(ctx, id, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
 	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
 	}
-
-	// delete cache
-	_ = d.deleteCache(ctx, id, "single")
-
+	if d.cache != nil {
+		// 延迟双删
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, id, "single")
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
 	return nil
 }
 func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	defer func() {
-		// 批量删除操作清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
+	// 先删除缓存
+	for _, id := range ids {
+		_ = d.deleteCache(ctx, id, "single")
+	}
+	_ = d.deleteCache(ctx, 0, "condition")
+
 	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
 	}
 
-	// delete cache
+	// 延迟双删
 	if d.cache != nil {
-		for _, id := range ids {
-			_ = d.deleteCache(ctx, id, "single")
-		}
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			for _, id := range ids {
+				_ = d.deleteCache(bgCtx, id, "single")
+			}
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
 	}
-
 	return nil
 }
 func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
-	defer func() {
-		// 条件删除操作清除所有缓存
-		_ = d.deleteCache(ctx, 0, "all")
-	}()
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "all")
+
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return err
@@ -467,13 +478,23 @@ func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditi
 	if err != nil {
 		return err
 	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "all")
+		}()
+	}
 	return nil
 }
 func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	defer func() {
-		// 事务删除操作清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
+	// 先删除缓存
+	_ = d.deleteCache(ctx, id, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
+
 	update := map[string]interface{}{
 		"deleted_at": time.Now(),
 	}
@@ -482,35 +503,48 @@ func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64)
 		return err
 	}
 
-	// delete cache
-	_ = d.deleteCache(ctx, id, "single")
-
+	// 延迟双删
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		// 使用背景上下文避免上下文泄露
+		bgCtx := context.Background()
+		_ = d.deleteCache(bgCtx, id, "single")
+		_ = d.deleteCache(bgCtx, 0, "condition")
+	}()
 	return nil
 }
 func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	defer func() {
-		// 事务批量删除操作清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
+	// 先删除缓存
+	for _, id := range ids {
+		_ = d.deleteCache(ctx, id, "single")
+	}
+	_ = d.deleteCache(ctx, 0, "condition")
+
 	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
 	}
 
-	// delete cache
+	// 延迟双删
 	if d.cache != nil {
-		for _, id := range ids {
-			_ = d.deleteCache(ctx, id, "single")
-		}
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			if d.cache != nil {
+				for _, id := range ids {
+					_ = d.deleteCache(bgCtx, id, "single")
+				}
+			}
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
 	}
-
 	return nil
 }
 func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
-	defer func() {
-		// 事务条件删除操作清除所有缓存
-		_ = d.deleteCache(ctx, 0, "all")
-	}()
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "all")
+
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return err
@@ -518,6 +552,16 @@ func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c
 	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "all")
+		}()
 	}
 	return nil
 }
@@ -539,19 +583,30 @@ func (d *userExampleDao) updateDataByID(ctx context.Context, db *gorm.DB, table 
 	return db.WithContext(ctx).Model(table).Updates(update).Error
 }
 func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
-	err := d.updateDataByID(ctx, d.db, table)
-
-	// delete cache
+	// 先删除缓存
 	_ = d.deleteCache(ctx, table.ID, "single")
-	// 同时清除条件缓存，因为更新可能影响条件查询结果
 	_ = d.deleteCache(ctx, 0, "condition")
 
-	return err
+	err := d.updateDataByID(ctx, d.db, table)
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, table.ID, "single")
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
 }
 func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "condition")
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -562,25 +617,47 @@ func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditi
 	update := map[string]interface{}{}
 	// todo generate the update fields code to here
 
-	return d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
 }
 func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
-	defer func() {
-		// 事务更新操作清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
-	err := d.updateDataByID(ctx, tx, table)
-
-	// delete cache
+	// 先删除缓存
 	_ = d.deleteCache(ctx, table.ID, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
 
-	return err
+	err := d.updateDataByID(ctx, tx, table)
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, table.ID, "single")
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
 }
 func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
-	defer func() {
-		// 事务更新操作清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
-	}()
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "condition")
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -591,7 +668,21 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 	update := map[string]interface{}{}
 	// todo generate the update fields code to here
 
-	return tx.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+	err = tx.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Updates(update).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
 }
 
 func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
