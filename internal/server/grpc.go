@@ -82,8 +82,9 @@ func (s *grpcServer) Start() error {
 	if s.mux != nil {
 		addr := fmt.Sprintf(":%d", config.Get().Grpc.HTTPPort)
 		s.httpServer = &http.Server{
-			Addr:    addr,
-			Handler: s.mux,
+			Addr:        addr,
+			Handler:     s.mux,
+			IdleTimeout: time.Second * 60, //当 HTTP 连接在 60 秒内没有任何活动时，服务器将主动关闭该连接
 		}
 		go func() {
 			fmt.Printf("http address of pprof and metrics %s\n", addr)
