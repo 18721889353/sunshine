@@ -2,8 +2,6 @@
 package response
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -34,24 +32,6 @@ func newResp(code int, msg string, data interface{}) *Result {
 	return resp
 }
 
-var jsonContentType = []string{"application/json; charset=utf-8"}
-
-func writeContentType(w http.ResponseWriter, value []string) {
-	header := w.Header()
-	if val := header["Content-Type"]; len(val) == 0 {
-		header["Content-Type"] = value
-	}
-}
-
-func writeJSON(c *gin.Context, code int, res interface{}) {
-	c.Writer.WriteHeader(code)
-	writeContentType(c.Writer, jsonContentType)
-	err := json.NewEncoder(c.Writer).Encode(res)
-	if err != nil {
-		fmt.Printf("json encode error, err = %s\n", err.Error())
-	}
-}
-
 func respJSONWithStatusCode(c *gin.Context, code int, msg string, data ...interface{}) {
 	var firstData interface{}
 	if len(data) > 0 {
@@ -59,7 +39,7 @@ func respJSONWithStatusCode(c *gin.Context, code int, msg string, data ...interf
 	}
 	resp := newResp(code, msg, firstData)
 
-	writeJSON(c, code, resp)
+	c.JSON(code, resp)
 }
 
 // Output return standard HTTP status codes and message, parameter code is HTTP status code
@@ -115,7 +95,8 @@ func Out(c *gin.Context, err *errcode.Error, data ...interface{}) {
 		respJSONWithStatusCode(c, http.StatusTooManyRequests, err.Msg(), data...)
 	case http.StatusServiceUnavailable:
 		respJSONWithStatusCode(c, http.StatusServiceUnavailable, err.Msg(), data...)
-
+	case http.StatusMethodNotAllowed:
+		respJSONWithStatusCode(c, http.StatusMethodNotAllowed, err.Msg(), data...)
 	default:
 		respJSONWithStatusCode(c, http.StatusNotExtended, err.Msg(), data...)
 	}
@@ -129,7 +110,7 @@ func respJSONWith200(c *gin.Context, code int, msg string, data ...interface{}) 
 	}
 	resp := newResp(code, msg, firstData)
 
-	writeJSON(c, http.StatusOK, resp)
+	c.JSON(http.StatusOK, resp)
 }
 
 // Success return success
