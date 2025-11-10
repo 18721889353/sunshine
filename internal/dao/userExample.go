@@ -807,26 +807,22 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 	if err != nil {
 		return nil, errors.New("query params error: " + err.Error())
 	}
+	order, _, _ := params.ConvertToPage()
+
 	// 生成唯一 key
 	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	// no cache
 	if d.cacheManager == nil {
 		record := &model.UserExample{}
-		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+		err := d.db.WithContext(ctx).Order(order).Where(queryStr, args...).First(record).Error
 		return record, err
 	}
 
 	// 使用缓存管理器获取数据
 	return d.cacheManager.getOneByConditionKey(ctx, key, func() (*model.UserExample, error) {
 		record := &model.UserExample{}
-		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
+		err := d.db.WithContext(ctx).Order(order).Where(queryStr, args...).First(record).Error
 		return record, err
 	})
 }
