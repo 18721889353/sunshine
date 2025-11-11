@@ -157,6 +157,7 @@ func (c *Consumer) initialize() error {
 	defer c.mu.Unlock()
 
 	c.conn.mutex.Lock()
+
 	// 创建一个新的通道
 	channel, err := c.conn.conn.Channel()
 	if err != nil {
@@ -174,6 +175,18 @@ func (c *Consumer) initialize() error {
 	}
 	if c.normalLetter.exchangeName != "sunshine" && c.deadLetter.exchangeName != "sunshine" {
 		return fmt.Errorf("cannot set both normalLetter and deadLetter")
+	}
+	// 添加 QoS 设置
+	if c.qosOption.enable {
+		err = c.ch.Qos(
+			c.qosOption.prefetchCount,
+			c.qosOption.prefetchSize,
+			c.qosOption.global,
+		)
+		if err != nil {
+			_ = channel.Close()
+			return err
+		}
 	}
 	//--------------------------------自定义死信队列队列----------------------------------------------------
 	if c.customerDeadLetter.exchangeName != "sunshine" {
