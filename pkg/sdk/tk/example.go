@@ -1,9 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request"
+	create_token_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request"
 	get_card_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_card/request"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 )
@@ -24,14 +25,15 @@ func main() {
 	//	AppId:     tkConfig.AppId,
 	//	AppSecret: tkConfig.AppSecret,
 	//})
-	accessToken, err := request.GetAccessToken(&request.GetAccessTokenParam{
+	accessToken, err := create_token_request.GetAccessTokenWithContext(context.Background(), &create_token_request.GetAccessTokenParam{
 		Config:    tkConfig,
 		AppId:     tkConfig.AppId,
 		AppSecret: tkConfig.AppSecret,
 	})
-	fmt.Println(accessToken, err)
+	fmt.Println(accessToken)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return
 	}
 
 	//request := get_coupon_num_request.New()
