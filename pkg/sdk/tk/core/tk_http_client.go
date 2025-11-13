@@ -50,7 +50,8 @@ func (client *TkHttpClient) Post(httpRequest *TkHttpRequest) (*TkHttpResponse, e
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "Content-Type: application/json")
+	req.Header.Set("Content-Type", "application/json")
+
 	if len(httpRequest.Headers) > 0 {
 		for k, v := range httpRequest.Headers {
 			req.Header.Set(k, v)
