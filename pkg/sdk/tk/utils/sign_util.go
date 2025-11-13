@@ -42,7 +42,6 @@ func Marshal(o interface{}, appSecret string, signFunc func(params map[string]an
 	_ = decode.Decode(&m)
 	m["timestamp"] = time.Now().Unix()
 	m["nonce_str"] = RandStringBytesMaskImprSrcUnsafe(32)
-	m["sign"] = Sign(m, appSecret)
 
 	// 使用传入的签名函数或者默认签名函数
 	if signFunc != nil {

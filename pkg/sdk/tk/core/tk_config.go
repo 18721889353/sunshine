@@ -37,13 +37,19 @@ func NewTkConfig(opts ...TkOption) *TkConfig {
 		HttpReadTimeout: 10000, //默认10s超时
 		OpenRequestUrl:  "https://new-test.tongkask.com",
 	}
-
 	// 应用选项
 	for _, opt := range opts {
 		opt(config)
 	}
-	globalConfig = config
-	return globalConfig
+
+	// 确保全局配置被正确设置
+	once.Do(func() {
+		if globalConfig == nil {
+			globalConfig = config
+		}
+	})
+
+	return config
 }
 
 // WithAppId 设置AppId
