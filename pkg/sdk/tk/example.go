@@ -1,27 +1,31 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	get_coupon_num_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_coupon_num/request"
-
+	"github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request"
+	get_card_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_card/request"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 )
 
 func main() {
 
 	tkConfig := core.NewTkConfig(
-	//core.WithAppId(""),
-	//core.WithAppSecret(""),
-	//core.WithSignFunc(func(params map[string]any, appSecret string) string {
-	//	return ""
-	//}),
-	//core.WithOpenRequestUrl("https://new-test.tongkask.com"),
-	//core.WithHttpReadTimeout(10000),
+		core.WithAppId("zt6098eaf5b2d29"),
+		core.WithAppSecret("b81f8c41997b8910ff7bf631a74d65ee"),
+		//core.WithSignFunc(func(params map[string]any, appSecret string) string {
+		//	return ""
+		//}),
+		core.WithOpenRequestUrl("https://new-test.tongkask.com"),
+		//core.WithHttpReadTimeout(10000),
 	)
-
-	accessToken, err := core.GetAccessToken(&core.GetAccessTokenParam{
+	//accessToken, err := core.GetAccessToken(&core.GetAccessTokenParam{
+	//	Config:    tkConfig,
+	//	AppId:     tkConfig.AppId,
+	//	AppSecret: tkConfig.AppSecret,
+	//})
+	accessToken, err := request.GetAccessToken(&request.GetAccessTokenParam{
+		Config:    tkConfig,
 		AppId:     tkConfig.AppId,
 		AppSecret: tkConfig.AppSecret,
 	})
@@ -30,26 +34,23 @@ func main() {
 		panic(err)
 	}
 
-	request := get_coupon_num_request.New()
-	param := request.GetParams()
-	param.CouponId = 1064
-	res, err := request.ExecuteWithContext(context.Background(), accessToken)
-	//res, err := request.Execute(accessToken)
-	if err != nil {
-		panic(err)
-	}
+	//request := get_coupon_num_request.New()
+	//param := request.GetParams()
+	//param.CouponId = 1064
+	//res, err := request.ExecuteWithContext(context.Background(), accessToken)
+	////res, err := request.Execute(accessToken)
+	//if err != nil {
+	//	panic(err)
+	//}
 
 	//request := get_coupon_info_request.New()
 	//param1 := request.GetParams()
 	//param1.CouponId = 1064
 	//res, err := request.ExecuteWithContext(context.Background(), accessToken)
-	//res, err := request.Execute(context.Background(), accessToken)
+	////res, err := request.Execute(context.Background(), accessToken)
 	//if err != nil {
 	//	panic(err)
 	//}
-	//fmt.Printf("Response: %+v\n", res)
-	//marshal, err := json.Marshal(res)
-	//fmt.Println(err, string(marshal))
 
 	//request := create_order_request.New()
 	//param := request.GetParams()
@@ -63,17 +64,14 @@ func main() {
 	//if err != nil {
 	//	panic(err)
 	//}
-	//fmt.Printf("Response: %+v\n", res)
-	//marshal, err := json.Marshal(res)
-	//fmt.Println(err, string(marshal))
 
-	//request := get_card_request.New()
-	//param := request.GetParams()
-	//param.OrderSn = "2507291705389285325512"
-	//res, err := request.Execute(accessToken)
-	//if err != nil {
-	//	panic(err)
-	//}
+	request := get_card_request.New()
+	param := request.GetParams()
+	param.OrderSn = "2507291705389285325512"
+	res, err := request.Execute(accessToken)
+	if err != nil {
+		panic(err)
+	}
 	fmt.Printf("Response: %+v\n", res)
 	marshal, err := json.Marshal(res)
 	fmt.Println(err, string(marshal))
