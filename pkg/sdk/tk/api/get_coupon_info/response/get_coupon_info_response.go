@@ -1,6 +1,10 @@
 package get_coupon_info_response
 
-import "github.com/18721889353/sunshine/pkg/sdk/tk/core"
+import (
+	"encoding/json"
+	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
+	"github.com/spf13/cast"
+)
 
 type GetCouponInfoResponse struct {
 	core.BaseTkApiResponse
@@ -15,11 +19,77 @@ type ExchangeNotice struct {
 	Content string `json:"content"`
 	Sort    int    `json:"sort"`
 }
+
+// UnmarshalJSON implements custom unmarshaling for ExchangeNotice to handle sort field
+// that can be either a string or a number
+func (e *ExchangeNotice) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Name    string      `json:"name"`
+		Content string      `json:"content"`
+		Sort    interface{} `json:"sort"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+
+	e.Name = tmp.Name
+	e.Content = tmp.Content
+
+	// Handle sort field that can be either string or number
+	switch v := tmp.Sort.(type) {
+	case string:
+		e.Sort = cast.ToInt(v)
+	case float64:
+		e.Sort = cast.ToInt(v)
+	case int:
+		e.Sort = v
+	case nil:
+		e.Sort = 0
+	default:
+		e.Sort = 0
+	}
+
+	return nil
+}
+
 type WriteoffNotice struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
 	Sort    int    `json:"sort"`
 }
+
+// UnmarshalJSON implements custom unmarshaling for WriteoffNotice to handle sort field
+// that can be either a string or a number
+func (w *WriteoffNotice) UnmarshalJSON(data []byte) error {
+	var tmp struct {
+		Name    string      `json:"name"`
+		Content string      `json:"content"`
+		Sort    interface{} `json:"sort"`
+	}
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+
+	w.Name = tmp.Name
+	w.Content = tmp.Content
+
+	// Handle sort field that can be either string or number
+	switch v := tmp.Sort.(type) {
+	case string:
+		w.Sort = cast.ToInt(v)
+	case float64:
+		w.Sort = cast.ToInt(v)
+	case int:
+		w.Sort = v
+	case nil:
+		w.Sort = 0
+	default:
+		w.Sort = 0
+	}
+
+	return nil
+}
+
 type UseRule struct {
 	Name    string `json:"name"`
 	Support int    `json:"support"`
