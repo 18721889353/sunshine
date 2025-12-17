@@ -132,7 +132,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 			if o.verify != nil {
 				tokenTail10 := token[len(token)-10:]
 				if err = o.verify(claims, tokenTail10, c); err != nil {
-					fields = append(fields, zap.Error(err), zap.String("uid", claims.UID), zap.String("name", claims.Name))
+					fields = append(fields, zap.Error(err), zap.Any("claims", claims), zap.String("uid", claims.UID), zap.String("name", claims.Name))
 					o.log.Warn("verify error", fields...)
 					responseUnauthorized(c, o.isSwitchHTTPCode)
 					c.Abort()

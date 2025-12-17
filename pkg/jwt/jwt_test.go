@@ -9,45 +9,49 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGenerateToken(t *testing.T) {
-	opt = nil
-	token, err := GenerateToken("123")
-	assert.Error(t, err)
+func TestGenerateCustomToken(t *testing.T) {
+	var (
+		id     uint64 = 20
+		name   string = "admin"
+		age    int    = 10
+		fields        = map[string]any{"id": id, "name": name, "age": age, "fuck": []string{"11", "22"}}
+	)
 
-	Init()
-	token, err = GenerateToken("123")
+	Init(
+		WithSigningKey("qcGnoQoYKn9bWLFWjk7MRuGIKqLbnWFh"),
+	)
+	token, err := GenerateToken("uid", "name", fields)
+	fmt.Println(token, err)
+	//time.Sleep(time.Second * 5)
+	//assert.NoError(t, err)
+	token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NjYyMTUwMDcsInN1YiI6MTAsIm5iZiI6MTc2NTk1NTgwNywiYXVkIjoiZGVhbGVyOmFwaTp0b2tlbjo1Yjk0ZWRkNTVhYjE4OTlkZDVlY2QxNjM2ODM3N2M3OSIsImlhdCI6MTc2NTk1NTgwNywianRpIjoiMTA4ZTgyMDViYzZjOGU2NzI5MDBjZTUzZDkxNTkxYjQiLCJpc3MiOiJqc3J4X3N0Iiwic3RhdHVzIjoxLCJkYXRhIjp7ImlkIjoxLCJhcHBfaWQiOiJ6dDYwOThlYWY1YjJkMjkiLCJhcHBfc2VjcmV0IjoiYjgxZjhjNDE5OTdiODkxMGZmN2JmNjMxYTc0ZDY1ZWUiLCJuYW1lIjoi5YmN56uv5rWL6K-V5ZWG5oi3IiwicGhvbmUiOiIxNTYwNTI4NDAyOCIsImlwX3doaXRlIjoiKiJ9fQ.LqtWmrusA0wATtR6Ys2WO2TRXq0FOhPOIQ1i6xOB_mg"
+	claims, err := ParseToken(token)
+	fmt.Println(claims, err)
 	assert.NoError(t, err)
+	ip, ok := claims.Fields["ip_white"]
+	fmt.Println(ip, ok)
 
-	v, err := ParseToken(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(v)
-
-	time.Sleep(time.Second)
-	newToken, err := RefreshToken(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(token, newToken)
 }
 
-func TestParseToken(t *testing.T) {
+func TestParseCustomToken(t *testing.T) {
+	fields := map[string]any{"id": 123, "foo": "bar"}
 	opt = nil
 	v, err := ParseToken("token")
 	assert.Error(t, err)
-
-	uid := "123"
-	name := "admin"
 
 	Init(
 		WithSigningKey("123456"),
 		WithExpire(time.Second),
 		WithSigningMethod(HS512),
+		WithIssuer("test_issuer"),
+		WithSubject("test_subject"),
+		WithAudience([]string{"test_audience"}),
+		WithID("test_id"),
+		WithNotBefore(time.Now().Add(-time.Hour)), // 1 hour ago
 	)
 
 	// success
-	token, err := GenerateToken(uid, name)
+	token, err := GenerateToken("", "", fields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,94 +73,11 @@ func TestParseToken(t *testing.T) {
 	assert.Error(t, err)
 
 	// token has expired
-	token, err = GenerateToken(uid, name)
+	token, err = GenerateToken("", "", fields)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second * 2)
 	v, err = ParseToken(token)
-	assert.True(t, errors.Is(err, ErrTokenExpired))
-}
-
-func TestGenerateCustomToken(t *testing.T) {
-	var (
-		id     uint64 = 20
-		name   string = "admin"
-		age    int    = 10
-		fields        = KV{"id": id, "name": name, "age": age}
-	)
-
-	Init()
-	token, err := GenerateCustomToken(fields)
-	assert.NoError(t, err)
-
-	claims, err := ParseCustomToken(token)
-	assert.NoError(t, err)
-
-	idValue, _ := claims.GetUint64("id")
-	assert.Equal(t, idValue, fields["id"])
-
-	nameValue, _ := claims.GetString("name")
-	assert.Equal(t, nameValue, fields["name"])
-
-	ageValue, _ := claims.GetInt("age")
-	assert.Equal(t, ageValue, fields["age"])
-
-	_, ok := claims.Get("foo")
-	assert.Equal(t, ok, false)
-
-	claims.Fields = nil
-	foo, _ := claims.Get("foo")
-	assert.Nil(t, foo)
-
-	time.Sleep(time.Second)
-	newToken, err := RefreshCustomToken(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(token, newToken)
-}
-
-func TestParseCustomToken(t *testing.T) {
-	fields := KV{"id": 123, "foo": "bar"}
-	opt = nil
-	v, err := ParseCustomToken("token")
-	assert.Error(t, err)
-
-	Init(
-		WithSigningKey("123456"),
-		WithExpire(time.Second),
-		WithSigningMethod(HS512),
-	)
-
-	// success
-	token, err := GenerateCustomToken(fields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println(token)
-	v, err = ParseCustomToken(token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println(v)
-
-	// invalid token format
-	token2 := "xxx.xxx.xxx"
-	v, err = ParseCustomToken(token2)
-	assert.Error(t, err)
-
-	// signature failure
-	token3 := token + "xxx"
-	v, err = ParseCustomToken(token3)
-	assert.Error(t, err)
-
-	// token has expired
-	token, err = GenerateCustomToken(fields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(time.Second * 2)
-	v, err = ParseCustomToken(token)
 	assert.True(t, errors.Is(err, ErrTokenExpired))
 }

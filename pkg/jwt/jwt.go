@@ -2,10 +2,8 @@
 package jwt
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/golang-jwt/jwt/v5"
+	"time"
 )
 
 // ErrTokenExpired expired
@@ -20,39 +18,52 @@ func Init(opts ...Option) {
 	opt = o
 }
 
-// CustomRegisteredClaims custom registered claims that handles subject as interface{}
+// CustomRegisteredClaims custom registered claims
 type CustomRegisteredClaims struct {
 	jwt.RegisteredClaims
-	Subject interface{} `json:"sub,omitempty"`
+	Subject any `json:"sub,omitempty"`
 }
 
 // Claims standard claims, include uid, name, and CustomRegisteredClaims
 type Claims struct {
-	UID  string `json:"uid"`
-	Name string `json:"name"`
+	UID    string         `json:"uid"`
+	Name   string         `json:"name"`
+	Fields map[string]any `json:"data"`
 	CustomRegisteredClaims
 }
 
 // GenerateToken generate token by uid and name, use universal Claims
-func GenerateToken(uid string, name ...string) (string, error) {
+func GenerateToken(uid string, name string, kvs ...map[string]any) (string, error) {
 	if opt == nil {
 		return "", errInit
 	}
 
 	nameVal := ""
 	if len(name) > 0 {
-		nameVal = name[0]
+		nameVal = name
 	}
+	field := make(map[string]any)
+	if len(kvs) > 0 {
+		field = kvs[0]
+	}
+	// Prepare RegisteredClaims with all customizable fields
+	registeredClaims := jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(opt.expire)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		Subject:   opt.subject,
+		Issuer:    opt.issuer,
+		Audience:  opt.audience,
+		ID:        opt.id,
+		NotBefore: jwt.NewNumericDate(opt.notBefore),
+	}
+
 	claims := Claims{
-		UID:  uid,
-		Name: nameVal,
+		UID:    uid,
+		Name:   nameVal,
+		Fields: field,
 		CustomRegisteredClaims: CustomRegisteredClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(opt.expire)),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-				Issuer:    opt.issuer,
-			},
-			Subject: uid,
+			RegisteredClaims: registeredClaims,
+			Subject:          opt.subject,
 		},
 	}
 
@@ -74,15 +85,6 @@ func ParseToken(tokenString string) (*Claims, error) {
 	}
 
 	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
-		// Handle the case where Subject might be a number in the token but we expect a string for UID
-		if claims.CustomRegisteredClaims.Subject != nil {
-			if subStr, ok := claims.CustomRegisteredClaims.Subject.(string); ok {
-				claims.UID = subStr
-			} else {
-				// Convert numeric subject to string
-				claims.UID = fmt.Sprintf("%v", claims.CustomRegisteredClaims.Subject)
-			}
-		}
 		return claims, nil
 	}
 
@@ -95,8 +97,20 @@ func RefreshToken(tokenString string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	claims.CustomRegisteredClaims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(opt.expire))
-	claims.CustomRegisteredClaims.IssuedAt = jwt.NewNumericDate(time.Now())
+
+	// Prepare RegisteredClaims with all customizable fields
+	registeredClaims := jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(opt.expire)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		Issuer:    opt.issuer,
+		Subject:   opt.subject,
+		Audience:  opt.audience,
+		ID:        opt.id,
+		NotBefore: jwt.NewNumericDate(opt.notBefore),
+	}
+
+	claims.CustomRegisteredClaims.RegisteredClaims = registeredClaims
+
 	token := jwt.NewWithClaims(opt.signingMethod, claims)
 	return token.SignedString(opt.signingKey)
 }
@@ -104,11 +118,11 @@ func RefreshToken(tokenString string) (string, error) {
 // -------------------------------------------------------------------------------------------
 
 // KV map type
-type KV = map[string]interface{}
+type KV = map[string]any
 
 // CustomClaims custom fields claims
 type CustomClaims struct {
-	Fields KV `json:"fields"`
+	Fields KV `json:"data"`
 	CustomRegisteredClaims
 }
 
@@ -165,14 +179,22 @@ func GenerateCustomToken(kv map[string]interface{}) (string, error) {
 		return "", errInit
 	}
 
+	// Prepare RegisteredClaims with all customizable fields
+	registeredClaims := jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(opt.expire)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		Issuer:    opt.issuer,
+		Subject:   opt.subject,
+		Audience:  opt.audience,
+		ID:        opt.id,
+		NotBefore: jwt.NewNumericDate(opt.notBefore),
+	}
+
 	claims := CustomClaims{
 		Fields: kv,
 		CustomRegisteredClaims: CustomRegisteredClaims{
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(opt.expire)),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-				Issuer:    opt.issuer,
-			},
+			RegisteredClaims: registeredClaims,
+			Subject:          opt.subject,
 		},
 	}
 
@@ -206,8 +228,20 @@ func RefreshCustomToken(tokenString string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	claims.CustomRegisteredClaims.ExpiresAt = jwt.NewNumericDate(time.Now().Add(opt.expire))
-	claims.CustomRegisteredClaims.IssuedAt = jwt.NewNumericDate(time.Now())
+
+	// Prepare RegisteredClaims with all customizable fields
+	registeredClaims := jwt.RegisteredClaims{
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(opt.expire)),
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		Issuer:    opt.issuer,
+		Subject:   opt.subject,
+		Audience:  opt.audience,
+		ID:        opt.id,
+		NotBefore: jwt.NewNumericDate(opt.notBefore),
+	}
+
+	claims.CustomRegisteredClaims.RegisteredClaims = registeredClaims
+
 	token := jwt.NewWithClaims(opt.signingMethod, claims)
 	return token.SignedString(opt.signingKey)
 }
