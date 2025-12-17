@@ -139,7 +139,13 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 					return
 				}
 			} else {
-				c.Set("uid", claims.UID)
+				uid := claims.UID
+				if uid == "" {
+					if id, ok := claims.Fields["id"]; ok {
+						uid = id.(string)
+					}
+				}
+				c.Set("uid", uid)
 				c.Set("name", claims.Name)
 			}
 			c.Next()
