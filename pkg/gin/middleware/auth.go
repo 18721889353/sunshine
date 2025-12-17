@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/cast"
 	"go.uber.org/zap"
 	"time"
 
@@ -21,6 +22,7 @@ type jwtOptions struct {
 	isSwitchHTTPCode bool
 	verify           VerifyFn // verify function, only use in Auth
 	ignoreMethods    map[string]struct{}
+	uidFields        []string // 用户ID字段名列表，按优先级排序
 }
 
 // JwtOption set the jwt options.
@@ -39,6 +41,7 @@ func defaultJwtOptions() *jwtOptions {
 		isSwitchHTTPCode: false,
 		verify:           nil,
 		ignoreMethods:    make(map[string]struct{}), // 忽略的方法
+		uidFields:        []string{"id", "uid", "userId", "user_id"}, // 默认的用户ID字段名列表
 	}
 }
 
@@ -56,11 +59,12 @@ func WithVerify(verify VerifyFn) JwtOption {
 	}
 }
 
-func responseUnauthorized(c *gin.Context, isSwitchHTTPCode bool) {
-	if isSwitchHTTPCode {
-		response.Out(c, errcode.Unauthorized)
-	} else {
-		response.Error(c, errcode.Unauthorized)
+// WithAuthLog set log
+func WithAuthLog(log *zap.Logger) JwtOption {
+	return func(o *jwtOptions) {
+		if log != nil {
+			o.log = log
+		}
 	}
 }
 
@@ -75,12 +79,20 @@ func WithJwtIgnoreMethods(fullMethodNames ...string) JwtOption {
 	}
 }
 
-// WithAuthLog set log
-func WithAuthLog(log *zap.Logger) JwtOption {
+// WithAuthUidFields 设置用户ID字段名列表，按优先级排序
+func WithAuthUidFields(fields ...string) JwtOption {
 	return func(o *jwtOptions) {
-		if log != nil {
-			o.log = log
+		if len(fields) > 0 {
+			o.uidFields = fields
 		}
+	}
+}
+
+func responseUnauthorized(c *gin.Context, isSwitchHTTPCode bool) {
+	if isSwitchHTTPCode {
+		response.Out(c, errcode.Unauthorized)
+	} else {
+		response.Error(c, errcode.Unauthorized)
 	}
 }
 
@@ -139,10 +151,22 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 					return
 				}
 			} else {
+				// 优化 UID 设置逻辑，支持更多字段名
 				uid := claims.UID
 				if uid == "" {
-					if id, ok := claims.Fields["id"]; ok {
-						uid = id.(string)
+					// 按优先级顺序检查各种可能的 ID 字段
+					for _, key := range o.uidFields {
+						if val, ok := claims.Fields[key]; ok {
+							if str, ok := val.(string); ok && str != "" {
+								uid = str
+								break
+							}
+							// 如果不是字符串类型，尝试转换为字符串
+							if str := cast.ToString(val); str != "" {
+								uid = str
+								break
+							}
+						}
 					}
 				}
 				c.Set("uid", uid)
