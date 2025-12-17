@@ -28,6 +28,12 @@ type options struct {
 	expire        time.Duration
 	issuer        string
 	signingMethod *jwt.SigningMethodHMAC
+
+	// Additional RegisteredClaims fields
+	subject   string
+	audience  []string
+	id        string
+	notBefore time.Time
 }
 
 func defaultOptions() *options {
@@ -73,6 +79,34 @@ func WithExpire(d time.Duration) Option {
 func WithIssuer(issuer string) Option {
 	return func(o *options) {
 		o.issuer = issuer
+	}
+}
+
+// WithSubject set subject value
+func WithSubject(subject string) Option {
+	return func(o *options) {
+		o.subject = subject
+	}
+}
+
+// WithAudience set audience value
+func WithAudience(audience []string) Option {
+	return func(o *options) {
+		o.audience = audience
+	}
+}
+
+// WithID set JWT ID value
+func WithID(id string) Option {
+	return func(o *options) {
+		o.id = id
+	}
+}
+
+// WithNotBefore set not before value
+func WithNotBefore(notBefore time.Time) Option {
+	return func(o *options) {
+		o.notBefore = notBefore
 	}
 }
 
