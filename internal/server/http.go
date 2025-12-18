@@ -58,7 +58,7 @@ func (s *httpServer) Start() error {
 // Stop http service
 func (s *httpServer) Stop() error {
 	if s.iRegistry != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		go func() {
 			_ = s.iRegistry.Deregister(ctx, s.instance)
 			cancel()
