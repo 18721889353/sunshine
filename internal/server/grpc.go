@@ -105,7 +105,7 @@ func (s *grpcServer) Start() error {
 // Stop grpc service
 func (s *grpcServer) Stop() error {
 	if s.iRegistry != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		go func() {
 			_ = s.iRegistry.Deregister(ctx, s.instance)
 			cancel()
@@ -116,7 +116,7 @@ func (s *grpcServer) Stop() error {
 	s.server.GracefulStop()
 
 	if s.httpServer != nil {
-		ctx, _ := context.WithTimeout(context.Background(), 3*time.Second) //nolint
+		ctx, _ := context.WithTimeout(context.Background(), 15*time.Second) //nolint
 		if err := s.httpServer.Shutdown(ctx); err != nil {
 			return err
 		}
