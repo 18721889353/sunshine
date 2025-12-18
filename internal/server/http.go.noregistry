@@ -30,8 +30,42 @@ func (s *httpServer) Start() error {
 
 // Stop http service
 func (s *httpServer) Stop() error {
-	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second) //nolint
-	return s.server.Shutdown(ctx)
+	// 尝试单个关闭策略
+	tryStrategy := func(name string, timeout time.Duration, action func(context.Context) error) error {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		logger.Info(fmt.Sprintf("尝试%s，超时时间: %v\n", name, timeout))
+		return action(ctx)
+	}
+
+	// 分级降级关闭策略
+	strategies := []struct {
+		name    string
+		timeout time.Duration
+		action  func(context.Context) error
+	}{
+		{"快速优雅关闭", 15 * time.Second, func(ctx context.Context) error { return s.server.Shutdown(ctx) }},
+		{"标准优雅关闭", 30 * time.Second, func(ctx context.Context) error { return s.server.Shutdown(ctx) }},
+		{"最长优雅关闭", 60 * time.Second, func(ctx context.Context) error { return s.server.Shutdown(ctx) }},
+		{"最长优雅关闭", 120 * time.Second, func(ctx context.Context) error { return s.server.Shutdown(ctx) }},
+		{"强制关闭", 1 * time.Second, func(ctx context.Context) error { return s.server.Close() }},
+	}
+
+	for _, strategy := range strategies {
+		err := tryStrategy(strategy.name, strategy.timeout, strategy.action)
+		if err == nil {
+			logger.Info(fmt.Sprintf("%s成功\n", strategy.name))
+			return nil
+		}
+		if err == context.DeadlineExceeded {
+			logger.Info(fmt.Sprintf("%s超时，尝试下一策略\n", strategy.name))
+			continue
+		}
+		logger.Warn(fmt.Sprintf("%s出错: %v\n", strategy.name, err))
+		continue
+	}
+	logger.Info("所有关闭策略均已尝试，服务关闭完成")
+	return nil
 }
 
 // String comment
