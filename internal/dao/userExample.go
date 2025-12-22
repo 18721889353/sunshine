@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/18721889353/sunshine/internal/cache"
@@ -40,6 +41,7 @@ type UserExampleDao interface {
 	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.UserExample) error
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
 	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
+	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
 
 	GetByID(ctx context.Context, id uint64) (*model.UserExample, error)
 	GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error)
@@ -48,6 +50,7 @@ type UserExampleDao interface {
 	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	CountByCondition(ctx context.Context, c *query.Conditions) (int64, error)
 	ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error)
+	GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int) (int64, error)
 }
 
 // userExampleCacheManager 统一管理缓存操作
@@ -685,6 +688,65 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 	return nil
 }
 
+// ExecByCustomFunc 执行自定义更新操作，接受一个函数参数来执行自定义的更新、插入或其他数据库操作
+// 使用示例：事务
+//	err = s.iCpDealerDao.ExecByCustomFunc(ctx, func(db *gorm.DB) *gorm.DB {
+//		err := db.Transaction(func(tx *gorm.DB) error {
+//			// 执行操作
+//			if err := tx.Model(&model.CpDealer{}).Where("id = ?", 1).Update("name", "前端测试商户").Error; err != nil {
+//				return err
+//			}
+//			if err := tx.Model(&model.CpDealerOrder{}).Where("id = ?", 647401).Update("dealer_name", "前端测试商户").Error; err != nil {
+//				return err
+//			}
+//			// 成功提交事务
+//			return nil
+//		})
+//		// 将事务中的错误传递出去
+//		if err != nil {
+//			db.Error = err
+//		}
+//		return db
+//	})
+// 普通更新
+// err = s.iCpDealerDao.ExecByCustomFunc(ctx, func(db *gorm.DB) *gorm.DB {
+//
+//	if err := db.Model(&model.CpDealer{}).Where("id = ?", 1).Update("name", "前端测试商户1").Error; err != nil {
+//		db.Error = err
+//		return db
+//	}
+//
+//	if err := db.Model(&model.CpDealerOrder{}).Where("id = ?", 647401).Update("dealer_name", "前端测试商户").Error; err != nil {
+//		db.Error = err
+//		return db
+//	}
+//
+//	return db
+//})
+
+func (d *userExampleDao) ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error {
+	// 先清除相关缓存
+	defer func() {
+		_ = d.deleteCache(ctx, 0, "all")
+	}()
+
+	db := d.db.WithContext(ctx)
+	// 应用自定义更新函数
+	db = updateFunc(db)
+
+	// 执行更新操作
+	var err error
+	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
+		// 对于原始SQL查询，直接执行
+		err = db.Exec(db.Statement.SQL.String(), db.Statement.Vars...).Error
+	} else {
+		// 对于常规查询，执行操作
+		err = db.Error
+	}
+
+	return err
+}
+
 func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
 	// no cache
 	if d.cacheManager == nil {
@@ -930,4 +992,107 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// 1. 不分页查询（page=-1 或 limit<=0）
+//var result1 []map[string]interface{}
+//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//	return db.Model(&model.CpDealer{}).
+//		Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
+//		Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
+//		Where("cp_dealer.status = ?", 1).
+//		Order("cp_dealer.id DESC")
+//}, &result1, -1, 0)
+
+//原始SQL
+//var result1 []map[string]interface{}
+//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//	return db.Raw("SELECT cp_dealer.id, cp_dealer.name FROM cp_dealer WHERE cp_dealer.status = ? ORDER BY cp_dealer.id DESC", 1)
+//}, &result1, 0, 10)
+
+// 2. 分页查询（page>=0 且 limit>0）
+//var result1 []map[string]interface{}
+//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//	return db.Model(&model.CpDealer{}).
+//		Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
+//		Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
+//		Where("cp_dealer.status = ?", 1).
+//		Order("cp_dealer.id DESC")
+//}, &result1, 0, 10)
+
+func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int) (int64, error) {
+	db := d.db.WithContext(ctx)
+	// 应用自定义查询函数
+	db = queryFunc(db)
+
+	var total int64 = -1 // 使用-1表示未计算总数
+
+	// 判断是否需要分页
+	if page >= 0 && limit > 0 {
+		// 需要分页，先计算总数
+		stmt := db.Statement
+		if stmt != nil {
+			if stmt.Table != "" || stmt.Model != nil {
+				// 对于常规查询，使用GORM内置的Count方法
+				err := db.Count(&total).Error
+				if err != nil {
+					return 0, err
+				}
+				// 应用分页
+				offset := page * limit
+				db = db.Offset(offset).Limit(limit)
+			} else if stmt.SQL.Len() > 0 {
+				// 对于原始SQL查询，手动构造COUNT查询
+				originalSQL := stmt.SQL.String()
+				countSQL := d.convertToCountSQL(originalSQL)
+
+				var count int64
+				err := d.db.WithContext(ctx).Raw(countSQL, stmt.Vars...).Scan(&count).Error
+				if err != nil {
+					return 0, err
+				}
+				total = count
+
+				// 对于原始SQL查询，手动应用分页
+				pagedSQL := originalSQL + " LIMIT ? OFFSET ?"
+				offset := page * limit
+				db = d.db.WithContext(ctx).Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
+			}
+		}
+	}
+
+	// 执行查询
+	var err error
+	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
+		// 对于原始SQL查询，使用Scan方法
+		err = db.Scan(result).Error
+	} else {
+		// 对于常规查询，使用Find方法
+		err = db.Find(result).Error
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+// convertToCountSQL 将普通SQL查询转换为COUNT查询SQL
+func (d *userExampleDao) convertToCountSQL(sql string) string {
+	// 移除ORDER BY子句，因为COUNT查询不需要排序
+	orderByIndex := strings.Index(strings.ToLower(sql), "order by")
+	if orderByIndex != -1 {
+		// 查找ORDER BY之前的部分
+		sql = sql[:orderByIndex]
+	}
+	// 移除LIMIT和OFFSET子句
+	limitIndex := strings.Index(strings.ToLower(sql), "limit")
+	if limitIndex != -1 {
+		sql = sql[:limitIndex]
+	}
+	// 包装成COUNT查询
+	trimmedSQL := strings.TrimSpace(sql)
+	countSQL := "SELECT COUNT(*) FROM (" + trimmedSQL + ") AS count_query"
+	return countSQL
 }
