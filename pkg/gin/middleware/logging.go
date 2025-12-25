@@ -149,14 +149,24 @@ func getResponseBody(buf *bytes.Buffer, maxLen int) []byte {
 		l = maxLen
 	}
 
-	body := make([]byte, l)
-	n, _ := buf.Read(body)
-	if n == 0 {
-		return emptyBody
-	} else if n < maxLen {
-		return body[:n]
+	// Use Bytes() instead of Read() to avoid modifying the buffer
+	allBytes := buf.Bytes()
+	if l == len(allBytes) {
+		if l < maxLen {
+			return allBytes
+		}
+		// Truncate and add mark
+		return append(allBytes[:maxLen-len(contentMark)], contentMark...)
 	}
-	return append(body[:maxLen-len(contentMark)], contentMark...)
+
+	// If length is different, copy the required portion
+	result := make([]byte, l)
+	copy(result, allBytes[:l])
+	if l == maxLen {
+		// Truncate and add mark
+		return append(result[:maxLen-len(contentMark)], contentMark...)
+	}
+	return result
 }
 
 // getRequestBody returns the request body, possibly truncated
@@ -168,14 +178,15 @@ func getRequestBody(buf *bytes.Buffer, maxLen int) []byte {
 		return buf.Bytes()
 	}
 
-	body := make([]byte, maxLen)
-	copy(body, buf.Bytes())
-	return append(body[:maxLen-len(contentMark)], contentMark...)
+	allBytes := buf.Bytes()
+	result := make([]byte, maxLen)
+	copy(result, allBytes)
+	return append(result[:maxLen-len(contentMark)], contentMark...)
 }
 
 // filterHeaders filters out sensitive headers
 func filterHeaders(headers map[string][]string, sensitive map[string]struct{}) map[string]string {
-	result := make(map[string]string)
+	result := make(map[string]string, len(headers))
 	for k, v := range headers {
 		// Skip sensitive headers
 		if _, found := sensitive[strings.ToLower(k)]; found {
@@ -213,8 +224,10 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		}
 
 		// print input information before processing
-		buf := bytes.Buffer{}
-		_, _ = buf.ReadFrom(c.Request.Body)
+		var buf bytes.Buffer
+		if c.Request.Body != nil {
+			_, _ = buf.ReadFrom(c.Request.Body)
+		}
 
 		fields := []zap.Field{
 			zap.String("method", c.Request.Method),
@@ -258,7 +271,11 @@ func Logging(opts ...Option) gin.HandlerFunc {
 
 		o.log.Info(`gin middleware Logging`, fields...)
 
-		c.Request.Body = io.NopCloser(&buf)
+		if buf.Len() > 0 {
+			c.Request.Body = io.NopCloser(&buf)
+		} else {
+			c.Request.Body = io.NopCloser(bytes.NewReader([]byte{}))
+		}
 
 		// replace writer
 		newWriter := &bodyLogWriter{body: &bytes.Buffer{}, ResponseWriter: c.Writer}
@@ -281,60 +298,5 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		}
 		fields = append(fields, zap.String("log_from", `>>>>`+o.logFrom))
 		o.log.Info(`gin middleware Logging`, fields...)
-	}
-}
-
-// SimpleLog print response info
-func SimpleLog(opts ...Option) gin.HandlerFunc {
-	o := defaultOptions()
-	o.apply(opts...)
-
-	// Initialize sensitive headers map if needed
-	if o.sensitiveHeaders == nil {
-		o.sensitiveHeaders = make(map[string]struct{})
-	}
-	// Add common sensitive headers by default
-	sensitiveDefaults := []string{"authorization", "cookie", "x-api-key"}
-	for _, header := range sensitiveDefaults {
-		if _, exists := o.sensitiveHeaders[header]; !exists {
-			o.sensitiveHeaders[header] = struct{}{}
-		}
-	}
-
-	return func(c *gin.Context) {
-		start := time.Now()
-
-		// ignore printing of the specified route
-		if _, ok := o.ignoreRoutes[c.Request.URL.Path]; ok {
-			c.Next()
-			return
-		}
-
-		reqID := ""
-		if o.requestIDFrom == 1 {
-			if v, isExist := c.Get(ContextRequestIDKey); isExist {
-				if requestID, ok := v.(string); ok {
-					reqID = requestID
-				}
-			}
-		} else if o.requestIDFrom == 2 {
-			reqID = c.Request.Header.Get(HeaderXRequestIDKey)
-		}
-
-		// processing requests
-		c.Next()
-
-		// print return message after processing
-		fields := []zap.Field{
-			zap.Int("code", c.Writer.Status()),
-			zap.String("method", c.Request.Method),
-			zap.String("url", c.Request.URL.String()),
-			zap.Int64("time_us", time.Since(start).Microseconds()),
-			zap.Int("size", c.Writer.Size()),
-		}
-		if reqID != "" {
-			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
-		}
-		o.log.Info("[GIN] message", fields...)
 	}
 }
