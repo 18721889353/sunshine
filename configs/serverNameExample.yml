@@ -76,6 +76,9 @@ logger:
   format: "console"               # 输出格式, console或json, 默认为console
   isSave: false                   # false:输出到终端, true:输出到文件, 默认为false
   maxLen: 102400                  # 单条日志最大大小
+  isAsync: true                   # 是否异步输出日志
+  asyncBufferSize: 1              # 异步缓冲区大小单位(M)
+  asyncFlushInterval: 30          # 异步刷新间隔(秒)
   # 当isSave=true时有效
   logFileConfig:
     filename: "out.log"           # 文件名(默认为out.log)
@@ -130,14 +133,14 @@ jaeger:
 
 # etcd设置
 etcd:
-  addrs:                          # ETCD地址列表
+  addrs: # ETCD地址列表
     - "127.0.0.1:2379"
 
 # 签名设置
 sign:
   signExpiredTime: 10             # 签名过期时间(秒)
   signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"  # 签名密钥
-  ignoreUrls:                     # 忽略签名验证的URL
+  ignoreUrls: # 忽略签名验证的URL
     http:
       - "/api/fd_v1/test"
     grpc:
@@ -149,7 +152,7 @@ jwt:
   signingKey: "sunshine"          # 签名密钥
   signingMethod: "HS256"          # 签名方法
   issuer: "sunshine"              # 签发者
-  ignoreMethods:                  # 忽略JWT验证的方法
+  ignoreMethods: # 忽略JWT验证的方法
     http:
       - "/api/v1/auth/captcha"
       - "/api/v1/auth/login"
@@ -159,7 +162,7 @@ jwt:
 
 # Sentinel设置
 sentinel:
-  rules:                          # 规则列表
+  rules: # 规则列表
     - resource: "default"         # 资源名称
       threshold: 1.0              # 阈值
       statIntervalInMs: 2000      # 统计时间窗口(毫秒)
@@ -167,7 +170,7 @@ sentinel:
 # RabbitMQ设置
 rabbitmq:
   enable: false                   # 是否启用rabbitmq
-  pool:                           # 连接池配置
+  pool: # 连接池配置
     url: "amqp://sunjianguo:jianguo123@43.143.78.234:5672/"  # 连接URL
     initialCap: 10                # 初始连接数
     maxCap: 100                   # 最大连接数
@@ -177,7 +180,7 @@ rabbitmq:
     reconnectTime: 3              # 设置重连时间间隔选项(秒)
     dialTimeout: 5                # 设置连接超时时间选项(秒)
     heartbeat: 3                  # 设置心跳间隔选项(秒)
-  DoingOrder:                     # 订单处理配置
+  DoingOrder: # 订单处理配置
     enable: true                  # 是否启用
     queueType: "dead"             # 队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
     exchangeName: "DoingOrderExchange"     # 交换机名称
@@ -243,7 +246,7 @@ elasticsearch:
   connectionTimeout: 30           # 连接超时时间(秒)
   connectionKeepAlive: 30         # 连接保持时间(秒)
   # 重试配置
-  retryOnStatus:                  # 需要重试的HTTP状态码
+  retryOnStatus: # 需要重试的HTTP状态码
     - 502
     - 503
     - 504
