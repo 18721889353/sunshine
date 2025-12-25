@@ -8,7 +8,7 @@ import (
 )
 
 // ExampleHook 展示如何创建一个可以访问字段数据的钩子函数
-func ExampleHook() {
+func standardHook() {
 	// 创建一个标准的 zap 钩子函数，它不能直接访问字段数据
 	standardHook := func(entry zapcore.Entry) error {
 		fmt.Printf("Standard Hook - Level: %s, Message: %s\n", entry.Level, entry.Message)
@@ -16,8 +16,8 @@ func ExampleHook() {
 	}
 
 	// 创建一个自定义钩子函数，它可以访问完整的字段数据
-	customHook := func(level string, msg string, fields []Field) error {
-		fmt.Printf("Custom Hook - Level: %s, Message: %s, Fields Count: %d\n", level, msg, len(fields))
+	customHook := func(entry zapcore.Entry, fields []Field) error {
+		fmt.Printf("Custom Hook - Level: %s, Message: %s, Fields Count: %d\n", entry.Level, entry.Message, len(fields))
 		// 打印所有字段的键和值
 		for _, field := range fields {
 			fmt.Printf("  Field - Key: %s, Value: %v\n", field.Key, getFieldValue(field))
@@ -43,8 +43,8 @@ func ExampleHook() {
 
 // AdvancedHook 展示一个更高级的自定义钩子函数
 func AdvancedHook() {
-	customHook := func(level string, msg string, fields []Field) error {
-		fmt.Printf("Level: %s\nMessage: %s\n", level, msg)
+	customHook := func(entry zapcore.Entry, fields []Field) error {
+		fmt.Printf("Level: %s\nMessage: %s\n", entry.Level, entry.Message)
 		// 分析字段数据并打印键值对
 		for _, field := range fields {
 			key := field.Key
@@ -65,7 +65,7 @@ func AdvancedHook() {
 	//	Any("metadata", map[string]interface{}{"role": "admin", "active": true}),
 	//)
 
-	Error("database connection failed",
+	Info("database connection failed",
 		Err(fmt.Errorf("connection timeout")),
 		String("host", "localhost"),
 		Int("port", 5432),
@@ -110,6 +110,6 @@ func getFieldValue(field Field) interface{} {
 	}
 }
 func TestHookExample(t *testing.T) {
-	//ExampleHook()
-	AdvancedHook()
+	standardHook()
+	//AdvancedHook()
 }
