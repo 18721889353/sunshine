@@ -3,17 +3,14 @@
 package routers
 
 import (
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/18721889353/sunshine/internal/database"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
-
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/handlerfunc"
@@ -22,6 +19,8 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/prof"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
 	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 
 	"github.com/18721889353/sunshine/docs"
 	"github.com/18721889353/sunshine/internal/config"
@@ -33,6 +32,40 @@ var (
 	// example:
 	//     apiV2RouterFns []func(r *gin.RouterGroup)
 )
+
+//// 对象池用于重用CpDealerApiLog实例
+//var cpDealerApiLogPool = sync.Pool{
+//	New: func() interface{} {
+//		return &model.CpDealerApiLog{}
+//	},
+//}
+//
+//func customLogFunc(c *gin.Context, reqBody []byte, respBody []byte, startTime time.Time, endTime time.Time, spendTime int64) {
+//	go func() {
+//		// 从池中获取CpDealerApiLog实例
+//		log := cpDealerApiLogPool.Get().(*model.CpDealerApiLog)
+//		// 重置字段值
+//		log.Type = "接口"
+//		log.Category = "API"
+//		log.IP = c.ClientIP()
+//		log.Url = c.Request.URL.String()
+//		log.Params = string(reqBody)
+//		log.Response = string(respBody)
+//		log.StartTime = cast.ToString(startTime.UnixMilli())
+//		log.EndTime = cast.ToString(endTime.UnixMilli())
+//		log.SpendTime = cast.ToString(spendTime)
+//		log.DealerID = cast.ToInt(c.GetString("uid"))
+//		log.Active = "golang api"
+//		log.CreateTime = cast.ToString(time.Now().Unix())
+//		log.UpdateTime = int(time.Now().Unix())
+//
+//		// 保存到数据库
+//		database.GetDB().Create(log)
+//
+//		// 使用完毕后将对象放回池中
+//		cpDealerApiLogPool.Put(log)
+//	}()
+//}
 
 // NewRouter create a new router
 func NewRouter() *gin.Engine {
@@ -80,6 +113,7 @@ func NewRouter() *gin.Engine {
 	if config.Get().App.OpenSign {
 		r.Use(
 			middleware.VerifySignatureMiddleware(
+				middleware.WithSignLog(logger.Get()),
 				middleware.WithSignKey(config.Get().Sign.SignKey),
 				middleware.WithIgnoreUrl(config.Get().Sign.IgnoreUrls.HTTP...),
 				middleware.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
@@ -88,7 +122,7 @@ func NewRouter() *gin.Engine {
 	}
 	// 将XSSMiddleware添加为全局中间件
 	if config.Get().App.OpenXSS {
-		r.Use(middleware.XSSCrossMiddleware())
+		r.Use(middleware.XSSCrossMiddleware(middleware.WithXsLog(logger.Get())))
 	}
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
@@ -109,6 +143,7 @@ func NewRouter() *gin.Engine {
 				middleware.WithSentinelRules(config.Get().Sentinel.Rules),
 			),
 		)
+		//r.Use(middleware.RateLimit())
 	}
 
 	// circuit breaker middleware
@@ -125,6 +160,16 @@ func NewRouter() *gin.Engine {
 		//r.Use(middleware.Tracing(config.Get().App.Name))
 		r.Use(otelgin.Middleware(config.Get().App.Name))
 	}
+	if config.Get().App.OpenJwt {
+		//全局权限验证
+		r.Use(
+			middleware.Auth(
+				middleware.WithAuthLog(logger.Get()),
+				middleware.WithSwitchHTTPCode(),
+				middleware.WithJwtIgnoreMethods(config.Get().Jwt.IgnoreMethods.HTTP...)),
+		)
+	}
+	//r.Use(middleware.APILogMiddleware(middleware.WithApiLogFunc(customLogFunc)))
 
 	// register routers, middleware support
 	registerRouters(r, "/api/v1", apiV1RouterFns)

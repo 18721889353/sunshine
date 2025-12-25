@@ -34,6 +34,40 @@ var (
 	allMiddlewareFns = []func(c *middlewareConfig){}
 )
 
+//// 对象池用于重用CpDealerApiLog实例
+//var cpDealerApiLogPool = sync.Pool{
+//	New: func() interface{} {
+//		return &model.CpDealerApiLog{}
+//	},
+//}
+//
+//func customLogFunc(c *gin.Context, reqBody []byte, respBody []byte, startTime time.Time, endTime time.Time, spendTime int64) {
+//	go func() {
+//		// 从池中获取CpDealerApiLog实例
+//		log := cpDealerApiLogPool.Get().(*model.CpDealerApiLog)
+//		// 重置字段值
+//		log.Type = "接口"
+//		log.Category = "API"
+//		log.IP = c.ClientIP()
+//		log.Url = c.Request.URL.String()
+//		log.Params = string(reqBody)
+//		log.Response = string(respBody)
+//		log.StartTime = cast.ToString(startTime.UnixMilli())
+//		log.EndTime = cast.ToString(endTime.UnixMilli())
+//		log.SpendTime = cast.ToString(spendTime)
+//		log.DealerID = cast.ToInt(c.GetString("uid"))
+//		log.Active = "golang api"
+//		log.CreateTime = cast.ToString(time.Now().Unix())
+//		log.UpdateTime = int(time.Now().Unix())
+//
+//		// 保存到数据库
+//		database.GetDB().Create(log)
+//
+//		// 使用完毕后将对象放回池中
+//		cpDealerApiLogPool.Put(log)
+//	}()
+//}
+
 // NewRouter_pbExample create a new router
 func NewRouter_pbExample() *gin.Engine { //nolint
 	r := gin.New()
@@ -134,6 +168,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 				middleware.WithJwtIgnoreMethods(config.Get().Jwt.IgnoreMethods.HTTP...)),
 		)
 	}
+	//r.Use(middleware.APILogMiddleware(middleware.WithApiLogFunc(customLogFunc)))
 
 	c := newMiddlewareConfig()
 
