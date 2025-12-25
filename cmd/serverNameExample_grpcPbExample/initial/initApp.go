@@ -140,6 +140,9 @@ func InitApp() {
 		logger.WithLevel(cfg.Logger.Level),
 		logger.WithFormat(cfg.Logger.Format),
 		//logger.WithCustomHooks(customHook),
+		logger.WithAsync(cfg.Logger.IsAsync),
+		logger.WithAsyncBufferSize(cfg.Logger.AsyncBufferSize*1048576),
+		logger.WithAsyncFlushInterval(time.Duration(cfg.Logger.AsyncFlushInterval)*time.Second),
 		logger.WithSave(
 			cfg.Logger.IsSave,
 			logger.WithSaveDay(cfg.Logger.LogFileConfig.IsSaveDay),

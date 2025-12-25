@@ -103,6 +103,17 @@ type DeadQueueDeclareOption struct {
 	NoWait     bool `yaml:"noWait" json:"noWait"`
 }
 
+type Logger struct {
+	AsyncBufferSize    int           `yaml:"asyncBufferSize" json:"asyncBufferSize"`
+	AsyncFlushInterval int           `yaml:"asyncFlushInterval" json:"asyncFlushInterval"`
+	Format             string        `yaml:"format" json:"format"`
+	IsAsync            bool          `yaml:"isAsync" json:"isAsync"`
+	IsSave             bool          `yaml:"isSave" json:"isSave"`
+	Level              string        `yaml:"level" json:"level"`
+	LogFileConfig      LogFileConfig `yaml:"logFileConfig" json:"logFileConfig"`
+	MaxLen             int           `yaml:"maxLen" json:"maxLen"`
+}
+
 type NormalQueueDeclareOption struct {
 	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
 	Durable    bool `yaml:"durable" json:"durable"`
@@ -250,14 +261,6 @@ type LogFileConfig struct {
 	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
 	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
 	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
-}
-
-type Logger struct {
-	Format        string        `yaml:"format" json:"format"`
-	IsSave        bool          `yaml:"isSave" json:"isSave"`
-	Level         string        `yaml:"level" json:"level"`
-	LogFileConfig LogFileConfig `yaml:"logFileConfig" json:"logFileConfig"`
-	MaxLen        int           `yaml:"maxLen" json:"maxLen"`
 }
 
 type IgnoreMethods struct {
