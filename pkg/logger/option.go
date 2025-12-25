@@ -2,6 +2,7 @@ package logger
 
 import (
 	"strings"
+	"time"
 
 	"go.uber.org/zap/zapcore"
 )
@@ -35,6 +36,11 @@ type options struct {
 	level    string
 	encoding string
 	isSave   bool
+	isAsync  bool // 是否启用异步日志
+
+	// 异步日志相关配置
+	asyncBufferSize      int           // 异步缓冲区大小（字节）
+	asyncFlushInterval   time.Duration // 异步刷新间隔
 
 	fileConfig *fileOptions
 
@@ -49,6 +55,9 @@ func defaultOptions() *options {
 		level:    defaultLevel,
 		encoding: defaultEncoding,
 		isSave:   defaultIsSave,
+		isAsync:  false, // 默认不启用异步日志
+		asyncBufferSize:    512 * 1024,      // 512KB 默认缓冲区大小
+		asyncFlushInterval: 30 * time.Second, // 30秒默认刷新间隔
 	}
 }
 
@@ -107,6 +116,27 @@ func WithHooks(hooks ...func(zapcore.Entry) error) Option {
 func WithCustomHooks(hooks ...CustomHook) Option {
 	return func(o *options) {
 		o.customHooks = hooks
+	}
+}
+
+// WithAsync enables asynchronous logging
+func WithAsync(enabled bool) Option {
+	return func(o *options) {
+		o.isAsync = enabled
+	}
+}
+
+// WithAsyncBufferSize sets the buffer size for asynchronous logging (in bytes)
+func WithAsyncBufferSize(size int) Option {
+	return func(o *options) {
+		o.asyncBufferSize = size
+	}
+}
+
+// WithAsyncFlushInterval sets the flush interval for asynchronous logging
+func WithAsyncFlushInterval(interval time.Duration) Option {
+	return func(o *options) {
+		o.asyncFlushInterval = interval
 	}
 }
 
