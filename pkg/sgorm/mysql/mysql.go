@@ -2,10 +2,12 @@
 package mysql
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	mysqlDriver "gorm.io/driver/mysql"
@@ -17,6 +19,44 @@ import (
 	"github.com/18721889353/sunshine/pkg/sgorm/dbclose"
 	"github.com/18721889353/sunshine/pkg/sgorm/glog"
 )
+
+// combinedLogger combines normal logger and slow query logger
+type combinedLogger struct {
+	normalLogger logger.Interface
+	slowLogger   logger.Interface
+}
+
+// LogMode log mode
+func (c *combinedLogger) LogMode(level logger.LogLevel) logger.Interface {
+	return &combinedLogger{
+		normalLogger: c.normalLogger.LogMode(level),
+		slowLogger:   c.slowLogger.LogMode(level),
+	}
+}
+
+// Info logs info
+func (c *combinedLogger) Info(ctx context.Context, msg string, data ...interface{}) {
+	c.normalLogger.Info(ctx, msg, data...)
+}
+
+// Warn logs warn
+func (c *combinedLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
+	c.normalLogger.Warn(ctx, msg, data...)
+}
+
+// Error logs error
+func (c *combinedLogger) Error(ctx context.Context, msg string, data ...interface{}) {
+	c.normalLogger.Error(ctx, msg, data...)
+}
+
+// Trace logs trace
+func (c *combinedLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
+	// Log with normal logger
+	c.normalLogger.Trace(ctx, begin, fc, err)
+
+	// Also log with slow logger to catch slow queries
+	c.slowLogger.Trace(ctx, begin, fc, err)
+}
 
 // Init mysql
 func Init(dsn string, opts ...Option) (*gorm.DB, error) {
@@ -51,19 +91,20 @@ func gormConfig(o *options) *gorm.Config {
 	}
 
 	// print SQL
+	var logMode logger.Interface
 	if o.isLog {
 		if o.gLog == nil {
-			config.Logger = logger.Default.LogMode(o.logLevel)
+			logMode = logger.Default.LogMode(o.logLevel)
 		} else {
-			config.Logger = glog.NewCustomGormLogger(o.gLog, o.requestIDKey, o.logLevel)
+			logMode = glog.NewCustomGormLogger(o.gLog, o.requestIDKey, o.logLevel)
 		}
 	} else {
-		config.Logger = logger.Default.LogMode(logger.Silent)
+		logMode = logger.Default.LogMode(logger.Silent)
 	}
 
-	// print only slow queries
+	// add slow query logging if threshold is set
 	if o.slowThreshold > 0 {
-		config.Logger = logger.New(
+		slowLogger := logger.New(
 			log.New(os.Stdout, "\r\n", log.LstdFlags), // use the standard output asWriter
 			logger.Config{
 				SlowThreshold: o.slowThreshold,
@@ -71,6 +112,16 @@ func gormConfig(o *options) *gorm.Config {
 				LogLevel:      logger.Warn, // set the logging level, only above the specified level will output the slow query log
 			},
 		)
+		// Combine both loggers if both are needed
+		if o.isLog {
+			// Use the existing logger for normal queries and the slow logger for slow queries
+			config.Logger = &combinedLogger{normalLogger: logMode, slowLogger: slowLogger}
+		} else {
+			// Only log slow queries
+			config.Logger = slowLogger
+		}
+	} else {
+		config.Logger = logMode
 	}
 
 	return config
