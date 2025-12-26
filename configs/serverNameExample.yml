@@ -99,12 +99,12 @@ database:
   mysql:
     # dsn格式,  <用户名>:<密码>@(<主机名>:<端口>)/<数据库>?[k=v& ......]
     dsn: "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
-    enableLog: true               # 是否开启打印所有日志
-    slowQueryThresholdMs: 0       # 慢查询阈值，单位毫秒
-    maxIdleConns: 10              # 设置空闲连接池中最大连接数
-    maxOpenConns: 10              # 设置数据库最大打开连接数
-    connMaxLifetime: 30           # 设置连接可重用的最大时间(分)
-    maxIdleTime: 10               # 设置空闲连接的最大空闲时间(分)
+    enableLog: false               # 是否开启打印所有日志
+    slowQueryThresholdMs: 300     # 慢查询阈值，单位毫秒
+    maxIdleConns: 10              # 设置空闲连接池中最大连接数 通常设置为小于 maxOpenConns
+    maxOpenConns: 20              # 设置数据库最大打开连接数
+    connMaxLifetime: 30           # 设置连接的最大存活时间(分)  建议小于数据库的 wait_timeout
+    maxIdleTime: 5                # 设置连接的最大空闲时间(分) 必须远小于数据库的 wait_timeout
     # 设置从库mysql dsn, 数组类型
     slavesDsn:
       - "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
