@@ -118,6 +118,7 @@ type Consumer struct {
 	msgDurable bool         // 消息是否持久化
 	isAutoAck  bool         // 是否自动确认
 	mu         sync.RWMutex // 读写锁，保护所有字段访问
+	wg         sync.WaitGroup // 等待组，用于等待正在处理的消息完成
 
 	tracer trace.Tracer // OpenTelemetry tracer for reuse
 }
@@ -523,6 +524,9 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 						isContinueConsume = true
 						break
 					}
+					// 增加等待组计数，表示开始处理一个新消息
+					c.wg.Add(1)
+					
 					// 开始一个新的 span
 					ctx, span := c.tracer.Start(ctx, "consume message")
 					span.SetAttributes(attribute.String("message.body", string(d.Body)))
@@ -541,6 +545,8 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 							}
 						}
 						span.End()
+						// 减少等待组计数，表示消息处理完成
+						c.wg.Done()
 						continue
 					}
 					if !c.isAutoAck {
@@ -551,6 +557,8 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 					}
 					// 结束 span
 					span.End()
+					// 减少等待组计数，表示消息处理完成
+					c.wg.Done()
 				}
 
 				if isContinueConsume {
@@ -566,6 +574,9 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 func (c *Consumer) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// 等待所有正在处理的消息完成
+	c.wg.Wait()
 
 	if c.ch != nil {
 		_ = c.ch.Close()
