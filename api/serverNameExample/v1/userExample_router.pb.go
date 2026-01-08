@@ -5,12 +5,10 @@ package v1
 import (
 	context "context"
 	errors "errors"
-	"fmt"
 	errcode "github.com/18721889353/sunshine/pkg/errcode"
 	middleware "github.com/18721889353/sunshine/pkg/gin/middleware"
 	gin "github.com/gin-gonic/gin"
 	zap "go.uber.org/zap"
-	"reflect"
 	strings "strings"
 )
 
@@ -195,47 +193,6 @@ func (r *userExampleRouter) Create_0(c *gin.Context) {
 
 }
 
-func (r *userExampleRouter) checkCodeMessage(out interface{}) (code string, data interface{}, msg string, err error) {
-	val := reflect.ValueOf(out)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
-
-	if val.Kind() != reflect.Struct {
-		return "0", nil, "", fmt.Errorf("out is not a struct")
-	}
-
-	codeField := val.FieldByName("Code")
-	msgField := val.FieldByName("Message")
-	dataField := val.FieldByName("Data")
-
-	if !msgField.IsValid() {
-		return "0", nil, "", fmt.Errorf("out does not contain Message field")
-	}
-
-	if !dataField.IsValid() {
-		return "0", nil, "", fmt.Errorf("out does not contain Data field")
-	}
-
-	if codeField.IsValid() {
-		if codeField.Kind() != reflect.String {
-			return "0", nil, "", fmt.Errorf("Code field is not of type int")
-		}
-		code = codeField.String()
-	} else {
-		// 如果 Code 字段不存在，提供默认值
-		code = "200"
-	}
-
-	if msgField.Kind() != reflect.String {
-		return "0", nil, "", fmt.Errorf("Msg field is not of type string")
-	}
-	msg = msgField.String()
-
-	data = dataField.Interface()
-
-	return code, data, msg, nil
-}
 func (r *userExampleRouter) DeleteByID_0(c *gin.Context) {
 	req := &DeleteUserExampleByIDRequest{}
 	var err error
