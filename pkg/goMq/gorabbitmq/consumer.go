@@ -115,9 +115,9 @@ type Consumer struct {
 	qosOption          *qosOptions     // QoS选项
 	consumeOption      *consumeOptions // 消费选项
 
-	msgDurable bool         // 消息是否持久化
-	isAutoAck  bool         // 是否自动确认
-	mu         sync.RWMutex // 读写锁，保护所有字段访问
+	msgDurable bool           // 消息是否持久化
+	isAutoAck  bool           // 是否自动确认
+	mu         sync.RWMutex   // 读写锁，保护所有字段访问
 	wg         sync.WaitGroup // 等待组，用于等待正在处理的消息完成
 
 	tracer trace.Tracer // OpenTelemetry tracer for reuse
@@ -476,98 +476,141 @@ func (c *Consumer) consumeWithContext(ctx context.Context) (<-chan amqp.Delivery
 // Consume 在goroutine中循环消费消息
 func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 	go func() {
-		ticker := time.NewTicker(time.Second * 2)
-		isFirst := true
+		// 1. 使用固定的重试间隔 ticker，避免在循环内频繁创建/停止
+		reconnectInterval := time.Second * 2
+		ticker := time.NewTicker(reconnectInterval)
+		defer ticker.Stop()
 		for {
-
-			if isFirst {
-				isFirst = false
-				ticker.Reset(time.Millisecond * 10)
-			} else {
-				ticker.Reset(time.Second * 2)
-			}
-
-			// 循环检查连接
-			select {
-			case <-ticker.C:
-				if !c.conn.CheckConnected(ctx) {
-					continue
+			// 2. 检查连接状态
+			if !c.conn.CheckConnected(ctx) {
+				c.zapLog.Warn("[rabbitmq consumer] connection not ready, retrying...", zap.String("queue", c.QueueName))
+				if !c.waitRetry(ctx, ticker) {
+					return
 				}
-			case <-c.conn.exit:
-				c.Close()
-				return
-			}
-			ticker.Stop()
-
-			err := c.initialize()
-			if err != nil {
-				c.zapLog.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
 				continue
 			}
-
+			// 3. 初始化资源 (Declare & Bind)
+			if err := c.initialize(); err != nil {
+				c.zapLog.Warn("[rabbitmq consumer] initialize consumer error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				// 初始化失败通常需要等待，防止 CPU 空转
+				if !c.waitRetry(ctx, ticker) {
+					return
+				}
+				continue
+			}
+			// 4. 获取消费 Channel (chan amqp.Delivery)
 			delivery, err := c.consumeWithContext(ctx)
 			if err != nil {
 				c.zapLog.Warn("[rabbitmq consumer] execution of consumption error", zap.String("err", err.Error()), zap.String("queue", c.QueueName))
+				c.safeChannelClose()
+				if !c.waitRetry(ctx, ticker) {
+					return
+				}
 				continue
 			}
+			// 5.进入阻塞监听循环
+			// 如果返回 true，说明是连接断开导致的退出，循环会继续执行重连逻辑
+			// 如果返回 false，说明是 Context 取消或显式退出，协程结束
+			shouldRetry := c.processMessages(ctx, delivery, handler)
+			// 6. 循环结束清理本轮资源
+			c.safeChannelClose()
 
-			isContinueConsume := false
-			for {
-
-				select {
-				case <-c.conn.exit:
-					c.Close()
-					return
-				case d, ok := <-delivery:
-					if !ok {
-						c.zapLog.Warn("[rabbitmq consumer] exit consume message, queue=" + c.QueueName)
-						isContinueConsume = true
-						break
-					}
-					// 增加等待组计数，表示开始处理一个新消息
-					c.wg.Add(1)
-					
-					// 开始一个新的 span
-					ctx, span := c.tracer.Start(ctx, "consume message")
-					span.SetAttributes(attribute.String("message.body", string(d.Body)))
-
-					tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
-
-					err = handler(ctx, d.Body, d.MessageId, tagID)
-					if err != nil {
-						span.RecordError(err)
-						if !c.isAutoAck {
-							//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
-							//如果设置为 false，则将消息从队列中移除，不再重新排队
-							if err = d.Reject(false); err != nil {
-								span.RecordError(err)
-								c.zapLog.Warn("[rabbitmq consumer] manual Reject error", zap.String("err", err.Error()), zap.String("tagID", tagID))
-							}
-						}
-						span.End()
-						// 减少等待组计数，表示消息处理完成
-						c.wg.Done()
-						continue
-					}
-					if !c.isAutoAck {
-						if err = d.Ack(false); err != nil {
-							span.RecordError(err)
-							c.zapLog.Warn("[rabbitmq consumer] manual ack error", zap.String("err", err.Error()), zap.String("tagID", tagID))
-						}
-					}
-					// 结束 span
-					span.End()
-					// 减少等待组计数，表示消息处理完成
-					c.wg.Done()
-				}
-
-				if isContinueConsume {
-					break
-				}
+			if !shouldRetry {
+				return
 			}
-			c.Close()
 		}
 	}()
+}
+
+// waitRetry 抽取统一的等待退出逻辑
+func (c *Consumer) waitRetry(ctx context.Context, ticker *time.Ticker) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-c.conn.exit:
+		c.Close()
+		return false
+	case <-ticker.C:
+		return true
+	}
+}
+
+// processMessages 处理从 RabbitMQ 接收到的消息流
+// 如果返回 true，说明是连接断开导致的退出，循环会继续执行重连逻辑
+// 如果返回 false，说明是 Context 取消或显式退出，协程结束
+func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Delivery, handler Handler) bool {
+	for {
+		select {
+		case <-ctx.Done():
+			c.zapLog.Warn("[rabbitmq consumer] context done, stopping processMessages", zap.String("queue", c.QueueName))
+			return false // 显式停止，不重试
+		case <-c.conn.exit:
+			c.Close()
+			return false // 全局退出，不需要继续重连消费
+		case d, ok := <-delivery:
+			if !ok {
+				c.zapLog.Warn("[rabbitmq consumer] delivery channel closed, queue=" + c.QueueName)
+				return true // 通道断开，返回 true 告知外层需要触发重连逻辑
+			}
+			c.handleSingleMessage(ctx, d, handler)
+		}
+	}
+}
+
+// handleSingleMessage 处理单条消息的逻辑封装（包含 Trace 和 Ack）
+func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, handler Handler) {
+	c.wg.Add(1)
+	defer c.wg.Done()
+
+	// 开始一个新的 span，注意这里建议使用传入的 ctx 作为父 context
+	msgCtx, span := c.tracer.Start(ctx, "consume message")
+	defer span.End() // 确保 span 最终关闭
+	span.SetAttributes(attribute.String("message.body", string(d.Body)))
+
+	tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
+
+	// 1. 执行业务逻辑
+	err := handler(msgCtx, d.Body, d.MessageId, tagID)
+
+	// 2. 如果是自动确认模式，我们无法控制 Ack，业务执行完即视为成功
+	if c.isAutoAck {
+		return
+	}
+
+	//3. 手动确认模式下的精细化处理
+	if err != nil {
+		span.RecordError(err)
+		//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
+		//如果设置为 false，则将消息从队列中移除，不再重新排队
+		// 这样即使程序崩溃，消息也会回到队列
+		if rejectErr := d.Reject(false); rejectErr != nil {
+			c.zapLog.Warn("[rabbitmq consumer] manual Reject error",
+				zap.String("err", rejectErr.Error()),
+				zap.String("tagID", tagID))
+		}
+		return
+	}
+
+	// 4. 业务成功，尝试 Ack
+	if ackErr := d.Ack(false); ackErr != nil {
+		// 如果此时连接已关，Ack 会失败
+		// 此时不必惊慌，因为没 Ack 成功，RabbitMQ 会在连接断开后将消息重新放回队列
+		// 保证了“不丢失”，但下次消费时需要处理“幂等性”
+		span.RecordError(ackErr)
+		c.zapLog.Warn("[rabbitmq consumer] manual ack error",
+			zap.String("err", ackErr.Error()),
+			zap.String("tagID", tagID))
+	}
+}
+
+// 辅助方法：安全关闭当前 Channel
+func (c *Consumer) safeChannelClose() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ch != nil {
+		_ = c.ch.Close()
+		c.ch = nil
+	}
 }
 
 // Close 关闭消费者
