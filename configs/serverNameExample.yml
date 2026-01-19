@@ -179,7 +179,7 @@ rabbitmq:
     antsCap: 1                    # 如果您希望使用动态调整的协程池，可以将 antsCap 设置为 0
     reconnectTime: 3              # 设置重连时间间隔选项(秒)
     dialTimeout: 5                # 设置连接超时时间选项(秒)
-    heartbeat: 3                  # 设置心跳间隔选项(秒)
+    heartbeat: 30                  # 设置心跳间隔选项(秒)
   DoingOrder: # 订单处理配置
     enable: true                  # 是否启用
     queueType: "dead"             # 队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
