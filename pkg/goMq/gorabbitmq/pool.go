@@ -202,46 +202,48 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 		attribute.String("url", p.url),
 	)
 
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	for {
+		// --- 阶段 1：快速尝试从池中提取现有连接 ---
+		p.mutex.Lock()
 		if p.closed {
+			p.mutex.Unlock()
 			err := errors.New("pool is closed")
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
-
-		// 尝试从池中获取一个可用连接
-		for i := len(p.conns) - 1; i >= 0; i-- {
-			pc := p.conns[i]
+		var pc *poolConn
+		if len(p.conns) > 0 {
+			// 从切片末尾弹出，效率最高
+			lastIdx := len(p.conns) - 1
+			pc = p.conns[lastIdx]
+			p.conns = p.conns[:lastIdx]
+		}
+		p.mutex.Unlock() // 拿到对象后立即释放锁，不阻塞其他协程获取连接
+		// --- 阶段 2：在锁外进行耗时的连接验证 ---
+		if pc != nil {
+			// 执行网络探测和状态检查 (耗时操作)
 			if pc.conn.CheckConnected(ctx) {
-				// 执行一次轻量级操作验证连接是否真正可用
-				// 这里使用一个轻量级的验证操作，而不是直接返回连接
 				verified, err := p.verifyConnection(pc.conn)
 				if verified && err == nil {
-					// 从池中移除该连接
-					p.conns = append(p.conns[:i], p.conns[i+1:]...)
 					pc.lastUsed = time.Now()
-					//p.poolOpts.zapLog.Info("[rabbitmq pool] get existing connection")
-					span.SetAttributes(
-						attribute.Bool("new_connection", false),
-						attribute.Int("pool_size", len(p.conns)),
-					)
+					span.SetAttributes(attribute.Bool("reused", true))
 					return pc.conn, nil
 				}
-
-				// 连接实际上不可用，关闭并移除
-				pc.conn.Close()
-				atomic.AddInt64(&p.totalConns, -1)
-				p.conns = append(p.conns[:i], p.conns[i+1:]...)
 			}
-		}
 
-		// 检查是否可以创建新连接
+			// 验证失败，销毁该连接并更新计数
+			pc.conn.Close()
+			atomic.AddInt64(&p.totalConns, -1)
+
+			// 继续循环尝试获取下一个连接
+			continue
+		}
+		// --- 阶段 3：池中无可用连接，判断是否需要创建 ---
+		p.mutex.Lock()
+		// 使用原子操作检查当前总连接数
 		if int(atomic.LoadInt64(&p.totalConns)) < p.poolOpts.maxCap {
-			// 创建新连接
+			p.mutex.Unlock() // 创建连接是重 IO 操作，解锁以防阻塞
 			conn, err := NewConnection(ctx, p.url, p.poolOpts.connOpts...)
 			if err != nil {
 				span.RecordError(err)
@@ -250,16 +252,13 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 			}
 
 			atomic.AddInt64(&p.totalConns, 1)
-			//p.poolOpts.zapLog.Info("[rabbitmq pool] created new connection")
-			span.SetAttributes(
-				attribute.Bool("new_connection", true),
-				attribute.Int64("total_conns", atomic.LoadInt64(&p.totalConns)),
-			)
+			span.SetAttributes(attribute.Bool("reused", false))
 			return conn, nil
 		}
-
-		// 等待连接释放
+		// --- 阶段 4：池已满且无可用，进入等待状态 ---
+		// 等待 Release 方法通过 p.cond.Signal() 唤醒
 		p.cond.Wait()
+		p.mutex.Unlock()
 	}
 }
 
