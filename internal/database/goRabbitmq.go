@@ -5,8 +5,8 @@ import (
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq/gorabbitmqClient"
 )
 
-// init 确保在程序启动时配置被加载并初始化连接池
-func init() {
+// InitRabbitmq 确保在程序启动时配置被加载并初始化连接池
+func InitRabbitmq() {
 	gorabbitmqClient.InitRabbitmq(&config.Get().Rabbitmq)
 }
 

@@ -68,7 +68,7 @@ func InitRabbitmq(mqCfg any) {
 		if poolCfg.MaxIdle <= 0 {
 			poolCfg.MaxIdle = 60 // 60秒
 		}
-		if poolCfg.AntsCap <= 0 {
+		if poolCfg.AntsCap < 0 {
 			poolCfg.AntsCap = 100
 		}
 		if poolCfg.HealthCheckPeriod <= 0 {
@@ -125,7 +125,7 @@ func InitRabbitmq(mqCfg any) {
 }
 
 // GetRabbitMQ 获取 RabbitMQ 实例
-func GetRabbitMQ(mqCfg *config.Rabbitmq) *RabbitMQ {
+func GetRabbitMQ(mqCfg any) *RabbitMQ {
 	val := rabbitmqInstance.Load()
 	if val == nil {
 		InitRabbitmq(mqCfg)
@@ -153,8 +153,8 @@ func (r *RabbitMQ) safeCloseProducer(ctx context.Context, key string, p *gorabbi
 	}
 }
 
-// getConnection 从连接池获取一个 RabbitMQ 连接
-func (r *RabbitMQ) getConnection(ctx context.Context) (*gorabbitmq.Connection, error) {
+// GetConnection 从连接池获取一个 RabbitMQ 连接
+func (r *RabbitMQ) GetConnection(ctx context.Context) (*gorabbitmq.Connection, error) {
 	if r.pool == nil {
 		return nil, fmt.Errorf("rabbitmq pool is not initialized")
 	}
@@ -225,7 +225,7 @@ func (r *RabbitMQ) isProducerValid(ctx context.Context, producer *gorabbitmq.Pro
 // createNewProducer 创建新的producer
 func (r *RabbitMQ) createNewProducer(ctx context.Context, exchangeName, routingKey string) (*gorabbitmq.Producer, error) {
 	// 从连接池获取连接
-	conn, err := r.getConnection(ctx)
+	conn, err := r.GetConnection(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
@@ -233,7 +233,7 @@ func (r *RabbitMQ) createNewProducer(ctx context.Context, exchangeName, routingK
 	// 确保连接有效
 	if !conn.CheckConnected(ctx) {
 		// 如果连接无效，尝试重新获取
-		conn, err = r.getConnection(ctx)
+		conn, err = r.GetConnection(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get valid connection: %w", err)
 		}
@@ -246,15 +246,15 @@ func (r *RabbitMQ) createNewProducer(ctx context.Context, exchangeName, routingK
 	producer, err := gorabbitmq.NewProducer(ctx, exchange, conn)
 	if err != nil {
 		// 只有创建失败才在这里 Put，创建成功后连接被 Producer 持有
-		_ = r.putConnection(ctx, conn)
+		_ = r.PutConnection(ctx, conn)
 		return nil, err
 	}
 
 	return producer, nil
 }
 
-// putConnection 将 RabbitMQ 连接放回连接池
-func (r *RabbitMQ) putConnection(ctx context.Context, conn *gorabbitmq.Connection) error {
+// PutConnection 将 RabbitMQ 连接放回连接池
+func (r *RabbitMQ) PutConnection(ctx context.Context, conn *gorabbitmq.Connection) error {
 	if r.pool == nil || conn == nil {
 		return nil
 	}
