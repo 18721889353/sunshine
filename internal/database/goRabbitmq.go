@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/spf13/cast"
+	"golang.org/x/sync/singleflight"
+	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
@@ -15,8 +18,9 @@ import (
 )
 
 var (
-	rabbitmqInstance *RabbitMQ
-	once             sync.Once
+	rabbitmqInstance atomic.Value       // 使用 atomic.Value 确保单例在并发读取时的安全性
+	once             sync.Once          // 确保初始化逻辑只执行一次
+	sfGroup          singleflight.Group // 用于抑制并发创建 Producer，防止缓存击穿
 )
 
 // RabbitMQ 封装了 RabbitMQ 连接池及相关操作
@@ -24,15 +28,20 @@ type RabbitMQ struct {
 	pool          *gorabbitmq.Pool
 	exchangeCache *sync.Map // 缓存exchange实例
 	producerCache *sync.Map // 缓存producer实例
+	ctx           context.Context
+	cancel        context.CancelFunc // 用于优雅关闭后台维护任务
 }
 
 // InitRabbitmq 初始化 RabbitMQ 连接池
 func InitRabbitmq() {
-	poolCfg := config.Get().Rabbitmq.Pool
+
 	once.Do(func() {
-		var pool *gorabbitmq.Pool
+		poolCfg := config.Get().Rabbitmq.Pool
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// 1. 创建底层连接池
 		pool, err := gorabbitmq.NewPool(
-			context.Background(),
+			ctx,
 			poolCfg.URL,
 			gorabbitmq.WithInitialCap(poolCfg.InitialCap),                                          // 初始连接数
 			gorabbitmq.WithMaxCap(poolCfg.MaxCap),                                                  // 最大连接数
@@ -48,26 +57,53 @@ func InitRabbitmq() {
 			),
 		)
 		if err != nil {
+			cancel()
 			panic("Failed to create RabbitMQ pool" + err.Error())
 		}
-
-		rabbitmqInstance = &RabbitMQ{
+		// 2. 构造实例
+		instance := &RabbitMQ{
 			pool:          pool,
 			exchangeCache: &sync.Map{},
 			producerCache: &sync.Map{},
+			ctx:           ctx,
+			cancel:        cancel,
 		}
+		// 3. 核心改进：先存储实例，确保 GetRabbitMQ 能立即拿到可用对象
+		rabbitmqInstance.Store(instance)
+		// 4. 启动后台维护任务（自动清理过期 Producer 和打印状态）
+		go instance.StartBackgroundMaintenance(time.Second * time.Duration(poolCfg.StatsLogTime))
 
-		// 启动定时清理无效缓存的goroutine
-		go rabbitmqInstance.startCacheCleanup()
+		logger.Info("RabbitMQ module initialized successfully")
 	})
 }
 
 // GetRabbitMQ 获取 RabbitMQ 实例
 func GetRabbitMQ() *RabbitMQ {
-	if rabbitmqInstance == nil {
+	val := rabbitmqInstance.Load()
+	if val == nil {
 		InitRabbitmq()
+		val = rabbitmqInstance.Load().(*RabbitMQ) // 二次读取确保获取到 Store 后的值
 	}
-	return rabbitmqInstance
+	// 如果由于 Pool 创建失败导致 Load 还是 nil，这里应增加判断
+	if val == nil {
+		return nil
+	}
+	return val.(*RabbitMQ)
+}
+
+// safeCloseProducer 安全清理 Producer 并将其持有的连接归还连接池
+func (r *RabbitMQ) safeCloseProducer(ctx context.Context, key string, p *gorabbitmq.Producer) {
+	if p == nil {
+		return
+	}
+	r.producerCache.Delete(key)
+
+	// 核心修复：必须手动将连接归还给 Pool，否则在高并发删除 Producer 时会导致连接泄露
+	if p.Connection != nil {
+		if err := r.pool.Put(ctx, p.Connection); err != nil {
+			logger.Warn("Failed to return connection to pool during cleanup", zap.Error(err))
+		}
+	}
 }
 
 // GetConnection 从连接池获取一个 RabbitMQ 连接
@@ -82,8 +118,7 @@ func (r *RabbitMQ) GetConnection(ctx context.Context) (*gorabbitmq.Connection, e
 
 // getExchangeFromCache 从缓存中获取或创建exchange
 func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabbitmq.Exchange {
-	cacheKey := fmt.Sprintf("%s:%s", exchangeName, routingKey)
-
+	cacheKey := exchangeName + ":" + routingKey
 	if exchange, ok := r.exchangeCache.Load(cacheKey); ok {
 		return exchange.(*gorabbitmq.Exchange)
 	}
@@ -104,52 +139,40 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 func (r *RabbitMQ) getProducerFromCache(ctx context.Context, exchangeName, routingKey string) (*gorabbitmq.Producer, error) {
 	cacheKey := exchangeName + ":" + routingKey
 
-	// 先尝试从缓存获取
-	if producer, ok := r.producerCache.Load(cacheKey); ok {
-		p := producer.(*gorabbitmq.Producer)
-		if p != nil {
-			// 检查producer是否有效
-			if r.isProducerValid(ctx, p) {
-				return p, nil
-			}
-			// 如果无效，从缓存中移除
-			r.producerCache.Delete(cacheKey)
+	// 1. 快速路径
+	if val, ok := r.producerCache.Load(cacheKey); ok {
+		p := val.(*gorabbitmq.Producer)
+		if r.isProducerValid(ctx, p) {
+			return p, nil
 		}
+		r.safeCloseProducer(ctx, cacheKey, p)
 	}
 
-	// 创建新的producer
-	producer, err := r.createNewProducer(ctx, exchangeName, routingKey)
+	// 2. 慢速路径：并发抑制
+	val, err, _ := sfGroup.Do(cacheKey, func() (interface{}, error) {
+		if v, ok := r.producerCache.Load(cacheKey); ok {
+			return v, nil
+		}
+		producer, err := r.createNewProducer(ctx, exchangeName, routingKey)
+		if err != nil {
+			return nil, err
+		}
+		r.producerCache.Store(cacheKey, producer)
+		return producer, nil
+	})
+
 	if err != nil {
 		return nil, err
 	}
-
-	// 存入缓存，使用LoadOrStore确保并发安全
-	if actual, loaded := r.producerCache.LoadOrStore(cacheKey, producer); loaded {
-		// 如果已存在，返回已存在的producer
-		return actual.(*gorabbitmq.Producer), nil
-	}
-
-	return producer, nil
+	return val.(*gorabbitmq.Producer), nil
 }
 
 // isProducerValid 检查producer是否有效
 func (r *RabbitMQ) isProducerValid(ctx context.Context, producer *gorabbitmq.Producer) bool {
-	if producer == nil {
+	if producer == nil || producer.Connection == nil {
 		return false
 	}
-
-	// 检查连接是否有效
-	if producer.Connection == nil {
-		return false
-	}
-
-	// 检查连接是否处于连接状态
-	if !producer.Connection.CheckConnected(ctx) {
-		return false
-	}
-
-	// 可以添加更多检查，比如检查channel是否打开
-	return true
+	return producer.Connection.CheckConnected(ctx)
 }
 
 // createNewProducer 创建新的producer
@@ -175,9 +198,9 @@ func (r *RabbitMQ) createNewProducer(ctx context.Context, exchangeName, routingK
 	// 创建新的producer
 	producer, err := gorabbitmq.NewProducer(ctx, exchange, conn)
 	if err != nil {
-		// 创建失败，将连接放回池中
+		// 只有创建失败才在这里 Put，创建成功后连接被 Producer 持有
 		_ = r.PutConnection(ctx, conn)
-		return nil, fmt.Errorf("failed to create producer: %w", err)
+		return nil, err
 	}
 
 	return producer, nil
@@ -192,13 +215,25 @@ func (r *RabbitMQ) PutConnection(ctx context.Context, conn *gorabbitmq.Connectio
 	return r.pool.Put(ctx, conn)
 }
 
-// Close 关闭 RabbitMQ 连接池
+// Close 优雅关闭：停止后台任务并清理所有连接资源
 func (r *RabbitMQ) Close(ctx context.Context) error {
-	if r.pool == nil {
-		return nil
+	if r.cancel != nil {
+		r.cancel() // 触发 ctx.Done()，停止 StartBackgroundMaintenance 中的循环
 	}
-	logger.Info("Closing RabbitMQ connection pool")
-	return r.pool.Close(ctx)
+
+	// 清理缓存中的所有 Producer 及其连接，防止连接泄露
+	r.producerCache.Range(func(key, value interface{}) bool {
+		if p, ok := value.(*gorabbitmq.Producer); ok {
+			r.safeCloseProducer(ctx, cast.ToString(key), p)
+		}
+		return true
+	})
+
+	if r.pool != nil {
+		logger.Info("Closing RabbitMQ connection pool")
+		return r.pool.Close(ctx) // 最后关闭物理连接池
+	}
+	return nil
 }
 
 // SendMessage 发送消息到指定的交换机和路由键
@@ -222,14 +257,19 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueNam
 			logger.Info("SendMessage success", fields...)
 		}
 	}()
-
+	maxRetries := 3
 	// 尝试最多3次发送
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		// 获取producer
 		producer, pErr := r.getProducerFromCache(ctx, exchangeName, normalQueueName)
 		if pErr != nil {
 			err = pErr
-			r.backoff(attempt)
+			r.handleRetry(ctx, attempt, maxRetries)
 			continue
 		}
 
@@ -240,17 +280,29 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueNam
 		}
 		// 如果发生连接错误，清理缓存并重试
 		if isConnectionError(err) {
-			r.ClearProducerCache(exchangeName, routingKey)
+			logger.Warn("Connection error detected, evicting producer", zap.String("key", routingKey), zap.Error(err))
+			r.safeCloseProducer(ctx, routingKey, producer)
+		} else {
+			// 业务逻辑错误（如 AccessRefused）重试通常无用
+			return fmt.Errorf("rabbitmq_business_error: %w", err)
 		}
 
-		r.backoff(attempt)
+		r.handleRetry(ctx, attempt, maxRetries)
 	}
 	return err
 }
 
-// backoff 指数退避算法
-func (r *RabbitMQ) backoff(attempt int) {
-	time.Sleep(time.Duration(attempt*attempt*100) * time.Millisecond)
+// handleRetry 封装退避逻辑
+func (r *RabbitMQ) handleRetry(ctx context.Context, attempt, max int) {
+	if attempt >= max {
+		return
+	}
+	timer := time.NewTimer(time.Duration(attempt*attempt*100) * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 }
 
 // isConnectionError 判断是否是连接/通道错误
@@ -258,46 +310,31 @@ func isConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := err.Error()
-
-	// 1. 优先匹配最高频的连接断开文本
-	if strings.Contains(errStr, "closed") ||
-		strings.Contains(errStr, "broken pipe") ||
-		strings.Contains(errStr, "EOF") {
+	// 增加对 net.Error 的判断（如超时或连接重置）
+	if _, ok := err.(net.Error); ok {
 		return true
 	}
-	// 2. 匹配关键的状态码（如 504, 505）和未开启状态
-	// 将这些较低频的判断放在后面，或者合并在一起
-	if strings.Contains(errStr, "504") ||
-		strings.Contains(errStr, "505") ||
-		strings.Contains(errStr, "320") ||
-		strings.Contains(errStr, "not open") {
-		return true
-	}
-	return false
-}
-
-// startCacheCleanup 启动定时清理无效缓存的goroutine
-func (r *RabbitMQ) startCacheCleanup() {
-	ticker := time.NewTicker(5 * time.Minute) // 每5分钟清理一次
-	defer ticker.Stop()
-
-	for range ticker.C {
-		r.cleanupInvalidProducers()
-	}
+	msg := strings.ToLower(err.Error())
+	// 常见的连接关闭、超时、通道异常
+	return strings.Contains(msg, "closed") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "eof") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "not open") ||
+		strings.Contains(msg, "504") || // channel error
+		strings.Contains(msg, "320") // connection forced close
 }
 
 // cleanupInvalidProducers 清理无效的producer缓存
 func (r *RabbitMQ) cleanupInvalidProducers() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	cleanCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// 遍历producer缓存，清理无效的producer
 	r.producerCache.Range(func(key, value interface{}) bool {
-		producer := value.(*gorabbitmq.Producer)
-		if !r.isProducerValid(ctx, producer) {
-			r.producerCache.Delete(key)
-			logger.Info("Cleaned up invalid producer from cache", zap.String("key", key.(string)))
+		p, ok := value.(*gorabbitmq.Producer)
+		if !ok || !r.isProducerValid(cleanCtx, p) {
+			logger.Info("Cleanup: Evicting invalid producer", zap.Any("key", key))
+			r.safeCloseProducer(cleanCtx, cast.ToString(key), p)
 		}
 		return true
 	})
@@ -306,14 +343,16 @@ func (r *RabbitMQ) cleanupInvalidProducers() {
 // ClearProducerCache 清理指定或全部的producer缓存
 func (r *RabbitMQ) ClearProducerCache(exchangeName, routingKey string) {
 	if exchangeName != "" && routingKey != "" {
-		// 清理指定的producer
-		cacheKey := fmt.Sprintf("%s:%s", exchangeName, routingKey)
-		r.producerCache.Delete(cacheKey)
-		logger.Info("Cleared producer cache", zap.String("key", cacheKey))
+		cacheKey := exchangeName + ":" + routingKey
+		if val, ok := r.producerCache.Load(cacheKey); ok {
+			r.safeCloseProducer(context.Background(), cacheKey, val.(*gorabbitmq.Producer))
+		}
 	} else {
-		// 清理全部producer缓存，重新创建一个新的map
-		r.producerCache = &sync.Map{}
-		logger.Info("Cleared all producer cache")
+		r.producerCache.Range(func(key, value interface{}) bool {
+			r.safeCloseProducer(context.Background(), cast.ToString(key), value.(*gorabbitmq.Producer))
+			return true
+		})
+		logger.Info("Safely cleared all producer cache and returned connections")
 	}
 }
 
@@ -343,4 +382,52 @@ func (r *RabbitMQ) GetCacheStats() map[string]int {
 		"exchange_cache_size": exchangeCount,
 		"producer_cache_size": producerCount,
 	}
+}
+
+// printStats 启动定时状态监控日志
+func (r *RabbitMQ) printStats() {
+	ctx, cancel := context.WithTimeout(r.ctx, time.Second*2)
+	defer cancel()
+
+	stats := r.pool.Stats(ctx)
+	logger.Info("RabbitMQ Pool Stats", zap.Any("stats", stats))
+}
+
+// StartBackgroundMaintenance 启动统一的后台维护和监控任务
+func (r *RabbitMQ) StartBackgroundMaintenance(interval time.Duration) {
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				logger.Warn("BackgroundMaintenance panic", zap.Any("err", err))
+				// 指数退避重启，防止死循环导致 CPU 暴涨
+				time.Sleep(time.Second * 5)
+				r.StartBackgroundMaintenance(interval)
+			}
+		}()
+
+		// 假设 interval 为 10秒
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		iteration := uint64(0)
+		cleanupMultiplier := uint64(30) // 假设 interval=10s，则每5分钟执行一次清理
+
+		logger.Info("RabbitMQ maintenance worker started",
+			zap.Duration("stats_interval", interval),
+			zap.Duration("cleanup_interval", interval*time.Duration(cleanupMultiplier)))
+		for {
+			select {
+			case <-r.ctx.Done(): // 响应优雅关闭
+				return
+			case <-ticker.C:
+				iteration++
+				r.printStats()
+
+				if iteration%cleanupMultiplier == 0 {
+					r.cleanupInvalidProducers()
+					iteration = 0
+				}
+			}
+		}
+	}()
 }
