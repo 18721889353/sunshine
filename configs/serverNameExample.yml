@@ -172,14 +172,15 @@ rabbitmq:
   enable: false                   # 是否启用rabbitmq
   pool: # 连接池配置
     url: "amqp://sunjianguo:jianguo123@43.143.78.234:5672/"  # 连接URL
-    initialCap: 10                # 初始连接数
+    initialCap: 50                # 初始连接数
     maxCap: 100                   # 最大连接数
-    healthCheckPeriod: 60         # 健康检查间隔(秒)
+    healthCheckPeriod: 20         # 健康检查间隔(秒)
     maxIdle: 300                  # 最大空闲时间(秒)
     antsCap: 1                    # 如果您希望使用动态调整的协程池，可以将 antsCap 设置为 0
     reconnectTime: 3              # 设置重连时间间隔选项(秒)
     dialTimeout: 5                # 设置连接超时时间选项(秒)
-    heartbeat: 30                  # 设置心跳间隔选项(秒)
+    heartbeat: 20                  # 设置心跳间隔选项(秒)
+    statsLogTime: 60              # 统计日志打印时间间隔(秒)
   DoingOrder: # 订单处理配置
     enable: true                  # 是否启用
     queueType: "dead"             # 队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
