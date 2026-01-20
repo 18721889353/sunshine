@@ -120,7 +120,8 @@ type Consumer struct {
 	mu         sync.RWMutex   // 读写锁，保护所有字段访问
 	wg         sync.WaitGroup // 等待组，用于等待正在处理的消息完成
 
-	tracer trace.Tracer // OpenTelemetry tracer for reuse
+	tracer    trace.Tracer // OpenTelemetry tracer for reuse
+	closeOnce sync.Once    // 新增：确保关闭操作只执行一次
 }
 
 // Handler 消息处理函数类型
@@ -562,22 +563,38 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	c.wg.Add(1)
 	defer c.wg.Done()
 
-	// 开始一个新的 span，注意这里建议使用传入的 ctx 作为父 context
+	// 1. 预检查：如果系统已经发出停止信号，直接将消息塞回队列，不启动业务处理
+	select {
+	case <-ctx.Done():
+		c.zapLog.Warn("Context已取消，丢弃当前消息处理", zap.Uint64("tag", d.DeliveryTag))
+		_ = d.Reject(true) // requeue=true，让其他节点消费
+		return
+	default:
+		// 执行原有 handler 逻辑...
+	}
+	// 2. 开始 Trace Span
 	msgCtx, span := c.tracer.Start(ctx, "consume message")
 	defer span.End() // 确保 span 最终关闭
 	span.SetAttributes(attribute.String("message.body", string(d.Body)))
 
+	// 设置一些基础 Tag，方便在 Jaeger 中检索
 	tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
+	span.SetAttributes(
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.destination", c.QueueName),
+		attribute.String("messaging.rabbitmq.delivery_tag", strconv.FormatUint(d.DeliveryTag, 10)),
+	)
 
-	// 1. 执行业务逻辑
+	// 3. 将集成了【系统退出信号】+【Trace信息】的 msgCtx 传给业务 handler
+	// 业务代码内部如果调用了 DB 或 HTTP 请求，应使用这个 msgCtx
 	err := handler(msgCtx, d.Body, d.MessageId, tagID)
 
-	// 2. 如果是自动确认模式，我们无法控制 Ack，业务执行完即视为成功
+	// 4. 自动确认模式直接返回
 	if c.isAutoAck {
 		return
 	}
 
-	//3. 手动确认模式下的精细化处理
+	// 5. 手动确认模式逻辑
 	if err != nil {
 		span.RecordError(err)
 		//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
@@ -591,7 +608,7 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 		return
 	}
 
-	// 4. 业务成功，尝试 Ack
+	// 6. 成功处理，尝试 Ack
 	if ackErr := d.Ack(false); ackErr != nil {
 		// 如果此时连接已关，Ack 会失败
 		// 此时不必惊慌，因为没 Ack 成功，RabbitMQ 会在连接断开后将消息重新放回队列
@@ -615,13 +632,18 @@ func (c *Consumer) safeChannelClose() {
 
 // Close 关闭消费者
 func (c *Consumer) Close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// 等待所有正在处理的消息完成
-	c.wg.Wait()
-
-	if c.ch != nil {
-		_ = c.ch.Close()
-	}
+	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		// 1. 等待此消费者实例正在处理的消息完成
+		c.wg.Wait()
+		// 2. 关闭通道
+		if c.ch != nil {
+			// 避免重复关闭报错
+			_ = c.ch.Close()
+			c.ch = nil
+		}
+		c.zapLog.Info("[rabbitmq consumer] 资源已释放", zap.String("queue", c.QueueName))
+	})
+	// 注意：Connection 的关闭由外部 Pool 或 BaseConsumer 管理
 }

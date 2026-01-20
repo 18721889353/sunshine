@@ -4,8 +4,11 @@ import (
 	"context"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/database"
+	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -19,6 +22,7 @@ type BaseConsumer struct {
 	handler         MessageHandler
 	consumers       []*gorabbitmq.Consumer
 	consumersMutex  sync.RWMutex
+	started         uint32 // 增加一个原子标志位
 }
 
 // MessageHandler 定义消息处理函数类型
@@ -171,8 +175,13 @@ func (bc *BaseConsumer) buildNormalLetterOptions(exchange *gorabbitmq.Exchange, 
 
 // Start 启动消费者
 func (bc *BaseConsumer) Start(queueConfig config.DoingOrder, queueType string) error {
-	ctx := context.Background()
+	// 优化：防止重复启动
+	if !atomic.CompareAndSwapUint32(&bc.started, 0, 1) {
+		logger.Warn(bc.name + " 消费者已经启动，请勿重复调用")
+		return nil
+	}
 	go func() {
+		ctx := context.Background()
 		cfg := config.Get().Rabbitmq
 		mqObject := database.GetRabbitMQ()
 		if cfg.Enable && queueConfig.Enable {
@@ -231,8 +240,27 @@ func (bc *BaseConsumer) Start(queueConfig config.DoingOrder, queueType string) e
 func (bc *BaseConsumer) Stop() error {
 	logger.Warn(">>> 接收到停止指令: " + bc.name)
 	if bc.stopConsumeChan != nil {
-		close(bc.stopConsumeChan)
+		close(bc.stopConsumeChan) // 1. 先发停止信号
 	}
+	// 2. 等待 BaseConsumer 层的所有业务 handler 执行完毕
+	// 这样可以保证 Ack 在连接关闭前发送完成
+	done := make(chan struct{})
+	go func() {
+		bc.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logger.Info("--- 所有任务已在规定时间内完成处理 ---")
+	case <-time.After(5 * time.Minute):
+		logger.Error("!!! 停机超时：部分任务未能在 5分钟 内完成，强制关闭物理连接")
+		os.Exit(1)
+		//pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+		// 这里可以考虑调用 os.Exit(1) 如果是极端的强制退出场景
+	}
+
+	// 3. 最后关闭底层的物理连接/通道
 	bc.consumersMutex.Lock()
 	defer bc.consumersMutex.Unlock()
 	for _, consumer := range bc.consumers {
@@ -242,8 +270,7 @@ func (bc *BaseConsumer) Stop() error {
 		}
 	}
 
-	// BaseConsumer 层的业务逻辑处理完毕
-	bc.wg.Wait()
+	atomic.StoreUint32(&bc.started, 0)
 	logger.Warn("<<< 消费者服务已安全停止: " + bc.name)
 	return nil
 }
