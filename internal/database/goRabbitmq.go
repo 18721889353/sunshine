@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/spf13/cast"
+	"strings"
 	"sync"
 	"time"
 
@@ -101,7 +102,7 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 
 // getProducerFromCache 从缓存中获取或创建producer
 func (r *RabbitMQ) getProducerFromCache(ctx context.Context, exchangeName, routingKey string) (*gorabbitmq.Producer, error) {
-	cacheKey := fmt.Sprintf("%s:%s", exchangeName, routingKey)
+	cacheKey := exchangeName + ":" + routingKey
 
 	// 先尝试从缓存获取
 	if producer, ok := r.producerCache.Load(cacheKey); ok {
@@ -203,27 +204,32 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 // SendMessage 发送消息到指定的交换机和路由键
 func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueName string, message string, messageId string) error {
 	start := time.Now()
+	routingKey := exchangeName + ":" + normalQueueName
 	var err error
 	defer func() {
 		// 记录耗时
-		logger.Info("SendMessage completed",
-			zap.String("exchange", exchangeName),
-			zap.String("queue", normalQueueName),
+		fields := []zap.Field{
+			zap.String("exchangeName", exchangeName),
+			zap.String("normalQueueName", normalQueueName),
+			zap.String("routingKey", routingKey),
 			zap.String("message", message),
-			zap.String("ms", cast.ToString(time.Since(start).Milliseconds())),
-			zap.Error(err))
+			zap.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
+		}
+		if err != nil {
+			fields = append(fields, zap.Error(err))
+			logger.Warn("SendMessage failed", fields...)
+		} else {
+			logger.Info("SendMessage success", fields...)
+		}
 	}()
 
 	// 尝试最多3次发送
-	maxRetries := 3
-	for attempt := 1; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= 3; attempt++ {
 		// 获取producer
-		producer, err := r.getProducerFromCache(ctx, exchangeName, normalQueueName)
-		if err != nil {
-			if attempt == maxRetries {
-				return fmt.Errorf("failed to get producer after %d attempts: %w", maxRetries, err)
-			}
-			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
+		producer, pErr := r.getProducerFromCache(ctx, exchangeName, normalQueueName)
+		if pErr != nil {
+			err = pErr
+			r.backoff(attempt)
 			continue
 		}
 
@@ -232,27 +238,19 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueNam
 		if err == nil {
 			return nil
 		}
-
-		// 发送失败，记录日志
-		logger.Warn("SendMessage attempt failed",
-			zap.Int("attempt", attempt),
-			zap.String("exchange", exchangeName),
-			zap.String("queue", normalQueueName),
-			zap.Error(err))
-
-		// 如果是连接/通道错误，清理缓存中的producer
+		// 如果发生连接错误，清理缓存并重试
 		if isConnectionError(err) {
-			cacheKey := fmt.Sprintf("%s:%s", exchangeName, normalQueueName)
-			r.producerCache.Delete(cacheKey)
+			r.ClearProducerCache(exchangeName, routingKey)
 		}
 
-		// 如果不是最后一次尝试，等待后重试
-		if attempt < maxRetries {
-			time.Sleep(time.Duration(attempt*200) * time.Millisecond)
-		}
+		r.backoff(attempt)
 	}
+	return err
+}
 
-	return fmt.Errorf("failed to send message after %d attempts: %w", maxRetries, err)
+// backoff 指数退避算法
+func (r *RabbitMQ) backoff(attempt int) {
+	time.Sleep(time.Duration(attempt*attempt*100) * time.Millisecond)
 }
 
 // isConnectionError 判断是否是连接/通道错误
@@ -261,27 +259,22 @@ func isConnectionError(err error) bool {
 		return false
 	}
 	errStr := err.Error()
-	// 检查常见的连接/通道错误关键词
-	connectionErrors := []string{
-		"channel/connection is not open",
-		"channel is closed",
-		"connection is closed",
-		"Exception (504)",
-		"Exception (505)",
-		"EOF",
-	}
 
-	for _, keyword := range connectionErrors {
-		if contains(errStr, keyword) {
-			return true
-		}
+	// 1. 优先匹配最高频的连接断开文本
+	if strings.Contains(errStr, "closed") ||
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "EOF") {
+		return true
+	}
+	// 2. 匹配关键的状态码（如 504, 505）和未开启状态
+	// 将这些较低频的判断放在后面，或者合并在一起
+	if strings.Contains(errStr, "504") ||
+		strings.Contains(errStr, "505") ||
+		strings.Contains(errStr, "320") ||
+		strings.Contains(errStr, "not open") {
+		return true
 	}
 	return false
-}
-
-// contains 检查字符串是否包含子串
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || contains(s[1:], substr)))
 }
 
 // startCacheCleanup 启动定时清理无效缓存的goroutine
