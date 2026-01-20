@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
+	"github.com/jinzhu/copier"
 	"github.com/spf13/cast"
 	"golang.org/x/sync/singleflight"
 	"net"
@@ -33,25 +34,29 @@ type RabbitMQ struct {
 }
 
 // InitRabbitmq 初始化 RabbitMQ 连接池
-func InitRabbitmq(mqCfg *config.Rabbitmq) {
-	// 防御性校验：防止上游传入空指针
+func InitRabbitmq(mqCfg any) {
 	if mqCfg == nil {
-		logger.Error("RabbitMQ 初始化失败: 配置对象 (mqCfg) 为 nil")
-		return
-	}
-
-	if mqCfg.Pool.URL == "" {
-		logger.Error("RabbitMQ 初始化失败: URL 不能为空")
-		return
-	}
-	if !strings.HasPrefix(mqCfg.Pool.URL, "amqp://") && !strings.HasPrefix(mqCfg.Pool.URL, "amqps://") {
-		logger.Error("RabbitMQ 初始化失败: URL 协议非法", zap.String("url", mqCfg.Pool.URL))
+		logger.Error("RabbitMQ 初始化失败: 配置对象为 nil")
 		return
 	}
 
 	once.Do(func() {
+		var cfg struct {
+			Pool config.Pool
+		}
+		if err := copier.Copy(&cfg, mqCfg); err != nil {
+			panic("RabbitMQ 配置拷贝失败" + err.Error())
+			return
+		}
 		ctx, cancel := context.WithCancel(context.Background())
-		poolCfg := mqCfg.Pool
+		poolCfg := cfg.Pool
+
+		if poolCfg.URL == "" {
+			panic("RabbitMQ 初始化失败: URL 不能为空")
+		}
+		if !strings.HasPrefix(poolCfg.URL, "amqp://") && !strings.HasPrefix(poolCfg.URL, "amqps://") {
+			panic("RabbitMQ 初始化失败: URL 协议非法" + poolCfg.URL)
+		}
 
 		// --- 为 Pool 内部的所有字段设置默认值 (防止零值导致的问题) ---
 		if poolCfg.InitialCap <= 0 {
