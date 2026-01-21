@@ -15,6 +15,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// --- 优化点 1: 定义常量和错误类型 ---
+var (
+	ErrPoolClosed = errors.New("pool is closed")
+	ErrGetTimeout = errors.New("get connection timeout")
+	// 性能优化：连接在 3 秒内被使用过，则跳过深度验证 (verifyConnection)
+	fastVerifyThreshold = 3 * time.Second
+)
+
 // PoolOption 连接池配置选项函数类型
 type PoolOption func(*poolOptions)
 
@@ -193,72 +201,75 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 }
 
 // Get 从连接池获取一个连接
+// --- 优化点 2: 改进 Get 方法，增加 Context 感知和性能优化 ---
 func (p *Pool) Get(ctx context.Context) (*Connection, error) {
-	// 创建追踪 span
 	ctx, span := p.tracer.Start(ctx, "pool.get")
 	defer span.End()
 
-	span.SetAttributes(
-		attribute.String("url", p.url),
-	)
-
 	for {
-		// --- 阶段 1：快速尝试从池中提取现有连接 ---
 		p.mutex.Lock()
 		if p.closed {
+			span.RecordError(ErrPoolClosed)
 			p.mutex.Unlock()
-			err := errors.New("pool is closed")
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return nil, err
+			return nil, ErrPoolClosed
 		}
-		var pc *poolConn
+
+		// 阶段 1: 尝试从池中取连接
 		if len(p.conns) > 0 {
-			// 从切片末尾弹出，效率最高
 			lastIdx := len(p.conns) - 1
-			pc = p.conns[lastIdx]
+			pc := p.conns[lastIdx]
 			p.conns = p.conns[:lastIdx]
-		}
-		p.mutex.Unlock() // 拿到对象后立即释放锁，不阻塞其他协程获取连接
-		// --- 阶段 2：在锁外进行耗时的连接验证 ---
-		if pc != nil {
-			// 执行网络探测和状态检查 (耗时操作)
+			p.mutex.Unlock()
+
+			// 优化：检查连接健康度
+			// 如果连接刚被用过 (fastVerifyThreshold)，跳过耗时的 verifyConnection (创建 channel 操作)
+			isFresh := time.Since(pc.lastUsed) < fastVerifyThreshold
 			if pc.conn.CheckConnected(ctx) {
-				verified, err := p.verifyConnection(pc.conn)
-				if verified && err == nil {
-					pc.lastUsed = time.Now()
-					span.SetAttributes(attribute.Bool("reused", true))
+				if isFresh {
+					return pc.conn, nil
+				}
+				// 深度检查
+				if verified, _ := p.verifyConnection(pc.conn); verified {
 					return pc.conn, nil
 				}
 			}
 
-			// 验证失败，销毁该连接并更新计数
+			// 连接失效，销毁并减少计数
 			pc.conn.Close()
 			atomic.AddInt64(&p.totalConns, -1)
-
-			// 继续循环尝试获取下一个连接
-			continue
+			continue // 继续循环尝试获取
 		}
-		// --- 阶段 3：池中无可用连接，判断是否需要创建 ---
-		p.mutex.Lock()
-		// 使用原子操作检查当前总连接数
+
+		// 阶段 2: 池空，尝试新建
 		if int(atomic.LoadInt64(&p.totalConns)) < p.poolOpts.maxCap {
-			p.mutex.Unlock() // 创建连接是重 IO 操作，解锁以防阻塞
+			atomic.AddInt64(&p.totalConns, 1)
+			p.mutex.Unlock()
+
 			conn, err := NewConnection(ctx, p.url, p.poolOpts.connOpts...)
 			if err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
+				atomic.AddInt64(&p.totalConns, -1)
 				return nil, err
 			}
-
-			atomic.AddInt64(&p.totalConns, 1)
-			span.SetAttributes(attribute.Bool("reused", false))
 			return conn, nil
 		}
-		// --- 阶段 4：池已满且无可用，进入等待状态 ---
-		// 等待 Release 方法通过 p.cond.Signal() 唤醒
-		p.cond.Wait()
-		p.mutex.Unlock()
+
+		// --- 优化点 3: 解决 sync.Cond.Wait() 无法被 Context 取消的问题 ---
+		// 使用一个辅助 channel 来实现带超时的等待
+		waitChan := make(chan struct{}, 1)
+		go func() {
+			p.mutex.Lock()
+			p.cond.Wait()
+			p.mutex.Unlock()
+			waitChan <- struct{}{}
+		}()
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-waitChan:
+			// 被 Signal 唤醒，进入下一轮循环获取连接
+			continue
+		}
 	}
 }
 
@@ -334,82 +345,44 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 	}
 
 	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	if p.closed {
-		conn.Close()
-		span.SetStatus(codes.Ok, "pool closed, connection closed")
-		return nil
-	}
-
-	// 检查连接是否有效
-	if !conn.CheckConnected(ctx) {
+	if p.closed || !conn.CheckConnected(ctx) {
+		p.mutex.Unlock()
 		atomic.AddInt64(&p.totalConns, -1)
 		conn.Close()
 		span.SetStatus(codes.Ok, "connection invalid, closed")
 		return nil
 	}
 
-	// 将连接添加到池中
+	// 更新最后使用时间，配合 Get 中的 fastVerifyThreshold
 	pc := &poolConn{
 		conn:     conn,
 		lastUsed: time.Now(),
 	}
 	p.conns = append(p.conns, pc)
 
-	//p.poolOpts.zapLog.Info("[rabbitmq pool] put connection back to pool", zap.Int("poolSize", len(p.conns)))
-
 	span.SetAttributes(
 		attribute.Int("pool_size", len(p.conns)),
 	)
-
-	// 通知等待的goroutine
+	// 唤醒 Get 中的 Wait
 	p.cond.Signal()
+	p.mutex.Unlock()
 	return nil
 }
 
 // idleCleanup 定期清理空闲连接
 func (p *Pool) idleCleanup(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(p.poolOpts.healthCheckPeriod)
 	defer ticker.Stop()
 
-	// 使用配置的健康检查周期
-	healthCheckTicker := time.NewTicker(p.poolOpts.healthCheckPeriod)
-	defer healthCheckTicker.Stop()
-
 	for {
-		// 使用 defer/recover 防止清理 goroutine 因异常而退出
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					p.poolOpts.zapLog.Error("[rabbitmq pool] idleCleanup recovered from panic",
-						zap.Any("panic", r))
-				}
-			}()
-
-			select {
-			case <-ticker.C:
-				// 使用ants协程池处理空闲连接清理任务
-				_ = p.antsPool.Submit(func() {
-					p.doCleanup(ctx)
-				})
-			case <-healthCheckTicker.C:
-				// 定期执行健康检查
-				_ = p.antsPool.Submit(func() {
-					p.HealthCheck(ctx)
-				})
-			case <-ctx.Done():
-				// 上下文取消，退出清理循环
-				return
-			}
-		}()
-
-		// 防止过快重试
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(time.Millisecond * 100):
-			// 继续下一次循环
+		case <-ticker.C:
+			_ = p.antsPool.Submit(func() {
+				p.doCleanup(ctx)
+				p.HealthCheck(ctx)
+			})
 		}
 	}
 }
@@ -436,7 +409,6 @@ func (p *Pool) doCleanup(ctx context.Context) {
 		minKeep = len(p.conns)
 	}
 
-	removedCount := 0
 	// 从后往前遍历，移除空闲时间过长的连接
 	for i := len(p.conns) - 1; i >= minKeep; i-- {
 		pc := p.conns[i]
@@ -444,18 +416,14 @@ func (p *Pool) doCleanup(ctx context.Context) {
 			// 关闭连接
 			pc.conn.Close()
 			atomic.AddInt64(&p.totalConns, -1)
-			removedCount++
-
 			// 从池中移除
 			p.conns = append(p.conns[:i], p.conns[i+1:]...)
-
-			p.poolOpts.zapLog.Debug("[rabbitmq pool] removed idle connection",
+			p.poolOpts.zapLog.Warn("[rabbitmq pool] removed idle connection",
 				zap.Duration("idleTime", now.Sub(pc.lastUsed)))
 		}
 	}
 
 	span.SetAttributes(
-		attribute.Int("removed_count", removedCount),
 		attribute.Int("final_pool_size", len(p.conns)),
 	)
 }
