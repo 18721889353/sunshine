@@ -4,25 +4,20 @@ import (
 	"context"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/database"
-	"os"
-	"strconv"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/18721889353/sunshine/pkg/logger"
+	"strconv"
+	"sync"
 )
 
 // BaseConsumer 提供RabbitMQ消费者的基础实现
 type BaseConsumer struct {
-	name            string
-	stopConsumeChan chan struct{}
-	wg              sync.WaitGroup
-	handler         MessageHandler
-	consumers       []*gorabbitmq.Consumer
-	consumersMutex  sync.RWMutex
-	started         uint32 // 增加一个原子标志位
+	name           string
+	wg             sync.WaitGroup
+	handler        MessageHandler
+	consumers      []*gorabbitmq.Consumer
+	consumersMutex sync.RWMutex
+	startOnce      sync.Once
 }
 
 // MessageHandler 定义消息处理函数类型
@@ -31,9 +26,8 @@ type MessageHandler func(ctx context.Context, data []byte, messageId string, tag
 // NewBaseConsumer 创建一个新的基础消费者
 func NewBaseConsumer(name string, handler MessageHandler) *BaseConsumer {
 	return &BaseConsumer{
-		name:            name,
-		stopConsumeChan: make(chan struct{}),
-		handler:         handler,
+		name:    name,
+		handler: handler,
 	}
 }
 
@@ -174,14 +168,20 @@ func (bc *BaseConsumer) buildNormalLetterOptions(exchange *gorabbitmq.Exchange, 
 }
 
 // Start 启动消费者
-func (bc *BaseConsumer) Start(queueConfig config.DoingOrder, queueType string) error {
-	// 优化：防止重复启动
-	if !atomic.CompareAndSwapUint32(&bc.started, 0, 1) {
-		logger.Warn(bc.name + " 消费者已经启动，请勿重复调用")
-		return nil
-	}
+func (bc *BaseConsumer) Start(ctx context.Context, queueConfig config.DoingOrder, queueType string) error {
+	var err error
+	bc.startOnce.Do(func() {
+		// 这里的逻辑只会被执行一次
+		// 如果内部有需要返回的 error，需要定义在外部变量
+		err = bc.doStart(ctx, queueConfig, queueType)
+	})
+	return err
+
+}
+
+// 提取实际启动逻辑
+func (bc *BaseConsumer) doStart(ctx context.Context, queueConfig config.DoingOrder, queueType string) error {
 	go func() {
-		ctx := context.Background()
 		cfg := config.Get().Rabbitmq
 		mqObject := database.GetRabbitMQ()
 		if cfg.Enable && queueConfig.Enable {
@@ -204,7 +204,6 @@ func (bc *BaseConsumer) Start(queueConfig config.DoingOrder, queueType string) e
 				if err != nil {
 					logger.Panic("database.GetRabbitMQ().GetConnection error", logger.Err(err))
 				}
-				defer mqObject.PutConnection(ctx, connection)
 				// 构建基础选项
 				consumerOpts := bc.buildBaseOptions(queueConfig, i)
 
@@ -224,12 +223,18 @@ func (bc *BaseConsumer) Start(queueConfig config.DoingOrder, queueType string) e
 				bc.consumersMutex.Unlock()
 
 				// 启动异步消费 (底层 consumer.go)
+				// 将上下文向下传递给具体的底层消费逻辑
 				consumer.Consume(ctx, bc.handleMessage)
 				logger.Info("队列 " + normalQueueName + " 消费者 " + strconv.Itoa(i+1) + " 已启动")
 			}
 			logger.Info("消息队列 " + queueConfig.NormalQueueName + " 总共启动了 " + strconv.Itoa(consumerNum) + " 个消费者")
 		}
-		<-bc.stopConsumeChan
+
+		//监听信号，无论是内部 Stop 还是外部 Context 取消
+		select {
+		case <-ctx.Done():
+			logger.Warn(bc.name + " 收到全局 Context 取消信号")
+		}
 
 		logger.Warn(bc.name + " 主监听协程已通过 Context 退出")
 	}()
@@ -239,38 +244,15 @@ func (bc *BaseConsumer) Start(queueConfig config.DoingOrder, queueType string) e
 // Stop 停止消费者
 func (bc *BaseConsumer) Stop() error {
 	logger.Warn(">>> 接收到停止指令: " + bc.name)
-	if bc.stopConsumeChan != nil {
-		close(bc.stopConsumeChan) // 1. 先发停止信号
-	}
-	// 2. 等待 BaseConsumer 层的所有业务 handler 执行完毕
-	// 这样可以保证 Ack 在连接关闭前发送完成
-	done := make(chan struct{})
-	go func() {
-		bc.wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		logger.Info("--- 所有任务已在规定时间内完成处理 ---")
-	case <-time.After(5 * time.Minute):
-		logger.Error("!!! 停机超时：部分任务未能在 5分钟 内完成，强制关闭物理连接")
-		os.Exit(1)
-		//pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
-		// 这里可以考虑调用 os.Exit(1) 如果是极端的强制退出场景
-	}
-
-	// 3. 最后关闭底层的物理连接/通道
 	bc.consumersMutex.Lock()
-	defer bc.consumersMutex.Unlock()
 	for _, consumer := range bc.consumers {
 		if consumer != nil {
 			consumer.Close()
 			logger.Info("成功停止" + consumer.QueueName)
 		}
 	}
-
-	atomic.StoreUint32(&bc.started, 0)
+	bc.consumersMutex.Unlock()
+	bc.wg.Wait()
 	logger.Warn("<<< 消费者服务已安全停止: " + bc.name)
 	return nil
 }

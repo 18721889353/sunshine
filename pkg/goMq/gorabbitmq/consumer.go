@@ -477,11 +477,17 @@ func (c *Consumer) consumeWithContext(ctx context.Context) (<-chan amqp.Delivery
 // Consume 在goroutine中循环消费消息
 func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 	go func() {
+
 		// 1. 使用固定的重试间隔 ticker，避免在循环内频繁创建/停止
 		reconnectInterval := time.Second * 2
 		ticker := time.NewTicker(reconnectInterval)
 		defer ticker.Stop()
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			// 2. 检查连接状态
 			if !c.conn.CheckConnected(ctx) {
 				c.zapLog.Warn("[rabbitmq consumer] connection not ready, retrying...", zap.String("queue", c.QueueName))
@@ -553,7 +559,7 @@ func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Del
 				c.zapLog.Warn("[rabbitmq consumer] delivery channel closed, queue=" + c.QueueName)
 				return true // 通道断开，返回 true 告知外层需要触发重连逻辑
 			}
-			c.handleSingleMessage(ctx, d, handler)
+			c.handleSingleMessage(context.Background(), d, handler)
 		}
 	}
 }
@@ -633,8 +639,6 @@ func (c *Consumer) safeChannelClose() {
 // Close 关闭消费者
 func (c *Consumer) Close() {
 	c.closeOnce.Do(func() {
-		c.mu.Lock()
-		defer c.mu.Unlock()
 		// 1. 等待此消费者实例正在处理的消息完成
 		c.wg.Wait()
 		// 2. 关闭通道
