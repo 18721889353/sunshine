@@ -3,10 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
 	"sync"
 	"time"
-
-	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
 
 	"github.com/18721889353/sunshine/pkg/app"
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -61,7 +60,7 @@ func (s *rabbitmqConsumerServer) Start() error {
 	// 启动所有消费者
 	for _, consumer := range s.consumers {
 		logger.Info("Starting consumer", logger.Any("name", consumer.Name()))
-		if err := consumer.Start(); err != nil {
+		if err := consumer.Start(ctx); err != nil {
 			logger.Error("Failed to start consumer err", logger.Any("body", consumer.Name()), logger.Err(err))
 			return fmt.Errorf("failed to start consumer %s: %w", consumer.Name(), err)
 		}
@@ -91,17 +90,25 @@ func (s *rabbitmqConsumerServer) Stop() error {
 	if !s.isRunning {
 		return fmt.Errorf("rabbitmqConsumer server is not running")
 	}
-	//停止所有消费者
-	for _, consumer := range s.consumers {
-		logger.Warn("开始执行停止 consumer", logger.Any("name", consumer.Name()))
-		if err := consumer.Stop(); err != nil {
-			logger.Warn("consumer.Stop() err", logger.Any("body", consumer.Name()), logger.Err(err))
-		}
-	}
 
+	//掐断信号线！所有下游感知 ctx.Done()
 	if s.cancel != nil {
 		s.cancel()
 	}
+	// 3. 并发停止所有消费者
+	var wg sync.WaitGroup
+	for _, consumer := range s.consumers {
+		wg.Add(1)
+		go func(c mq.Consumer) {
+			defer wg.Done()
+			logger.Warn("开始执行停止 consumer", logger.Any("name", c.Name()))
+			if err := c.Stop(); err != nil {
+				logger.Warn("consumer.Stop() err", logger.Any("body", c.Name()), logger.Err(err))
+			}
+		}(consumer) // 注意这里要传参，避免闭包变量捕获问题
+	}
+	// 等待所有消费者处理完成
+	wg.Wait()
 
 	s.isRunning = false
 	logger.Warn("成功停止 rabbitmqConsumer server")

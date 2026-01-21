@@ -1,8 +1,10 @@
 package mq
 
+import "context"
+
 // Consumer 定义通用的消费者接口
 type Consumer interface {
-	Start() error
+	Start(ctx context.Context) error
 	Stop() error
 	Name() string
 }

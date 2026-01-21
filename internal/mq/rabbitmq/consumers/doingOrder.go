@@ -24,9 +24,9 @@ func newOrderConsumer() *orderConsumer {
 }
 
 // Start 启动消费者
-func (s *orderConsumer) Start() error {
+func (s *orderConsumer) Start(ctx context.Context) error {
 	cfg := config.Get().Rabbitmq
-	return s.BaseConsumer.Start(cfg.DoingOrder, cfg.DoingOrder.QueueType)
+	return s.BaseConsumer.Start(ctx, cfg.DoingOrder, cfg.DoingOrder.QueueType)
 }
 
 // handleOrderMessage 处理订单消息
