@@ -86,7 +86,7 @@ type Pool struct {
 	MaxCap            int    `yaml:"maxCap" json:"maxCap"`
 	MaxIdle           int    `yaml:"maxIdle" json:"maxIdle"`
 	ReconnectTime     int    `yaml:"reconnectTime" json:"reconnectTime"`
-	StatsLogTime      int    `yaml:"statsLogTime" json:"statsLogTime"`
+	StatsLogOpen      bool   `yaml:"statsLogOpen" json:"statsLogOpen"`
 	URL               string `yaml:"url" json:"url"`
 }
 

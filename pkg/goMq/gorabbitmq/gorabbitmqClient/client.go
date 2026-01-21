@@ -83,9 +83,7 @@ func InitRabbitmq(mqCfg any) {
 		if poolCfg.Heartbeat <= 0 {
 			poolCfg.Heartbeat = 10 // 10秒
 		}
-		if poolCfg.StatsLogTime <= 0 {
-			poolCfg.StatsLogTime = 60 // 60秒
-		}
+
 		// 1. 创建底层连接池
 		pool, err := gorabbitmq.NewPool(
 			ctx,
@@ -118,7 +116,7 @@ func InitRabbitmq(mqCfg any) {
 		// 3. 核心改进：先存储实例，确保 GetRabbitMQ 能立即拿到可用对象
 		rabbitmqInstance.Store(instance)
 		// 4. 启动后台维护任务（自动清理过期 Producer 和打印状态）
-		go instance.startBackgroundMaintenance(time.Second * time.Duration(poolCfg.StatsLogTime))
+		go instance.startBackgroundMaintenance(poolCfg.StatsLogOpen)
 
 		logger.Info("RabbitMQ module initialized successfully")
 	})
@@ -436,28 +434,28 @@ func (r *RabbitMQ) printStats() {
 	ctx, cancel := context.WithTimeout(r.ctx, time.Second*2)
 	defer cancel()
 
-	stats := r.pool.Stats(ctx)
-	logger.Info("RabbitMQ Pool Stats", zap.Any("stats", stats))
+	logger.Info("RabbitMQ Pool Stats", zap.Any("stats", r.pool.Stats(ctx)))
 }
 
 // startBackgroundMaintenance 启动统一的后台维护和监控任务
-func (r *RabbitMQ) startBackgroundMaintenance(interval time.Duration) {
+func (r *RabbitMQ) startBackgroundMaintenance(open bool) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
 				logger.Warn("BackgroundMaintenance panic", zap.Any("err", err))
 				// 指数退避重启，防止死循环导致 CPU 暴涨
 				time.Sleep(time.Second * 5)
-				r.startBackgroundMaintenance(interval)
+				r.startBackgroundMaintenance(open)
 			}
 		}()
 
 		// 假设 interval 为 10秒
+		interval := 30 * time.Second
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		iteration := uint64(0)
-		cleanupMultiplier := uint64(30) // 假设 interval=10s，则每5分钟执行一次清理
+		cleanupMultiplier := uint64(4) // 假设 interval=10s，则每5分钟执行一次清理
 
 		logger.Info("RabbitMQ maintenance worker started",
 			zap.Duration("stats_interval", interval),
@@ -468,7 +466,9 @@ func (r *RabbitMQ) startBackgroundMaintenance(interval time.Duration) {
 				return
 			case <-ticker.C:
 				iteration++
-				r.printStats()
+				if open {
+					r.printStats()
+				}
 
 				if iteration%cleanupMultiplier == 0 {
 					r.cleanupInvalidProducers()
