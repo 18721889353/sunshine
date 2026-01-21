@@ -477,7 +477,6 @@ func (c *Consumer) consumeWithContext(ctx context.Context) (<-chan amqp.Delivery
 // Consume 在goroutine中循环消费消息
 func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 	go func() {
-
 		// 1. 使用固定的重试间隔 ticker，避免在循环内频繁创建/停止
 		reconnectInterval := time.Second * 2
 		ticker := time.NewTicker(reconnectInterval)
@@ -566,9 +565,6 @@ func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Del
 
 // handleSingleMessage 处理单条消息的逻辑封装（包含 Trace 和 Ack）
 func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, handler Handler) {
-	c.wg.Add(1)
-	defer c.wg.Done()
-
 	// 1. 预检查：如果系统已经发出停止信号，直接将消息塞回队列，不启动业务处理
 	select {
 	case <-ctx.Done():
@@ -578,6 +574,8 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	default:
 		// 执行原有 handler 逻辑...
 	}
+	c.wg.Add(1)
+	defer c.wg.Done()
 	// 2. 开始 Trace Span
 	msgCtx, span := c.tracer.Start(ctx, "consume message")
 	defer span.End() // 确保 span 最终关闭
