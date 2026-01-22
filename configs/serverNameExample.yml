@@ -188,6 +188,7 @@ rabbitmq:
     normalQueueName: "DoingOrderQueue"     # 正常队列名称
     normalKey: "DoingOrderExchange.DoingOrderQueue" #绑定键
     deadQueueName: "DoingOrderQueueDL"     # 死信队列名称
+    deadKey: "DoingOrderExchange.DoingOrderQueueDL" #绑定键
     # 死信队列交换机选项
     exchangeDeclareOptions:
       durable: true               # 交换机是否持久化，即使服务器重启也保留

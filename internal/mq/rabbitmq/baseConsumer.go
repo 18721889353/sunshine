@@ -183,14 +183,14 @@ func (bc *BaseConsumer) Start(ctx context.Context, queueConfig config.DoingOrder
 func (bc *BaseConsumer) doStart(ctx context.Context, queueConfig config.DoingOrder, queueType string) error {
 	go func() {
 		cfg := config.Get().Rabbitmq
-		mqObject := database.GetRabbitMQ()
+		mqObject := database.GetMainRabbitMQ()
 		if cfg.Enable && queueConfig.Enable {
 			logger.Info("Starting " + bc.name)
 			exchangeName := queueConfig.ExchangeName
 			deadQueueName := queueConfig.DeadQueueName
-			deadRoutingKey := exchangeName + "." + deadQueueName
+			deadRoutingKey := queueConfig.DeadKey
 			normalQueueName := queueConfig.NormalQueueName
-			normalRoutineKey := exchangeName + "." + normalQueueName
+			normalRoutineKey := queueConfig.NormalKey
 			exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
 			// 获取需要启动的消费者数量
 			consumerNum := queueConfig.ConsumerNum
