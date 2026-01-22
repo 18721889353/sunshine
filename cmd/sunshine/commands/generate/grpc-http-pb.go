@@ -146,7 +146,7 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 			"cron.go", "tasks/userExampleCronTask.go",
 		},
 		"internal/mq": {
-			"rabbitmq/mq.go", "rabbitmq/baseConsumer.go", "rabbitmq/consumers/doingOrder.go",
+			"rabbitmq/mq.go", "rabbitmq/consumers/doingOrder.go",
 		},
 	}
 
