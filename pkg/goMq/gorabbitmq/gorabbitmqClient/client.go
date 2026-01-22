@@ -138,11 +138,11 @@ func GetRabbitMQ(name string) *RabbitMQ {
 }
 
 // safeCloseProducer 安全清理 Producer 并将其持有的连接归还连接池
-func (r *RabbitMQ) safeCloseProducer(ctx context.Context, key string, p *gorabbitmq.Producer) {
+func (r *RabbitMQ) safeCloseProducer(ctx context.Context, routingKey string, p *gorabbitmq.Producer) {
 	if p == nil {
 		return
 	}
-	r.producerCache.Delete(key)
+	r.producerCache.Delete(routingKey)
 
 	// 核心修复：必须手动将连接归还给 Pool，否则在高并发删除 Producer 时会导致连接泄露
 	if p.Connection != nil {
@@ -266,9 +266,9 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 	}
 
 	// 清理缓存中的所有 Producer 及其连接，防止连接泄露
-	r.producerCache.Range(func(key, value interface{}) bool {
+	r.producerCache.Range(func(routingKey, value interface{}) bool {
 		if p, ok := value.(*gorabbitmq.Producer); ok {
-			r.safeCloseProducer(ctx, cast.ToString(key), p)
+			r.safeCloseProducer(ctx, cast.ToString(routingKey), p)
 		}
 		return true
 	})
@@ -322,7 +322,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 		}
 		// 如果发生连接错误，清理缓存并重试
 		if isConnectionError(err) {
-			logger.Warn("Connection error detected, evicting producer", zap.String("key", routingKey), zap.Error(err))
+			logger.Warn("Connection error detected, evicting producer", zap.String("routingKey", routingKey), zap.Error(err))
 			r.safeCloseProducer(ctx, routingKey, producer)
 		} else {
 			// 业务逻辑错误（如 AccessRefused）重试通常无用
@@ -372,11 +372,11 @@ func (r *RabbitMQ) cleanupInvalidProducers() {
 	cleanCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	r.producerCache.Range(func(key, value interface{}) bool {
+	r.producerCache.Range(func(routingKey, value interface{}) bool {
 		p, ok := value.(*gorabbitmq.Producer)
 		if !ok || !r.isProducerValid(cleanCtx, p) {
-			logger.Info("Cleanup: Evicting invalid producer", zap.Any("key", key))
-			r.safeCloseProducer(cleanCtx, cast.ToString(key), p)
+			logger.Info("Cleanup: Evicting invalid producer", zap.Any("routingKey", routingKey))
+			r.safeCloseProducer(cleanCtx, cast.ToString(routingKey), p)
 		}
 		return true
 	})
@@ -389,8 +389,8 @@ func (r *RabbitMQ) clearProducerCache(exchangeName, routingKey string) {
 			r.safeCloseProducer(context.Background(), routingKey, val.(*gorabbitmq.Producer))
 		}
 	} else {
-		r.producerCache.Range(func(key, value interface{}) bool {
-			r.safeCloseProducer(context.Background(), cast.ToString(key), value.(*gorabbitmq.Producer))
+		r.producerCache.Range(func(routingKey, value interface{}) bool {
+			r.safeCloseProducer(context.Background(), cast.ToString(routingKey), value.(*gorabbitmq.Producer))
 			return true
 		})
 		logger.Info("Safely cleared all producer cache and returned connections")

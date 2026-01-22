@@ -186,6 +186,7 @@ rabbitmq:
     queueType: "dead"             # 队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
     exchangeName: "DoingOrderExchange"     # 交换机名称
     normalQueueName: "DoingOrderQueue"     # 正常队列名称
+    normalKey: "DoingOrderExchange.DoingOrderQueue" #绑定键
     deadQueueName: "DoingOrderQueueDL"     # 死信队列名称
     # 死信队列交换机选项
     exchangeDeclareOptions:
@@ -216,7 +217,7 @@ rabbitmq:
       prefetchCount: 1            # 指定消费者可以同时处理的消息数量上限。例如，如果设置为 1，则消费者在处理完前 1 条消息之前不会接收新的消息。 prefetchCount 为 0，表示不限制消息数量
       prefetchSize: 0             # 预取消息大小，0表示无限制
       global: false               # 是否全局生效（对整个通道生效，而不仅仅是当前消费者）
-      consumer: "testOrder"       # 消费者标识，用于区分多个消费者
+      consumer: "doingOrder"       # 消费者标识，用于区分多个消费者
       exclusive: false            # 是否独占，只有创建它的程序才能访问
       noLocal: false              # 如果设置为true，同一个Connection中的生产者发送的消息不能传递给该Connection中的消费者
       noWait: false               # 是否阻塞处理
