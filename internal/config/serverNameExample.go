@@ -204,6 +204,7 @@ type ConsumerOption struct {
 type DoingOrder struct {
 	ConsumerNum              int                      `yaml:"consumerNum" json:"consumerNum"`
 	ConsumerOption           ConsumerOption           `yaml:"consumerOption" json:"consumerOption"`
+	DeadKey                  string                   `yaml:"deadKey" json:"deadKey"`
 	DeadQueueBindOption      DeadQueueBindOption      `yaml:"deadQueueBindOption" json:"deadQueueBindOption"`
 	DeadQueueDeclareOption   DeadQueueDeclareOption   `yaml:"deadQueueDeclareOption" json:"deadQueueDeclareOption"`
 	DeadQueueName            string                   `yaml:"deadQueueName" json:"deadQueueName"`
