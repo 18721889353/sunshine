@@ -210,6 +210,7 @@ type DoingOrder struct {
 	Enable                   bool                     `yaml:"enable" json:"enable"`
 	ExchangeDeclareOptions   ExchangeDeclareOptions   `yaml:"exchangeDeclareOptions" json:"exchangeDeclareOptions"`
 	ExchangeName             string                   `yaml:"exchangeName" json:"exchangeName"`
+	NormalKey                string                   `yaml:"normalKey" json:"normalKey"`
 	NormalQueueBindOption    DeadQueueBindOption      `yaml:"normalQueueBindOption" json:"normalQueueBindOption"`
 	NormalQueueDeclareOption NormalQueueDeclareOption `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
 	NormalQueueName          string                   `yaml:"normalQueueName" json:"normalQueueName"`
