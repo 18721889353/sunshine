@@ -11,7 +11,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -19,9 +18,8 @@ import (
 )
 
 var (
-	rabbitmqInstance atomic.Value       // 使用 atomic.Value 确保单例在并发读取时的安全性
-	once             sync.Once          // 确保初始化逻辑只执行一次
-	sfGroup          singleflight.Group // 用于抑制并发创建 Producer，防止缓存击穿
+	rabbitmqInstances sync.Map
+	sfGroup           singleflight.Group
 )
 
 // RabbitMQ 封装了 RabbitMQ 连接池及相关操作
@@ -34,19 +32,26 @@ type RabbitMQ struct {
 }
 
 // InitRabbitmq 初始化 RabbitMQ 连接池
-func InitRabbitmq(mqCfg any) {
+func InitRabbitmq(name string, mqCfg any) {
+	if name == "" {
+		panic("RabbitMQ 模块初始化失败: 模块名称为空")
+		return
+	}
 	if mqCfg == nil {
-		logger.Error("RabbitMQ 初始化失败: 配置对象为 nil")
+		panic("RabbitMQ 初始化失败: 配置对象为 nil")
 		return
 	}
 
-	once.Do(func() {
+	// 使用 singleflight 防止重复初始化同一个 name
+	sfGroup.Do("init_"+name, func() (interface{}, error) {
+		if _, ok := rabbitmqInstances.Load(name); ok {
+			return nil, nil
+		}
 		var cfg struct {
 			Pool config.Pool
 		}
 		if err := copier.Copy(&cfg, mqCfg); err != nil {
 			panic("RabbitMQ 配置拷贝失败" + err.Error())
-			return
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		poolCfg := cfg.Pool
@@ -114,23 +119,19 @@ func InitRabbitmq(mqCfg any) {
 			cancel:        cancel,
 		}
 		// 3. 核心改进：先存储实例，确保 GetRabbitMQ 能立即拿到可用对象
-		rabbitmqInstance.Store(instance)
+		rabbitmqInstances.Store(name, instance)
 		// 4. 启动后台维护任务（自动清理过期 Producer 和打印状态）
 		go instance.startBackgroundMaintenance(poolCfg.StatsLogOpen)
-
 		logger.Info("RabbitMQ module initialized successfully")
+
+		return nil, nil
 	})
 }
 
 // GetRabbitMQ 获取 RabbitMQ 实例
-func GetRabbitMQ(mqCfg any) *RabbitMQ {
-	val := rabbitmqInstance.Load()
-	if val == nil {
-		InitRabbitmq(mqCfg)
-		val = rabbitmqInstance.Load().(*RabbitMQ) // 二次读取确保获取到 Store 后的值
-	}
-	// 如果由于 Pool 创建失败导致 Load 还是 nil，这里应增加判断
-	if val == nil {
+func GetRabbitMQ(name string) *RabbitMQ {
+	val, ok := rabbitmqInstances.Load(name)
+	if !ok {
 		return nil
 	}
 	return val.(*RabbitMQ)
@@ -163,8 +164,7 @@ func (r *RabbitMQ) GetConnection(ctx context.Context) (*gorabbitmq.Connection, e
 
 // getExchangeFromCache 从缓存中获取或创建exchange
 func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabbitmq.Exchange {
-	cacheKey := exchangeName + ":" + routingKey
-	if exchange, ok := r.exchangeCache.Load(cacheKey); ok {
+	if exchange, ok := r.exchangeCache.Load(routingKey); ok {
 		return exchange.(*gorabbitmq.Exchange)
 	}
 
@@ -172,7 +172,7 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 	exchange := gorabbitmq.NewDirectExchange(exchangeName, routingKey)
 
 	// 存入缓存，使用LoadOrStore确保并发安全
-	if actual, loaded := r.exchangeCache.LoadOrStore(cacheKey, exchange); loaded {
+	if actual, loaded := r.exchangeCache.LoadOrStore(routingKey, exchange); loaded {
 		// 如果已存在，返回已存在的exchange
 		return actual.(*gorabbitmq.Exchange)
 	}
@@ -182,27 +182,26 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 
 // getProducerFromCache 从缓存中获取或创建producer
 func (r *RabbitMQ) getProducerFromCache(ctx context.Context, exchangeName, routingKey string) (*gorabbitmq.Producer, error) {
-	cacheKey := exchangeName + ":" + routingKey
 
 	// 1. 快速路径
-	if val, ok := r.producerCache.Load(cacheKey); ok {
+	if val, ok := r.producerCache.Load(routingKey); ok {
 		p := val.(*gorabbitmq.Producer)
 		if r.isProducerValid(ctx, p) {
 			return p, nil
 		}
-		r.safeCloseProducer(ctx, cacheKey, p)
+		r.safeCloseProducer(ctx, routingKey, p)
 	}
 
 	// 2. 慢速路径：并发抑制
-	val, err, _ := sfGroup.Do(cacheKey, func() (interface{}, error) {
-		if v, ok := r.producerCache.Load(cacheKey); ok {
+	val, err, _ := sfGroup.Do(routingKey, func() (interface{}, error) {
+		if v, ok := r.producerCache.Load(routingKey); ok {
 			return v, nil
 		}
 		producer, err := r.createNewProducer(ctx, exchangeName, routingKey)
 		if err != nil {
 			return nil, err
 		}
-		r.producerCache.Store(cacheKey, producer)
+		r.producerCache.Store(routingKey, producer)
 		return producer, nil
 	})
 
@@ -282,15 +281,13 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 }
 
 // SendMessage 发送消息到指定的交换机和路由键
-func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueName string, message string, messageId string) error {
+func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey string, message string, messageId string) error {
 	start := time.Now()
-	routingKey := exchangeName + ":" + normalQueueName
 	var err error
 	defer func() {
 		// 记录耗时
 		fields := []zap.Field{
 			zap.String("exchangeName", exchangeName),
-			zap.String("normalQueueName", normalQueueName),
 			zap.String("routingKey", routingKey),
 			zap.String("message", message),
 			zap.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
@@ -311,7 +308,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueNam
 		default:
 		}
 		// 获取producer
-		producer, pErr := r.getProducerFromCache(ctx, exchangeName, normalQueueName)
+		producer, pErr := r.getProducerFromCache(ctx, exchangeName, routingKey)
 		if pErr != nil {
 			err = pErr
 			r.handleRetry(ctx, attempt, maxRetries)
@@ -319,7 +316,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, normalQueueNam
 		}
 
 		// 发送消息
-		err = producer.PublishDirect(ctx, exchangeName+"."+normalQueueName, []byte(message), messageId)
+		err = producer.PublishDirect(ctx, routingKey, []byte(message), messageId)
 		if err == nil {
 			return nil
 		}
@@ -388,9 +385,8 @@ func (r *RabbitMQ) cleanupInvalidProducers() {
 // clearProducerCache 清理指定或全部的producer缓存
 func (r *RabbitMQ) clearProducerCache(exchangeName, routingKey string) {
 	if exchangeName != "" && routingKey != "" {
-		cacheKey := exchangeName + ":" + routingKey
-		if val, ok := r.producerCache.Load(cacheKey); ok {
-			r.safeCloseProducer(context.Background(), cacheKey, val.(*gorabbitmq.Producer))
+		if val, ok := r.producerCache.Load(routingKey); ok {
+			r.safeCloseProducer(context.Background(), routingKey, val.(*gorabbitmq.Producer))
 		}
 	} else {
 		r.producerCache.Range(func(key, value interface{}) bool {
