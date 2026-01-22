@@ -53,7 +53,7 @@ func (bc *BaseConsumer) Name() string {
 }
 
 // handleMessage 内部消息处理函数，适配gorabbitmq的Handler类型
-func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageId string, tagID string) error {
+func (bc *BaseConsumer) HandleMessage(ctx context.Context, data []byte, messageId string, tagID string) error {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 	return bc.handler(ctx, data, messageId, tagID)
@@ -63,15 +63,11 @@ func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageI
 // connection: 外部注入的连接
 // rawConfig: 客户端传入的 config.DoingOrder 实例
 func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connection, rawConfig any) error {
-	// 动态映射配置：不需要定义 MQConfig 结构体，直接用 map 或临时匿名结构处理核心逻辑
-	// 但为了代码健壮，我们定义一个内部使用的基础配置类（只包含核心运行参数）
-
 	var queueConfig config.DoingOrder
 	if err := copier.Copy(&queueConfig, rawConfig); err != nil {
 		bc.logger.Error(bc.name+" config copy error", zap.Error(err))
 		return err
 	}
-
 	if !queueConfig.Enable {
 		return nil
 	}
@@ -112,41 +108,20 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 
 			// 启动异步消费 (底层 consumer.go)
 			// 将上下文向下传递给具体的底层消费逻辑
-			consumer.Consume(ctx, bc.handleMessage)
+			consumer.Consume(ctx, bc.HandleMessage)
 			bc.logger.Info("队列 " + normalQueueName + " 消费者 " + strconv.Itoa(i+1) + " 已启动")
 		}
 
-		<-ctx.Done()
+		//监听信号，无论是内部 Stop 还是外部 Context 取消
+		select {
+		case <-ctx.Done():
+			bc.logger.Warn(bc.name + " 收到全局 Context 取消信号")
+		}
+
 		bc.logger.Warn(bc.name + " 收到 Context 取消信号，主循环退出")
 	}()
 
 	return nil
-}
-
-// prepareOptions 整合了原版的 buildDeadLetterOptions 和 buildNormalLetterOptions
-func (bc *BaseConsumer) prepareOptions(queueConfig config.DoingOrder, index int) []gorabbitmq.ConsumerOption {
-	consumerName := queueConfig.ConsumerOption.Consumer
-	if consumerName == "" {
-		consumerName = "consumer"
-	}
-	consumerName += "_" + strconv.Itoa(index+1)
-
-	return []gorabbitmq.ConsumerOption{
-		gorabbitmq.WithConsumerQosOptions(
-			gorabbitmq.WithQosEnable(),
-			gorabbitmq.WithQosPrefetchCount(queueConfig.ConsumerOption.PrefetchCount),
-			gorabbitmq.WithQosPrefetchSize(queueConfig.ConsumerOption.PrefetchSize),
-			gorabbitmq.WithQosPrefetchGlobal(queueConfig.ConsumerOption.Global),
-		),
-		gorabbitmq.WithConsumerMsgDurable(queueConfig.ConsumerOption.MsgDurable),
-		gorabbitmq.WithConsumerAutoAck(queueConfig.ConsumerOption.IsAutoAck),
-		gorabbitmq.WithConsumerConsumeOptions(
-			gorabbitmq.WithConsumeConsumer(consumerName),
-			gorabbitmq.WithConsumeExclusive(queueConfig.ConsumerOption.Exclusive),
-			gorabbitmq.WithConsumeNoLocal(queueConfig.ConsumerOption.NoLocal),
-			gorabbitmq.WithConsumeNoWait(queueConfig.ConsumerOption.NoWait),
-		),
-	}
 }
 
 // buildBaseOptions 构建通用的消费者配置
@@ -261,4 +236,5 @@ func (bc *BaseConsumer) Stop() error {
 	bc.wg.Wait()
 	bc.logger.Warn("<<< 消费者服务已安全停止: " + bc.name)
 	return nil
+
 }
