@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"go.uber.org/zap"
 	"strings"
 	"time"
 
@@ -33,6 +35,9 @@ var _ UserExampleCache = (*userExampleCache)(nil)
 type UserExampleCache interface {
 	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
+	// 封装了锁的获取、看门狗自动续期、业务执行及释放逻辑
+	WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error
+	WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error
 
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
 	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
@@ -96,6 +101,111 @@ func (c *userExampleCache) GetLoopLock(ctx context.Context, key string, options 
 func (c *userExampleCache) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLock(ctx, cacheKey, options...)
+}
+func (c *userExampleCache) WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
+	// 1. 获取普通锁
+	lock, err := c.GetLock(ctx, key, options...)
+	if err != nil {
+		return err
+	}
+
+	// 2. 获取当前的过期时间，用于计算续期频率
+	if expiry <= 0 {
+		expiry = 10 * time.Second // 默认兜底
+	}
+	requestId := interceptor.ServerCtxRequestIDField(ctx)
+	// --- 看门狗实现开始 ---
+	// 3. 启动看门狗协程
+	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(expiry / 3) // 建议三分之一时间续期一次，更安全
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// 使用原始 ctx 确保续期动作本身不被 task 的取消所影响
+				ok, err := lock.ExtendContext(ctx)
+				if err != nil || !ok {
+					// 关键点：续期失败，立即取消任务 context
+					if err != nil {
+						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key), requestId)
+					} else {
+						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key), requestId)
+					}
+					stopWatchdog() // 续期失败，通知业务中断
+					return
+				}
+			case <-watchdogCtx.Done(): // 业务执行完或被取消，看门狗退出
+				return
+			}
+		}
+	}()
+	// --- 看门狗实现结束 ---
+	// 4. 执行业务逻辑并在结束时释放所有资源
+	defer func() {
+		stopWatchdog() // 确保退出时关闭协程
+		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
+			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
+				logger.Warn("释放分布式锁失败", zap.Error(releaseErr), requestId)
+			}
+		}
+	}()
+
+	return task(watchdogCtx)
+}
+
+func (c *userExampleCache) WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
+	// 1. 获取循环锁 (复用已有的 GetLoopLock 逻辑)
+	lock, err := c.GetLoopLock(ctx, key, options...)
+	if err != nil {
+		return err
+	}
+
+	// 2. 获取当前的过期时间，用于计算续期频率
+	if expiry <= 0 {
+		expiry = 10 * time.Second // 默认兜底
+	}
+	requestId := interceptor.ServerCtxRequestIDField(ctx)
+	// --- 看门狗实现开始 ---
+	// 3. 启动看门狗协程
+	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(expiry / 3) // 建议三分之一时间续期一次，更安全
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// 使用原始 ctx 确保续期动作本身不被 task 的取消所影响
+				ok, err := lock.ExtendContext(ctx)
+				if err != nil || !ok {
+					// 关键点：续期失败，立即取消任务 context
+					if err != nil {
+						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key), requestId)
+					} else {
+						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key), requestId)
+					}
+					stopWatchdog() // 续期失败，通知业务中断
+					return
+				}
+			case <-watchdogCtx.Done(): // 业务执行完或被取消，看门狗退出
+				return
+			}
+		}
+	}()
+	// --- 看门狗实现结束 ---
+	// 4. 执行业务逻辑并在结束时释放所有资源
+	defer func() {
+		stopWatchdog() // 确保退出时关闭协程
+		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
+			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
+				logger.Warn("释放分布式锁失败", zap.Error(releaseErr), requestId)
+			}
+		}
+	}()
+
+	return task(watchdogCtx)
 }
 
 // Set write to cache
