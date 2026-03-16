@@ -18,6 +18,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/utils"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 var _ UserExampleDao = (*userExampleDao)(nil)
@@ -43,13 +44,13 @@ type UserExampleDao interface {
 	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
 	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
 
-	GetByID(ctx context.Context, id uint64) (*model.UserExample, error)
-	GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error)
-	GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error)
-	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
-	GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
-	CountByCondition(ctx context.Context, c *query.Conditions) (int64, error)
-	ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error)
+	GetByID(ctx context.Context, id uint64, forceMaster ...bool) (*model.UserExample, error)
+	GetByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) ([]*model.UserExample, int64, error)
+	GetOneByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) (*model.UserExample, error)
+	GetByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (ids []uint64, err error)
+	GetByIDs(ctx context.Context, ids []uint64, forceMaster ...bool) (map[uint64]*model.UserExample, error)
+	CountByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (int64, error)
+	ExistsByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (bool, error)
 	GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int) (int64, error)
 }
 
@@ -747,18 +748,26 @@ func (d *userExampleDao) ExecByCustomFunc(ctx context.Context, updateFunc func(*
 	return err
 }
 
-func (d *userExampleDao) GetByID(ctx context.Context, id uint64) (*model.UserExample, error) {
+func (d *userExampleDao) GetByID(ctx context.Context, id uint64, forceMaster ...bool) (*model.UserExample, error) {
 	// no cache
 	if d.cacheManager == nil {
 		record := &model.UserExample{}
-		err := d.db.WithContext(ctx).Where("id = ?", id).First(record).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id = ?", id).First(record).Error
 		return record, err
 	}
 
 	// 使用缓存管理器获取数据
 	return d.cacheManager.get(ctx, id, func() (*model.UserExample, error) {
 		table := &model.UserExample{}
-		err := d.db.WithContext(ctx).Where("id = ?", id).First(table).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id = ?", id).First(table).Error
 		return table, err
 	})
 }
@@ -783,6 +792,36 @@ func (d *userExampleDao) queryByColumns(ctx context.Context, params *query.Param
 	// 分页查询
 	order, limit, offset := params.ConvertToPage()
 	err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return struct {
+		records []*model.UserExample
+		total   int64
+	}{records: records, total: total}, nil
+}
+
+func (d *userExampleDao) queryByColumnsWithDB(ctx context.Context, db *gorm.DB, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
+	var total int64
+	var records []*model.UserExample
+	// 统计总数（若需要）
+	if params.Sort != "ignore count" {
+		err := db.Model(&model.UserExample{}).Where(queryStr, args...).Count(&total).Error
+		if err != nil {
+			return nil, err
+		}
+		if total == 0 {
+			return struct {
+				records []*model.UserExample
+				total   int64
+			}{records: []*model.UserExample{}, total: 0}, nil
+		}
+	}
+
+	// 分页查询
+	order, limit, offset := params.ConvertToPage()
+	err := db.Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
 	if err != nil {
 		return nil, err
 	}
@@ -826,7 +865,7 @@ func (d *userExampleDao) queryByColumns(ctx context.Context, params *query.Param
 //			Value: "male",
 //		},
 //	}
-func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.UserExample, int64, error) {
+func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) ([]*model.UserExample, int64, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, errors.New("query params error: " + err.Error())
@@ -840,11 +879,15 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 		total   int64
 	}
 
-	// 使用缓存管理器或singleflight避免并发重复查询
+	// 使用缓存管理器或 singleflight 避免并发重复查询
 	var val interface{}
-	//仅使用singleflight
+	//仅使用 singleflight
 	val, err, _ = d.sfg.Do("columns:"+key, func() (interface{}, error) {
-		return d.queryByColumns(ctx, params, queryStr, args)
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		return d.queryByColumnsWithDB(ctx, db, params, queryStr, args)
 	})
 	// 处理错误情况
 	if err != nil {
@@ -864,7 +907,7 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params)
 	return result.records, result.total, nil
 }
 
-func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params) (*model.UserExample, error) {
+func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) (*model.UserExample, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, errors.New("query params error: " + err.Error())
@@ -877,14 +920,22 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 	// no cache
 	if d.cacheManager == nil {
 		record := &model.UserExample{}
-		err := d.db.WithContext(ctx).Order(order).Where(queryStr, args...).First(record).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		return record, err
 	}
 
 	// 使用缓存管理器获取数据
 	return d.cacheManager.getOneByConditionKey(ctx, key, func() (*model.UserExample, error) {
 		record := &model.UserExample{}
-		err := d.db.WithContext(ctx).Order(order).Where(queryStr, args...).First(record).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		return record, err
 	})
 }
@@ -910,7 +961,7 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 //			Value: "male",
 //		},
 //	}
-func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions) (ids []uint64, err error) {
+func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (ids []uint64, err error) {
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, err
@@ -921,7 +972,11 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 
 	// no cache
 	if d.cacheManager == nil {
-		err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err = db.Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
 		}
@@ -934,7 +989,11 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 
 	// 使用缓存管理器获取数据
 	return d.cacheManager.getByCondition(ctx, key, func() ([]uint64, error) {
-		err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err = db.Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
 		}
@@ -946,11 +1005,15 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 	})
 }
 
-func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error) {
+func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, forceMaster ...bool) (map[uint64]*model.UserExample, error) {
 	// no cache
 	if d.cacheManager == nil {
 		var records []*model.UserExample
-		err := d.db.WithContext(ctx).Where("id IN (?)", ids).Find(&records).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id IN (?)", ids).Find(&records).Error
 		if err != nil {
 			return nil, err
 		}
@@ -964,30 +1027,42 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64) (map[uint64
 	// 使用缓存管理器获取数据
 	return d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.UserExample, error) {
 		var records []*model.UserExample
-		err := d.db.WithContext(ctx).Where("id IN (?)", missedIDs).Find(&records).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id IN (?)", missedIDs).Find(&records).Error
 		return records, err
 	})
 }
 
-func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions) (int64, error) {
+func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (int64, error) {
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return 0, err
 	}
 
 	var count int64
-	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
+	db := d.db.WithContext(ctx)
+	if len(forceMaster) > 0 && forceMaster[0] {
+		db = db.Clauses(dbresolver.Write)
+	}
+	err = db.Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
 	return count, err
 }
 
-func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions) (bool, error) {
+func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (bool, error) {
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return false, err
 	}
 
 	var count int64
-	err = d.db.WithContext(ctx).Model(&model.UserExample{}).Where(queryStr, args...).Limit(1).Count(&count).Error
+	db := d.db.WithContext(ctx)
+	if len(forceMaster) > 0 && forceMaster[0] {
+		db = db.Clauses(dbresolver.Write)
+	}
+	err = db.Model(&model.UserExample{}).Where(queryStr, args...).Limit(1).Count(&count).Error
 	if err != nil {
 		return false, err
 	}
@@ -1004,7 +1079,7 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 //		Order("cp_dealer.id DESC")
 //}, &result1, -1, 0)
 
-//原始SQL
+//原始 SQL
 //var result1 []map[string]interface{}
 //total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
 //	return db.Raw("SELECT cp_dealer.id, cp_dealer.name FROM cp_dealer WHERE cp_dealer.status = ? ORDER BY cp_dealer.id DESC", 1)
@@ -1021,6 +1096,7 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 //}, &result1, 0, 10)
 
 func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int) (int64, error) {
+
 	db := d.db.WithContext(ctx)
 	// 应用自定义查询函数
 	db = queryFunc(db)
