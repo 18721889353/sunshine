@@ -4,19 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
-    "github.com/18721889353/sunshine/pkg/gocrypto"
-	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
-
-	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/18721889353/sunshine/pkg/sgorm/query"
-	"github.com/18721889353/sunshine/pkg/utils"
 
 	"github.com/18721889353/sunshine/internal/cache"
+
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/model"
 
+	"github.com/18721889353/sunshine/pkg/gocrypto"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
+	"github.com/18721889353/sunshine/pkg/utils"
+	"golang.org/x/sync/singleflight"
+	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
 )
 
 var _ {{.TableNameCamel}}Dao = (*{{.TableNameCamelFCL}}Dao)(nil)
@@ -25,34 +27,41 @@ var _ {{.TableNameCamel}}Dao = (*{{.TableNameCamelFCL}}Dao)(nil)
 type {{.TableNameCamel}}Dao interface {
 	Create(ctx context.Context, table *model.{{.TableNameCamel}}) error
 	CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error
-	DeleteBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error
-	UpdateBy{{.ColumnNameCamel}}(ctx context.Context, table *model.{{.TableNameCamel}}) error
-	GetBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error)
-	GetByColumns(ctx context.Context, params *query.Params) ([]*model.{{.TableNameCamel}}, int64, error)
-	GetOneByColumns(ctx context.Context, params *query.Params) (*model.{{.TableNameCamel}}, error)
+	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) (uint64, error)
+	CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error
 
-	DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error
+	DeleteByID(ctx context.Context, id uint64) error
+	DeleteByIDs(ctx context.Context, ids []uint64) error
 	DeleteByCondition(ctx context.Context, c *query.Conditions) error
-
-	GetByCondition(ctx context.Context, condition *query.Conditions) (ids []uint64, err error)
-	GetBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error)
-
-	CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) ({{.GoType}}, error)
-	CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error
-	DeleteByTx(ctx context.Context, tx *gorm.DB, {{.ColumnNameCamelFCL}} {{.GoType}}) error
+	DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error
+	DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error
 	DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
+	ClearCache(ctx context.Context) error
 
+	UpdateByID(ctx context.Context, table *model.{{.TableNameCamel}}) error
+	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.{{.TableNameCamel}}) error
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error
+	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.{{.TableNameCamel}}) error
+	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
+
+	GetByID(ctx context.Context, id uint64, forceMaster ...bool) (*model.{{.TableNameCamel}}, error)
+	GetByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) ([]*model.{{.TableNameCamel}}, int64, error)
+	GetOneByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) (*model.{{.TableNameCamel}}, error)
+	GetByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (ids []uint64, err error)
+	GetByIDs(ctx context.Context, ids []uint64, forceMaster ...bool) (map[uint64]*model.{{.TableNameCamel}}, error)
+	CountByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (int64, error)
+	ExistsByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (bool, error)
+	GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int) (int64, error)
 }
 
-
-
+// {{.TableNameCamel}}CacheManager 统一管理缓存操作
 type {{.TableNameCamel}}CacheManager struct {
 	cache cache.{{.TableNameCamel}}Cache
 	sfg   *singleflight.Group
 }
 
-func new{{.TableNameCamel}}CacheManager(c cache.{{.TableNameCamel}}Cache) *{{.TableNameCamelFCL}}Manager {
+// new{{.TableNameCamel}}CacheManager 创建缓存管理器
+func new{{.TableNameCamel}}CacheManager(c cache.{{.TableNameCamel}}Cache) *{{.TableNameCamel}}CacheManager {
 	return &{{.TableNameCamel}}CacheManager{
 		cache: c,
 		sfg:   new(singleflight.Group),
@@ -60,20 +69,21 @@ func new{{.TableNameCamel}}CacheManager(c cache.{{.TableNameCamel}}Cache) *{{.Ta
 }
 
 // getCacheKey 生成基于ID的缓存键
-func (m *{{.TableNameCamelFCL}}Manager) getCacheKey(id uint64) string {
+func (m *{{.TableNameCamel}}CacheManager) getCacheKey(id uint64) string {
 	return cache.{{.TableNameCamel}}CachePrefixKey + utils.Uint64ToStr(id)
 }
-func (m *{{.TableNameCamelFCL}}Manager) getOneConditionCacheKey(key string) string {
+
+func (m *{{.TableNameCamel}}CacheManager) getOneConditionCacheKey(key string) string {
 	return cache.{{.TableNameCamel}}CachePrefixKey + "condition:" + key
 }
 
 // getConditionCacheKey 生成基于条件的缓存键
-func (m *{{.TableNameCamelFCL}}Manager) getConditionCacheKey(key string) string {
+func (m *{{.TableNameCamel}}CacheManager) getConditionCacheKey(key string) string {
 	return cache.{{.TableNameCamel}}CachePrefixKey + "conditions:" + key
 }
 
 // get 通过singleflight和缓存获取数据
-func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
+func (m *{{.TableNameCamel}}CacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
 	// 先从缓存获取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -96,7 +106,7 @@ func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, quer
 				return nil, dbErr
 			}
 			// 设置缓存
-			if cacheErr := m.cache.Set(ctx, id, table, cache.UserExampleExpireTime); cacheErr != nil {
+			if cacheErr := m.cache.Set(ctx, id, table, cache.{{.TableNameCamel}}ExpireTime); cacheErr != nil {
 				logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
 			}
 			return table, nil
@@ -120,7 +130,7 @@ func (m *{{.TableNameCamelFCL}}Manager) get(ctx context.Context, id uint64, quer
 }
 
 // getOneByConditionKey 通过条件获取单条记录
-func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
+func (m *{{.TableNameCamel}}CacheManager) getOneByConditionKey(ctx context.Context, key string, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
 	cacheKey := m.getOneConditionCacheKey(key)
 
 	// 先尝试从缓存获取ID
@@ -160,11 +170,11 @@ func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context
 
 			// 如果记录存在，将其ID缓存起来
 			if record != nil {
-				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, cache.UserExampleExpireTime); cacheErr != nil {
+				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, cache.{{.TableNameCamel}}ExpireTime); cacheErr != nil {
 					logger.Warn("cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
 				}
 				// 同时缓存完整记录
-				if cacheErr := m.cache.Set(ctx, record.ID, record, cache.UserExampleExpireTime); cacheErr != nil {
+				if cacheErr := m.cache.Set(ctx, record.ID, record, cache.{{.TableNameCamel}}ExpireTime); cacheErr != nil {
 					logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
 				}
 			}
@@ -190,7 +200,7 @@ func (m *{{.TableNameCamelFCL}}Manager) getOneByConditionKey(ctx context.Context
 }
 
 // getByCondition 通过条件获取ID列表
-func (m *{{.TableNameCamelFCL}}Manager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
+func (m *{{.TableNameCamel}}CacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先从缓存获取
@@ -224,7 +234,7 @@ func (m *{{.TableNameCamelFCL}}Manager) getByCondition(ctx context.Context, key 
 			}
 
 			// 设置缓存
-			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, cache.UserExampleExpireTime); cacheErr != nil {
+			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, cache.{{.TableNameCamel}}ExpireTime); cacheErr != nil {
 				logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 			}
 			return result, nil
@@ -248,10 +258,10 @@ func (m *{{.TableNameCamelFCL}}Manager) getByCondition(ctx context.Context, key 
 }
 
 // getByIDs 批量获取记录
-func (m *{{.TableNameCamelFCL}}Manager) getByIDs(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+func (m *{{.TableNameCamel}}CacheManager) getByIDs(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.{{.TableNameCamel}}, error)) (map[uint64]*model.{{.TableNameCamel}}, error) {
 	// 对于大数据量请求，分批处理以避免内存峰值
 	if len(ids) > 1000 {
-		result := make(map[uint64]*model.UserExample)
+		result := make(map[uint64]*model.{{.TableNameCamel}})
 		// 分批处理，每批1000个ID
 		for i := 0; i < len(ids); i += 1000 {
 			end := i + 1000
@@ -278,7 +288,7 @@ func (m *{{.TableNameCamelFCL}}Manager) getByIDs(ctx context.Context, ids []uint
 }
 
 // getByIDsBatch 批量获取记录的实际实现
-func (m *{{.TableNameCamelFCL}}Manager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+func (m *{{.TableNameCamel}}CacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.{{.TableNameCamel}}, error)) (map[uint64]*model.{{.TableNameCamel}}, error) {
 	// 先从缓存获取
 	itemMap, err := m.cache.MultiGet(ctx, ids)
 	if err != nil {
@@ -320,7 +330,7 @@ func (m *{{.TableNameCamelFCL}}Manager) getByIDsBatch(ctx context.Context, ids [
 					itemMap[record.ID] = record
 				}
 				// 批量设置缓存
-				if cacheErr := m.cache.MultiSet(ctx, records, cache.UserExampleExpireTime); cacheErr != nil {
+				if cacheErr := m.cache.MultiSet(ctx, records, cache.{{.TableNameCamel}}ExpireTime); cacheErr != nil {
 					logger.Warn("cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", realMissedIDs))
 				}
 			}
@@ -346,178 +356,480 @@ func (m *{{.TableNameCamelFCL}}Manager) getByIDsBatch(ctx context.Context, ids [
 	return itemMap, nil
 }
 
-
 type {{.TableNameCamelFCL}}Dao struct {
-	db    *gorm.DB
-	cache cache.{{.TableNameCamel}}Cache // if nil, the cache is not used.
-	sfg   *singleflight.Group    // if cache is nil, the sfg is not used.
+	db           *gorm.DB
+	cache        cache.{{.TableNameCamel}}Cache   // if nil, the cache is not used.
+	cacheManager *{{.TableNameCamel}}CacheManager // 缓存管理器
+	sfg          *singleflight.Group      // if cache is nil, the sfg is not used.
 }
 
 // New{{.TableNameCamel}}Dao creating the dao interface
 func New{{.TableNameCamel}}Dao(db *gorm.DB, xCache cache.{{.TableNameCamel}}Cache) {{.TableNameCamel}}Dao {
-	if xCache == nil {
-		return &{{.TableNameCamelFCL}}Dao{db: db,sfg: new(singleflight.Group)}
-	}
-	return &{{.TableNameCamelFCL}}Dao{
+	dao := &{{.TableNameCamelFCL}}Dao{
 		db:    db,
 		cache: xCache,
 		sfg:   new(singleflight.Group),
 	}
-}
 
-func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
-	if d.cache != nil {
-		if id == 0 || id == 88888888 {
-			defer func() {
-				if id == 88888888 {
-					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamelFCL}}CachePrefixKey)
-				} else {
-					_ = d.cache.DelByPrefix(ctx, cache.{{.TableNameCamelFCL}}CachePrefixKey+"condition:")
-				}
-			}()
-		}
-		return d.cache.Del(ctx, {{.ColumnNameCamelFCL}})
+	if xCache != nil {
+		dao.cacheManager = new{{.TableNameCamel}}CacheManager(xCache)
 	}
-	return nil
+
+	return dao
 }
 
-// Create a record, insert the record and the {{.ColumnNameCamelFCL}} value is written back to the table
 func (d *{{.TableNameCamelFCL}}Dao) Create(ctx context.Context, table *model.{{.TableNameCamel}}) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		// 创建操作只清除条件查询缓存，保留单条记录缓存
+		_ = d.deleteCache(ctx, 0, "condition")
 	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
-
 func (d *{{.TableNameCamelFCL}}Dao) CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		// 批量创建操作只清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
 	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
-
-
-// DeleteBy{{.ColumnNameCamel}} delete a record by {{.ColumnNameCamelFCL}}
-func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
+func (d *{{.TableNameCamelFCL}}Dao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) (uint64, error) {
 	defer func() {
-		_ = d.deleteCache(ctx, 0)
+		// 事务创建操作只清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
 	}()
-	err := d.db.WithContext(ctx).Where("{{.ColumnName}} = ?", {{.ColumnNameCamelFCL}}).Delete(&model.{{.TableNameCamel}}{}).Error
+	err := tx.WithContext(ctx).Create(table).Error
+	return table.ID, err
+}
+func (d *{{.TableNameCamelFCL}}Dao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error {
+	defer func() {
+		// 事务批量创建操作只清除条件查询缓存
+		_ = d.deleteCache(ctx, 0, "condition")
+	}()
+	return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+}
+func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
+	if d.cache == nil {
+		return nil
+	}
+
+	switch deleteType {
+	case "single":
+		return d.cache.Del(ctx, id)
+	case "all":
+		return d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey)
+	case "condition":
+		return d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey+"condition")
+	default:
+		return nil
+	}
+}
+
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByID(ctx context.Context, id uint64) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, id, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
+	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(&model.{{.TableNameCamel}}{}).Error
+	if err != nil {
+		return err
+	}
+	if d.cache != nil {
+		// 延迟双删
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, id, "single")
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDs(ctx context.Context, ids []uint64) error {
+	// 先删除缓存
+	for _, id := range ids {
+		_ = d.deleteCache(ctx, id, "single")
+	}
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.{{.TableNameCamel}}{}).Error
 	if err != nil {
 		return err
 	}
 
-	// delete cache
-	_ = d.deleteCache(ctx, {{.ColumnNameCamelFCL}})
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			for _, id := range ids {
+				_ = d.deleteCache(bgCtx, id, "single")
+			}
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "all")
 
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.{{.TableNameCamel}}{}).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "all")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, id, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	update := map[string]interface{}{
+		"deleted_at": time.Now(),
+	}
+	err := tx.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where("id = ?", id).Updates(update).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		// 使用背景上下文避免上下文泄露
+		bgCtx := context.Background()
+		_ = d.deleteCache(bgCtx, id, "single")
+		_ = d.deleteCache(bgCtx, 0, "condition")
+	}()
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
+	// 先删除缓存
+	for _, id := range ids {
+		_ = d.deleteCache(ctx, id, "single")
+	}
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.{{.TableNameCamel}}{}).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			if d.cache != nil {
+				for _, id := range ids {
+					_ = d.deleteCache(bgCtx, id, "single")
+				}
+			}
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "all")
+
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.{{.TableNameCamel}}{}).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "all")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) ClearCache(ctx context.Context) error {
+	if d.cache != nil {
+		return d.cache.DelByPrefix(ctx, cache.{{.TableNameCamel}}CachePrefixKey)
+	}
 	return nil
 }
 
-// UpdateBy{{.ColumnNameCamel}} update a record by {{.ColumnNameCamelFCL}}
-func (d *{{.TableNameCamelFCL}}Dao) UpdateBy{{.ColumnNameCamel}}(ctx context.Context, table *model.{{.TableNameCamel}}) error {
-	err := d.updateDataBy{{.ColumnNameCamel}}(ctx, d.db, table)
+func (d *{{.TableNameCamelFCL}}Dao) updateDataByID(ctx context.Context, db *gorm.DB, table *model.{{.TableNameCamel}}) error {
+	if table.ID < 1 {
+		return errors.New("id cannot be 0")
+	}
 
-	// delete cache
-	_ = d.deleteCache(ctx, table.{{.ColumnNameCamel}})
+	update := map[string]interface{}{}
+	// todo generate the update fields code to here
+
+	return db.WithContext(ctx).Model(table).Updates(update).Error
+}
+func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model.{{.TableNameCamel}}) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, table.ID, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	err := d.updateDataByID(ctx, d.db, table)
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, table.ID, "single")
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+
+	// 构建更新映射
+	update := map[string]interface{}{}
+	// todo generate the update fields code to here
+
+	err = d.db.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Updates(update).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, table.ID, "single")
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	err := d.updateDataByID(ctx, tx, table)
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, table.ID, "single")
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
+	// 先删除缓存
+	_ = d.deleteCache(ctx, 0, "condition")
+
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return err
+	}
+
+	// 构建更新映射
+	update := map[string]interface{}{}
+	// todo generate the update fields code to here
+
+	err = tx.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Updates(update).Error
+	if err != nil {
+		return err
+	}
+
+	// 延迟双删
+	if d.cache != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			// 使用背景上下文避免上下文泄露
+			bgCtx := context.Background()
+			_ = d.deleteCache(bgCtx, 0, "condition")
+		}()
+	}
+	return nil
+}
+
+// ExecByCustomFunc 执行自定义更新操作，接受一个函数参数来执行自定义的更新、插入或其他数据库操作
+// 使用示例：事务
+//	err = s.iCpDealerDao.ExecByCustomFunc(ctx, func(db *gorm.DB) *gorm.DB {
+//		err := db.Transaction(func(tx *gorm.DB) error {
+//			// 执行操作
+//			if err := tx.Model(&model.CpDealer{}).Where("id = ?", 1).Update("name", "前端测试商户").Error; err != nil {
+//				return err
+//			}
+//			if err := tx.Model(&model.CpDealerOrder{}).Where("id = ?", 647401).Update("dealer_name", "前端测试商户").Error; err != nil {
+//				return err
+//			}
+//			// 成功提交事务
+//			return nil
+//		})
+//		// 将事务中的错误传递出去
+//		if err != nil {
+//			db.Error = err
+//		}
+//		return db
+//	})
+// 普通更新
+// err = s.iCpDealerDao.ExecByCustomFunc(ctx, func(db *gorm.DB) *gorm.DB {
+//
+//	if err := db.Model(&model.CpDealer{}).Where("id = ?", 1).Update("name", "前端测试商户1").Error; err != nil {
+//		db.Error = err
+//		return db
+//	}
+//
+//	if err := db.Model(&model.CpDealerOrder{}).Where("id = ?", 647401).Update("dealer_name", "前端测试商户").Error; err != nil {
+//		db.Error = err
+//		return db
+//	}
+//
+//	return db
+//})
+
+func (d *{{.TableNameCamelFCL}}Dao) ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error {
+	// 先清除相关缓存
+	defer func() {
+		_ = d.deleteCache(ctx, 0, "all")
+	}()
+
+	db := d.db.WithContext(ctx)
+	// 应用自定义更新函数
+	db = updateFunc(db)
+
+	// 执行更新操作
+	var err error
+	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
+		// 对于原始SQL查询，直接执行
+		err = db.Exec(db.Statement.SQL.String(), db.Statement.Vars...).Error
+	} else {
+		// 对于常规查询，执行操作
+		err = db.Error
+	}
 
 	return err
 }
 
-func (d *{{.TableNameCamelFCL}}Dao) updateDataBy{{.ColumnNameCamel}}(ctx context.Context, db *gorm.DB, table *model.{{.TableNameCamel}}) error {
-	{{if .IsStringType}}if table.{{.ColumnNameCamel}} == "" {
-		return errors.New("{{.ColumnNameCamelFCL}} cannot be empty")
-	}
-{{else}}	if table.{{.ColumnNameCamel}} < 1 {
-		return errors.New("{{.ColumnNameCamelFCL}} cannot be 0")
-	}
-{{end}}
-
-	update := map[string]interface{}{}
-	// todo generate the update fields code to here
-	// delete the templates code start
-	if table.Name != "" {
-		update["name"] = table.Name
-	}
-	if table.Password != "" {
-		update["password"] = table.Password
-	}
-	if table.Email != "" {
-		update["email"] = table.Email
-	}
-	if table.Phone != "" {
-		update["phone"] = table.Phone
-	}
-	if table.Avatar != "" {
-		update["avatar"] = table.Avatar
-	}
-	if table.Age > 0 {
-		update["age"] = table.Age
-	}
-	if table.Gender > 0 {
-		update["gender"] = table.Gender
-	}
-	if table.LoginAt > 0 {
-		update["login_at"] = table.LoginAt
-	}
-	// delete the templates code end
-
-	return db.WithContext(ctx).Model(table).Updates(update).Error
-}
-
-// GetBy{{.ColumnNameCamel}} get a record by {{.ColumnNameCamelFCL}}
-func (d *{{.TableNameCamelFCL}}Dao) GetBy{{.ColumnNameCamel}}(ctx context.Context, {{.ColumnNameCamelFCL}} {{.GoType}}) (*model.{{.TableNameCamel}}, error) {
+func (d *{{.TableNameCamelFCL}}Dao) GetByID(ctx context.Context, id uint64, forceMaster ...bool) (*model.{{.TableNameCamel}}, error) {
 	// no cache
-	if d.cache == nil {
+	if d.cacheManager == nil {
 		record := &model.{{.TableNameCamel}}{}
-		err := d.db.WithContext(ctx).Where("{{.ColumnName}} = ?", {{.ColumnNameCamelFCL}}).First(record).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id = ?", id).First(record).Error
 		return record, err
 	}
 
-	// get from cache
-	record, err := d.cache.Get(ctx, {{.ColumnNameCamelFCL}})
-	if err == nil {
-		return record, nil
-	}
+	// 使用缓存管理器获取数据
+	return d.cacheManager.get(ctx, id, func() (*model.{{.TableNameCamel}}, error) {
+		table := &model.{{.TableNameCamel}}{}
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id = ?", id).First(table).Error
+		return table, err
+	})
+}
 
-	// get from database
-	if errors.Is(err, database.ErrCacheNotFound) {
-		// for the same {{.ColumnNameCamelFCL}}, prevent high concurrent simultaneous access to database
-		{{if .IsStringType}}val, err, _ := d.sfg.Do({{.ColumnNameCamelFCL}}, func() (interface{}, error) {
-{{else}}		val, err, _ := d.sfg.Do(utils.{{.GoTypeFCU}}ToStr({{.ColumnNameCamelFCL}}), func() (interface{}, error) {
-{{end}}
-			table := &model.{{.TableNameCamel}}{}
-			err = d.db.WithContext(ctx).Where("{{.ColumnName}} = ?", {{.ColumnNameCamelFCL}}).First(table).Error
-			if err != nil {
-				// set placeholder cache to prevent cache penetration, default expiration time 10 minutes
-				if errors.Is(err, database.ErrRecordNotFound) {
-					if err = d.cache.SetPlaceholder(ctx, {{.ColumnNameCamelFCL}}); err != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
-					}
-					return nil, database.ErrRecordNotFound
-				}
-				return nil, err
-			}
-			// set cache
-			if err = d.cache.Set(ctx, {{.ColumnNameCamelFCL}}, table, cache.{{.TableNameCamel}}ExpireTime); err != nil {
-				logger.Warn("cache.Set error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
-			}
-			return table, nil
-		})
+func (d *{{.TableNameCamelFCL}}Dao) queryByColumns(ctx context.Context, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
+	var total int64
+	var records []*model.{{.TableNameCamel}}
+	// 统计总数（若需要）
+	if params.Sort != "ignore count" {
+		err := d.db.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&total).Error
 		if err != nil {
 			return nil, err
 		}
-		table, ok := val.(*model.{{.TableNameCamel}})
-		if !ok {
-			return nil, database.ErrRecordNotFound
+		if total == 0 {
+			return struct {
+				records []*model.{{.TableNameCamel}}
+				total   int64
+			}{records: []*model.{{.TableNameCamel}}{}, total: 0}, nil
 		}
-		return table, nil
 	}
 
-	if d.cache.IsPlaceholderErr(err) {
-		return nil, database.ErrRecordNotFound
+	// 分页查询
+	order, limit, offset := params.ConvertToPage()
+	err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, err
+	return struct {
+		records []*model.{{.TableNameCamel}}
+		total   int64
+	}{records: records, total: total}, nil
+}
+
+func (d *{{.TableNameCamelFCL}}Dao) queryByColumnsWithDB(ctx context.Context, db *gorm.DB, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
+	var total int64
+	var records []*model.{{.TableNameCamel}}
+	// 统计总数（若需要）
+	if params.Sort != "ignore count" {
+		err := db.Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&total).Error
+		if err != nil {
+			return nil, err
+		}
+		if total == 0 {
+			return struct {
+				records []*model.{{.TableNameCamel}}
+				total   int64
+			}{records: []*model.{{.TableNameCamel}}{}, total: 0}, nil
+		}
+	}
+
+	// 分页查询
+	order, limit, offset := params.ConvertToPage()
+	err := db.Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return struct {
+		records []*model.{{.TableNameCamel}}
+		total   int64
+	}{records: records, total: total}, nil
 }
 
 // GetByColumns get paging records by column information,
@@ -528,14 +840,14 @@ func (d *{{.TableNameCamelFCL}}Dao) GetBy{{.ColumnNameCamel}}(ctx context.Contex
 //
 //	page: page number, starting from 0
 //	limit: lines per page
-//	sort: sort fields, default is {{.ColumnNameCamelFCL}} backwards, you can add - sign before the field to indicate reverse order, no - sign to indicate ascending order, multiple fields separated by comma
+//	sort: sort fields, default is id backwards, you can add - sign before the field to indicate reverse order, no - sign to indicate ascending order, multiple fields separated by comma
 //
 // query parameters (not required):
 //
-//	name: column name
-//  exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
-//	value: column value, if exp=in, multiple values are separated by commas
-//	logic: logical type, defaults to and when value is null, only &(and), ||(or)
+//		name: column name
+//	 exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
+//		value: column value, if exp=in, multiple values are separated by commas
+//		logic: logical type, defaults to and when value is null, only &(and), ||(or)
 //
 // example: search for a male over 20 years of age
 //
@@ -553,56 +865,40 @@ func (d *{{.TableNameCamelFCL}}Dao) GetBy{{.ColumnNameCamel}}(ctx context.Contex
 //			Value: "male",
 //		},
 //	}
-func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *query.Params) ([]*model.{{.TableNameCamel}}, int64, error) {
+func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) ([]*model.{{.TableNameCamel}}, int64, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, errors.New("query params error: " + err.Error())
 	}
 
 	// 生成唯一 key
-    key := "columns:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	var result struct {
 		records []*model.{{.TableNameCamel}}
 		total   int64
 	}
 
-	// 使用 singleflight 避免并发重复查询
-	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-		var total int64
-		var records []*model.{{.TableNameCamel}}
-
-		// 统计总数（若需要）
-		if params.Sort != "ignore count" {
-			err := d.db.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&total).Error
-			if err != nil {
-				return nil, err
-			}
-			if total == 0 {
-				return struct {
-					records []*model.{{.TableNameCamel}}
-					total   int64
-				}{records: []*model.{{.TableNameCamel}}{}, total: 0}, nil
-			}
+	// 使用缓存管理器或 singleflight 避免并发重复查询
+	var val interface{}
+	//仅使用 singleflight
+	val, err, _ = d.sfg.Do("columns:"+key, func() (interface{}, error) {
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
 		}
-
-		// 分页查询
-		order, limit, offset := params.ConvertToPage()
-		err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
-		if err != nil {
-			return nil, err
-		}
-
-		return struct {
-			records []*model.{{.TableNameCamel}}
-			total   int64
-		}{records: records, total: total}, nil
+		return d.queryByColumnsWithDB(ctx, db, params, queryStr, args)
 	})
-
+	// 处理错误情况
 	if err != nil {
+		// 如果是数据库记录未找到的错误，返回空结果而非错误
+		if errors.Is(err, database.ErrRecordNotFound) || errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.{{.TableNameCamel}}{}, 0, nil
+		}
 		return nil, 0, err
 	}
 
+	// 类型断言获取查询结果
 	result = val.(struct {
 		records []*model.{{.TableNameCamel}}
 		total   int64
@@ -611,97 +907,44 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 	return result.records, result.total, nil
 }
 
-func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params *query.Params) (*model.{{.TableNameCamel}}, error) {
+func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) (*model.{{.TableNameCamel}}, error) {
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, errors.New("query params error: " + err.Error())
 	}
-    // 生成唯一 key
-    key := "condition:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+	order, _, _ := params.ConvertToPage()
+
+	// 生成唯一 key
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
 
 	// no cache
-	if d.cache == nil {
+	if d.cacheManager == nil {
 		record := &model.{{.TableNameCamel}}{}
-		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
 		}
+		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		return record, err
 	}
 
-	// 有缓存的情况
-	// 先尝试从缓存获取ID
-	cachedID, err := d.cache.GetIdByKey(ctx, key)
-	if err == nil && cachedID != 0 {
-		// 通过ID获取完整信息
-		return d.GetByID(ctx, cachedID)
-	}
-
-	record := &model.{{.TableNameCamel}}{}
-	// 从数据库获取
-	val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-		err := d.db.WithContext(ctx).Where(queryStr, args...).First(record).Error
-		if err != nil {
-			return nil, err
+	// 使用缓存管理器获取数据
+	return d.cacheManager.getOneByConditionKey(ctx, key, func() (*model.{{.TableNameCamel}}, error) {
+		record := &model.{{.TableNameCamel}}{}
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
 		}
-
-		// 将查询结果的ID缓存起来
-		if err = d.cache.SetIdByKey(ctx, key, record.ID, cache.{{.TableNameCamel}}ExpireTime); err != nil {
-			logger.Warn("cache.SetIdByKey error", logger.Err(err), logger.Any("key", key), logger.Any("id", record.ID))
-		}
-
-		// 通过ID获取完整信息
-        return d.GetByID(ctx, record.ID)
+		err := db.Order(order).Where(queryStr, args...).First(record).Error
+		return record, err
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	record = val.(*model.{{.TableNameCamel}})
-	return record, nil
-}
-
-
-// DeleteBy{{.ColumnNamePluralCamel}} delete records by batch {{.ColumnNameCamelFCL}}
-func (d *{{.TableNameCamelFCL}}Dao) DeleteBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	err := d.db.WithContext(ctx).Where("{{.ColumnName}} IN (?)", {{.ColumnNamePluralCamelFCL}}).Delete(&model.{{.TableNameCamel}}{}).Error
-	if err != nil {
-		return err
-	}
-
-	// delete cache
-	for _, {{.ColumnNameCamelFCL}} := range {{.ColumnNamePluralCamelFCL}} {
-		_ = d.deleteCache(ctx, {{.ColumnNameCamelFCL}})
-	}
-
-	return nil
-}
-
-func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
-	defer func() {
-		// delete cache
-		_ = d.deleteCache(ctx, 88888888)
-	}()
-	queryStr, args, err := c.ConvertToGorm()
-	if err != nil {
-		return err
-	}
-	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.{{.TableNameCamel}}{}).Error
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // GetByCondition get a record by condition
 // query conditions:
 //
 //	name: column name
-//  exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
+//	exp: expressions, which default is "=",  support =, !=, >, >=, <, <=, like, in, notin, isnull, isnotnull
 //	value: column value, if exp=in, multiple values are separated by commas
 //	logic: logical type, defaults to and when value is null, only &(and), ||(or)
 //
@@ -718,214 +961,214 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *qu
 //			Value: "male",
 //		},
 //	}
-func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query.Conditions) (ids []uint64, err error)  {
-queryStr, args, err := c.ConvertToGorm()
+func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (ids []uint64, err error) {
+	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, err
 	}
-	var tables []*model.{{.TableNameCamel}}{}
-	key := "condition:" + gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
-	if d.cache == nil {
-		// for the same id, prevent high concurrent simultaneous access to database
-		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
-			if err != nil {
-				return nil, err
-			}
-			for _, table := range tables {
-				ids = append(ids, table.ID)
-			}
-			return ids, nil
-		})
+
+	var tables []*model.{{.TableNameCamel}}
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v", queryStr, args)))
+
+	// no cache
+	if d.cacheManager == nil {
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err = db.Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
 		}
-		ids, ok := val.([]uint64)
-		if !ok {
-			return nil, database.ErrRecordNotFound
+		var result []uint64
+		for _, table := range tables {
+			result = append(result, table.ID)
 		}
-		return ids, nil
+		return result, nil
 	}
 
-	// get from cache
-	ids, err = d.cache.GetIdsByKey(ctx, key)
-	if err == nil {
-		return ids, nil
-	}
-	// get from database
-	if errors.Is(err, database.ErrCacheNotFound) {
-		// for the same id, prevent high concurrent simultaneous access to database
-		val, err, _ := d.sfg.Do(key, func() (interface{}, error) {
-			err = d.db.WithContext(ctx).Where(queryStr, args...).Find(&tables).Error
-			if err != nil {
-				// set placeholder cache to prevent cache penetration, default expiration time 10 minutes
-				if errors.Is(err, database.ErrRecordNotFound) {
-					if err = d.cache.SetPlaceholderByKey(ctx, key); err != nil {
-						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(err), logger.Any("key", key))
-					}
-					return nil, database.ErrRecordNotFound
-				}
-				return nil, err
-			}
-			for _, table := range tables {
-				ids = append(ids, table.ID)
-			}
-			// set cache
-			if err = d.cache.SetIdsByKey(ctx, key, ids, cache.{{.TableNameCamel}}ExpireTime); err != nil {
-				logger.Warn("cache.Set error", logger.Err(err), logger.Any("ids", ids))
-			}
-			return ids, nil
-		})
+	// 使用缓存管理器获取数据
+	return d.cacheManager.getByCondition(ctx, key, func() ([]uint64, error) {
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err = db.Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, err
 		}
-		ids, ok := val.([]uint64)
-		if !ok {
-			return nil, database.ErrRecordNotFound
+		var result []uint64
+		for _, table := range tables {
+			result = append(result, table.ID)
 		}
-		return ids, nil
-	}
-	if d.cache.IsPlaceholderErr(err) {
-		return nil, database.ErrRecordNotFound
-	}
-	return nil, err
+		return result, nil
+	})
 }
 
-// GetBy{{.ColumnNamePluralCamel}} get records by batch {{.ColumnNameCamelFCL}}
-func (d *{{.TableNameCamelFCL}}Dao) GetBy{{.ColumnNamePluralCamel}}(ctx context.Context, {{.ColumnNamePluralCamelFCL}} []{{.GoType}}) (map[{{.GoType}}]*model.{{.TableNameCamel}}, error) {
+func (d *{{.TableNameCamelFCL}}Dao) GetByIDs(ctx context.Context, ids []uint64, forceMaster ...bool) (map[uint64]*model.{{.TableNameCamel}}, error) {
 	// no cache
-	if d.cache == nil {
+	if d.cacheManager == nil {
 		var records []*model.{{.TableNameCamel}}
-		err := d.db.WithContext(ctx).Where("{{.ColumnName}} IN (?)", {{.ColumnNamePluralCamelFCL}}).Find(&records).Error
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
+		}
+		err := db.Where("id IN (?)", ids).Find(&records).Error
 		if err != nil {
 			return nil, err
 		}
-		itemMap := make(map[{{.GoType}}]*model.{{.TableNameCamel}})
+		itemMap := make(map[uint64]*model.{{.TableNameCamel}})
 		for _, record := range records {
-			itemMap[record.{{.ColumnNameCamel}}] = record
+			itemMap[record.ID] = record
 		}
 		return itemMap, nil
 	}
 
-	// get form cache
-	itemMap, err := d.cache.MultiGet(ctx, {{.ColumnNamePluralCamelFCL}})
-	if err != nil {
-		return nil, err
-	}
-
-	var missed{{.ColumnNamePluralCamel}} []{{.GoType}}
-	for _, {{.ColumnNameCamelFCL}} := range {{.ColumnNamePluralCamelFCL}} {
-		if _, ok := itemMap[{{.ColumnNameCamelFCL}}]; !ok {
-			missed{{.ColumnNamePluralCamel}} = append(missed{{.ColumnNamePluralCamel}}, {{.ColumnNameCamelFCL}})
+	// 使用缓存管理器获取数据
+	return d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.{{.TableNameCamel}}, error) {
+		var records []*model.{{.TableNameCamel}}
+		db := d.db.WithContext(ctx)
+		if len(forceMaster) > 0 && forceMaster[0] {
+			db = db.Clauses(dbresolver.Write)
 		}
-	}
-
-	// get missed data
-	if len(missed{{.ColumnNamePluralCamel}}) > 0 {
-		// find the {{.ColumnNameCamelFCL}} of an active placeholder, i.e. an {{.ColumnNameCamelFCL}} that does not exist in database
-		var realMissed{{.ColumnNamePluralCamel}} []{{.GoType}}
-		for _, {{.ColumnNameCamelFCL}} := range missed{{.ColumnNamePluralCamel}} {
-			_, err = d.cache.Get(ctx, {{.ColumnNameCamelFCL}})
-			if d.cache.IsPlaceholderErr(err) {
-				continue
-			}
-			realMissed{{.ColumnNamePluralCamel}} = append(realMissed{{.ColumnNamePluralCamel}}, {{.ColumnNameCamelFCL}})
-		}
-
-		if len(realMissed{{.ColumnNamePluralCamel}}) > 0 {
-			var records []*model.{{.TableNameCamel}}
-			var record{{.ColumnNameCamel}}Map = make(map[{{.GoType}}]struct{})
-			err = d.db.WithContext(ctx).Where("{{.ColumnName}} IN (?)", realMissed{{.ColumnNamePluralCamel}}).Find(&records).Error
-			if err != nil {
-				return nil, err
-			}
-
-			if len(records) > 0 {
-				for _, record := range records {
-					itemMap[record.{{.ColumnNameCamel}}] = record
-					record{{.ColumnNameCamel}}Map[record.{{.ColumnNameCamel}}] = struct{}{}
-				}
-				err = d.cache.MultiSet(ctx, records, cache.{{.TableNameCamel}}ExpireTime)
-				if err != nil {
-					logger.Warn("cache.MultiSet error", logger.Err(err), logger.Any("{{.ColumnNamePluralCamelFCL}}", records))
-				}
-				if len(records) == len(realMissed{{.ColumnNamePluralCamel}}) {
-					return itemMap, nil
-				}
-			}
-			for _, {{.ColumnNameCamelFCL}} := range realMissed{{.ColumnNamePluralCamel}} {
-				if _, ok := record{{.ColumnNameCamel}}Map[{{.ColumnNameCamelFCL}}]; !ok {
-					if err = d.cache.SetPlaceholder(ctx, {{.ColumnNameCamelFCL}}); err != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
-					}
-				}
-			}
-		}
-	}
-
-	return itemMap, nil
+		err := db.Where("id IN (?)", missedIDs).Find(&records).Error
+		return records, err
+	})
 }
 
-
-// CreateByTx create a record in the database using the provided transaction
-func (d *{{.TableNameCamelFCL}}Dao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) ({{.GoType}}, error) {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	err := tx.WithContext(ctx).Create(table).Error
-	return table.{{.ColumnNameCamel}}, err
-}
-
-func (d *{{.TableNameCamelFCL}}Dao) CreateByTxInBatches(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-    return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
-}
-
-// DeleteByTx delete a record by {{.ColumnNameCamelFCL}} in the database using the provided transaction
-func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB, {{.ColumnNameCamelFCL}} {{.GoType}}) error {
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	update := map[string]interface{}{
-		"deleted_at": time.Now(),
-	}
-	err := tx.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where("{{.ColumnName}} = ?", {{.ColumnNameCamelFCL}}).Updates(update).Error
-	if err != nil {
-		return err
-	}
-
-	// delete cache
-	_ = d.deleteCache(ctx, {{.ColumnNameCamelFCL}})
-
-	return nil
-}
-
-func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
-	defer func() {
-		// delete cache
-		_ = d.deleteCache(ctx, 88888888)
-	}()
+func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (int64, error) {
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
-		return err
+		return 0, err
 	}
-	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.{{.TableNameCamel}}{}).Error
-	if err != nil {
-		return err
+
+	var count int64
+	db := d.db.WithContext(ctx)
+	if len(forceMaster) > 0 && forceMaster[0] {
+		db = db.Clauses(dbresolver.Write)
 	}
-	return nil
+	err = db.Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&count).Error
+	return count, err
 }
 
-// UpdateByTx update a record by {{.ColumnNameCamelFCL}} in the database using the provided transaction
-	defer func() {
-		_ = d.deleteCache(ctx, 0)
-	}()
-	err := d.updateDataBy{{.ColumnNameCamel}}(ctx, tx, table)
+func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (bool, error) {
+	queryStr, args, err := c.ConvertToGorm()
+	if err != nil {
+		return false, err
+	}
 
-	// delete cache
-	_ = d.deleteCache(ctx, table.{{.ColumnNameCamel}})
+	var count int64
+	db := d.db.WithContext(ctx)
+	if len(forceMaster) > 0 && forceMaster[0] {
+		db = db.Clauses(dbresolver.Write)
+	}
+	err = db.Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Limit(1).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
 
-	return err
+// 1. 不分页查询（page=-1 或 limit<=0）
+//var result1 []map[string]interface{}
+//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//	return db.Model(&model.CpDealer{}).
+//		Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
+//		Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
+//		Where("cp_dealer.status = ?", 1).
+//		Order("cp_dealer.id DESC")
+//}, &result1, -1, 0)
+
+//原始 SQL
+//var result1 []map[string]interface{}
+//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//	return db.Raw("SELECT cp_dealer.id, cp_dealer.name FROM cp_dealer WHERE cp_dealer.status = ? ORDER BY cp_dealer.id DESC", 1)
+//}, &result1, 0, 10)
+
+// 2. 分页查询（page>=0 且 limit>0）
+//var result1 []map[string]interface{}
+//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//	return db.Model(&model.CpDealer{}).
+//		Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
+//		Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
+//		Where("cp_dealer.status = ?", 1).
+//		Order("cp_dealer.id DESC")
+//}, &result1, 0, 10)
+
+func (d *{{.TableNameCamelFCL}}Dao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int) (int64, error) {
+
+	db := d.db.WithContext(ctx)
+	// 应用自定义查询函数
+	db = queryFunc(db)
+
+	var total int64 = -1 // 使用-1表示未计算总数
+
+	// 判断是否需要分页
+	if page >= 0 && limit > 0 {
+		// 需要分页，先计算总数
+		stmt := db.Statement
+		if stmt != nil {
+			if stmt.Table != "" || stmt.Model != nil {
+				// 对于常规查询，使用GORM内置的Count方法
+				err := db.Count(&total).Error
+				if err != nil {
+					return 0, err
+				}
+				// 应用分页
+				offset := page * limit
+				db = db.Offset(offset).Limit(limit)
+			} else if stmt.SQL.Len() > 0 {
+				// 对于原始SQL查询，手动构造COUNT查询
+				originalSQL := stmt.SQL.String()
+				countSQL := d.convertToCountSQL(originalSQL)
+
+				var count int64
+				err := d.db.WithContext(ctx).Raw(countSQL, stmt.Vars...).Scan(&count).Error
+				if err != nil {
+					return 0, err
+				}
+				total = count
+
+				// 对于原始SQL查询，手动应用分页
+				pagedSQL := originalSQL + " LIMIT ? OFFSET ?"
+				offset := page * limit
+				db = d.db.WithContext(ctx).Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
+			}
+		}
+	}
+
+	// 执行查询
+	var err error
+	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
+		// 对于原始SQL查询，使用Scan方法
+		err = db.Scan(result).Error
+	} else {
+		// 对于常规查询，使用Find方法
+		err = db.Find(result).Error
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
+// convertToCountSQL 将普通SQL查询转换为COUNT查询SQL
+func (d *{{.TableNameCamelFCL}}Dao) convertToCountSQL(sql string) string {
+	// 移除ORDER BY子句，因为COUNT查询不需要排序
+	orderByIndex := strings.Index(strings.ToLower(sql), "order by")
+	if orderByIndex != -1 {
+		// 查找ORDER BY之前的部分
+		sql = sql[:orderByIndex]
+	}
+	// 移除LIMIT和OFFSET子句
+	limitIndex := strings.Index(strings.ToLower(sql), "limit")
+	if limitIndex != -1 {
+		sql = sql[:limitIndex]
+	}
+	// 包装成COUNT查询
+	trimmedSQL := strings.TrimSpace(sql)
+	countSQL := "SELECT COUNT(*) FROM (" + trimmedSQL + ") AS count_query"
+	return countSQL
 }
