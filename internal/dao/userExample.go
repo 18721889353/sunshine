@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"google.golang.org/grpc/metadata"
 	"strings"
 	"time"
 
@@ -90,6 +93,7 @@ func (m *userExampleCacheManager) getColumnsCacheKey(key string) string {
 
 // get 通过singleflight和缓存获取数据
 func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先从缓存获取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -105,7 +109,7 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 				// 设置占位符缓存防止缓存穿透
 				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 					if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
+						logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id), requestId)
 					}
 					return nil, database.ErrRecordNotFound
 				}
@@ -113,7 +117,7 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 			}
 			// 设置缓存
 			if cacheErr := m.cache.Set(ctx, id, table, cache.UserExampleExpireTime); cacheErr != nil {
-				logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
+				logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", id), requestId)
 			}
 			return table, nil
 		})
@@ -137,6 +141,7 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 
 // getCondition 通过条件获取单条记录
 func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先尝试从缓存获取ID
@@ -167,7 +172,7 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 				// 设置占位符缓存防止缓存穿透
 				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
-						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey), requestId)
 					}
 					return nil, database.ErrRecordNotFound
 				}
@@ -177,11 +182,11 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 			// 如果记录存在，将其ID缓存起来
 			if record != nil {
 				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, cache.UserExampleExpireTime); cacheErr != nil {
-					logger.Warn("cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
+					logger.Warn("cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID), requestId)
 				}
 				// 同时缓存完整记录
 				if cacheErr := m.cache.Set(ctx, record.ID, record, cache.UserExampleExpireTime); cacheErr != nil {
-					logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
+					logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID), requestId)
 				}
 			}
 			return record, nil
@@ -207,6 +212,7 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 
 // getByCondition 通过条件获取ID列表
 func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先从缓存获取
@@ -214,7 +220,7 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 	if err == nil {
 		// 检查ID列表大小，如果过大则不使用缓存，直接查询数据库
 		if len(ids) > 10000 {
-			logger.Warn("cached id list too large, querying database directly", logger.Any("count", len(ids)), logger.Any("key", key))
+			logger.Warn("cached id list too large, querying database directly", logger.Any("count", len(ids)), logger.Any("key", key), requestId)
 			return queryFunc()
 		}
 		return ids, nil
@@ -228,20 +234,20 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 			if dbErr != nil {
 				// 设置占位符缓存防止缓存穿透
 				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
-					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey), requestId)
 				}
 				return nil, dbErr
 			}
 
 			// 对于大数据量的结果集，不进行缓存，直接返回
 			if len(result) > 10000 {
-				logger.Warn("result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key))
+				logger.Warn("result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key), requestId)
 				return result, nil
 			}
 
 			// 设置缓存
 			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, cache.UserExampleExpireTime); cacheErr != nil {
-				logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
+				logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result), requestId)
 			}
 			return result, nil
 		})
@@ -295,6 +301,7 @@ func (m *userExampleCacheManager) getByIDs(ctx context.Context, ids []uint64, qu
 
 // getByIDsBatch 批量获取记录的实际实现
 func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先从缓存获取
 	itemMap, err := m.cache.MultiGet(ctx, ids)
 	if err != nil {
@@ -337,7 +344,7 @@ func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint6
 				}
 				// 批量设置缓存
 				if cacheErr := m.cache.MultiSet(ctx, records, cache.UserExampleExpireTime); cacheErr != nil {
-					logger.Warn("cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", realMissedIDs))
+					logger.Warn("cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", realMissedIDs), requestId)
 				}
 			}
 
@@ -351,7 +358,7 @@ func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint6
 				for _, id := range realMissedIDs {
 					if !existingIDs[id] {
 						if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
-							logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
+							logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id), requestId)
 						}
 					}
 				}
@@ -385,75 +392,100 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 }
 
 func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 创建操作只清除条件查询缓存，保留单条记录缓存
-		_ = d.deleteCache(ctx, 0, "condition")
+		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+			logger.Warn("Create: failed to delete condition cache", logger.Err(err), requestId)
+		}
 	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
 func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 批量创建操作只清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
+		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+			logger.Warn("CreateInBatches: failed to delete condition cache", logger.Err(err), requestId)
+		}
 	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 事务创建操作只清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
+		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+			logger.Warn("CreateByTx: failed to delete condition cache", logger.Err(err), requestId)
+		}
 	}()
 	err := tx.WithContext(ctx).Create(table).Error
 	return table.ID, err
 }
 func (d *userExampleDao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 事务批量创建操作只清除条件查询缓存
-		_ = d.deleteCache(ctx, 0, "condition")
+		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+			logger.Warn("CreateByInBatchesTx: failed to delete condition cache", logger.Err(err), requestId)
+		}
 	}()
 	return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
+
 // deleteCache 删除缓存的统一入口，封装错误处理
 // deleteType 支持：
 //   - "single": 删除单个 ID 缓存
 //   - "condition": 删除条件查询缓存（包括 condition、columns、count、exists）
 //   - "all": 删除所有缓存（包括单条记录、条件查询、分页查询、计数、存在性检查）
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
+
 	if d.cache == nil {
 		return nil
 	}
 
-	var err error
+	var errs []error
 	switch deleteType {
 	case "single":
 		// 删除单个 ID 缓存
-		err = d.cache.Del(ctx, id)
+		if err := d.cache.Del(ctx, id); err != nil {
+			errs = append(errs, fmt.Errorf("delete single cache failed: %w", err))
+		}
 	case "all":
-		// 删除所有缓存（最彻底）
-		err = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey)
+		// 删除所有缓存（最彻底）：使用统一的前缀删除
+		if err := d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey); err != nil {
+			errs = append(errs, fmt.Errorf("delete all cache failed: %w", err))
+		}
 	case "condition":
-		// 删除条件查询相关的所有缓存
-		// 1. 删除 condition 前缀的缓存（GetOneByColumns、GetByCondition）
-		_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"condition")
-		// 2. 删除 columns 前缀的缓存（GetByColumns）
-		_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"columns")
-		// 3. 删除 count 前缀的缓存（CountByCondition）
-		_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"count")
-		// 4. 删除 exists 前缀的缓存（ExistsByCondition）
-		_ = d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey+"exists")
-		return nil // 已经处理完所有子操作，直接返回
+		// 删除条件查询相关的所有缓存（包括 condition、columns、count、exists）
+		prefixes := []string{
+			cache.UserExampleCachePrefixKey + "condition",
+			cache.UserExampleCachePrefixKey + "columns",
+			cache.UserExampleCachePrefixKey + "count",
+			cache.UserExampleCachePrefixKey + "exists",
+		}
+		for _, prefix := range prefixes {
+			if err := d.cache.DelByPrefix(ctx, prefix); err != nil {
+				errs = append(errs, fmt.Errorf("delete %s cache failed: %w", prefix, err))
+			}
+		}
 	default:
 		return nil
 	}
 
 	// 记录缓存删除错误，但不影响主流程
-	if err != nil {
-		logger.Warn("cache: failed to delete",
-			logger.String("type", deleteType),
-			logger.Any("id", id),
-			logger.Err(err))
+	if len(errs) > 0 {
+		for _, err := range errs {
+			logger.Warn("cache: failed to delete",
+				logger.String("type", deleteType),
+				logger.Any("id", id),
+				logger.Err(err), requestId)
+		}
+		// 返回第一个错误，供调用方参考
+		return errs[0]
 	}
-	return err
+	return nil
 }
 
 // delayedDoubleDelete 延迟双删缓存，确保缓存一致性
@@ -463,39 +495,68 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType 
 //   - ids: 批量 ID 列表（nil 表示不批量删除）
 //   - deleteType: 删除类型（single/all/condition）
 func (d *userExampleDao) delayedDoubleDelete(ctx context.Context, id uint64, ids []uint64, deleteType string) {
+	requestId := interceptor.CtxRequestIDField(ctx)
+
 	if d.cache == nil {
 		return
 	}
 
 	go func() {
+		// panic 保护，防止异步 goroutine 崩溃
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("delayedDoubleDelete panic recovered",
+					logger.Any("recover", r),
+					logger.Any("id", id),
+					logger.Any("deleteType", deleteType), requestId)
+			}
+		}()
+
 		// 延迟 100ms 后再次删除缓存，防止主从同步延迟导致的脏数据
 		time.Sleep(100 * time.Millisecond)
 
 		// 单个 ID 删除
 		if id > 0 {
-			_ = d.deleteCache(ctx, id, "single")
+			if err := d.deleteCache(ctx, id, "single"); err != nil {
+				logger.Error("delayedDoubleDelete: failed to delete single cache",
+					logger.Err(err),
+					logger.Any("id", id), requestId)
+			}
 		}
 
 		// 批量 ID 删除
 		if len(ids) > 0 {
 			for _, batchID := range ids {
-				_ = d.deleteCache(ctx, batchID, "single")
+				if err := d.deleteCache(ctx, batchID, "single"); err != nil {
+					logger.Error("delayedDoubleDelete: failed to delete single cache",
+						logger.Err(err),
+						logger.Any("id", batchID), requestId)
+				}
 			}
 		}
 
 		// 按条件删除
 		if deleteType != "" && deleteType != "single" {
-			_ = d.deleteCache(ctx, 0, deleteType)
+			if err := d.deleteCache(ctx, 0, deleteType); err != nil {
+				logger.Error("delayedDoubleDelete: failed to delete condition/all cache",
+					logger.Err(err),
+					logger.String("type", deleteType), requestId)
+			}
 		}
 	}()
 }
 
 func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
-	_ = d.deleteCache(ctx, id, "single")
+	if err := d.deleteCache(ctx, id, "single"); err != nil {
+		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", id), requestId)
+	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	_ = d.deleteCache(ctx, 0, "condition")
+	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", id), requestId)
+	}
 
 	// 执行数据库删除
 	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
@@ -504,17 +565,24 @@ func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), id, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), id, nil, "all")
 	return nil
 }
 func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 批量删除单条记录缓存（一级缓存）
 	for _, id := range ids {
-		_ = d.deleteCache(ctx, id, "single")
+		if err := d.deleteCache(ctx, id, "single"); err != nil {
+			logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", id), requestId)
+		}
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	_ = d.deleteCache(ctx, 0, "condition")
+	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids), requestId)
+	}
 
 	// 执行数据库删除
 	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
@@ -523,13 +591,18 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), 0, ids, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), 0, ids, "all")
 	return nil
 }
 func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件删除会影响多条记录，需要删除所有缓存（一级 + 二级）
-	_ = d.deleteCache(ctx, 0, "all")
+	if err := d.deleteCache(ctx, 0, "all"); err != nil {
+		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+	}
 
 	// 构建查询条件
 	queryStr, args, err := c.ConvertToGorm()
@@ -544,15 +617,22 @@ func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditi
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), 0, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), 0, nil, "all")
 	return nil
 }
 func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
-	_ = d.deleteCache(ctx, id, "single")
+	if err := d.deleteCache(ctx, id, "single"); err != nil {
+		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", id), requestId)
+	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	_ = d.deleteCache(ctx, 0, "condition")
+	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", id), requestId)
+	}
 
 	// 执行数据库软删除
 	update := map[string]interface{}{
@@ -564,17 +644,24 @@ func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64)
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), id, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), id, nil, "all")
 	return nil
 }
 func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 批量删除单条记录缓存（一级缓存）
 	for _, id := range ids {
-		_ = d.deleteCache(ctx, id, "single")
+		if err := d.deleteCache(ctx, id, "single"); err != nil {
+			logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", id), requestId)
+		}
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	_ = d.deleteCache(ctx, 0, "condition")
+	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids), requestId)
+	}
 
 	// 执行数据库删除
 	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
@@ -583,13 +670,18 @@ func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []u
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), 0, ids, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), 0, ids, "all")
 	return nil
 }
 func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件删除会影响多条记录，需要删除所有缓存（一级 + 二级）
-	_ = d.deleteCache(ctx, 0, "all")
+	if err := d.deleteCache(ctx, 0, "all"); err != nil {
+		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+	}
 
 	// 构建查询条件
 	queryStr, args, err := c.ConvertToGorm()
@@ -604,7 +696,9 @@ func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), 0, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), 0, nil, "all")
 	return nil
 }
 func (d *userExampleDao) ClearCache(ctx context.Context) error {
@@ -625,11 +719,16 @@ func (d *userExampleDao) updateDataByID(db *gorm.DB, table *model.UserExample) e
 	return db.Model(table).Updates(update).Error
 }
 func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
-	_ = d.deleteCache(ctx, table.ID, "single")
+	if err := d.deleteCache(ctx, table.ID, "single"); err != nil {
+		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	_ = d.deleteCache(ctx, 0, "condition")
+	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+	}
 
 	// 执行数据库更新
 	err := d.updateDataByID(d.db, table)
@@ -638,13 +737,18 @@ func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExampl
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), table.ID, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), table.ID, nil, "all")
 	return nil
 }
 func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有缓存（一级 + 二级）
-	_ = d.deleteCache(ctx, 0, "all")
+	if err := d.deleteCache(ctx, 0, "all"); err != nil {
+		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+	}
 
 	// 构建查询条件
 	queryStr, args, err := c.ConvertToGorm()
@@ -663,15 +767,22 @@ func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditi
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), 0, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), 0, nil, "all")
 	return nil
 }
 func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
-	_ = d.deleteCache(ctx, table.ID, "single")
+	if err := d.deleteCache(ctx, table.ID, "single"); err != nil {
+		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	_ = d.deleteCache(ctx, 0, "condition")
+	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
+		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+	}
 
 	// 执行数据库更新
 	err := d.updateDataByID(tx, table)
@@ -680,13 +791,18 @@ func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *mod
 	}
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), table.ID, nil, "all")
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), table.ID, nil, "all")
 	return nil
 }
 func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有缓存（一级 + 二级）
-	_ = d.deleteCache(ctx, 0, "all")
+	if err := d.deleteCache(ctx, 0, "all"); err != nil {
+		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+	}
 
 	// 构建查询条件
 	queryStr, args, err := c.ConvertToGorm()
@@ -704,8 +820,10 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 		return fmt.Errorf("update by condition tx failed: %w", err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	d.delayedDoubleDelete(context.Background(), 0, nil, "all")
+	// 延迟双删（第二次删除）：100ms 后再次清理所有相关缓存，防止主从同步延迟
+	d.delayedDoubleDelete(metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+	})), 0, nil, "all")
 	return nil
 }
 
@@ -746,9 +864,12 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 //})
 
 func (d *userExampleDao) ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error {
+	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先清除相关缓存
 	defer func() {
-		_ = d.deleteCache(ctx, 0, "all")
+		if err := d.deleteCache(ctx, 0, "all"); err != nil {
+			logger.Warn("ExecByCustomFunc: failed to delete cache", logger.Err(err), requestId)
+		}
 	}()
 
 	db := d.db.WithContext(ctx)
@@ -868,6 +989,8 @@ func (d *userExampleDao) queryByColumnsWithDB(db *gorm.DB, params *query.Params,
 //		},
 //	}
 func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, forceMaster ...bool) ([]*model.UserExample, int64, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
+
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, 0, fmt.Errorf("convert query conditions failed: %w", err)
@@ -906,7 +1029,7 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		if len(result.records) > 1000 {
 			logger.Warn("GetByColumns: result set too large",
 				logger.Any("count", len(result.records)),
-				logger.String("cache_key", cacheKey))
+				logger.String("cache_key", cacheKey), requestId)
 		}
 		return result.records, result.total, nil
 	}
@@ -968,7 +1091,7 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 	if len(result.records) > 1000 {
 		logger.Warn("GetByColumns: result set too large",
 			logger.Any("count", len(result.records)),
-			logger.String("cache_key", cacheKey))
+			logger.String("cache_key", cacheKey), requestId)
 	}
 
 	// 缓存结果（控制缓存数据量）
@@ -977,7 +1100,7 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		if setErr := d.cache.SetIdByKey(ctx, fullCacheKey+":total", uint64(result.total), cache.UserExampleExpireTime); setErr != nil {
 			logger.Warn("cache: failed to set total count",
 				logger.Err(setErr),
-				logger.String("key", fullCacheKey+":total"))
+				logger.String("key", fullCacheKey+":total"), requestId)
 		}
 
 		// 提取并缓存 ID 列表
@@ -988,14 +1111,14 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		if setErr := d.cache.SetIdsByKey(ctx, fullCacheKey+":ids", ids, cache.UserExampleExpireTime); setErr != nil {
 			logger.Warn("cache: failed to set ID list",
 				logger.Err(setErr),
-				logger.String("key", fullCacheKey+":ids"))
+				logger.String("key", fullCacheKey+":ids"), requestId)
 		}
 
 		// 同时缓存单条记录
 		if setErr := d.cache.MultiSet(ctx, result.records, cache.UserExampleExpireTime); setErr != nil {
 			logger.Warn("cache: failed to multi-set records",
 				logger.Err(setErr),
-				logger.Any("count", len(result.records)))
+				logger.Any("count", len(result.records)), requestId)
 		}
 	}
 
@@ -1072,6 +1195,8 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 //		},
 //	}
 func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (ids []uint64, err error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
+
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return nil, fmt.Errorf("convert query conditions failed: %w", err)
@@ -1095,7 +1220,7 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 		if len(tables) > 10000 {
 			logger.Warn("GetByCondition: result set too large",
 				logger.Any("count", len(tables)),
-				logger.String("cache_key", cacheKey))
+				logger.String("cache_key", cacheKey), requestId)
 		}
 		// 提取 ID 列表
 		result := make([]uint64, 0, len(tables))
@@ -1159,6 +1284,8 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, forceMaster
 }
 
 func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (int64, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
+
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return 0, fmt.Errorf("convert query conditions failed: %w", err)
@@ -1204,7 +1331,7 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		if setErr := d.cache.SetIdByKey(ctx, countCacheKey, uint64(count), cache.UserExampleExpireTime); setErr != nil {
 			logger.Warn("cache: failed to set count",
 				logger.Err(setErr),
-				logger.String("key", countCacheKey))
+				logger.String("key", countCacheKey), requestId)
 		}
 		return count, nil
 	})
@@ -1215,6 +1342,8 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 }
 
 func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions, forceMaster ...bool) (bool, error) {
+	requestId := interceptor.CtxRequestIDField(ctx)
+
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return false, fmt.Errorf("convert query conditions failed: %w", err)
@@ -1266,7 +1395,7 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		if setErr := d.cache.SetIdByKey(ctx, existsCacheKey, cacheValue, cache.UserExampleExpireTime); setErr != nil {
 			logger.Warn("cache: failed to set exists result",
 				logger.Err(setErr),
-				logger.String("key", existsCacheKey))
+				logger.String("key", existsCacheKey), requestId)
 		}
 		return exists, nil
 	})
