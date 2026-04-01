@@ -42,7 +42,7 @@ import (
 	updateFieldTmpl    *template.Template
 	updateFieldTmplRaw = `
 {{- range .Fields}}
-	if table.{{.Name}}{{.ConditionZero}} {
+	if table.{{.Name}} {{.ConditionZero}} {
 		update["{{.ColName}}"] = table.{{.Name}}
 	}
 {{- end}}`
