@@ -576,7 +576,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ClearCache(ctx context.Context) error {
 	return nil
 }
 
-func (d *{{.TableNameCamelFCL}}Dao) updateDataByID(ctx context.Context, db *gorm.DB, table *model.{{.TableNameCamel}}) error {
+func (d *{{.TableNameCamelFCL}}Dao) updateDataByID(db *gorm.DB, table *model.{{.TableNameCamel}}) error {
 	if table.ID < 1 {
 		return errors.New("id cannot be 0")
 	}
@@ -584,14 +584,14 @@ func (d *{{.TableNameCamelFCL}}Dao) updateDataByID(ctx context.Context, db *gorm
 	update := map[string]interface{}{}
 	// todo generate the update fields code to here
 
-	return db.WithContext(ctx).Model(table).Updates(update).Error
+	return db.Model(table).Updates(update).Error
 }
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model.{{.TableNameCamel}}) error {
 	// 先删除缓存
 	_ = d.deleteCache(ctx, table.ID, "single")
 	_ = d.deleteCache(ctx, 0, "condition")
 
-	err := d.updateDataByID(ctx, d.db, table)
+	err := d.updateDataByID(d.db, table)
 	if err != nil {
 		return err
 	}
@@ -642,7 +642,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB,
 	_ = d.deleteCache(ctx, table.ID, "single")
 	_ = d.deleteCache(ctx, 0, "condition")
 
-	err := d.updateDataByID(ctx, tx, table)
+	err := d.updateDataByID(tx, table)
 	if err != nil {
 		return err
 	}
@@ -772,37 +772,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByID(ctx context.Context, id uint64, forc
 	})
 }
 
-func (d *{{.TableNameCamelFCL}}Dao) queryByColumns(ctx context.Context, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
-	var total int64
-	var records []*model.{{.TableNameCamel}}
-	// 统计总数（若需要）
-	if params.Sort != "ignore count" {
-		err := d.db.WithContext(ctx).Model(&model.{{.TableNameCamel}}{}).Where(queryStr, args...).Count(&total).Error
-		if err != nil {
-			return nil, err
-		}
-		if total == 0 {
-			return struct {
-				records []*model.{{.TableNameCamel}}
-				total   int64
-			}{records: []*model.{{.TableNameCamel}}{}, total: 0}, nil
-		}
-	}
-
-	// 分页查询
-	order, limit, offset := params.ConvertToPage()
-	err := d.db.WithContext(ctx).Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return struct {
-		records []*model.{{.TableNameCamel}}
-		total   int64
-	}{records: records, total: total}, nil
-}
-
-func (d *{{.TableNameCamelFCL}}Dao) queryByColumnsWithDB(ctx context.Context, db *gorm.DB, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
+func (d *{{.TableNameCamelFCL}}Dao) queryByColumnsWithDB(db *gorm.DB, params *query.Params, queryStr string, args []interface{}) (interface{}, error) {
 	var total int64
 	var records []*model.{{.TableNameCamel}}
 	// 统计总数（若需要）
@@ -887,7 +857,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 		if len(forceMaster) > 0 && forceMaster[0] {
 			db = db.Clauses(dbresolver.Write)
 		}
-		return d.queryByColumnsWithDB(ctx, db, params, queryStr, args)
+		return d.queryByColumnsWithDB(db, params, queryStr, args)
 	})
 	// 处理错误情况
 	if err != nil {
@@ -1118,21 +1088,21 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCustomQuery(ctx context.Context, queryF
 				offset := page * limit
 				db = db.Offset(offset).Limit(limit)
 			} else if stmt.SQL.Len() > 0 {
-				// 对于原始SQL查询，手动构造COUNT查询
+				// 对于原始 SQL 查询，手动构造 COUNT 查询
 				originalSQL := stmt.SQL.String()
 				countSQL := d.convertToCountSQL(originalSQL)
-
+			
 				var count int64
-				err := d.db.WithContext(ctx).Raw(countSQL, stmt.Vars...).Scan(&count).Error
+				err := db.Raw(countSQL, stmt.Vars...).Scan(&count).Error
 				if err != nil {
 					return 0, err
 				}
 				total = count
-
-				// 对于原始SQL查询，手动应用分页
+			
+				// 对于原始 SQL 查询，手动应用分页
 				pagedSQL := originalSQL + " LIMIT ? OFFSET ?"
 				offset := page * limit
-				db = d.db.WithContext(ctx).Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
+				db = db.Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
 			}
 		}
 	}
