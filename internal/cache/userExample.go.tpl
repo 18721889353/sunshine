@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"go.uber.org/zap"
 	"strings"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/logger"
+
 	"github.com/go-redsync/redsync/v4"
 
 	"github.com/18721889353/sunshine/pkg/cache"
@@ -16,7 +19,6 @@ import (
 
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/model"
-	"go.uber.org/zap"
 )
 
 const (
@@ -73,7 +75,7 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	case "redis":
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.{{.TableNameCamel}}{}
-		},cache.WithCacheLog(logger.Get()))
+		}, cache.WithCacheLog(logger.Get()))
 		return &{{.TableNameCamelFCL}}Cache{cache: c}
 	}
 
@@ -108,7 +110,7 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 	if expiry <= 0 {
 		expiry = 10 * time.Second // 默认兜底
 	}
-	// requestId := interceptor.ServerCtxRequestIDField(ctx)
+	requestId := interceptor.ServerCtxRequestIDField(ctx)
 	// --- 看门狗实现开始 ---
 	// 3. 启动看门狗协程
 	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
@@ -124,9 +126,9 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 				if err != nil || !ok {
 					// 关键点：续期失败，立即取消任务 context
 					if err != nil {
-						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key))
+						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key), requestId)
 					} else {
-						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key))
+						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key), requestId)
 					}
 					stopWatchdog() // 续期失败，通知业务中断
 					return
@@ -142,7 +144,7 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 		stopWatchdog() // 确保退出时关闭协程
 		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
 			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
-				logger.Warn("释放分布式锁失败", zap.Error(releaseErr))
+				logger.Warn("释放分布式锁失败", zap.Error(releaseErr), requestId)
 			}
 		}
 	}()
@@ -161,7 +163,7 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 	if expiry <= 0 {
 		expiry = 10 * time.Second // 默认兜底
 	}
-	// requestId := interceptor.ServerCtxRequestIDField(ctx)
+	requestId := interceptor.ServerCtxRequestIDField(ctx)
 	// --- 看门狗实现开始 ---
 	// 3. 启动看门狗协程
 	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
@@ -177,9 +179,9 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 				if err != nil || !ok {
 					// 关键点：续期失败，立即取消任务 context
 					if err != nil {
-						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key))
+						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key), requestId)
 					} else {
-						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key))
+						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key), requestId)
 					}
 					stopWatchdog() // 续期失败，通知业务中断
 					return
@@ -195,7 +197,7 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 		stopWatchdog() // 确保退出时关闭协程
 		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
 			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
-				logger.Warn("释放分布式锁失败", zap.Error(releaseErr))
+				logger.Warn("释放分布式锁失败", zap.Error(releaseErr), requestId)
 			}
 		}
 	}()
@@ -355,7 +357,7 @@ func (c *{{.TableNameCamelFCL}}Cache) SetPlaceholder(ctx context.Context, id uin
 }
 func (c *{{.TableNameCamelFCL}}Cache) SetPlaceholderByKey(ctx context.Context, key string) error {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
-    return c.cache.SetCacheWithNotFound(ctx, cacheKey)
+	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
 }
 
 // IsPlaceholderErr check if cache is placeholder error
