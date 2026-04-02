@@ -316,50 +316,46 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/dao": {
-			"userExample.go.exp", "userExample_test.go.exp",
+			"userExample.go.exp.tpl",
 		},
 		"internal/ecode": {
-			"systemCode_http.go", "userExample_http.go.exp",
+			"systemCode_http.go", "userExample_http.go.exp.tpl",
 		},
 		"internal/handler": {
-			"userExample.go.exp", "userExample_test.go.exp",
+			"userExample.go.exp.tpl",
 		},
 		"internal/routers": {
-			"routers.go", "userExample.go.exp",
+			"routers.go", "userExample.go.exp.tpl",
 		},
 		"internal/types": {
-			"swagger_types.go", "userExample_types.go.exp",
+			"swagger_types.go", "userExample_types.go.exp.tpl",
 		},
 	}
 	if codeName == codeNameHandler {
-		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp"}
-		replaceFiles["internal/routers"] = []string{"userExample.go.exp"}
-		replaceFiles["internal/types"] = []string{"userExample_types.go.exp"}
+		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
+		replaceFiles["internal/routers"] = []string{"userExample.go.exp.tpl"}
+		replaceFiles["internal/types"] = []string{"userExample_types.go.exp.tpl"}
 	}
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerTestFile+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, handlerTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample_types.go.exp",
+			Old: "userExample_types.go.exp.tpl",
 			New: "userExample_types.go",
 		},
 		{
-			Old: "userExample_http.go.exp",
+			Old: "userExample_http.go.exp.tpl",
 			New: "userExample_http.go",
 		},
 		{
-			Old: "userExample.go.exp",
+			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
-		},
-		{
-			Old: "userExample_test.go.exp",
-			New: "userExample_test.go",
 		},
 	}...)
 
@@ -372,25 +368,25 @@ func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 			"userExample.go.mgo",
 		},
 		"internal/dao": {
-			"userExample.go.mgo.exp",
+			"userExample.go.mgo.exp.tpl",
 		},
 		"internal/ecode": {
-			"systemCode_http.go", "userExample_http.go.exp",
+			"systemCode_http.go", "userExample_http.go.exp.tpl",
 		},
 		"internal/handler": {
-			"userExample.go.mgo.exp",
+			"userExample.go.mgo.exp.tpl",
 		},
 		"internal/routers": {
-			"routers.go", "userExample.go.exp",
+			"routers.go", "userExample.go.exp.tpl",
 		},
 		"internal/types": {
-			"swagger_types.go", "userExample_types.go.mgo.exp",
+			"swagger_types.go", "userExample_types.go.mgo.exp.tpl",
 		},
 	}
 	if codeName == codeNameHandler {
-		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp"}
-		replaceFiles["internal/routers"] = []string{"userExample.go.exp"}
-		replaceFiles["internal/types"] = []string{"userExample_types.go.mgo.exp"}
+		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
+		replaceFiles["internal/routers"] = []string{"userExample.go.exp.tpl"}
+		replaceFiles["internal/types"] = []string{"userExample_types.go.mgo.exp.tpl"}
 	}
 
 	var fields []replacer.Field
@@ -398,19 +394,19 @@ func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample_http.go.exp",
+			Old: "userExample_http.go.exp.tpl",
 			New: "userExample_http.go",
 		},
 		{
-			Old: "userExample_types.go.mgo.exp",
+			Old: "userExample_types.go.mgo.exp.tpl",
 			New: "userExample_types.go",
 		},
 		{
-			Old: "userExample.go.mgo.exp",
+			Old: "userExample.go.mgo.exp.tpl",
 			New: "userExample.go",
 		},
 		{
-			Old: "userExample.go.exp",
+			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 	}...)

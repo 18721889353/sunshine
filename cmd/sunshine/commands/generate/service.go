@@ -351,42 +351,38 @@ func (g *serviceGenerator) addFields(r replacer.Replacer) []replacer.Field {
 func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/dao": {
-			"userExample.go.exp", "userExample_test.go.exp",
+			"userExample.go.exp.tpl",
 		},
 		"internal/ecode": {
-			"systemCode_rpc.go", "userExample_rpc.go.exp",
+			"systemCode_rpc.go", "userExample_rpc.go.exp.tpl",
 		},
 		"internal/service": {
-			"service.go", "service_test.go", "userExample.go.exp", "userExample_client_test.go.exp",
+			"service.go", "service_test.go", "userExample.go.exp.tpl", "userExample_client_test.go.exp.tpl",
 		},
 	}
 	if codeName == codeNameService {
-		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp"}
-		replaceFiles["internal/service"] = []string{"userExample.go.exp", "userExample_client_test.go.exp"}
+		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
+		replaceFiles["internal/service"] = []string{"userExample.go.exp.tpl", "userExample_client_test.go.exp.tpl"}
 	}
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceClientFile+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, serviceClientFile+expSuffix+tplSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample_rpc.go.exp",
+			Old: "userExample_rpc.go.exp.tpl",
 			New: "userExample_rpc.go",
 		},
 		{
-			Old: "userExample.go.exp",
+			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 		{
-			Old: "userExample_test.go.exp",
-			New: "userExample_test.go",
-		},
-		{
-			Old: "userExample_client_test.go.exp",
+			Old: "userExample_client_test.go.exp.tpl",
 			New: "userExample_client_test.go",
 		},
 	}...)
@@ -400,36 +396,36 @@ func serviceMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 			"userExample.go.mgo",
 		},
 		"internal/dao": {
-			"userExample.go.mgo.exp",
+			"userExample.go.mgo.exp.tpl",
 		},
 		"internal/ecode": {
-			"systemCode_rpc.go", "userExample_rpc.go.exp",
+			"systemCode_rpc.go", "userExample_rpc.go.exp.tpl",
 		},
 		"internal/service": {
-			"service.go", "service_test.go", "userExample.go.mgo.exp", "userExample_client_test.go.mgo.exp",
+			"service.go", "service_test.go", "userExample.go.mgo.exp.tpl", "userExample_client_test.go.mgo.exp.tpl",
 		},
 	}
 	if codeName == codeNameService {
-		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp"}
-		replaceFiles["internal/service"] = []string{"userExample.go.mgo.exp", "userExample_client_test.go.mgo.exp"}
+		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
+		replaceFiles["internal/service"] = []string{"userExample.go.mgo.exp.tpl", "userExample_client_test.go.mgo.exp.tpl"}
 	}
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+".mgo.exp", startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, ""+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+".mgo.exp.tpl", startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, ""+expSuffix+tplSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample_rpc.go.exp",
+			Old: "userExample_rpc.go.exp.tpl",
 			New: "userExample_rpc.go",
 		},
 		{
-			Old: "userExample.go.mgo.exp",
+			Old: "userExample.go.mgo.exp.tpl",
 			New: "userExample.go",
 		},
 		{
-			Old: "userExample_client_test.go.mgo.exp",
+			Old: "userExample_client_test.go.mgo.exp.tpl",
 			New: "userExample_client_test.go",
 		},
 	}...)
