@@ -727,7 +727,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *qu
 					logger.Any("recover", r), requestId)
 			}
 		}()
-		time.Sleep(DelayedDeleteInterval)
+		time.Sleep({{.TableNameCamel}}DelayedDeleteInterval)
 		// 删除所有缓存（包括 single、condition、columns、count、exists）
 		if err := d.deleteCache(delayedCtx, 0, "all"); err != nil {
 			logger.Warn("DeleteByCondition: delayed delete all cache failed",
@@ -840,7 +840,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx 
 					logger.Any("recover", r), requestId)
 			}
 		}()
-		time.Sleep(DelayedDeleteInterval)
+		time.Sleep({{.TableNameCamel}}DelayedDeleteInterval)
 		// 删除所有缓存（包括 single、condition、columns、count、exists）
 		if err := d.deleteCache(delayedCtx, 0, "all"); err != nil {
 			logger.Warn("DeleteByTxCondition: delayed delete all cache failed",
@@ -932,7 +932,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *qu
 					logger.Any("recover", r), requestId)
 			}
 		}()
-		time.Sleep(DelayedDeleteInterval)
+		time.Sleep({{.TableNameCamel}}DelayedDeleteInterval)
 		// 删除所有缓存（包括 single、condition、columns、count、exists）
 		if err := d.deleteCache(delayedCtx, 0, "all"); err != nil {
 			logger.Warn("UpdateByCondition: delayed delete all cache failed",
@@ -1007,7 +1007,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx 
 					logger.Any("recover", r), requestId)
 			}
 		}()
-		time.Sleep(DelayedDeleteInterval)
+		time.Sleep({{.TableNameCamel}}DelayedDeleteInterval)
 		// 删除所有缓存（包括 single、condition、columns、count、exists）
 		if err := d.deleteCache(delayedCtx, 0, "all"); err != nil {
 			logger.Warn("UpdateByConditionTx: delayed delete all cache failed",
@@ -1087,7 +1087,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExecByCustomFunc(ctx context.Context, update
 					logger.Any("recover", r), requestId)
 			}
 		}()
-		time.Sleep(DelayedDeleteInterval)
+		time.Sleep({{.TableNameCamel}}DelayedDeleteInterval)
 		// 删除所有缓存（包括 single、condition、columns、count、exists）
 		if err := d.deleteCache(delayedCtx, 0, "all"); err != nil {
 			logger.Warn("ExecByCustomFunc: delayed delete all cache failed",
@@ -1249,7 +1249,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 		})
 
 		// 大数据量警告
-		if len(result.records) > MaxCacheableRecords {
+		if len(result.records) > {{.TableNameCamel}}MaxCacheableRecords {
 			logger.Warn("GetByColumns: result set too large",
 				logger.Any("count", len(result.records)),
 				logger.String("cache_key", cacheKey), requestId)
@@ -1314,14 +1314,14 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 			records []*model.{{.TableNameCamel}}
 			total   int64
 		})
-		if len(res.records) > MaxCacheableRecords {
+		if len(res.records) > {{.TableNameCamel}}MaxCacheableRecords {
 			logger.Warn("GetByColumns: result set too large",
 				logger.Any("count", len(res.records)),
 				logger.String("cache_key", cacheKey), requestId)
 		}
 
 		// 缓存结果（控制缓存数据量，使用随机化过期时间）
-		if len(res.records) <= MaxCacheableRecords && res.total > 0 {
+		if len(res.records) <= {{.TableNameCamel}}MaxCacheableRecords && res.total > 0 {
 			// 生成随机化过期时间
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 
@@ -1371,7 +1371,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 	})
 
 	// 只需要检查大数据量警告即可，不需要再设置缓存
-	if len(result.records) > MaxCacheableRecords {
+	if len(result.records) > {{.TableNameCamel}}MaxCacheableRecords {
 		logger.Warn("GetByColumns: result set too large",
 			logger.Any("count", len(result.records)),
 			logger.String("cache_key", cacheKey), requestId)
