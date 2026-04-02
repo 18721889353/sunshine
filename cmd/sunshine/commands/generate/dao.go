@@ -73,10 +73,6 @@ func DaoCommand(parentName string) *cobra.Command {
 				if tableName == "" {
 					continue
 				}
-
-				if sqlArgs.DBDriver == DBDriverMongodb {
-					sqlArgs.IsEmbed = false
-				}
 				sqlArgs.DBTable = tableName
 				codes, err := sql2code.Generate(&sqlArgs)
 				if err != nil {
@@ -119,7 +115,7 @@ using help:
 
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
 	//_ = cmd.MarkFlagRequired("module-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -174,7 +170,26 @@ func (g *daoGenerator) generateCode() (string, error) {
 
 	info := g.codes[parser.CodeTypeCrudInfo]
 	crudInfo, _ := unmarshalCrudInfo(info)
-	if crudInfo.CheckCommonType() {
+	// 所有类型都使用 userExample.go.exp.tpl 模板生成（如果启用了扩展 API）
+	if g.isExtendedAPI {
+		selectFiles = map[string][]string{
+			"internal/cache": {
+				"userExample.go.tpl",
+			},
+			"internal/dao": {
+				"userExample.go.exp.tpl",
+			},
+			"internal/model": {
+				"userExample.go",
+			},
+		}
+		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if err != nil {
+			return "", err
+		}
+		g.fields = append(g.fields, contentFields...)
+		g.fields = append(g.fields, commonDaoExtendedFields(r)...)
+	} else if crudInfo.CheckCommonType() {
 		selectFiles = map[string][]string{
 			"internal/cache": {
 				"userExample.go.tpl",
@@ -186,13 +201,7 @@ func (g *daoGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 		}
-		var fields []replacer.Field
-		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
-			fields = commonDaoExtendedFields(r)
-		} else {
-			fields = commonDaoFields(r)
-		}
+		fields := commonDaoFields(r)
 		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
 		if err != nil {
 			return "", err
@@ -205,29 +214,6 @@ func (g *daoGenerator) generateCode() (string, error) {
 	switch strings.ToLower(g.dbDriver) {
 	case DBDriverMysql, DBDriverPostgresql, DBDriverTidb, DBDriverSqlite:
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
-		if g.isExtendedAPI {
-			var fields []replacer.Field
-			if !crudInfo.CheckCommonType() {
-				replaceFiles, fields = daoExtendedAPI(r)
-			}
-			g.fields = append(g.fields, fields...)
-		}
-
-	case DBDriverMongodb:
-		if g.isExtendedAPI {
-			var fields []replacer.Field
-			replaceFiles, fields = daoMongoDBExtendedAPI(r)
-			g.fields = append(g.fields, fields...)
-		} else {
-			replaceFiles = map[string][]string{
-				"internal/cache": {
-					"userExample.go.mgo",
-				},
-				"internal/dao": {
-					"userExample.go.mgo",
-				},
-			}
-		}
 
 	default:
 		return "", dbDriverErr(g.dbDriver)
@@ -252,7 +238,6 @@ func (g *daoGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	fields = append(fields, g.fields...)
 	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
 	fields = append(fields, []replacer.Field{
 		{ // replace the contents of the model/userExample.go file
@@ -276,14 +261,6 @@ func (g *daoGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: "github.com/18721889353/sunshine/pkg",
 		},
 		{
-			Old: "init.go.mgo",
-			New: "init.go",
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
-		},
-		{
 			Old:             "UserExample",
 			New:             g.codes[parser.TableName],
 			IsCaseSensitive: true,
@@ -296,59 +273,6 @@ func (g *daoGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	}
 
 	return fields
-}
-
-func daoExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
-	replaceFiles := map[string][]string{
-		"internal/dao": {
-			"userExample.go.exp", "userExample_test.go.exp",
-		},
-	}
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample.go.exp",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample_test.go.exp",
-			New: "userExample_test.go",
-		},
-	}...)
-
-	return replaceFiles, fields
-}
-
-func daoMongoDBExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
-	replaceFiles := map[string][]string{
-		"internal/cache": {
-			"userExample.go.mgo",
-		},
-		"internal/dao": {
-			"userExample.go.mgo.exp",
-		},
-	}
-
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoMgoFile+expSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample.go.mgo.exp",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
-		},
-	}...)
-
-	return replaceFiles, fields
 }
 
 func commonDaoFields(r replacer.Replacer) []replacer.Field {
@@ -372,14 +296,15 @@ func commonDaoExtendedFields(r replacer.Replacer) []replacer.Field {
 
 	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, cacheFile+tplSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample.go.tpl",
+			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 		{
-			Old: "userExample.go.exp.tpl",
+			Old: "userExample.go.tpl",
 			New: "userExample.go",
 		},
 	}...)

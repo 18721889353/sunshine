@@ -109,9 +109,9 @@ type UserExampleDao interface {
 	ClearCache(ctx context.Context) error
 
 	UpdateByID(ctx context.Context, table *model.UserExample) error
-	UpdateByCondition(ctx context.Context, c *query.Conditions) error
+	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.UserExample) error
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error
-	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
+	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
 	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
 
 	GetByID(ctx context.Context, id uint64, opts ...QueryOption) (*model.UserExample, error)
@@ -885,7 +885,7 @@ func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExampl
 	})), table.ID, nil, true)
 	return nil
 }
-func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions) error {
+func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
 	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有相关缓存：
@@ -960,7 +960,7 @@ func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *mod
 	})), table.ID, nil, true)
 	return nil
 }
-func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
 	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有相关缓存：

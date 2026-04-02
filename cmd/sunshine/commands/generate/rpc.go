@@ -77,10 +77,7 @@ func RPCCommand() *cobra.Command {
 			if suitedMonoRepo {
 				outPath = changeOutPath(outPath, serverName)
 			}
-			if sqlArgs.DBDriver == DBDriverMongodb {
-				sqlArgs.IsEmbed = false
-			}
-
+			
 			sqlArgs.DBTable = firstTable
 			codes, err := sql2code.Generate(&sqlArgs)
 			if err != nil {
@@ -152,7 +149,7 @@ using help:
 	_ = cmd.MarkFlagRequired("server-name")
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
 	_ = cmd.MarkFlagRequired("project-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -285,7 +282,6 @@ func (g *rpcGenerator) generateCode() (string, error) {
 			g.fields = append(g.fields, fields...)
 		}
 
-	case DBDriverMongodb:
 		if g.isExtendedAPI {
 			var fields []replacer.Field
 			replaceFiles, fields = serviceMongoDBExtendedAPI(r, codeNameHTTP)
@@ -302,7 +298,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 					"service.go", "service_test.go", "userExample.go.mgo", "userExample_client_test.go.mgo",
 				},
 			}
-			g.fields = append(g.fields, deleteFieldsMark(r, serviceLogicFile+mgoSuffix, startMark, endMark)...)
+			g.fields = append(g.fields, deleteFieldsMark(r, serviceLogicFile, startMark, endMark)...)
 		}
 
 	default:
@@ -343,12 +339,10 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, databaseInitDBFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, protoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceLogicFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceClientFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceClientMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceTestFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFileBuild, wellStartMark, wellEndMark)...)

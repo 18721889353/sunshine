@@ -48,10 +48,7 @@ func ModelCommand(parentName string) *cobra.Command {
 				if tableName == "" {
 					continue // 跳过空表名
 				}
-
-				if sqlArgs.DBDriver == DBDriverMongodb {
-					sqlArgs.IsEmbed = false // 如果数据库驱动是 MongoDB，则不嵌入 gorm.Model 结构体
-				}
+			
 				sqlArgs.DBTable = tableName               // 设置当前处理的表名
 				codes, err := sql2code.Generate(&sqlArgs) // 生成模型代码
 				if err != nil {
@@ -78,7 +75,7 @@ func ModelCommand(parentName string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动，支持 mysql, mongodb, postgresql, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动，支持 mysql, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，例如 user:password@(host:port)/database。注意：如果 db-driver=sqlite，db-dsn 必须是本地 SQLite 数据库文件，例如 --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")                                                                                                                                                              // 标记 db-dsn 参数为必填
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "表名，多个表名用逗号分隔")

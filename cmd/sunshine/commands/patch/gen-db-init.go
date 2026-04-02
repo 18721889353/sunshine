@@ -198,10 +198,6 @@ func checkDbDriver(files []string) string {
 			return generate.DBDriverMysql
 		}
 
-		if bytes.Contains(data, getContentMark(generate.DBDriverMongodb)) {
-			return generate.DBDriverMongodb
-		}
-
 		if bytes.Contains(data, getContentMark(generate.DBDriverPostgresql)) {
 			return generate.DBDriverPostgresql
 		}
