@@ -23,10 +23,10 @@ import (
 
 const (
 	// cache prefix key, must end with a colon
-	UserExampleCachePrefixKeyLock = "userExampleLock:"
-	UserExampleCachePrefixKey     = "userExample:"
+	UserExampleCachePrefixKeyLock = "lock:userExample:"
+	UserExampleCachePrefixKey     = "data:userExample:"
 	// UserExampleExpireTime expire time
-	UserExampleExpireTime = 180 * time.Minute
+	UserExampleExpireTime = 30 * time.Minute
 )
 
 var _ UserExampleCache = (*userExampleCache)(nil)
