@@ -40,8 +40,6 @@ const (
 	DBDriverTidb = "tidb"
 	// DBDriverSqlite sqlite driver
 	DBDriverSqlite = "sqlite"
-	// DBDriverMongodb mongodb driver
-	DBDriverMongodb = "mongodb"
 
 	undeterminedDBDriver = "undetermined" // used in services created based on protobuf.
 
@@ -63,7 +61,6 @@ const (
 	codeNameCache       = "cache"
 
 	wellPrefix    = "## "
-	mgoSuffix     = ".mgo"
 	pkgPathSuffix = "/pkg"
 	expSuffix     = ".exp"
 	tplSuffix     = ".tpl"
@@ -83,12 +80,10 @@ var (
 	cacheFile = "cache/cacheNameExample.go"
 
 	daoFile     = "dao/userExample.go"
-	daoMgoFile  = "dao/userExample.go.mgo"
 	daoFileMark = "// todo generate the update fields code to here"
 	daoTestFile = "dao/userExample_test.go"
 
 	typesFile         = "types/userExample_types.go"
-	typesMgoFile      = "types/userExample_types.go.mgo"
 	handlerFileMark   = "// todo generate the request and response struct to here"
 	handlerTestFile   = "handler/userExample_test.go"
 	handlerPbFile     = "handler/userExample_logic.go"
@@ -103,11 +98,10 @@ var (
 	protoFile     = "v1/userExample.proto"
 	protoFileMark = "// todo generate the protobuf code here"
 
-	serviceTestFile      = "service/userExample_test.go"
-	serviceClientFile    = "service/userExample_client_test.go"
-	serviceClientMgoFile = "service/userExample_client_test.go.mgo"
-	serviceFile          = "service/userExample.go"
-	serviceFileMark      = "// todo generate the service struct code here"
+	serviceTestFile   = "service/userExample_test.go"
+	serviceClientFile = "service/userExample_client_test.go"
+	serviceFile       = "service/userExample.go"
+	serviceFileMark   = "// todo generate the service struct code here"
 
 	dockerFile     = "scripts/build/Dockerfile"
 	dockerFileMark = "# todo generate dockerfile code for http or grpc here"
@@ -198,9 +192,6 @@ func convertProjectAndServerName(projectName, serverName string) (pn string, sn 
 }
 
 func adjustmentOfIDType(handlerCodes string, dbDriver string, isCommonStyle bool) string {
-	if dbDriver == DBDriverMongodb {
-		return idTypeToStr(handlerCodes)
-	}
 	if isCommonStyle {
 		return handlerCodes
 	}
@@ -484,8 +475,6 @@ func getDBConfigCode(dbDriver string) string {
 		dbConfigCode = postgresqlConfigCode
 	case DBDriverSqlite:
 		dbConfigCode = sqliteConfigCode
-	case DBDriverMongodb:
-		dbConfigCode = mongodbConfigCode
 	case undeterminedDBDriver:
 		dbConfigCode = undeterminedDatabaseConfigCode
 	}
@@ -506,8 +495,6 @@ func getInitDBCode(dbDriver string) string {
 		initDBCode = modelInitDBFilePostgresqlCode
 	case DBDriverSqlite:
 		initDBCode = modelInitDBFileSqliteCode
-	case DBDriverMongodb:
-		initDBCode = "" // do nothing
 	default:
 		panic("getInitDBCode error, unsupported database driver: " + dbDriver)
 	}
@@ -1025,8 +1012,6 @@ func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "postgresql.go"}
 	case DBDriverSqlite:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "sqlite.go"}
-	case DBDriverMongodb:
-		selectFiles["internal/database"] = []string{"init.go.mgo", "redis.go", "mongodb.go.mgo"}
 	default:
 		return errors.New("unsupported db driver: " + dbDriver)
 	}

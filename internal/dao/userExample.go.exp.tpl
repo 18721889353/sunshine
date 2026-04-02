@@ -4,23 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"{{.ProjectPath}}/pkg/gin/middleware"
-	"{{.ProjectPath}}/pkg/grpc/interceptor"
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"google.golang.org/grpc/metadata"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
-	"{{.ProjectPath}}/internal/cache"
+	"github.com/18721889353/sunshine/internal/cache"
 
-	"{{.ProjectPath}}/internal/database"
-	"{{.ProjectPath}}/internal/model"
+	"github.com/18721889353/sunshine/internal/database"
+	"github.com/18721889353/sunshine/internal/model"
 
-	"{{.ProjectPath}}/pkg/gocrypto"
-	"{{.ProjectPath}}/pkg/logger"
-	"{{.ProjectPath}}/pkg/sgorm/query"
-	"{{.ProjectPath}}/pkg/utils"
+	"github.com/18721889353/sunshine/pkg/gocrypto"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
+	"github.com/18721889353/sunshine/pkg/utils"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
@@ -115,9 +115,9 @@ type {{.TableNameCamel}}Dao interface {
 	ClearCache(ctx context.Context) error
 
 	UpdateByID(ctx context.Context, table *model.{{.TableNameCamel}}) error
-	UpdateByCondition(ctx context.Context, c *query.Conditions) error
+	UpdateByCondition(ctx context.Context, c *query.Conditions, updates *model.{{.TableNameCamel}}) error
 	UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error
-	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions) error
+	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.{{.TableNameCamel}}) error
 	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
 
 	GetByID(ctx context.Context, id uint64, opts ...{{.TableNameCamel}}QueryOption) (*model.{{.TableNameCamel}}, error)
@@ -891,7 +891,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model
 	})), table.ID, nil, true)
 	return nil
 }
-func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *query.Conditions) error {
+func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
 	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有相关缓存：
@@ -966,7 +966,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB,
 	})), table.ID, nil, true)
 	return nil
 }
-func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
+func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
 	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有相关缓存：

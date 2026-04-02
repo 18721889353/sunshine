@@ -69,10 +69,7 @@ func ServiceCommand() *cobra.Command {
 			if suitedMonoRepo {
 				outPath = changeOutPath(outPath, serverName)
 			}
-			if sqlArgs.DBDriver == DBDriverMongodb {
-				sqlArgs.IsEmbed = false
-			}
-
+			
 			tableNames := strings.Split(dbTables, ",")
 			for _, tableName := range tableNames {
 				if tableName == "" {
@@ -118,7 +115,7 @@ using help:
 	//_ = cmd.MarkFlagRequired("module-name")
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
 	//_ = cmd.MarkFlagRequired("server-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, mongodb, postgresql, sqlite")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql, postgresql, sqlite")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database. Note: if db-driver=sqlite, db-dsn must be a local sqlite db file, e.g. --db-dsn=/tmp/sunshine_sqlite.db") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
@@ -236,26 +233,6 @@ func (g *serviceGenerator) generateCode() (string, error) {
 			g.fields = append(g.fields, fields...)
 		}
 
-	case DBDriverMongodb:
-		if g.isExtendedAPI {
-			var fields []replacer.Field
-			replaceFiles, fields = serviceMongoDBExtendedAPI(r, codeNameService)
-			g.fields = append(g.fields, fields...)
-		} else {
-			replaceFiles = map[string][]string{
-				"internal/cache": {
-					"userExample.go.mgo",
-				},
-				"internal/dao": {
-					"userExample.go.mgo",
-				},
-				"internal/service": {
-					"userExample.go.mgo", "userExample_client_test.go.mgo",
-				},
-			}
-			g.fields = append(g.fields, deleteFieldsMark(r, serviceLogicFile+mgoSuffix, startMark, endMark)...)
-		}
-
 	default:
 		return "", dbDriverErr(g.dbDriver)
 	}
@@ -284,12 +261,10 @@ func (g *serviceGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	fields = append(fields, g.fields...)
 	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceLogicFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, protoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceClientFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceClientMgoFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceTestFile, startMark, endMark)...)
 	fields = append(fields, []replacer.Field{
 		{ // replace the contents of the model/userExample.go file
@@ -441,9 +416,8 @@ func serviceMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoMgoFile+expSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+".mgo.exp", startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceClientMgoFile+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, ""+expSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
