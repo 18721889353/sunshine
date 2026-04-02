@@ -357,41 +357,37 @@ func (g *handlerPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/dao": {
-			"userExample.go.exp", "userExample_test.go.exp",
+			"userExample.go.exp.tpl",
 		},
 		"internal/ecode": {
-			"userExample_http.go.exp",
+			"userExample_http.go.exp.tpl",
 		},
 		"internal/handler": {
-			"userExample_logic.go.exp", "userExample_logic_test.go.exp",
+			"userExample_logic.go.exp.tpl", "userExample_logic_test.go.exp.tpl",
 		},
 	}
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerLogicFile+expSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, handlerLogicFile+expSuffix+tplSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample_http.go.exp",
+			Old: "userExample_http.go.exp.tpl",
 			New: "userExample_http.go",
 		},
 		{
-			Old: "userExample_logic_test.go.exp",
+			Old: "userExample_logic_test.go.exp.tpl",
 			New: "userExample_test.go",
 		},
 		{
-			Old: "userExample_test.go.exp",
-			New: "userExample_test.go",
-		},
-		{
-			Old: "userExample_logic.go.exp",
+			Old: "userExample_logic.go.exp.tpl",
 			New: "userExample.go",
 		},
 		{
-			Old: "userExample.go.exp",
+			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 	}...)
@@ -405,31 +401,31 @@ func handlerPbMongoDBExtendedAPI(r replacer.Replacer) (map[string][]string, []re
 			"userExample.go.mgo",
 		},
 		"internal/dao": {
-			"userExample.go.mgo.exp",
+			"userExample.go.mgo.exp.tpl",
 		},
 		"internal/ecode": {
-			"userExample_http.go.exp",
+			"userExample_http.go.exp.tpl",
 		},
 		"internal/handler": {
-			"userExample_logic.go.mgo.exp",
+			"userExample_logic.go.mgo.exp.tpl",
 		},
 	}
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, handlerLogicFile+".mgo.exp", startMark, endMark)...)
+	fields = append(fields, deleteFieldsMark(r, handlerLogicFile+".mgo.exp.tpl", startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "userExample_http.go.exp",
+			Old: "userExample_http.go.exp.tpl",
 			New: "userExample_http.go",
 		},
 		{
-			Old: "userExample.go.mgo.exp",
+			Old: "userExample.go.mgo.exp.tpl",
 			New: "userExample.go",
 		},
 		{
-			Old: "userExample_logic.go.mgo.exp",
+			Old: "userExample_logic.go.mgo.exp.tpl",
 			New: "userExample.go",
 		},
 		{
