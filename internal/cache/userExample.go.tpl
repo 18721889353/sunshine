@@ -17,11 +17,11 @@ import (
 )
 
 const (
-    {{.TableNameCamel}}CachePrefixKeyLock = "{{.TableNameCamelFCL}}Lock:"
+    {{.TableNameCamel}}CachePrefixKeyLock = "lock:{{.TableNameCamelFCL}}:"
 	// cache prefix key, must end with a colon
-	{{.TableNameCamel}}CachePrefixKey = "{{.TableNameCamelFCL}}:"
+	{{.TableNameCamel}}CachePrefixKey = "data:{{.TableNameCamelFCL}}:"
 	// {{.TableNameCamel}}ExpireTime expire time
-	{{.TableNameCamel}}ExpireTime = 180 * time.Minute
+	{{.TableNameCamel}}ExpireTime = 30 * time.Minute
 )
 
 var _ {{.TableNameCamel}}Cache = (*{{.TableNameCamelFCL}}Cache)(nil)
