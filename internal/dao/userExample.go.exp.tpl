@@ -95,7 +95,7 @@ func {{.TableNameCamel}}GetRandomExpireTime(base time.Duration) time.Duration {
 var _ {{.TableNameCamel}}Dao = (*{{.TableNameCamelFCL}}Dao)(nil)
 
 
-// {{.TableNameCamel}}Dao defining the dao interface（大厂标准：所有查询方法支持选项模式）
+// {{.TableNameCamel}}Dao defining the dao interface（所有查询方法支持选项模式）
 type {{.TableNameCamel}}Dao interface {
 	Create(ctx context.Context, table *model.{{.TableNameCamel}}) error
 	CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error
@@ -1153,7 +1153,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExecByCustomFunc(ctx context.Context, update
 
 func (d *{{.TableNameCamelFCL}}Dao) GetByID(ctx context.Context, id uint64, opts ...{{.TableNameCamel}}QueryOption) (*model.{{.TableNameCamel}}, error) {
 	optsConfig := {{.TableNameCamel}}ApplyOptions(opts...)
-	// 无缓存模式直接查询（大厂标准：支持强制主库查询）
+	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		record := &model.{{.TableNameCamel}}{}
 		db := d.db.WithContext(ctx)
@@ -1281,7 +1281,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 		total   int64
 	}
 
-	// 无缓存模式直接查询（大厂标准：支持强制主库查询）
+	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		val, err, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
 			db := d.db.WithContext(ctx)
@@ -1346,7 +1346,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 			}
 		}
 
-		// 缓存未命中，从数据库查询（大厂标准：支持强制主库查询）
+		// 缓存未命中，从数据库查询（支持强制主库查询）
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
@@ -1453,7 +1453,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 	// 格式：queryStr + args + sort
 	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%s", queryStr, args, params.Sort)))
 
-	// no cache（大厂标准：支持强制主库查询）
+	// no cache（支持强制主库查询）
 	if d.cacheManager == nil {
 		record := &model.{{.TableNameCamel}}{}
 		db := d.db.WithContext(ctx)
@@ -1470,7 +1470,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 		return record, nil
 	}
 
-	// 使用缓存管理器获取数据（复用单条记录缓存逻辑，大厂标准：支持强制主库查询）
+	// 使用缓存管理器获取数据（复用单条记录缓存逻辑，支持强制主库查询）
 	return d.cacheManager.getCondition(ctx, cacheKey, func() (*model.{{.TableNameCamel}}, error) {
 		record := &model.{{.TableNameCamel}}{}
 		db := d.db.WithContext(ctx)
@@ -1524,7 +1524,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query
 	// 格式：queryStr + args + forceMaster
 	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v", queryStr, args, optsConfig.forceMaster)))
 
-	// no cache（大厂标准：支持强制主库查询）
+	// no cache（支持强制主库查询）
 	if d.cacheManager == nil {
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1548,7 +1548,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query
 		return result, nil
 	}
 
-	// 使用缓存管理器获取数据（已包含 10000 条限制检查，大厂标准：支持强制主库查询）
+	// 使用缓存管理器获取数据（已包含 10000 条限制检查，支持强制主库查询）
 	return d.cacheManager.getByCondition(ctx, cacheKey, func() ([]uint64, error) {
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1569,7 +1569,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query
 
 func (d *{{.TableNameCamelFCL}}Dao) GetByIDs(ctx context.Context, ids []uint64, opts ...{{.TableNameCamel}}QueryOption) (map[uint64]*model.{{.TableNameCamel}}, error) {
 	optsConfig := {{.TableNameCamel}}ApplyOptions(opts...)
-	// 无缓存模式直接查询（大厂标准：支持强制主库查询）
+	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		var records []*model.{{.TableNameCamel}}
 		db := d.db.WithContext(ctx)
@@ -1587,7 +1587,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByIDs(ctx context.Context, ids []uint64, 
 		return itemMap, nil
 	}
 
-	// 使用缓存管理器获取数据（大厂标准：支持强制主库查询）
+	// 使用缓存管理器获取数据（支持强制主库查询）
 	return d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.{{.TableNameCamel}}, error) {
 		var records []*model.{{.TableNameCamel}}
 		db := d.db.WithContext(ctx)
@@ -1616,7 +1616,7 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v", queryStr, args, optsConfig.forceMaster)))
 	countCacheKey := "count:" + cacheKey
 
-	// 无缓存模式直接查询（大厂标准：支持强制主库查询）
+	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		var count int64
 		db := d.db.WithContext(ctx)
@@ -1636,7 +1636,7 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 		return int64(cachedCount), nil
 	}
 
-	// 缓存未命中，使用 singleflight 防止并发重复查询（大厂标准：支持强制主库查询）
+	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
 	val, err, _ := d.sfg.Do(countCacheKey, func() (interface{}, error) {
 		var count int64
 		db := d.db.WithContext(ctx)
@@ -1679,7 +1679,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v", queryStr, args, optsConfig.forceMaster)))
 	existsCacheKey := "exists:" + cacheKey
 
-	// 无缓存模式直接查询（大厂标准：支持强制主库查询）
+	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		var exists bool
 		db := d.db.WithContext(ctx)
@@ -1700,7 +1700,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 		return cachedValue > 0, nil
 	}
 
-	// 缓存未命中，使用 singleflight 防止并发重复查询（大厂标准：支持强制主库查询）
+	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
 	val, err, _ := d.sfg.Do(existsCacheKey, func() (interface{}, error) {
 		var exists bool
 		db := d.db.WithContext(ctx)
@@ -1769,7 +1769,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCustomQuery(ctx context.Context, queryF
 
 	var total int64 = -1 // 使用 -1 表示未计算总数
 
-	// 构建查询（大厂标准：支持强制主库查询）
+	// 构建查询（支持强制主库查询）
 	db := d.db.WithContext(ctx)
 	if optsConfig.forceMaster {
 		db = db.Clauses(dbresolver.Write)
