@@ -306,7 +306,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 		}
 		record, ok := val.(*model.{{.TableNameCamel}})
 		if !ok {
-			return nil, nil
+			return nil, database.ErrRecordNotFound
 		}
 		return record, nil
 	}
@@ -314,9 +314,9 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
 	logger.Warn("cache.GetIdByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey), requestId)
 
-	// 如果是占位符错误，返回空
+	// 如果是占位符错误，返回记录未找到
 	if m.cache.IsPlaceholderErr(err) {
-		return nil, nil
+		return nil, database.ErrRecordNotFound
 	}
 
 	// 回退到数据库查询
@@ -324,7 +324,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 		record, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				return nil, nil
+				return nil, database.ErrRecordNotFound
 			}
 			return nil, dbErr
 		}
@@ -346,7 +346,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	}
 	record, ok := val.(*model.{{.TableNameCamel}})
 	if !ok {
-		return nil, nil
+		return nil, database.ErrRecordNotFound
 	}
 	return record, nil
 }
@@ -1463,7 +1463,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, nil
+				return nil, database.ErrRecordNotFound
 			}
 			return nil, fmt.Errorf("GetOneByColumns: query database failed, sort=%s: %w", params.Sort, err)
 		}
@@ -1480,7 +1480,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, nil
+				return nil, database.ErrRecordNotFound
 			}
 			return nil, fmt.Errorf("GetOneByColumns: query database failed, sort=%s: %w", params.Sort, err)
 		}
