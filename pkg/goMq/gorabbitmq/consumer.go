@@ -27,8 +27,9 @@ type consumerOptions struct {
 	qos                *qosOptions                // QoS选项
 	consume            *consumeOptions            // 消费选项
 
-	msgDurable bool // 消息是否持久化
-	isAutoAck  bool // 是否自动确认消息
+	msgDurable bool   // 消息是否持久化
+	isAutoAck  bool   // 是否自动确认消息
+	name       string // 消费者名称，用于 trace span
 }
 
 // apply 应用消费者选项
@@ -49,6 +50,7 @@ func defaultConsumerOptions() *consumerOptions {
 		consume:            defaultConsumeOptions(),
 		msgDurable:         true,
 		isAutoAck:          true,
+		name:               "",
 	}
 }
 
@@ -99,6 +101,13 @@ func WithConsumerMsgDurable(enable bool) ConsumerOption {
 	}
 }
 
+// WithConsumerName 设置消费者名称，用于 trace span
+func WithConsumerName(name string) ConsumerOption {
+	return func(o *consumerOptions) {
+		o.name = name
+	}
+}
+
 // -------------------------------------------------------------------------------------------
 
 // Consumer 消费者会话
@@ -122,6 +131,7 @@ type Consumer struct {
 
 	tracer    trace.Tracer // OpenTelemetry tracer for reuse
 	closeOnce sync.Once    // 新增：确保关闭操作只执行一次
+	name      string       // 消费者名称，用于 trace span
 }
 
 // Handler 消息处理函数类型
@@ -146,6 +156,7 @@ func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ..
 
 		msgDurable: o.msgDurable,
 		isAutoAck:  o.isAutoAck,
+		name:       o.name,
 
 		tracer: otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}
@@ -577,7 +588,11 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	c.wg.Add(1)
 	defer c.wg.Done()
 	// 2. 开始 Trace Span
-	msgCtx, span := c.tracer.Start(ctx, "consume message")
+	spanName := c.name
+	if spanName == "" {
+		spanName = "consume message"
+	}
+	msgCtx, span := c.tracer.Start(ctx, spanName)
 	defer span.End() // 确保 span 最终关闭
 	span.SetAttributes(attribute.String("message.body", string(d.Body)))
 

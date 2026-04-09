@@ -98,6 +98,9 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 				consumerOpts = append(consumerOpts, bc.buildNormalLetterOptions(exchange, queueConfig, normalQueueName)...)
 			}
 
+			// 添加消费者名称用于 trace span
+			consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
+
 			consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
 			if err != nil {
 				bc.logger.Panic("异步消息队列 failed to create rabbitmq consumer error", zap.Error(err))
