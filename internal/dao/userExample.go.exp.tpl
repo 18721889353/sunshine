@@ -67,10 +67,10 @@ func {{.TableNameCamel}}WithForceMaster() {{.TableNameCamel}}QueryOption {
 	}
 }
 
-// {{.TableNameCamel}}ApplyOptions 应用选项配置（默认不强制主库）
+// {{.TableNameCamel}}ApplyOptions 应用选项配置（默认强制主库）
 func {{.TableNameCamel}}ApplyOptions(opts ...{{.TableNameCamel}}QueryOption) *{{.TableNameCamel}}QueryOptions {
 	o := &{{.TableNameCamel}}QueryOptions{
-		forceMaster: false,
+		forceMaster: true,
 	}
 	for _, opt := range opts {
 		opt(o)
