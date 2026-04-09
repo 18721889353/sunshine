@@ -5,8 +5,9 @@ import (
 	"fmt"       // 导入格式化输入输出包
 	"math/rand" // 导入随机数生成包
 	"os"        // 导入操作系统包
-	"strings"   // 导入字符串处理包
-	"time"      // 导入时间处理包
+	"path/filepath"
+	"strings" // 导入字符串处理包
+	"time"    // 导入时间处理包
 
 	"github.com/18721889353/sunshine/pkg/gofile"   // 导入文件操作包
 	"github.com/18721889353/sunshine/pkg/replacer" // 导入替换器包
@@ -23,9 +24,66 @@ func init() {
 var Replacers = map[string]replacer.Replacer{}
 
 // SunshineDir .sunshine 目录的路径
-var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
+//var SunshineDir = getHomeDir() + gofile.GetPathDelimiter() + ".sunshine"
 
 //var SunshineDir = build.Default.GOPATH + gofile.GetPathDelimiter() + "src" + gofile.GetPathDelimiter() + "sun" + gofile.GetPathDelimiter() + "sunshine"
+
+// SunshineDir .sunshine 目录的路径 - 动态检测
+var SunshineDir = getSunshineDir()
+
+// getSunshineDir 动态获取 sunshine 项目根目录
+func getSunshineDir() string {
+	// 1. 优先使用环境变量
+	if envDir := os.Getenv("SUNSHINE_TEMPLATE_DIR"); envDir != "" {
+		return envDir
+	}
+
+	// 2. 从可执行文件路径向上查找项目根目录
+	exePath, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(exePath)
+		// 最多向上查找 10 层
+		for i := 0; i < 10; i++ {
+			// 检查是否包含关键目录来判断是否为项目根目录
+			if gofile.IsExists(filepath.Join(dir, "cmd")) &&
+				gofile.IsExists(filepath.Join(dir, "pkg")) &&
+				gofile.IsExists(filepath.Join(dir, "internal")) {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir { // 已经到达文件系统根目录
+				break
+			}
+			dir = parent
+		}
+	}
+
+	// 3. 尝试从当前工作目录查找
+	workDir, err := os.Getwd()
+	if err == nil {
+		dir := workDir
+		for i := 0; i < 10; i++ {
+			if gofile.IsExists(filepath.Join(dir, "cmd")) &&
+				gofile.IsExists(filepath.Join(dir, "pkg")) &&
+				gofile.IsExists(filepath.Join(dir, "internal")) {
+				return dir
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+
+	// 4. 回退到 ~/.sunshine
+	homeDir, _ := os.UserHomeDir()
+	if homeDir != "" {
+		return filepath.Join(homeDir, ".sunshine")
+	}
+
+	return ""
+}
 
 // Template 模板信息结构体
 type Template struct {
