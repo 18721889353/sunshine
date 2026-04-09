@@ -168,7 +168,9 @@ func handleGenerateCode(c *gin.Context, outPath string, arg string) {
 	args = append(args, fmt.Sprintf("--out=%s", out))
 
 	ctx, _ := context.WithTimeout(context.Background(), time.Minute*2) // nolint
-	result := gobash.Run(ctx, "sunshine", args...)
+	// 使用当前运行的二进制文件路径，而不是系统中的 sunshine 命令
+	binPath, _ := os.Executable()
+	result := gobash.Run(ctx, binPath, args...)
 	resultInfo := ""
 	count := 0
 	for v := range result.StdOut {
