@@ -58,12 +58,23 @@ func NewRootCMD() *cobra.Command {
 	return cmd
 }
 
-// getVersion 从文件中读取版本号，如果文件不存在或为空，则返回默认版本信息
+// getVersion 从文件中读取版本号,如果文件不存在或为空,则返回默认版本信息
 func getVersion() string {
-	data, _ := os.ReadFile(versionFile)
+	data, err := os.ReadFile(versionFile)
+	if err != nil {
+		// 文件不存在或读取失败,返回编译时嵌入的版本号
+		if version != "v0.0.0" {
+			return version
+		}
+		return "unknown, 执行命令 \"sunshine init\" 获取版本信息"
+	}
 	v := string(data)
 	if v != "" {
 		return v
+	}
+	// 文件内容为空,返回编译时嵌入的版本号
+	if version != "v0.0.0" {
+		return version
 	}
 	return "unknown, 执行命令 \"sunshine init\" 获取版本信息"
 }
