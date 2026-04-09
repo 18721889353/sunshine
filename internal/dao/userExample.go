@@ -1761,11 +1761,6 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 
 func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...QueryOption) (int64, error) {
 	optsConfig := applyOptions(opts...)
-	// 生成查询的唯一标识（用于 singleflight）
-	// 注意：由于 queryFunc 是函数类型，无法直接序列化到缓存，这里使用调用信息作为 key
-	// 仅使用 singleflight 防止并发重复查询，不使用缓存
-	queryKey := fmt.Sprintf("custom_query:%p_%d_%d", queryFunc, page, limit)
-
 	var total int64 = -1 // 使用 -1 表示未计算总数
 
 	// 构建查询（支持强制主库查询）
@@ -1776,84 +1771,52 @@ func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*g
 	// 应用自定义查询函数
 	db = queryFunc(db)
 
-	// 使用 singleflight 防止并发重复查询
-	val, err, _ := d.sfg.Do(queryKey, func() (interface{}, error) {
-		// 判断是否需要分页
-		if page >= 0 && limit > 0 {
-			// 需要分页，先计算总数
-			stmt := db.Statement
-			if stmt != nil {
-				if stmt.Table != "" || stmt.Model != nil {
-					// 对于常规查询，使用GORM内置的Count方法
-					err := db.Count(&total).Error
-					if err != nil {
-						return 0, err
-					}
-					// 应用分页
-					offset := page * limit
-					db = db.Offset(offset).Limit(limit)
-				} else if stmt.SQL.Len() > 0 {
-					// 对于原始 SQL 查询，手动构造 COUNT 查询
-					originalSQL := stmt.SQL.String()
-					countSQL := d.convertToCountSQL(originalSQL)
-
-					var count int64
-					err := db.Raw(countSQL, stmt.Vars...).Scan(&count).Error
-					if err != nil {
-						return 0, err
-					}
-					total = count
-
-					// 对于原始 SQL 查询，手动应用分页
-					pagedSQL := originalSQL + " LIMIT ? OFFSET ?"
-					offset := page * limit
-					db = db.Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
+	// 判断是否需要分页
+	if page >= 0 && limit > 0 {
+		// 需要分页，先计算总数
+		stmt := db.Statement
+		if stmt != nil {
+			if stmt.Table != "" || stmt.Model != nil {
+				// 对于常规查询，使用GORM内置的Count方法
+				err := db.Count(&total).Error
+				if err != nil {
+					return 0, fmt.Errorf("GetByCustomQuery: count failed: %w", err)
 				}
+				// 应用分页
+				offset := page * limit
+				db = db.Offset(offset).Limit(limit)
+			} else if stmt.SQL.Len() > 0 {
+				// 对于原始 SQL 查询，手动构造 COUNT 查询
+				originalSQL := stmt.SQL.String()
+				countSQL := d.convertToCountSQL(originalSQL)
+
+				var count int64
+				err := db.Raw(countSQL, stmt.Vars...).Scan(&count).Error
+				if err != nil {
+					return 0, fmt.Errorf("GetByCustomQuery: count raw sql failed: %w", err)
+				}
+				total = count
+
+				// 对于原始 SQL 查询，手动应用分页
+				pagedSQL := originalSQL + " LIMIT ? OFFSET ?"
+				offset := page * limit
+				db = db.Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
 			}
 		}
+	}
 
-		// 执行查询
-		var err error
-		if db.Statement != nil && db.Statement.SQL.Len() > 0 {
-			// 对于原始SQL查询，使用Scan方法
-			err = db.Scan(result).Error
-		} else {
-			// 对于常规查询，使用Find方法
-			err = db.Find(result).Error
-		}
-
-		if err != nil {
-			return 0, err
-		}
-
-		// 构建结果包装
-		resultWrapper := struct {
-			Result interface{}
-			Total  int64
-		}{
-			Result: result,
-			Total:  total,
-		}
-
-		return resultWrapper, nil
-	})
+	// 执行查询
+	var err error
+	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
+		// 对于原始SQL查询，使用Scan方法
+		err = db.Scan(result).Error
+	} else {
+		// 对于常规查询，使用Find方法
+		err = db.Find(result).Error
+	}
 
 	if err != nil {
-		return 0, err
-	}
-
-	// 类型断言获取结果
-	resultWrapper, ok := val.(struct {
-		Result interface{}
-		Total  int64
-	})
-	if !ok {
-		return 0, errors.New("type assertion failed")
-	}
-
-	// 将结果复制回传入的 result 指针
-	if resultWrapper.Result != nil {
-		total = resultWrapper.Total
+		return 0, fmt.Errorf("GetByCustomQuery: execute query failed: %w", err)
 	}
 
 	return total, nil
