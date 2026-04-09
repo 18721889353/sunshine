@@ -67,10 +67,10 @@ func WithForceMaster() QueryOption {
 	}
 }
 
-// applyOptions 应用选项配置（默认不强制主库）
+// applyOptions 应用选项配置（默认强制主库）
 func applyOptions(opts ...QueryOption) *queryOptions {
 	o := &queryOptions{
-		forceMaster: false,
+		forceMaster: true,
 	}
 	for _, opt := range opts {
 		opt(o)
