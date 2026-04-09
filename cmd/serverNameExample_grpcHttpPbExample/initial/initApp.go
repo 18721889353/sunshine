@@ -64,7 +64,7 @@ func sendLogToMQ(ctx context.Context, entry zapcore.Entry, fields []logger.Field
 	var err error
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
-		err = database.GetRabbitMQ().SendMessage(
+		err = database.GetMainRabbitMQ().SendMessage(
 			timeoutCtx,
 			config.Get().Rabbitmq.DoingOrder.ExchangeName,
 			config.Get().Rabbitmq.DoingOrder.NormalQueueName,
@@ -187,6 +187,7 @@ func InitApp() {
 			cfg.Jaeger.AgentHost,
 			strconv.Itoa(cfg.Jaeger.AgentPort),
 			cfg.App.TracingSamplingRate,
+			cfg.Jaeger.Endpoint, // 添加 endpoint 参数
 		)
 		logger.Info("[tracer] was initialized")
 	}

@@ -228,11 +228,6 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		))
 	}
 
-	// trace interceptor
-	if config.Get().App.EnableTrace {
-		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerTracing())
-	}
-
 	return grpc.ChainUnaryInterceptor(unaryServerInterceptors...)
 }
 
@@ -289,11 +284,6 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 		))
 	}
 
-	// trace interceptor
-	if config.Get().App.EnableTrace {
-		streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerTracing())
-	}
-
 	return grpc.ChainStreamInterceptor(streamServerInterceptors...)
 }
 
@@ -303,6 +293,12 @@ func (s *grpcServer) getOptions() []grpc.ServerOption {
 	secureOption := s.secureServerOption()
 	if secureOption != nil {
 		options = append(options, secureOption)
+	}
+
+	// Add StatsHandler for tracing if enabled
+	if config.Get().App.EnableTrace {
+		statsHandler := interceptor.NewServerStatsHandler()
+		options = append(options, grpc.StatsHandler(statsHandler))
 	}
 
 	options = append(options, s.unaryServerOptions())

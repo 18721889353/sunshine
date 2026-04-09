@@ -130,6 +130,7 @@ redis:
 jaeger:
   agentHost: "127.0.0.1"          # Jaeger代理主机
   agentPort: 6831                 # Jaeger代理端口
+  endpoint: ""                    # JaegerHTTP端点
 
 # etcd设置
 etcd:
