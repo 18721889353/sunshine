@@ -42,6 +42,12 @@ func NewClient(endpoint string, opts ...Option) (*grpc.ClientConn, error) {
 	}
 	clientOptions = append(clientOptions, so)
 
+	// Add StatsHandler for tracing if enabled
+	if o.enableTrace {
+		statsHandler := interceptor.NewClientStatsHandler()
+		clientOptions = append(clientOptions, grpc.WithStatsHandler(statsHandler))
+	}
+
 	// token option
 	if o.enableToken {
 		clientOptions = append(clientOptions, interceptor.ClientTokenOption(
@@ -142,11 +148,6 @@ func unaryClientOptions(o *options) grpc.DialOption {
 		unaryClientInterceptors = append(unaryClientInterceptors, interceptor.UnaryClientRetry())
 	}
 
-	// trace
-	if o.enableTrace {
-		unaryClientInterceptors = append(unaryClientInterceptors, interceptor.UnaryClientTracing())
-	}
-
 	// custom unary interceptors
 	unaryClientInterceptors = append(unaryClientInterceptors, o.unaryInterceptors...)
 
@@ -184,11 +185,6 @@ func streamClientOptions(o *options) grpc.DialOption {
 	// retry
 	if o.enableRetry {
 		streamClientInterceptors = append(streamClientInterceptors, interceptor.StreamClientRetry())
-	}
-
-	// trace
-	if o.enableTrace {
-		streamClientInterceptors = append(streamClientInterceptors, interceptor.StreamClientTracing())
 	}
 
 	// custom stream interceptors

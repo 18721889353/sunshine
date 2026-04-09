@@ -75,6 +75,7 @@ type Etcd struct {
 type Jaeger struct {
 	AgentHost string `yaml:"agentHost" json:"agentHost"`
 	AgentPort int    `yaml:"agentPort" json:"agentPort"`
+	Endpoint  string `yaml:"endpoint" json:"endpoint"`
 }
 
 type Pool struct {

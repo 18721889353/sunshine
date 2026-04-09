@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -45,18 +46,36 @@ func Close(ctx context.Context) error {
 
 // InitWithConfig Initialize tracer according to configuration, fraction is fraction, default is 1.0, value >= 1.0 means all links are sampled,
 // value <= 0 means all are not sampled, 0 < value < 1 only samples percentage
+// If jaegerAgentHost and jaegerAgentPort are provided, use Agent mode (UDP)
+// Otherwise, if endpoint is provided, use HTTP mode to report directly to Jaeger collector
 func InitWithConfig(appName string, appEnv string, appVersion string,
-	jaegerAgentHost string, jaegerAgentPort string, jaegerSamplingRate float64) {
+	jaegerAgentHost string, jaegerAgentPort string, jaegerSamplingRate float64, endpoint ...string) {
 	res := NewResource(
 		WithServiceName(appName),
 		WithEnvironment(appEnv),
 		WithServiceVersion(appVersion),
 	)
 
-	// initializing tracing
-	exporter, err := NewJaegerAgentExporter(jaegerAgentHost, jaegerAgentPort)
-	if err != nil {
-		panic("init trace error:" + err.Error())
+	var exporter trace.SpanExporter
+	var err error
+
+	// Check if endpoint is provided (HTTP mode)
+	if len(endpoint) > 0 && endpoint[0] != "" {
+		// Use HTTP collector endpoint
+		exporter, err = jaeger.New(
+			jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(endpoint[0])),
+		)
+		if err != nil {
+			panic("init trace error (HTTP endpoint):" + err.Error())
+		}
+	} else if jaegerAgentHost != "" && jaegerAgentPort != "" {
+		// Use Agent mode (UDP)
+		exporter, err = NewJaegerAgentExporter(jaegerAgentHost, jaegerAgentPort)
+		if err != nil {
+			panic("init trace error (Agent mode):" + err.Error())
+		}
+	} else {
+		panic("init trace error: either jaegerAgentHost/jaegerAgentPort or endpoint must be provided")
 	}
 
 	Init(exporter, res, jaegerSamplingRate)

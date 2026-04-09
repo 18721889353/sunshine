@@ -6,8 +6,9 @@ import (
 	otelcontrib "go.opentelemetry.io/contrib"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -78,9 +79,16 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		route := c.FullPath()
 
 		tOpts := []oteltrace.SpanStartOption{
-			oteltrace.WithAttributes(semconv.NetAttributesFromHTTPRequest("tcp", c.Request)...),
-			oteltrace.WithAttributes(semconv.EndUserAttributesFromHTTPRequest(c.Request)...),
-			oteltrace.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(serviceName, route, c.Request)...),
+			oteltrace.WithAttributes(
+				// HTTP server attributes (v1.40.0)
+				semconv.HTTPRequestMethodKey.String(c.Request.Method),
+				semconv.URLFull(c.Request.URL.String()),
+				semconv.URLPath(c.Request.URL.Path),
+				semconv.URLQuery(c.Request.URL.RawQuery),
+				semconv.ServerAddress(c.Request.Host),
+				semconv.UserAgentOriginal(c.Request.UserAgent()),
+				semconv.HTTPRoute(route),
+			),
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		}
 		spanName := route
@@ -97,10 +105,17 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		c.Next()
 
 		status := c.Writer.Status()
-		attrs := semconv.HTTPAttributesFromHTTPStatusCode(status)
-		spanStatus, spanMessage := semconv.SpanStatusFromHTTPStatusCode(status)
-		span.SetAttributes(attrs...)
-		span.SetStatus(spanStatus, spanMessage)
+		// Set HTTP response status code attribute
+		span.SetAttributes(semconv.HTTPResponseStatusCode(status))
+		// Set span status based on HTTP status code
+		if status >= 500 {
+			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", status))
+		} else if status >= 400 {
+			// 4xx errors are not set as span errors by default
+			span.SetStatus(codes.Ok, "")
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
 		if len(c.Errors) > 0 {
 			span.SetAttributes(attribute.String("gin.errors", c.Errors.String()))
 		}

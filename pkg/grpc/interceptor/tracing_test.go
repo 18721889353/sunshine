@@ -6,22 +6,24 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStreamClientTracing(t *testing.T) {
-	interceptor := StreamClientTracing()
-	assert.NotNil(t, interceptor)
+func TestNewClientStatsHandler(t *testing.T) {
+	handler := NewClientStatsHandler()
+	assert.NotNil(t, handler)
 }
 
-func TestStreamServerTracing(t *testing.T) {
-	interceptor := StreamServerTracing()
-	assert.NotNil(t, interceptor)
+func TestNewServerStatsHandler(t *testing.T) {
+	handler := NewServerStatsHandler()
+	assert.NotNil(t, handler)
 }
 
-func TestUnaryClientTracing(t *testing.T) {
+func TestUnaryClientTracing_Deprecated(t *testing.T) {
+	// Deprecated function returns nil in v0.62.0+
 	interceptor := UnaryClientTracing()
-	assert.NotNil(t, interceptor)
+	assert.Nil(t, interceptor)
 }
 
-func TestUnaryServerTracing(t *testing.T) {
+func TestUnaryServerTracing_Deprecated(t *testing.T) {
+	// Deprecated function returns nil in v0.62.0+
 	interceptor := UnaryServerTracing()
-	assert.NotNil(t, interceptor)
+	assert.Nil(t, interceptor)
 }
