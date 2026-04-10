@@ -46,6 +46,10 @@ func Init(dsn string, opts ...Option) (*redis.Client, error) {
 	// 创建 Redis 客户端
 	rdb := redis.NewClient(opt)
 
+	// 添加自定义 Hook：从 Context 提取 request_id 并设置到 Span 属性
+	// 注意：必须在 InstrumentTracing 之前添加，确保在 redisotel 的 Span 结束前设置
+	rdb.AddHook(&requestIDHook{})
+
 	// 如果配置了追踪提供者，则启用追踪
 	if o.tracerProvider != nil {
 		err = redisotel.InstrumentTracing(rdb, redisotel.WithTracerProvider(o.tracerProvider))
@@ -95,6 +99,9 @@ func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Cl
 
 	// 创建 Redis 客户端
 	rdb := redis.NewClient(opt)
+
+	// 添加自定义 Hook：从 Context 提取 request_id 并设置到 Span 属性
+	rdb.AddHook(&requestIDHook{})
 
 	// 如果配置了追踪提供者，则启用追踪
 	if o.tracerProvider != nil {
@@ -147,6 +154,9 @@ func InitSentinel(masterName string, addrs []string, username string, password s
 	// 创建 Redis 哨兵客户端
 	rdb := redis.NewFailoverClient(opt)
 
+	// 添加自定义 Hook：从 Context 提取 request_id 并设置到 Span 属性
+	rdb.AddHook(&requestIDHook{})
+
 	// 如果配置了追踪提供者，则启用追踪
 	if o.tracerProvider != nil {
 		err := redisotel.InstrumentTracing(rdb, redisotel.WithTracerProvider(o.tracerProvider))
@@ -196,6 +206,9 @@ func InitCluster(addrs []string, username string, password string, opts ...Optio
 
 	// 创建 Redis 集群客户端
 	clusterRdb := redis.NewClusterClient(opt)
+
+	// 添加自定义 Hook：从 Context 提取 request_id 并设置到 Span 属性
+	clusterRdb.AddHook(&requestIDHook{})
 
 	// 如果配置了追踪提供者，则启用追踪
 	if o.tracerProvider != nil {
