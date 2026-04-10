@@ -53,7 +53,7 @@ func (bc *BaseConsumer) Name() string {
 }
 
 // handleMessage 内部消息处理函数，适配gorabbitmq的Handler类型
-func (bc *BaseConsumer) HandleMessage(ctx context.Context, data []byte, messageId string, tagID string) error {
+func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageId string, tagID string) error {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 	return bc.handler(ctx, data, messageId, tagID)
@@ -73,6 +73,15 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 	}
 
 	go func() {
+		// 防止 goroutine panic 导致整个服务崩溃
+		defer func() {
+			if r := recover(); r != nil {
+				bc.logger.Error(bc.name+" consumer goroutine panicked",
+					zap.Any("panic", r),
+					zap.Stack("stack"))
+			}
+		}()
+
 		bc.logger.Info("Starting " + bc.name)
 		exchangeName := queueConfig.ExchangeName
 		deadQueueName := queueConfig.DeadQueueName
@@ -111,7 +120,7 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 
 			// 启动异步消费 (底层 consumer.go)
 			// 将上下文向下传递给具体的底层消费逻辑
-			consumer.Consume(ctx, bc.HandleMessage)
+			consumer.Consume(ctx, bc.handleMessage)
 			bc.logger.Info("队列 " + normalQueueName + " 消费者 " + strconv.Itoa(i+1) + " 已启动")
 		}
 

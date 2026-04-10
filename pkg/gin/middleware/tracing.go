@@ -62,6 +62,7 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
+		// 1. 获取 RequestID（优先使用 RequestID 作为链路标识）
 		reqID := c.Request.Header.Get(HeaderXRequestIDKey)
 		if reqID == "" {
 			if v, isExist := c.Get(ContextRequestIDKey); isExist {
@@ -70,11 +71,14 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 				}
 			}
 		}
+
 		c.Set(tracerKey, tracer)
 		savedCtx := c.Request.Context()
 		defer func() {
 			c.Request = c.Request.WithContext(savedCtx)
 		}()
+
+		// 2. 从 HTTP Header 提取 Trace Context（支持跨服务链路传递）
 		ctx := cfg.Propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Request.Header))
 		route := c.FullPath()
 
@@ -88,6 +92,9 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 				semconv.ServerAddress(c.Request.Host),
 				semconv.UserAgentOriginal(c.Request.UserAgent()),
 				semconv.HTTPRoute(route),
+				// 核心：将 RequestID 作为 Span 属性，与 TraceID 关联
+				attribute.String("request_id", reqID),
+				attribute.String("trace.request_id", reqID), // 兼容性字段
 			),
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		}
@@ -95,10 +102,13 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		if spanName == "" {
 			spanName = fmt.Sprintf("HTTP %s route not found", c.Request.Method)
 		}
+
+		// 3. 创建 Span
 		ctx, span := tracer.Start(ctx, spanName, tOpts...)
 		defer span.End()
-		span.SetAttributes(attribute.String("requestId", reqID))
-		// pass the span through the request context
+
+		// 4. 将 Span 的 TraceID 注入到 Context，便于下游使用
+		// 注意：TraceID 是 OpenTelemetry 自动生成的 UUID，但我们有 reqID 作为业务标识
 		c.Request = c.Request.WithContext(ctx)
 
 		// serve the request to the next interceptor

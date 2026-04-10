@@ -12,10 +12,6 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -152,8 +148,6 @@ type Connection struct {
 	reconnectCount int64     // 重连次数
 	lastError      error     // 最后一次错误
 	lastErrorTime  time.Time // 最后一次错误时间
-
-	tracer trace.Tracer // OpenTelemetry tracer
 }
 
 // NewConnection 创建新的 RabbitMQ 连接
@@ -174,10 +168,9 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 		maxRetries:      o.maxRetries,
 		exit:            make(chan struct{}),
 		zapLog:          o.zapLog,
-		tracer:          otel.Tracer("gorabbitmq"), // 初始化 tracer
 	}
 
-	conn, err := connect(ctx, connection)
+	conn, err := connect(connection)
 	if err != nil {
 		return nil, err
 	}
@@ -194,16 +187,7 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 }
 
 // connect 建立 AMQP 连接
-func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
-	// 创建追踪 span
-	ctx, span := c.tracer.Start(ctx, "connect")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("url", c.url),
-		attribute.Bool("tls", c.tlsConfig != nil),
-	)
-
+func connect(c *Connection) (*amqp.Connection, error) {
 	url := c.url
 	tlsConfig := c.tlsConfig
 	dialTimeout := c.dialTimeout
@@ -215,15 +199,10 @@ func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
 	)
 	if strings.HasPrefix(url, "amqps://") {
 		if tlsConfig == nil {
-			err = errors.New("tls not set, e.g. NewConnection(url, WithTLSConfig(tlsConfig))")
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return nil, err
+			return nil, errors.New("tls not set, e.g. NewConnection(url, WithTLSConfig(tlsConfig))")
 		}
 		conn, err = amqp.DialTLS(url, tlsConfig)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
 	} else {
@@ -234,6 +213,7 @@ func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
 
 		conn, err = amqp.DialConfig(url, amqp.Config{
 			Dial: func(network, addr string) (net.Conn, error) {
+				ctx := context.Background()
 				c, err := dialer.DialContext(ctx, network, addr)
 				if err != nil {
 					return nil, err
@@ -247,8 +227,6 @@ func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
 			Heartbeat: heartbeat, // 增加心跳间隔
 		})
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
 			return nil, err
 		}
 	}
@@ -256,17 +234,31 @@ func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
 	return conn, nil
 }
 
+// maskURL 脱敏 URL，移除用户名和密码
+func maskURL(url string) string {
+	if url == "" {
+		return url
+	}
+	// 查找 :// 之后的部分
+	prefix := ""
+	rest := url
+	if idx := strings.Index(url, "://"); idx != -1 {
+		prefix = url[:idx+3] // 包含 ://
+		rest = url[idx+3:]
+	}
+
+	// 查找 @ 符号
+	if idx := strings.Index(rest, "@"); idx != -1 {
+		return prefix + "***:***@" + rest[idx+1:]
+	}
+	return url
+}
+
 // CheckConnected 检查连接是否正常
 func (c *Connection) CheckConnected(ctx context.Context) bool {
-	// 创建追踪 span
-	ctx, span := c.tracer.Start(ctx, "connection.check_connected")
-	defer span.End()
-
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	isConnected := c.isConnected && c.conn != nil && !c.conn.IsClosed()
-	span.SetAttributes(attribute.Bool("connected", isConnected))
-	return isConnected
+	return c.isConnected && c.conn != nil && !c.conn.IsClosed()
 }
 
 // monitor 监控连接状态
@@ -294,11 +286,6 @@ func (c *Connection) monitor(ctx context.Context) {
 					c.zapLog.Error("[rabbitmq connection] TCP blocked", zap.String("reason", b.Reason))
 				}
 			case closeChanErr := <-c.closeChan:
-				// 创建追踪 span
-				var span trace.Span
-				ctx, span = c.tracer.Start(ctx, "connection.monitor")
-				defer span.End()
-
 				c.mutex.Lock()
 				c.isConnected = false
 				c.lastError = closeChanErr
@@ -306,17 +293,14 @@ func (c *Connection) monitor(ctx context.Context) {
 				c.mutex.Unlock()
 
 				atomic.AddInt64(&c.reconnectCount, 1)
-				retryCount := c.GetReconnectCount(ctx)
+				retryCount := c.GetReconnectCount(context.Background())
 
 				// 检查是否超过最大重试次数
 				if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
-					err := fmt.Errorf("max retries exceeded, stopping reconnection attempts")
 					c.zapLog.Warn("[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
 						zap.Int64("retryCount", retryCount),
 						zap.Int("maxRetries", c.maxRetries),
 						zap.String("url", c.url))
-					span.RecordError(err)
-					span.SetStatus(codes.Error, err.Error())
 					return
 				}
 
@@ -327,8 +311,6 @@ func (c *Connection) monitor(ctx context.Context) {
 							zap.Int64("retryCount", retryCount),
 							zap.String("url", c.url))
 					}
-					span.RecordError(closeChanErr)
-					span.SetStatus(codes.Error, closeChanErr.Error())
 				} else {
 					if retryCount%10 == 1 {
 						c.zapLog.Warn("[rabbitmq connection] lost connection error",
@@ -344,8 +326,11 @@ func (c *Connection) monitor(ctx context.Context) {
 				}
 				time.Sleep(c.reconnectTime)
 
-				// 使用background context避免使用被取消的上下文
-				amqpConn, amqpErr := connect(context.Background(), c)
+				// 重连
+				reconnectStart := time.Now()
+				amqpConn, amqpErr := connect(c)
+				reconnectDuration := time.Since(reconnectStart)
+
 				if amqpErr != nil {
 					if retryCount%10 == 1 {
 						c.zapLog.Warn("[rabbitmq connection] reconnect error",
@@ -353,15 +338,14 @@ func (c *Connection) monitor(ctx context.Context) {
 							zap.Int64("retryCount", retryCount),
 							zap.String("url", c.url))
 					}
-					span.RecordError(amqpErr)
-					span.SetStatus(codes.Error, amqpErr.Error())
 					// 继续下一次循环尝试重连
 					return
 				}
 
 				c.zapLog.Info("[rabbitmq connection] reconnected successfully",
 					zap.Int64("retryCount", retryCount),
-					zap.String("url", c.url))
+					zap.String("url", c.url),
+					zap.Duration("duration", reconnectDuration))
 
 				// 设置新连接
 				c.mutex.Lock()
@@ -370,8 +354,6 @@ func (c *Connection) monitor(ctx context.Context) {
 				c.blockChan = c.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
 				c.closeChan = c.conn.NotifyClose(make(chan *amqp.Error, 1))
 				c.mutex.Unlock()
-
-				span.SetStatus(codes.Ok, "reconnected successfully")
 			}
 		}()
 
@@ -411,34 +393,18 @@ func (c *Connection) closeConn() error {
 
 // GetReconnectCount 获取重连次数
 func (c *Connection) GetReconnectCount(ctx context.Context) int64 {
-	// 创建追踪 span
-	ctx, span := c.tracer.Start(ctx, "connection.get_reconnect_count")
-	defer span.End()
-
-	count := atomic.LoadInt64(&c.reconnectCount)
-	span.SetAttributes(attribute.Int64("reconnect_count", count))
-	return count
+	return atomic.LoadInt64(&c.reconnectCount)
 }
 
 // GetLastError 获取最后的错误信息
 func (c *Connection) GetLastError(ctx context.Context) (error, time.Time) {
-	// 创建追踪 span
-	ctx, span := c.tracer.Start(ctx, "connection.get_last_error")
-	defer span.End()
-
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-
-	span.SetAttributes(attribute.String("last_error", c.lastError.Error()))
 	return c.lastError, c.lastErrorTime
 }
 
 // GetConnectionStatus 获取连接状态信息
 func (c *Connection) GetConnectionStatus(ctx context.Context) map[string]interface{} {
-	// 创建追踪 span
-	ctx, span := c.tracer.Start(ctx, "connection.get_status")
-	defer span.End()
-
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -454,23 +420,16 @@ func (c *Connection) GetConnectionStatus(ctx context.Context) map[string]interfa
 		status["lastErrorTime"] = c.lastErrorTime
 	}
 
-	span.SetAttributes(attribute.Bool("connected", status["connected"].(bool)))
 	return status
 }
 
 // GetConn 获取 AMQP 连接
 func (c *Connection) GetConn(ctx context.Context) *amqp.Connection {
-	// 创建追踪 span
-	ctx, span := c.tracer.Start(ctx, "connection.get_conn")
-	defer span.End()
-
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	if c.conn != nil && !c.conn.IsClosed() {
-		span.SetAttributes(attribute.Bool("available", true))
 		return c.conn
 	}
-	span.SetAttributes(attribute.Bool("available", false))
 	return nil
 }
