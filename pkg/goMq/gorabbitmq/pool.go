@@ -3,6 +3,7 @@ package gorabbitmq
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,8 @@ type poolOptions struct {
 	connOpts          []ConnectionOption // 连接选项
 	antsCap           int                // ants协程池容量
 	healthCheckPeriod time.Duration      // 健康检查周期
+	enableTrace       bool               // 是否启用 Trace
+	traceSampleRate   float64            // Trace 采样率 (0.0-1.0)
 }
 
 // apply 应用连接池配置选项
@@ -54,6 +57,8 @@ func defaultPoolOptions() *poolOptions {
 		connOpts:          []ConnectionOption{},
 		antsCap:           0,           // 默认使用ants库的默认容量
 		healthCheckPeriod: time.Minute, // 默认健康检查周期为1分钟
+		enableTrace:       true,        // 默认启用 Trace
+		traceSampleRate:   1.0,         // 默认全量采样
 	}
 }
 
@@ -114,6 +119,22 @@ func WithHealthCheckPeriod(d time.Duration) PoolOption {
 	return func(o *poolOptions) {
 		if d > 0 {
 			o.healthCheckPeriod = d
+		}
+	}
+}
+
+// WithTraceEnabled 启用或禁用 Trace
+func WithTraceEnabled(enabled bool) PoolOption {
+	return func(o *poolOptions) {
+		o.enableTrace = enabled
+	}
+}
+
+// WithTraceSampleRate 设置 Trace 采样率 (0.0-1.0)
+func WithTraceSampleRate(rate float64) PoolOption {
+	return func(o *poolOptions) {
+		if rate >= 0.0 && rate <= 1.0 {
+			o.traceSampleRate = rate
 		}
 	}
 }
@@ -201,16 +222,22 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 }
 
 // Get 从连接池获取一个连接
-// --- 优化点 2: 改进 Get 方法，增加 Context 感知和性能优化 ---
 func (p *Pool) Get(ctx context.Context) (*Connection, error) {
-	ctx, span := p.tracer.Start(ctx, "pool.get")
-	defer span.End()
+	var span trace.Span
+	if p.poolOpts.enableTrace {
+		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.get", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+	}
 
+	startTime := time.Now()
 	for {
 		p.mutex.Lock()
 		if p.closed {
-			span.RecordError(ErrPoolClosed)
 			p.mutex.Unlock()
+			if span != nil {
+				span.RecordError(ErrPoolClosed)
+				span.SetStatus(codes.Error, ErrPoolClosed.Error())
+			}
 			return nil, ErrPoolClosed
 		}
 
@@ -222,14 +249,29 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 			p.mutex.Unlock()
 
 			// 优化：检查连接健康度
-			// 如果连接刚被用过 (fastVerifyThreshold)，跳过耗时的 verifyConnection (创建 channel 操作)
 			isFresh := time.Since(pc.lastUsed) < fastVerifyThreshold
 			if pc.conn.CheckConnected(ctx) {
 				if isFresh {
+					if span != nil {
+						span.SetAttributes(
+							attribute.Bool("rabbitmq.pool.connection_reused", true),
+							attribute.Bool("rabbitmq.pool.connection_verified_fast", true),
+							attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
+						)
+						span.AddEvent("connection acquired from pool (fast path)")
+					}
 					return pc.conn, nil
 				}
 				// 深度检查
 				if verified, _ := p.verifyConnection(pc.conn); verified {
+					if span != nil {
+						span.SetAttributes(
+							attribute.Bool("rabbitmq.pool.connection_reused", true),
+							attribute.Bool("rabbitmq.pool.connection_verified_full", true),
+							attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
+						)
+						span.AddEvent("connection acquired from pool (full verification)")
+					}
 					return pc.conn, nil
 				}
 			}
@@ -237,6 +279,9 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 			// 连接失效，销毁并减少计数
 			pc.conn.Close()
 			atomic.AddInt64(&p.totalConns, -1)
+			if span != nil {
+				span.AddEvent("stale connection removed from pool")
+			}
 			continue // 继续循环尝试获取
 		}
 
@@ -245,16 +290,32 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 			atomic.AddInt64(&p.totalConns, 1)
 			p.mutex.Unlock()
 
+			if span != nil {
+				span.AddEvent("creating new connection")
+			}
 			conn, err := NewConnection(ctx, p.url, p.poolOpts.connOpts...)
 			if err != nil {
 				atomic.AddInt64(&p.totalConns, -1)
+				if span != nil {
+					span.RecordError(err)
+					span.SetStatus(codes.Error, err.Error())
+				}
 				return nil, err
+			}
+			if span != nil {
+				span.SetAttributes(
+					attribute.Bool("rabbitmq.pool.connection_reused", false),
+					attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
+				)
+				span.AddEvent("new connection created")
 			}
 			return conn, nil
 		}
 
 		// --- 优化点 3: 解决 sync.Cond.Wait() 无法被 Context 取消的问题 ---
-		// 使用一个辅助 channel 来实现带超时的等待
+		if span != nil {
+			span.AddEvent("waiting for available connection")
+		}
 		waitChan := make(chan struct{}, 1)
 		go func() {
 			p.mutex.Lock()
@@ -265,6 +326,10 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 
 		select {
 		case <-ctx.Done():
+			if span != nil {
+				span.RecordError(ctx.Err())
+				span.SetStatus(codes.Error, ctx.Err().Error())
+			}
 			return nil, ctx.Err()
 		case <-waitChan:
 			// 被 Signal 唤醒，进入下一轮循环获取连接
@@ -275,17 +340,39 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 
 // GetWithRetry 从连接池获取一个连接，带重试机制
 func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, error) {
-	var lastErr error
+	var span trace.Span
+	if p.poolOpts.enableTrace {
+		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.get_with_retry", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+		span.SetAttributes(
+			attribute.Int("rabbitmq.pool.max_retries", maxRetries),
+		)
+	}
 
+	var lastErr error
 	for i := 0; i <= maxRetries; i++ {
+		if span != nil && i > 0 {
+			span.AddEvent(fmt.Sprintf("retry attempt %d/%d", i, maxRetries))
+		}
+
 		conn, err := p.Get(ctx)
 		if err == nil {
+			if span != nil {
+				span.SetAttributes(
+					attribute.Int("rabbitmq.pool.retry_attempts_used", i),
+				)
+				span.AddEvent("connection acquired after retries")
+			}
 			return conn, nil
 		}
 
 		lastErr = err
 		// 如果是连接池关闭错误，则不重试
 		if err.Error() == "pool is closed" {
+			if span != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "pool closed")
+			}
 			break
 		}
 
@@ -296,10 +383,18 @@ func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, e
 				delay = time.Second * 3
 			}
 
+			if span != nil {
+				span.AddEvent(fmt.Sprintf("waiting %.0fms before retry", float64(delay.Milliseconds())))
+			}
+
 			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
+				if span != nil {
+					span.RecordError(ctx.Err())
+					span.SetStatus(codes.Error, ctx.Err().Error())
+				}
 				return nil, ctx.Err()
 			case <-timer.C:
 				timer.Stop()
@@ -307,6 +402,10 @@ func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, e
 		}
 	}
 
+	if span != nil {
+		span.RecordError(lastErr)
+		span.SetStatus(codes.Error, "all retries exhausted")
+	}
 	return nil, lastErr
 }
 
@@ -335,12 +434,16 @@ func (p *Pool) verifyConnection(conn *Connection) (bool, error) {
 
 // Put 将连接放回连接池
 func (p *Pool) Put(ctx context.Context, conn *Connection) error {
-	// 创建追踪 span
-	ctx, span := p.tracer.Start(ctx, "pool.put")
-	defer span.End()
+	var span trace.Span
+	if p.poolOpts.enableTrace {
+		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.put", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+	}
 
 	if conn == nil {
-		span.SetStatus(codes.Ok, "nil connection")
+		if span != nil {
+			span.SetStatus(codes.Ok, "nil connection")
+		}
 		return nil
 	}
 
@@ -349,7 +452,10 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 		p.mutex.Unlock()
 		atomic.AddInt64(&p.totalConns, -1)
 		conn.Close()
-		span.SetStatus(codes.Ok, "connection invalid, closed")
+		if span != nil {
+			span.SetAttributes(attribute.Bool("rabbitmq.pool.connection_returned", false))
+			span.SetStatus(codes.Ok, "connection invalid, closed")
+		}
 		return nil
 	}
 
@@ -360,9 +466,13 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 	}
 	p.conns = append(p.conns, pc)
 
-	span.SetAttributes(
-		attribute.Int("pool_size", len(p.conns)),
-	)
+	if span != nil {
+		span.SetAttributes(
+			attribute.Int("rabbitmq.pool.size", len(p.conns)),
+			attribute.Bool("rabbitmq.pool.connection_returned", true),
+		)
+		span.AddEvent("connection returned to pool")
+	}
 	// 唤醒 Get 中的 Wait
 	p.cond.Signal()
 	p.mutex.Unlock()
@@ -389,16 +499,10 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 
 // doCleanup 实际执行清理工作的函数
 func (p *Pool) doCleanup(ctx context.Context) {
-	// 创建追踪 span
-	var span trace.Span
-	ctx, span = p.tracer.Start(ctx, "pool.cleanup")
-	defer span.End()
-
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if p.closed {
-		span.SetStatus(codes.Ok, "pool closed")
 		return
 	}
 
@@ -410,6 +514,7 @@ func (p *Pool) doCleanup(ctx context.Context) {
 	}
 
 	// 从后往前遍历，移除空闲时间过长的连接
+	removedCount := 0
 	for i := len(p.conns) - 1; i >= minKeep; i-- {
 		pc := p.conns[i]
 		if now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
@@ -418,27 +523,34 @@ func (p *Pool) doCleanup(ctx context.Context) {
 			atomic.AddInt64(&p.totalConns, -1)
 			// 从池中移除
 			p.conns = append(p.conns[:i], p.conns[i+1:]...)
+			removedCount++
 			p.poolOpts.zapLog.Warn("[rabbitmq pool] removed idle connection",
 				zap.Duration("idleTime", now.Sub(pc.lastUsed)))
 		}
 	}
 
-	span.SetAttributes(
-		attribute.Int("final_pool_size", len(p.conns)),
-	)
+	if removedCount > 0 {
+		p.poolOpts.zapLog.Info("[rabbitmq pool] cleanup completed",
+			zap.Int("removed_count", removedCount),
+			zap.Int("remaining_pool_size", len(p.conns)))
+	}
 }
 
 // Close 关闭连接池
 func (p *Pool) Close(ctx context.Context) error {
-	// 创建追踪 span
-	ctx, span := p.tracer.Start(ctx, "pool.close")
-	defer span.End()
+	var span trace.Span
+	if p.poolOpts.enableTrace {
+		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.close", trace.WithSpanKind(trace.SpanKindClient))
+		defer span.End()
+	}
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if p.closed {
-		span.SetStatus(codes.Ok, "already closed")
+		if span != nil {
+			span.SetStatus(codes.Ok, "already closed")
+		}
 		return nil
 	}
 
@@ -460,20 +572,18 @@ func (p *Pool) Close(ctx context.Context) error {
 	// 释放ants协程池资源
 	p.antsPool.Release()
 
-	//p.poolOpts.zapLog.Info("[rabbitmq pool] closed")
-	span.SetAttributes(
-		attribute.Int("closed_connections", closedCount),
-	)
+	if span != nil {
+		span.SetAttributes(
+			attribute.Int("rabbitmq.pool.closed_connections", closedCount),
+		)
+		span.AddEvent("pool closed")
+	}
 
 	return nil
 }
 
 // Stats 返回连接池统计信息
 func (p *Pool) Stats(ctx context.Context) map[string]interface{} {
-	// 创建追踪 span
-	ctx, span := p.tracer.Start(ctx, "pool.stats")
-	defer span.End()
-
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -494,13 +604,6 @@ func (p *Pool) Stats(ctx context.Context) map[string]interface{} {
 		"antsPoolRunning": p.antsPool.Running(),
 		"antsPoolCap":     p.antsPool.Cap(),
 	}
-
-	span.SetAttributes(
-		attribute.Int64("total_conns", stats["totalConns"].(int64)),
-		attribute.Int("available", stats["available"].(int)),
-		attribute.Int("pool_size", stats["poolSize"].(int)),
-		attribute.Bool("closed", stats["closed"].(bool)),
-	)
 
 	return stats
 }

@@ -11,6 +11,8 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -587,22 +589,62 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	}
 	c.wg.Add(1)
 	defer c.wg.Done()
-	// 2. 开始 Trace Span
+
+	// 2. 从消息头提取 Trace Context（大厂标准做法）
+	// 将 amqp.Table 转换为 map[string]string 以适配 Propagator
+	headersMap := make(map[string]string)
+	for k, v := range d.Headers {
+		if strVal, ok := v.(string); ok {
+			headersMap[k] = strVal
+		}
+	}
+
+	// 3. 从 Header 提取 Trace Context（关键：用于保持 TraceId 一致）
+	extractedCtx := otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(headersMap))
+
+	// 4. 开始 Trace Span（使用提取的 Context 作为 Parent，确保 TraceId 一致）
 	spanName := c.name
 	if spanName == "" {
-		spanName = "consume message"
+		spanName = "rabbitmq.consume"
 	}
-	msgCtx, span := c.tracer.Start(ctx, spanName)
-	defer span.End() // 确保 span 最终关闭
-	span.SetAttributes(attribute.String("message.body", string(d.Body)))
 
-	// 设置一些基础 Tag，方便在 Jaeger 中检索
+	// 使用 extractedCtx 作为 Parent Context，而不是 context.Background()
+	// 这样 Consumer Span 与 Producer Span 共享同一个 TraceId
+	msgCtx, span := c.tracer.Start(extractedCtx, spanName, trace.WithSpanKind(trace.SpanKindConsumer))
+	defer span.End()
+
+	// 从消息 Header 中提取 request_id（大厂标准：关联业务日志和 Trace）
+	if reqIDStr, ok := d.Headers["request_id"].(string); ok && reqIDStr != "" {
+		span.SetAttributes(attribute.String("request_id", reqIDStr))
+	}
+
+	// 设置语义化属性（遵循 OpenTelemetry Messaging Semantic Conventions）
 	tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
 		attribute.String("messaging.destination", c.QueueName),
+		attribute.String("messaging.destination_kind", "queue"),
+		attribute.String("messaging.rabbitmq.routing_key", d.RoutingKey),
+		attribute.String("messaging.message_id", d.MessageId),
+		attribute.Int("messaging.message_payload_size_bytes", len(d.Body)),
 		attribute.String("messaging.rabbitmq.delivery_tag", strconv.FormatUint(d.DeliveryTag, 10)),
+		attribute.String("messaging.operation", "process"),
 	)
+
+	// 如果消息携带了 Trace 信息，记录为链接关系
+	if traceIDStr, ok := d.Headers["x-trace-id"].(string); ok && traceIDStr != "" {
+		span.SetAttributes(
+			attribute.String("messaging.rabbitmq.producer_trace_id", traceIDStr),
+		)
+		if spanIDStr, ok := d.Headers["x-span-id"].(string); ok && spanIDStr != "" {
+			span.SetAttributes(
+				attribute.String("messaging.rabbitmq.producer_span_id", spanIDStr),
+			)
+		}
+	}
+
+	// 添加事件标记
+	span.AddEvent("message received")
 
 	// 3. 将集成了【系统退出信号】+【Trace信息】的 msgCtx 传给业务 handler
 	// 业务代码内部如果调用了 DB 或 HTTP 请求，应使用这个 msgCtx
@@ -610,19 +652,29 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 
 	// 4. 自动确认模式直接返回
 	if c.isAutoAck {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "handler error (auto-ack mode)")
+		} else {
+			span.AddEvent("message processed successfully (auto-ack)")
+		}
 		return
 	}
 
 	// 5. 手动确认模式逻辑
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, "handler error")
 		//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 		//如果设置为 false，则将消息从队列中移除，不再重新排队
 		// 这样即使程序崩溃，消息也会回到队列
 		if rejectErr := d.Reject(false); rejectErr != nil {
+			span.RecordError(rejectErr)
 			c.zapLog.Warn("[rabbitmq consumer] manual Reject error",
 				zap.String("err", rejectErr.Error()),
 				zap.String("tagID", tagID))
+		} else {
+			span.AddEvent("message rejected and requeued")
 		}
 		return
 	}
@@ -636,6 +688,8 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 		c.zapLog.Warn("[rabbitmq consumer] manual ack error",
 			zap.String("err", ackErr.Error()),
 			zap.String("tagID", tagID))
+	} else {
+		span.AddEvent("message acknowledged successfully")
 	}
 }
 
@@ -663,4 +717,13 @@ func (c *Consumer) Close() {
 		c.zapLog.Info("[rabbitmq consumer] 资源已释放", zap.String("queue", c.QueueName))
 	})
 	// 注意：Connection 的关闭由外部 Pool 或 BaseConsumer 管理
+}
+
+// getHeadersKeys 获取消息头的键列表（用于调试）
+func getHeadersKeys(headers amqp.Table) []string {
+	keys := make([]string, 0, len(headers))
+	for k := range headers {
+		keys = append(keys, k)
+	}
+	return keys
 }

@@ -8,6 +8,8 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -435,20 +437,53 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishDirect")
+	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			span.SetAttributes(attribute.String("request_id", reqIDStr))
+		}
+	}
+
+	span.SetAttributes(
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.destination", p.Exchange.name),
+		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.rabbitmq.routing_key", routingKey),
+		attribute.String("messaging.rabbitmq.exchange.type", "direct"),
+		attribute.Int("messaging.message_payload_size_bytes", len(body)),
+		attribute.String("messaging.message_id", messageID),
+	)
+
 	if p.Exchange.eType != exchangeTypeDirect {
 		err = fmt.Errorf("invalid exchange type (%s), only supports direct type", p.Exchange.eType)
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
-	// ctx: 上下文
-	// exchange: 交换机名称
-	// key: 路由键
-	// mandatory: 不可路由时是否返回消息
-	// immediate: 是否立即发送
-	// msg: 消息内容
+
+	span.AddEvent("publishing message")
+
+	// 注入 Trace Context 到消息头（大厂标准做法）
+	// 使用 OpenTelemetry Propagator 自动注入标准 W3C Trace Context
+	headersMap := make(map[string]string)
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
+
+	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			headersMap["request_id"] = reqIDStr
+		}
+	}
+
+	// 转换为 amqp.Table
+	headers := amqp.Table{}
+	for k, v := range headersMap {
+		headers[k] = v
+	}
+
 	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
@@ -461,10 +496,15 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 			Body:         body,
 			Timestamp:    time.Now(),
 			MessageId:    messageID,
+			Headers:      headers, // 携带 Trace 信息
 		},
 	)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.AddEvent("publish failed")
+	} else {
+		span.AddEvent("message published successfully")
 	}
 	return err
 }
@@ -474,17 +514,55 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishFanout")
+	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
-	if p.Exchange.eType != exchangeTypeFanout {
-		err = fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
-		span.RecordError(err)
-		return err
+
+	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			span.SetAttributes(attribute.String("request_id", reqIDStr))
+		}
 	}
-	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
+
 	routingKey := p.Exchange.routingKey
 	if p.isDelay {
 		routingKey = p.deadLetter.deadRoutingKey
+	}
+
+	span.SetAttributes(
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.destination", p.Exchange.name),
+		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.rabbitmq.routing_key", routingKey),
+		attribute.String("messaging.rabbitmq.exchange.type", "fanout"),
+		attribute.Int("messaging.message_payload_size_bytes", len(body)),
+		attribute.String("messaging.message_id", messageID),
+	)
+
+	if p.Exchange.eType != exchangeTypeFanout {
+		err = fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.AddEvent("publishing message")
+
+	// 注入 Trace Context 到消息头
+	headersMap := make(map[string]string)
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
+
+	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			headersMap["request_id"] = reqIDStr
+		}
+	}
+
+	// 转换为 amqp.Table
+	headers := amqp.Table{}
+	for k, v := range headersMap {
+		headers[k] = v
 	}
 
 	err = p.channel.PublishWithContext(
@@ -499,10 +577,15 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 			Body:         body,
 			Timestamp:    time.Now(),
 			MessageId:    messageID,
+			Headers:      headers,
 		},
 	)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.AddEvent("publish failed")
+	} else {
+		span.AddEvent("message published successfully")
 	}
 	return err
 }
@@ -513,15 +596,52 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishTopic")
+	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			span.SetAttributes(attribute.String("request_id", reqIDStr))
+		}
+	}
+
+	span.SetAttributes(
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.destination", p.Exchange.name),
+		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.rabbitmq.routing_key", routingKey),
+		attribute.String("messaging.rabbitmq.exchange.type", "topic"),
+		attribute.Int("messaging.message_payload_size_bytes", len(body)),
+		attribute.String("messaging.message_id", messageID),
+	)
 
 	if p.Exchange.eType != exchangeTypeTopic {
 		err = fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	span.SetAttributes(attribute.Int("body.size", len(body))) // 记录消息大小而不是内容
+
+	span.AddEvent("publishing message")
+
+	// 注入 Trace Context 到消息头
+	headersMap := make(map[string]string)
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
+
+	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			headersMap["request_id"] = reqIDStr
+		}
+	}
+
+	// 转换为 amqp.Table
+	headers := amqp.Table{}
+	for k, v := range headersMap {
+		headers[k] = v
+	}
+
 	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
@@ -534,10 +654,15 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 			Body:         body,
 			Timestamp:    time.Now(),
 			MessageId:    messageID,
+			Headers:      headers,
 		},
 	)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.AddEvent("publish failed")
+	} else {
+		span.AddEvent("message published successfully")
 	}
 	return err
 }
@@ -548,17 +673,55 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "PublishHeaders")
+	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			span.SetAttributes(attribute.String("request_id", reqIDStr))
+		}
+	}
+
+	span.SetAttributes(
+		attribute.String("messaging.system", "rabbitmq"),
+		attribute.String("messaging.destination", p.Exchange.name),
+		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.rabbitmq.exchange.type", "headers"),
+		attribute.Int("messaging.message_payload_size_bytes", len(body)),
+		attribute.String("messaging.message_id", messageID),
+		attribute.Int("messaging.rabbitmq.headers_count", len(headersKeys)),
+	)
+
 	if p.Exchange.eType != exchangeTypeHeaders {
 		err = fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
-	span.SetAttributes(
-		attribute.Int("body.size", len(body)),            // 记录消息大小而不是内容
-		attribute.Int("headers.count", len(headersKeys)), // 记录headers数量
-	)
+
+	span.AddEvent("publishing message")
+
+	// 注入 Trace Context 到消息头（与用户自定义 headers 合并）
+	headersMap := make(map[string]string)
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
+
+	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			headersMap["request_id"] = reqIDStr
+		}
+	}
+
+	// 转换为 amqp.Table 并合并用户自定义 headers
+	headers := amqp.Table{}
+	for k, v := range headersMap {
+		headers[k] = v
+	}
+	for k, v := range headersKeys {
+		headers[k] = v
+	}
+
 	err = p.channel.PublishWithContext(
 		ctx,
 		p.Exchange.name,
@@ -567,7 +730,7 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 		false,
 		amqp.Publishing{
 			DeliveryMode: p.deliveryMode,
-			Headers:      headersKeys,
+			Headers:      headers, // 包含 Trace + 用户自定义 headers
 			ContentType:  "text/plain",
 			Body:         body,
 			Timestamp:    time.Now(),
@@ -576,6 +739,10 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 	)
 	if err != nil {
 		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		span.AddEvent("publish failed")
+	} else {
+		span.AddEvent("message published successfully")
 	}
 	return err
 }

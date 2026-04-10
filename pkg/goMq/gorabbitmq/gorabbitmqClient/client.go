@@ -90,9 +90,7 @@ func InitRabbitmq(name string, mqCfg any) {
 		}
 
 		// 1. 创建底层连接池
-		pool, err := gorabbitmq.NewPool(
-			ctx,
-			poolCfg.URL,
+		poolOpts := []gorabbitmq.PoolOption{
 			gorabbitmq.WithInitialCap(poolCfg.InitialCap),                                          // 初始连接数
 			gorabbitmq.WithMaxCap(poolCfg.MaxCap),                                                  // 最大连接数
 			gorabbitmq.WithMaxIdle(time.Second*time.Duration(poolCfg.MaxIdle)),                     // 最大空闲时间
@@ -105,7 +103,11 @@ func InitRabbitmq(name string, mqCfg any) {
 				gorabbitmq.WithDialTimeout(time.Second*time.Duration(poolCfg.DialTimeout)),
 				gorabbitmq.WithHeartbeat(time.Second*time.Duration(poolCfg.Heartbeat)),
 			),
-		)
+			// RabbitMQ Trace 始终启用，采样率由全局 app.tracingSamplingRate 控制
+			gorabbitmq.WithTraceEnabled(true),
+		}
+
+		pool, err := gorabbitmq.NewPool(ctx, poolCfg.URL, poolOpts...)
 		if err != nil {
 			cancel()
 			panic("Failed to create RabbitMQ pool" + err.Error())
@@ -285,11 +287,12 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 	start := time.Now()
 	var err error
 	defer func() {
-		// 记录耗时
+		// 记录耗时（注意：不记录完整消息内容，避免敏感信息泄露）
 		fields := []zap.Field{
 			zap.String("exchangeName", exchangeName),
 			zap.String("routingKey", routingKey),
-			zap.String("message", message),
+			zap.Int("message_size_bytes", len(message)), // 只记录消息大小
+			zap.String("message_id", messageId),
 			zap.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
 		}
 		if err != nil {
