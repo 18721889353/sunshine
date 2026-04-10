@@ -46,9 +46,11 @@ func InitSnowNode() {
 
 // 从配置或环境变量中获取MachineID
 func getMachineID() (int64, error) {
-	// 1. 从配置文件读取
-	// 1. 从IP地址计算得到
-	machineID := config.Get().App.MachineID
+	// 1. 尝试从配置文件读取
+	var machineID int
+	if config.Get() != nil {
+		machineID = config.Get().App.MachineID
+	}
 	if machineID <= 0 {
 		// 如果未配置，从IP地址计算
 		var err error
