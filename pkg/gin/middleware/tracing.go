@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
+
 	"github.com/gin-gonic/gin"
 	otelcontrib "go.opentelemetry.io/contrib"
 	"go.opentelemetry.io/otel"
@@ -107,7 +109,12 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		ctx, span := tracer.Start(ctx, spanName, tOpts...)
 		defer span.End()
 
-		// 4. 将 Span 的 TraceID 注入到 Context，便于下游使用
+		// 4. 将 request_id 注入到 Context，供下游组件（Redis/MySQL/RabbitMQ）使用
+		if reqID != "" {
+			ctx = context.WithValue(ctx, "request_id", reqID)
+		}
+
+		// 5. 将 Span 的 TraceID 注入到 Context，便于下游使用
 		// 注意：TraceID 是 OpenTelemetry 自动生成的 UUID，但我们有 reqID 作为业务标识
 		c.Request = c.Request.WithContext(ctx)
 

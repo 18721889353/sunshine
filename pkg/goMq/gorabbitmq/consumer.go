@@ -614,8 +614,12 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	defer span.End()
 
 	// 从消息 Header 中提取 request_id（大厂标准：关联业务日志和 Trace）
-	if reqIDStr, ok := d.Headers["request_id"].(string); ok && reqIDStr != "" {
+	var reqIDStr string
+	if reqIDVal, ok := d.Headers["request_id"].(string); ok && reqIDVal != "" {
+		reqIDStr = reqIDVal
 		span.SetAttributes(attribute.String("request_id", reqIDStr))
+		// 将 request_id 注入到 Context，供下游组件（Redis/MySQL）使用
+		msgCtx = context.WithValue(msgCtx, "request_id", reqIDStr)
 	}
 
 	// 设置语义化属性（遵循 OpenTelemetry Messaging Semantic Conventions）

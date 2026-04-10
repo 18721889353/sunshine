@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	mysqlDriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -149,6 +151,8 @@ func getDb(dsn string, o *options) (*gorm.DB, error) {
 		if err != nil {
 			return nil, fmt.Errorf("using gorm opentelemetry, err: %v", err)
 		}
+		// 注册自定义 Callback 以传递 request_id 到 Span 属性
+		registerRequestIDCallback(db)
 	}
 	// register plugins
 	for _, plugin := range o.plugins {
@@ -196,6 +200,47 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 		Replicas: slaves,
 		Policy:   dbresolver.RandomPolicy{},
 	})
+}
+
+// registerRequestIDCallback 注册自定义 Callback，在 GORM Span 创建后提取 request_id 并设置到 Span 属性
+func registerRequestIDCallback(db *gorm.DB) {
+	// 查询操作
+	db.Callback().Query().After("otel:after:query").Register("otel:request_id:query", func(db *gorm.DB) {
+		setRequestIDToSpan(db.Statement.Context, db)
+	})
+	// 创建操作
+	db.Callback().Create().After("otel:after:create").Register("otel:request_id:create", func(db *gorm.DB) {
+		setRequestIDToSpan(db.Statement.Context, db)
+	})
+	// 更新操作
+	db.Callback().Update().After("otel:after:update").Register("otel:request_id:update", func(db *gorm.DB) {
+		setRequestIDToSpan(db.Statement.Context, db)
+	})
+	// 删除操作
+	db.Callback().Delete().After("otel:after:delete").Register("otel:request_id:delete", func(db *gorm.DB) {
+		setRequestIDToSpan(db.Statement.Context, db)
+	})
+	// 原始 SQL 操作
+	db.Callback().Row().After("otel:after:row").Register("otel:request_id:row", func(db *gorm.DB) {
+		setRequestIDToSpan(db.Statement.Context, db)
+	})
+	db.Callback().Raw().After("otel:after:raw").Register("otel:request_id:raw", func(db *gorm.DB) {
+		setRequestIDToSpan(db.Statement.Context, db)
+	})
+}
+
+// setRequestIDToSpan 从 Context 提取 request_id 并设置到当前 Span 属性
+func setRequestIDToSpan(ctx context.Context, db *gorm.DB) {
+	// 从 Context 中提取 request_id
+	if reqID := ctx.Value("request_id"); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			// 获取当前 Span 并设置属性
+			if span := trace.SpanFromContext(ctx); span.IsRecording() {
+				span.SetAttributes(attribute.String("request_id", reqIDStr))
+			}
+		}
+	}
+	_ = db // 避免未使用警告（db.Statement.Context 已使用）
 }
 
 // Close close gorm db
