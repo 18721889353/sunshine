@@ -204,27 +204,27 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 
 // registerRequestIDCallback 注册自定义 Callback，在 GORM Span 创建后提取 request_id 并设置到 Span 属性
 func registerRequestIDCallback(db *gorm.DB) {
-	// 查询操作
-	db.Callback().Query().After("otel:after:query").Register("otel:request_id:query", func(db *gorm.DB) {
+	// 查询操作：在 OTel Span 创建后、结束前设置
+	db.Callback().Query().After("otel:before:query").Before("otel:after:query").Register("otel:request_id:query", func(db *gorm.DB) {
 		setRequestIDToSpan(db.Statement.Context, db)
 	})
 	// 创建操作
-	db.Callback().Create().After("otel:after:create").Register("otel:request_id:create", func(db *gorm.DB) {
+	db.Callback().Create().After("otel:before:create").Before("otel:after:create").Register("otel:request_id:create", func(db *gorm.DB) {
 		setRequestIDToSpan(db.Statement.Context, db)
 	})
 	// 更新操作
-	db.Callback().Update().After("otel:after:update").Register("otel:request_id:update", func(db *gorm.DB) {
+	db.Callback().Update().After("otel:before:update").Before("otel:after:update").Register("otel:request_id:update", func(db *gorm.DB) {
 		setRequestIDToSpan(db.Statement.Context, db)
 	})
 	// 删除操作
-	db.Callback().Delete().After("otel:after:delete").Register("otel:request_id:delete", func(db *gorm.DB) {
+	db.Callback().Delete().After("otel:before:delete").Before("otel:after:delete").Register("otel:request_id:delete", func(db *gorm.DB) {
 		setRequestIDToSpan(db.Statement.Context, db)
 	})
 	// 原始 SQL 操作
-	db.Callback().Row().After("otel:after:row").Register("otel:request_id:row", func(db *gorm.DB) {
+	db.Callback().Row().After("otel:before:row").Before("otel:after:row").Register("otel:request_id:row", func(db *gorm.DB) {
 		setRequestIDToSpan(db.Statement.Context, db)
 	})
-	db.Callback().Raw().After("otel:after:raw").Register("otel:request_id:raw", func(db *gorm.DB) {
+	db.Callback().Raw().After("otel:before:raw").Before("otel:after:raw").Register("otel:request_id:raw", func(db *gorm.DB) {
 		setRequestIDToSpan(db.Statement.Context, db)
 	})
 }

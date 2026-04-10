@@ -19,28 +19,22 @@ func (h *requestIDHook) DialHook(next redis.DialHook) redis.DialHook {
 // ProcessHook 实现 redis.ProcessHook 接口
 func (h *requestIDHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
-		// 执行原命令（包括 redisotel 的 tracing hook）
-		// redisotel 会在内部创建 Span，我们需要在它结束前设置 request_id
-		err := next(ctx, cmd)
-
-		// 在命令执行后，从 Context 提取 request_id 并设置到当前 Span
-		// 注意：此时 redisotel 的 Span 还未结束（defer span.End() 尚未执行）
+		// 先设置 request_id（设置到外层 Span，如 mock-http-request）
 		setRequestIDToRedisSpan(ctx)
-
-		return err
+		
+		// 再执行命令（redisotel 会创建子 Span）
+		return next(ctx, cmd)
 	}
 }
 
 // ProcessPipelineHook 实现 redis.ProcessPipelineHook 接口
 func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
-		// 执行原命令（包括 redisotel 的 tracing hook）
-		err := next(ctx, cmds)
-
-		// 在命令执行后，从 Context 提取 request_id 并设置到当前 Span
+		// 先设置 request_id（设置到外层 Span）
 		setRequestIDToRedisSpan(ctx)
-
-		return err
+		
+		// 再执行命令（redisotel 会创建子 Span）
+		return next(ctx, cmds)
 	}
 }
 
