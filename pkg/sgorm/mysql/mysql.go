@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -147,12 +148,15 @@ func getDb(dsn string, o *options) (*gorm.DB, error) {
 	db.Set("gorm:table_options", "CHARSET=utf8mb4") // automatic appending of table suffixes when creating tables
 	// register trace plugin
 	if o.enableTrace {
-		err = db.Use(otelgorm.NewPlugin())
+		err = db.Use(otelgorm.NewPlugin(
+			otelgorm.WithoutMetrics(), // 禁用指标收集（可选）
+			otelgorm.WithDBName("mysql"),
+		))
 		if err != nil {
 			return nil, fmt.Errorf("using gorm opentelemetry, err: %v", err)
 		}
-		// 注册自定义 Callback 以传递 request_id 到 Span 属性
-		registerRequestIDCallback(db)
+		// 注册自定义 Callback 以增强 Trace 信息
+		registerEnhancedTraceCallback(db)
 	}
 	// register plugins
 	for _, plugin := range o.plugins {
@@ -202,45 +206,83 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 	})
 }
 
-// registerRequestIDCallback 注册自定义 Callback，在 GORM Span 创建后提取 request_id 并设置到 Span 属性
-func registerRequestIDCallback(db *gorm.DB) {
-	// 查询操作：在 OTel Span 创建后、结束前设置
-	db.Callback().Query().After("otel:before:query").Before("otel:after:query").Register("otel:request_id:query", func(db *gorm.DB) {
-		setRequestIDToSpan(db.Statement.Context, db)
+// registerEnhancedTraceCallback 注册增强的 Trace Callback，优化 Span 名称和属性
+// 注意：
+// - Query 操作：otelgorm 使用 Before("gorm:query") 创建 span，我们需要在其之后执行
+// - 其他操作：otelgorm 使用 otel:before:xxx 创建 span
+// GORM 的 Before 回调是逆序执行（后注册的后执行），所以我们的 Before 会在 otel 之后执行
+func registerEnhancedTraceCallback(db *gorm.DB) {
+	// 查询操作：在 otel 创建 span 后（Before 逆序执行）、SQL 执行前注入属性
+	db.Callback().Query().Before("gorm:query").Register("gorm:trace:enhance:query", func(db *gorm.DB) {
+		enhanceSpanWithQueryInfo(db.Statement.Context, db, "query")
 	})
 	// 创建操作
-	db.Callback().Create().After("otel:before:create").Before("otel:after:create").Register("otel:request_id:create", func(db *gorm.DB) {
-		setRequestIDToSpan(db.Statement.Context, db)
+	db.Callback().Create().After("otel:before:create").Before("otel:after:create").Register("gorm:trace:enhance:create", func(db *gorm.DB) {
+		enhanceSpanWithQueryInfo(db.Statement.Context, db, "create")
 	})
 	// 更新操作
-	db.Callback().Update().After("otel:before:update").Before("otel:after:update").Register("otel:request_id:update", func(db *gorm.DB) {
-		setRequestIDToSpan(db.Statement.Context, db)
+	db.Callback().Update().After("otel:before:update").Before("otel:after:update").Register("gorm:trace:enhance:update", func(db *gorm.DB) {
+		enhanceSpanWithQueryInfo(db.Statement.Context, db, "update")
 	})
 	// 删除操作
-	db.Callback().Delete().After("otel:before:delete").Before("otel:after:delete").Register("otel:request_id:delete", func(db *gorm.DB) {
-		setRequestIDToSpan(db.Statement.Context, db)
+	db.Callback().Delete().After("otel:before:delete").Before("otel:after:delete").Register("gorm:trace:enhance:delete", func(db *gorm.DB) {
+		enhanceSpanWithQueryInfo(db.Statement.Context, db, "delete")
 	})
 	// 原始 SQL 操作
-	db.Callback().Row().After("otel:before:row").Before("otel:after:row").Register("otel:request_id:row", func(db *gorm.DB) {
-		setRequestIDToSpan(db.Statement.Context, db)
+	db.Callback().Row().After("otel:before:row").Before("otel:after:row").Register("gorm:trace:enhance:row", func(db *gorm.DB) {
+		enhanceSpanWithQueryInfo(db.Statement.Context, db, "row")
 	})
-	db.Callback().Raw().After("otel:before:raw").Before("otel:after:raw").Register("otel:request_id:raw", func(db *gorm.DB) {
-		setRequestIDToSpan(db.Statement.Context, db)
+	db.Callback().Raw().After("otel:before:raw").Before("otel:after:raw").Register("gorm:trace:enhance:raw", func(db *gorm.DB) {
+		enhanceSpanWithQueryInfo(db.Statement.Context, db, "raw")
 	})
 }
 
-// setRequestIDToSpan 从 Context 提取 request_id 并设置到当前 Span 属性
-func setRequestIDToSpan(ctx context.Context, db *gorm.DB) {
-	// 从 Context 中提取 request_id
-	if reqID := ctx.Value("request_id"); reqID != nil {
+// enhanceSpanWithQueryInfo 增强 Span 信息：重命名 Span 并添加诊断属性
+func enhanceSpanWithQueryInfo(ctx context.Context, db *gorm.DB, operation string) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+
+	// 1. 提取 request_id（使用统一的 ContextRequestIDKey）
+	if reqID := ctx.Value(middleware.ContextRequestIDKey); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			// 获取当前 Span 并设置属性
-			if span := trace.SpanFromContext(ctx); span.IsRecording() {
-				span.SetAttributes(attribute.String("request_id", reqIDStr))
-			}
+			span.SetAttributes(attribute.String("request_id", reqIDStr))
 		}
 	}
-	_ = db // 避免未使用警告（db.Statement.Context 已使用）
+
+	// 2. 获取表名
+	tableName := "unknown"
+	if db.Statement.Table != "" {
+		tableName = db.Statement.Table
+	} else if db.Statement.Schema != nil {
+		tableName = db.Statement.Schema.Table
+	}
+
+	// 3. 获取 SQL 语句（截断过长部分）
+	sql := db.Statement.SQL.String()
+	if len(sql) > 200 {
+		sql = sql[:200] + "..."
+	}
+
+	// 4. 设置诊断属性
+	span.SetAttributes(
+		attribute.String("db.table", tableName),
+		attribute.String("db.operation", operation),
+		attribute.String("db.statement", sql),
+		attribute.Int64("db.rows_affected", db.Statement.RowsAffected),
+	)
+
+	// 5. 如果有错误，记录错误信息
+	if db.Error != nil {
+		span.RecordError(db.Error,
+			trace.WithAttributes(
+				attribute.String("error.type", "gorm-db-error"),
+				attribute.String("error.context", fmt.Sprintf("%s-operation-failed", operation)),
+				attribute.String("db.table", tableName),
+			),
+		)
+	}
 }
 
 // Close close gorm db

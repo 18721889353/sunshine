@@ -437,8 +437,11 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
+	spanName := fmt.Sprintf("rabbitmq.publish.direct.%s", p.Exchange.name)
+	ctx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value("request_id"); reqID != nil {
@@ -447,24 +450,41 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 		}
 	}
 
+	// 设置 OpenTelemetry Messaging Semantic Conventions 标准属性
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
-		attribute.String("messaging.destination", p.Exchange.name),
-		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.operation", "publish"),
+		attribute.String("messaging.destination.name", p.Exchange.name),
+		attribute.String("messaging.destination.kind", "exchange"),
 		attribute.String("messaging.rabbitmq.routing_key", routingKey),
 		attribute.String("messaging.rabbitmq.exchange.type", "direct"),
-		attribute.Int("messaging.message_payload_size_bytes", len(body)),
-		attribute.String("messaging.message_id", messageID),
+		attribute.Int("messaging.message.body.size", len(body)),
+		attribute.String("messaging.message.id", messageID),
+		attribute.Int("messaging.rabbitmq.delivery_mode", int(p.deliveryMode)),
+		attribute.Bool("messaging.rabbitmq.mandatory", p.mandatory),
 	)
 
 	if p.Exchange.eType != exchangeTypeDirect {
 		err = fmt.Errorf("invalid exchange type (%s), only supports direct type", p.Exchange.eType)
-		span.RecordError(err)
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "configuration-error"),
+				attribute.String("error.context", "exchange-type-validation"),
+			),
+		)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	span.AddEvent("publishing message")
+	span.AddEvent("preparing message for publish",
+		trace.WithAttributes(
+			attribute.String("exchange", p.Exchange.name),
+			attribute.String("routing_key", routingKey),
+			attribute.String("message_id", messageID),
+			attribute.Int("body_size", len(body)),
+			attribute.Int("delivery_mode", int(p.deliveryMode)),
+			attribute.Bool("mandatory", p.mandatory),
+		))
 
 	// 注入 Trace Context 到消息头（大厂标准做法）
 	// 使用 OpenTelemetry Propagator 自动注入标准 W3C Trace Context
@@ -499,12 +519,40 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 			Headers:      headers, // 携带 Trace 信息
 		},
 	)
+
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Float64("messaging.operation.duration_ms", float64(duration.Milliseconds())))
+
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.AddEvent("publish failed")
+		errorMsg := fmt.Sprintf("publish failed: %v | exchange=%s | routing_key=%s | exchange_type=direct | message_id=%s | body_size=%d",
+			err, p.Exchange.name, routingKey, messageID, len(body))
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", fmt.Sprintf("%T", err)),
+				attribute.String("error.context", "publish-direct-failed"),
+				attribute.String("error.exchange", p.Exchange.name),
+				attribute.String("error.routing_key", routingKey),
+				attribute.String("error.exchange_type", "direct"),
+			),
+		)
+		span.SetStatus(codes.Error, errorMsg)
+		span.AddEvent("publish failed",
+			trace.WithAttributes(
+				attribute.String("error.message", err.Error()),
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			),
+		)
 	} else {
-		span.AddEvent("message published successfully")
+		span.AddEvent("message published successfully",
+			trace.WithAttributes(
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			))
 	}
 	return err
 }
@@ -514,8 +562,11 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
+	spanName := fmt.Sprintf("rabbitmq.publish.fanout.%s", p.Exchange.name)
+	ctx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value("request_id"); reqID != nil {
@@ -529,24 +580,43 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 		routingKey = p.deadLetter.deadRoutingKey
 	}
 
+	// 设置 OpenTelemetry Messaging Semantic Conventions 标准属性
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
-		attribute.String("messaging.destination", p.Exchange.name),
-		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.operation", "publish"),
+		attribute.String("messaging.destination.name", p.Exchange.name),
+		attribute.String("messaging.destination.kind", "exchange"),
 		attribute.String("messaging.rabbitmq.routing_key", routingKey),
 		attribute.String("messaging.rabbitmq.exchange.type", "fanout"),
-		attribute.Int("messaging.message_payload_size_bytes", len(body)),
-		attribute.String("messaging.message_id", messageID),
+		attribute.Int("messaging.message.body.size", len(body)),
+		attribute.String("messaging.message.id", messageID),
+		attribute.Int("messaging.rabbitmq.delivery_mode", int(p.deliveryMode)),
+		attribute.Bool("messaging.rabbitmq.mandatory", p.mandatory),
+		attribute.Bool("messaging.rabbitmq.is_delay", p.isDelay),
 	)
 
 	if p.Exchange.eType != exchangeTypeFanout {
 		err = fmt.Errorf("invalid exchange type (%s), only supports fanout type", p.Exchange.eType)
-		span.RecordError(err)
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "configuration-error"),
+				attribute.String("error.context", "exchange-type-validation"),
+			),
+		)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	span.AddEvent("publishing message")
+	span.AddEvent("preparing message for publish",
+		trace.WithAttributes(
+			attribute.String("exchange", p.Exchange.name),
+			attribute.String("routing_key", routingKey),
+			attribute.String("message_id", messageID),
+			attribute.Int("body_size", len(body)),
+			attribute.Int("delivery_mode", int(p.deliveryMode)),
+			attribute.Bool("mandatory", p.mandatory),
+			attribute.Bool("is_delay", p.isDelay),
+		))
 
 	// 注入 Trace Context 到消息头
 	headersMap := make(map[string]string)
@@ -580,12 +650,40 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 			Headers:      headers,
 		},
 	)
+
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Float64("messaging.operation.duration_ms", float64(duration.Milliseconds())))
+
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.AddEvent("publish failed")
+		errorMsg := fmt.Sprintf("publish failed: %v | exchange=%s | routing_key=%s | exchange_type=fanout | message_id=%s | body_size=%d",
+			err, p.Exchange.name, routingKey, messageID, len(body))
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", fmt.Sprintf("%T", err)),
+				attribute.String("error.context", "publish-fanout-failed"),
+				attribute.String("error.exchange", p.Exchange.name),
+				attribute.String("error.routing_key", routingKey),
+				attribute.String("error.exchange_type", "fanout"),
+			),
+		)
+		span.SetStatus(codes.Error, errorMsg)
+		span.AddEvent("publish failed",
+			trace.WithAttributes(
+				attribute.String("error.message", err.Error()),
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			),
+		)
 	} else {
-		span.AddEvent("message published successfully")
+		span.AddEvent("message published successfully",
+			trace.WithAttributes(
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			))
 	}
 	return err
 }
@@ -596,8 +694,11 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
+	spanName := fmt.Sprintf("rabbitmq.publish.topic.%s", p.Exchange.name)
+	ctx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value("request_id"); reqID != nil {
@@ -606,24 +707,41 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 		}
 	}
 
+	// 设置 OpenTelemetry Messaging Semantic Conventions 标准属性
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
-		attribute.String("messaging.destination", p.Exchange.name),
-		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.operation", "publish"),
+		attribute.String("messaging.destination.name", p.Exchange.name),
+		attribute.String("messaging.destination.kind", "exchange"),
 		attribute.String("messaging.rabbitmq.routing_key", routingKey),
 		attribute.String("messaging.rabbitmq.exchange.type", "topic"),
-		attribute.Int("messaging.message_payload_size_bytes", len(body)),
-		attribute.String("messaging.message_id", messageID),
+		attribute.Int("messaging.message.body.size", len(body)),
+		attribute.String("messaging.message.id", messageID),
+		attribute.Int("messaging.rabbitmq.delivery_mode", int(p.deliveryMode)),
+		attribute.Bool("messaging.rabbitmq.mandatory", p.mandatory),
 	)
 
 	if p.Exchange.eType != exchangeTypeTopic {
 		err = fmt.Errorf("invalid exchange type (%s), only supports topic type", p.Exchange.eType)
-		span.RecordError(err)
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "configuration-error"),
+				attribute.String("error.context", "exchange-type-validation"),
+			),
+		)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	span.AddEvent("publishing message")
+	span.AddEvent("preparing message for publish",
+		trace.WithAttributes(
+			attribute.String("exchange", p.Exchange.name),
+			attribute.String("routing_key", routingKey),
+			attribute.String("message_id", messageID),
+			attribute.Int("body_size", len(body)),
+			attribute.Int("delivery_mode", int(p.deliveryMode)),
+			attribute.Bool("mandatory", p.mandatory),
+		))
 
 	// 注入 Trace Context 到消息头
 	headersMap := make(map[string]string)
@@ -657,12 +775,40 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 			Headers:      headers,
 		},
 	)
+
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Float64("messaging.operation.duration_ms", float64(duration.Milliseconds())))
+
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.AddEvent("publish failed")
+		errorMsg := fmt.Sprintf("publish failed: %v | exchange=%s | routing_key=%s | exchange_type=topic | message_id=%s | body_size=%d",
+			err, p.Exchange.name, routingKey, messageID, len(body))
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", fmt.Sprintf("%T", err)),
+				attribute.String("error.context", "publish-topic-failed"),
+				attribute.String("error.exchange", p.Exchange.name),
+				attribute.String("error.routing_key", routingKey),
+				attribute.String("error.exchange_type", "topic"),
+			),
+		)
+		span.SetStatus(codes.Error, errorMsg)
+		span.AddEvent("publish failed",
+			trace.WithAttributes(
+				attribute.String("error.message", err.Error()),
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			),
+		)
 	} else {
-		span.AddEvent("message published successfully")
+		span.AddEvent("message published successfully",
+			trace.WithAttributes(
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			))
 	}
 	return err
 }
@@ -673,8 +819,11 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 // body: 消息体
 // 返回可能的错误
 func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte, messageID string) (err error) {
-	ctx, span := p.tracer.Start(ctx, "rabbitmq.publish", trace.WithSpanKind(trace.SpanKindProducer))
+	spanName := fmt.Sprintf("rabbitmq.publish.headers.%s", p.Exchange.name)
+	ctx, span := p.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindProducer))
 	defer span.End()
+
+	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value("request_id"); reqID != nil {
@@ -683,24 +832,42 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 		}
 	}
 
+	// 设置 OpenTelemetry Messaging Semantic Conventions 标准属性
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
-		attribute.String("messaging.destination", p.Exchange.name),
-		attribute.String("messaging.destination_kind", "exchange"),
+		attribute.String("messaging.operation", "publish"),
+		attribute.String("messaging.destination.name", p.Exchange.name),
+		attribute.String("messaging.destination.kind", "exchange"),
 		attribute.String("messaging.rabbitmq.exchange.type", "headers"),
-		attribute.Int("messaging.message_payload_size_bytes", len(body)),
-		attribute.String("messaging.message_id", messageID),
+		attribute.Int("messaging.message.body.size", len(body)),
+		attribute.String("messaging.message.id", messageID),
+		attribute.Int("messaging.rabbitmq.delivery_mode", int(p.deliveryMode)),
+		attribute.Bool("messaging.rabbitmq.mandatory", p.mandatory),
 		attribute.Int("messaging.rabbitmq.headers_count", len(headersKeys)),
 	)
 
 	if p.Exchange.eType != exchangeTypeHeaders {
 		err = fmt.Errorf("invalid exchange type (%s), only supports headers type", p.Exchange.eType)
-		span.RecordError(err)
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "configuration-error"),
+				attribute.String("error.context", "exchange-type-validation"),
+			),
+		)
 		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 
-	span.AddEvent("publishing message")
+	span.AddEvent("preparing message for publish",
+		trace.WithAttributes(
+			attribute.String("exchange", p.Exchange.name),
+			attribute.String("routing_key", p.Exchange.routingKey),
+			attribute.String("message_id", messageID),
+			attribute.Int("body_size", len(body)),
+			attribute.Int("delivery_mode", int(p.deliveryMode)),
+			attribute.Bool("mandatory", p.mandatory),
+			attribute.Int("headers_count", len(headersKeys)),
+		))
 
 	// 注入 Trace Context 到消息头（与用户自定义 headers 合并）
 	headersMap := make(map[string]string)
@@ -737,12 +904,42 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 			MessageId:    messageID,
 		},
 	)
+
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Float64("messaging.operation.duration_ms", float64(duration.Milliseconds())))
+
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		span.AddEvent("publish failed")
+		errorMsg := fmt.Sprintf("publish failed: %v | exchange=%s | routing_key=%s | exchange_type=headers | message_id=%s | body_size=%d | headers_count=%d",
+			err, p.Exchange.name, p.Exchange.routingKey, messageID, len(body), len(headersKeys))
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", fmt.Sprintf("%T", err)),
+				attribute.String("error.context", "publish-headers-failed"),
+				attribute.String("error.exchange", p.Exchange.name),
+				attribute.String("error.routing_key", p.Exchange.routingKey),
+				attribute.String("error.exchange_type", "headers"),
+			),
+		)
+		span.SetStatus(codes.Error, errorMsg)
+		span.AddEvent("publish failed",
+			trace.WithAttributes(
+				attribute.String("error.message", err.Error()),
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", p.Exchange.routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Int("headers_count", len(headersKeys)),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			),
+		)
 	} else {
-		span.AddEvent("message published successfully")
+		span.AddEvent("message published successfully",
+			trace.WithAttributes(
+				attribute.String("exchange", p.Exchange.name),
+				attribute.String("routing_key", p.Exchange.routingKey),
+				attribute.String("message_id", messageID),
+				attribute.Int("headers_count", len(headersKeys)),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			))
 	}
 	return err
 }
