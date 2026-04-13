@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -615,11 +616,11 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 
 	// 从消息 Header 中提取 request_id（大厂标准：关联业务日志和 Trace）
 	var reqIDStr string
-	if reqIDVal, ok := d.Headers["request_id"].(string); ok && reqIDVal != "" {
+	if reqIDVal, ok := d.Headers[middleware.ContextRequestIDKey].(string); ok && reqIDVal != "" {
 		reqIDStr = reqIDVal
 		span.SetAttributes(attribute.String("request_id", reqIDStr))
 		// 将 request_id 注入到 Context，供下游组件（Redis/MySQL）使用
-		msgCtx = context.WithValue(msgCtx, "request_id", reqIDStr)
+		msgCtx = context.WithValue(msgCtx, middleware.ContextRequestIDKey, reqIDStr)
 	}
 
 	// 设置语义化属性（遵循 OpenTelemetry Messaging Semantic Conventions）
@@ -657,8 +658,23 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	// 4. 自动确认模式直接返回
 	if c.isAutoAck {
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "handler error (auto-ack mode)")
+			// 记录详细错误信息（大厂标准：包含完整上下文）
+			errorMsg := fmt.Sprintf("handler execution failed: %v | queue=%s | message_id=%s | delivery_tag=%d | routing_key=%s",
+				err, c.QueueName, d.MessageId, d.DeliveryTag, d.RoutingKey)
+			span.RecordError(err,
+				trace.WithAttributes(
+					attribute.String("error.type", fmt.Sprintf("%T", err)),
+					attribute.String("error.context", "auto-ack-mode"),
+				),
+			)
+			span.SetStatus(codes.Error, errorMsg)
+			span.AddEvent("handler error occurred",
+				trace.WithAttributes(
+					attribute.String("error.message", err.Error()),
+					attribute.String("queue", c.QueueName),
+					attribute.String("message_id", d.MessageId),
+				),
+			)
 		} else {
 			span.AddEvent("message processed successfully (auto-ack)")
 		}
@@ -667,18 +683,48 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 
 	// 5. 手动确认模式逻辑
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "handler error")
+		// 记录详细错误信息（大厂标准：包含完整上下文）
+		errorMsg := fmt.Sprintf("handler execution failed: %v | queue=%s | message_id=%s | delivery_tag=%d | routing_key=%s",
+			err, c.QueueName, d.MessageId, d.DeliveryTag, d.RoutingKey)
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", fmt.Sprintf("%T", err)),
+				attribute.String("error.context", "manual-ack-mode"),
+				attribute.String("error.action", "reject-and-requeue"),
+			),
+		)
+		span.SetStatus(codes.Error, errorMsg)
+		span.AddEvent("handler error occurred",
+			trace.WithAttributes(
+				attribute.String("error.message", err.Error()),
+				attribute.String("queue", c.QueueName),
+				attribute.String("message_id", d.MessageId),
+				attribute.Bool("requeue", false),
+			),
+		)
 		//如果设置为 true，则将消息重新排队，以便稍后再次尝试处理。
 		//如果设置为 false，则将消息从队列中移除，不再重新排队
 		// 这样即使程序崩溃，消息也会回到队列
 		if rejectErr := d.Reject(false); rejectErr != nil {
-			span.RecordError(rejectErr)
+			span.RecordError(rejectErr,
+				trace.WithAttributes(
+					attribute.String("error.type", "reject-error"),
+					attribute.String("error.context", "manual-reject-failed"),
+				),
+			)
+			span.AddEvent("message reject failed",
+				trace.WithAttributes(
+					attribute.String("error.message", rejectErr.Error()),
+					attribute.String("tagID", tagID),
+				),
+			)
 			c.zapLog.Warn("[rabbitmq consumer] manual Reject error",
 				zap.String("err", rejectErr.Error()),
-				zap.String("tagID", tagID))
+				zap.String("tagID", tagID),
+				zap.String("queue", c.QueueName),
+				zap.String("message_id", d.MessageId))
 		} else {
-			span.AddEvent("message rejected and requeued")
+			span.AddEvent("message rejected and requeued (requeue=false)")
 		}
 		return
 	}
@@ -687,11 +733,28 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	if ackErr := d.Ack(false); ackErr != nil {
 		// 如果此时连接已关，Ack 会失败
 		// 此时不必惊慌，因为没 Ack 成功，RabbitMQ 会在连接断开后将消息重新放回队列
-		// 保证了“不丢失”，但下次消费时需要处理“幂等性”
-		span.RecordError(ackErr)
+		// 保证了"不丢失"，但下次消费时需要处理"幂等性"
+		span.RecordError(ackErr,
+			trace.WithAttributes(
+				attribute.String("error.type", "ack-error"),
+				attribute.String("error.context", "manual-ack-failed"),
+				attribute.String("error.impact", "message-will-be-requeued-by-rabbitmq"),
+			),
+		)
+		span.AddEvent("acknowledgment failed",
+			trace.WithAttributes(
+				attribute.String("error.message", ackErr.Error()),
+				attribute.String("queue", c.QueueName),
+				attribute.String("message_id", d.MessageId),
+				attribute.String("error.description", fmt.Sprintf("acknowledgment failed: %v | queue=%s | message_id=%s | delivery_tag=%d",
+					ackErr, c.QueueName, d.MessageId, d.DeliveryTag)),
+			),
+		)
 		c.zapLog.Warn("[rabbitmq consumer] manual ack error",
 			zap.String("err", ackErr.Error()),
-			zap.String("tagID", tagID))
+			zap.String("tagID", tagID),
+			zap.String("queue", c.QueueName),
+			zap.String("message_id", d.MessageId))
 	} else {
 		span.AddEvent("message acknowledged successfully")
 	}

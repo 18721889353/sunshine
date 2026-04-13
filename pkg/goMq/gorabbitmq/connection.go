@@ -270,7 +270,7 @@ func (c *Connection) monitor(ctx context.Context) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					c.zapLog.Error("[rabbitmq connection] monitor recovered from panic",
+					c.zapLog.Warn("[rabbitmq connection] monitor recovered from panic",
 						zap.Any("panic", r),
 						zap.String("url", c.url))
 				}
@@ -283,7 +283,7 @@ func (c *Connection) monitor(ctx context.Context) {
 				return
 			case b := <-c.blockChan:
 				if b.Active {
-					c.zapLog.Error("[rabbitmq connection] TCP blocked", zap.String("reason", b.Reason))
+					c.zapLog.Warn("[rabbitmq connection] TCP blocked", zap.String("reason", b.Reason))
 				}
 			case closeChanErr := <-c.closeChan:
 				c.mutex.Lock()
