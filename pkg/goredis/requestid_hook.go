@@ -3,10 +3,12 @@ package goredis
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -26,7 +28,23 @@ func (h *requestIDHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 		enhanceRedisSpan(ctx, cmd)
 
 		// 执行底层 Redis 命令
-		return next(ctx, cmd)
+		err := next(ctx, cmd)
+
+		// 大厂标准：记录错误到 Span（关键！）
+		if err != nil {
+			if span := trace.SpanFromContext(ctx); span.IsRecording() {
+				span.RecordError(err,
+					trace.WithAttributes(
+						attribute.String("error.type", fmt.Sprintf("%T", err)),
+						attribute.String("error.context", "redis-command-failed"),
+						attribute.String("redis.command", cmd.Name()),
+					),
+				)
+				span.SetStatus(codes.Error, fmt.Sprintf("redis %s failed: %v", cmd.Name(), err))
+			}
+		}
+
+		return err
 	}
 }
 
@@ -55,14 +73,34 @@ func enhanceRedisSpan(ctx context.Context, cmd redis.Cmder) {
 
 	commandName := cmd.Name()
 	// 3. 统一 Span 名称为 redis.{command} 格式（大厂标准规范）
-	// 特殊处理 evalsha：显示为 redis.evalsha:SHA1摘要，方便识别
-	if commandName == "evalsha" && len(cmd.Args()) > 1 {
-		sha1 := fmt.Sprintf("%v", cmd.Args()[1])
-		// 截取 SHA1 前 8 位作为标识
-		if len(sha1) > 8 {
-			sha1 = sha1[:8]
+	// 特殊处理 evalsha：根据 Key 前缀自动识别分布式锁操作
+	if commandName == "evalsha" && len(cmd.Args()) > 2 {
+		// evalsha SHA1 numkeys key [key ...] arg [arg ...]
+		// 提取第一个 Key（参数索引为 2）
+		keyStr := fmt.Sprintf("%v", cmd.Args()[2])
+
+		// 根据 Key 前缀识别分布式锁操作（大厂标准）
+		if strings.Contains(keyStr, "lock:") || strings.Contains(keyStr, "/dlock/") {
+			// 提取锁名称（去掉前缀）
+			lockName := keyStr
+			if idx := strings.LastIndex(lockName, ":"); idx != -1 {
+				lockName = lockName[idx+1:]
+			} else if idx := strings.LastIndex(lockName, "/"); idx != -1 {
+				lockName = lockName[idx+1:]
+			}
+			// 截取前 20 个字符
+			if len(lockName) > 20 {
+				lockName = lockName[:20]
+			}
+			span.SetName("redis.lock:" + lockName)
+		} else {
+			// 其他 evalsha 显示 SHA1 前 8 位
+			sha1 := fmt.Sprintf("%v", cmd.Args()[1])
+			if len(sha1) > 8 {
+				sha1 = sha1[:8]
+			}
+			span.SetName("redis.evalsha:" + sha1)
 		}
-		span.SetName("redis.evalsha:" + sha1)
 	} else {
 		span.SetName("redis." + commandName)
 	}
