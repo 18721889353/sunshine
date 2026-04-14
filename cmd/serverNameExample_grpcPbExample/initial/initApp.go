@@ -10,136 +10,61 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/panjf2000/ants/v2"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
-	"go.uber.org/zap"
-
-	"github.com/18721889353/sunshine/pkg/jwt"
-	v5 "github.com/golang-jwt/jwt/v5"
-	"go.uber.org/zap/zapcore"
-
 	"github.com/jinzhu/copier"
 
+	"github.com/18721889353/sunshine/configs"
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/pkg/conf"
+	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 	"github.com/18721889353/sunshine/pkg/stat"
 	"github.com/18721889353/sunshine/pkg/tracer"
 
-	"github.com/18721889353/sunshine/configs"
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/internal/database"
+	v5 "github.com/golang-jwt/jwt/v5"
 )
 
 var (
 	version            string
 	configFile         string
 	enableConfigCenter bool
-	logPool            *ants.Pool
+	initCtx            = context.Background() // 初始化阶段使用的 context
+	slsHookInstance    *logger.SLSHook        // SLS Hook 实例，用于优雅关闭
 )
-
-// 初始化协程池（建议在init()中调用）
-func initLogPool() {
-	var err error
-	// 增加池容量到500，并添加非阻塞选项和最大阻塞任务数限制
-	logPool, err = ants.NewPool(500,
-		ants.WithPreAlloc(true),
-		ants.WithNonblocking(false),     // 设置为阻塞模式，确保任务不会丢失
-		ants.WithMaxBlockingTasks(1000), // 最多允许1000个任务等待
-	)
-	if err != nil {
-		panic(err)
-	}
-}
-
-// sendLogToMQ 发送日志到消息队列
-func sendLogToMQ(ctx context.Context, entry zapcore.Entry, fields []logger.Field) {
-	ctx, span := otel.Tracer(config.Get().App.Name).Start(ctx, "sendLogToMQ")
-	defer span.End()
-	timeoutCtx, cancelFunc := context.WithTimeout(ctx, time.Second*2)
-	defer cancelFunc()
-
-	// 添加重试机制
-	var err error
-	maxRetries := 3
-	for i := 0; i < maxRetries; i++ {
-		err = database.GetMainRabbitMQ().SendMessage(
-			timeoutCtx,
-			config.Get().Rabbitmq.DoingOrder.ExchangeName,
-			config.Get().Rabbitmq.DoingOrder.NormalQueueName,
-			fmt.Sprintf("[%s] [%s] [%s]", entry.Caller.TrimmedPath(), entry.Level, logger.ToJSON(append(fields, zap.String("current_time", entry.Time.Format("2006-01-02 15:04:05.000000")), zap.String("log_msg", entry.Message)))),
-			fmt.Sprintf("%v", time.Now().Nanosecond()),
-		)
-		if err == nil {
-			break
-		}
-		// 如果不是最后一次尝试，等待一段时间后重试
-		if i < maxRetries-1 {
-			time.Sleep(time.Millisecond * 100 * time.Duration(i+1))
-		}
-	}
-
-	if err != nil {
-		// 记录错误到 span
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		// 同时打印到标准输出，确保关键错误不丢失
-		fmt.Printf("Failed to send log to MQ: %v\n", err)
-	}
-}
-
-func customHook(entry zapcore.Entry, fields []logger.Field) error {
-	// 分析字段数据并打印键值对
-	// 参数 entry 介绍
-	// entry  参数就是单条日志结构体，主要包括字段如下：
-	//Level      日志等级
-	//Time       当前时间
-	//LoggerName  日志名称
-	//Message    日志内容
-	//Caller     各个文件调用路径
-	//Stack      代码调用栈
-	// 如果协程池为nil，直接同步发送日志
-	if logPool == nil {
-		// 同步发送日志，确保不会丢失
-		ctx := context.Background()
-		sendLogToMQ(ctx, entry, fields)
-		return nil
-	}
-	//这里启动一个协程，hook丝毫不会影响程序性能，
-	// 使用协程池
-	err := logPool.Submit(func() {
-		ctx := context.Background()
-		sendLogToMQ(ctx, entry, fields)
-	})
-	// 如果提交任务失败，采用同步方式发送日志，防止日志丢失
-	if err != nil {
-		// 记录任务提交失败的错误
-		logger.Error("Failed to submit log task to pool",
-			zap.Error(err),
-			zap.String("log_message", entry.Message),
-		)
-		// 同步发送日志作为降级处理
-		go func() {
-			ctx := context.Background()
-			sendLogToMQ(ctx, entry, fields)
-		}()
-	}
-
-	return nil
-}
 
 // InitApp initial app configuration
 func InitApp() {
 	initConfig()
-	initLogPool()
 	cfg := config.Get()
+
+	// 初始化 SLS Hook（如果启用）
+	if cfg.Sls.Enable {
+		slsConfig := &logger.SLSConfig{
+			Endpoint:        cfg.Sls.Endpoint,
+			AccessKeyID:     cfg.Sls.AccessKeyID,
+			AccessKeySecret: cfg.Sls.AccessKeySecret,
+			ProjectName:     cfg.Sls.Project,
+			LogStoreName:    cfg.Sls.Logstore,
+			Topic:           cfg.Sls.Topic,
+			Source:          cfg.Sls.Source,
+			MaxRetries:      cfg.Sls.Retries,
+			Timeout:         60, // 默认 60 秒超时
+		}
+
+		var err error
+		slsHookInstance, err = logger.NewSLSHook(slsConfig)
+		if err != nil {
+			logger.WarnWithCtx(initCtx, "failed to init SLS hook", logger.Err(err))
+		} else {
+			logger.InfoWithCtx(initCtx, "[SLS hook] was initialized")
+		}
+	}
 
 	// initializing log
 	_, err := logger.Init(
 		logger.WithLevel(cfg.Logger.Level),
 		logger.WithFormat(cfg.Logger.Format),
-		//logger.WithCustomHooks(customHook),
 		logger.WithAsync(cfg.Logger.IsAsync),
 		logger.WithAsyncBufferSize(cfg.Logger.AsyncBufferSize*1048576),
 		logger.WithAsyncFlushInterval(time.Duration(cfg.Logger.AsyncFlushInterval)*time.Second),
@@ -153,12 +78,39 @@ func InitApp() {
 			logger.WithFileIsCompression(cfg.Logger.LogFileConfig.IsCompression),
 			logger.WithNoPrint(cfg.Logger.LogFileConfig.IsNoPrint),
 		),
+		// 注册 SLS Hook（如果启用）
+		func() logger.Option {
+			if slsHookInstance != nil {
+				return logger.WithCustomHooksWithCtx(slsHookInstance.Hook)
+			}
+			return nil
+		}(),
+		// 日志路由配置 - 支持按模块/级别动态路由到不同文件
+		logger.WithRoutes(func() []*logger.RouteConfig {
+			if len(cfg.Logger.Routes) == 0 {
+				return nil
+			}
+			routes := make([]*logger.RouteConfig, 0, len(cfg.Logger.Routes))
+			for _, r := range cfg.Logger.Routes {
+				routes = append(routes, &logger.RouteConfig{
+					Module:    r.Module,
+					Filename:  r.Filename, // 支持完整路径或相对路径
+					MaxSize:   r.MaxSize,
+					MaxAge:    r.MaxAge,
+					IsSaveDay: r.IsSaveDay,
+					Format:    r.Format,
+					IsAsync:   r.IsAsync,
+				})
+			}
+			return routes
+		}()),
 	)
 	if err != nil {
 		panic(err)
 	}
-	logger.Debug(config.Show())
-	logger.Info("[logger] was initialized")
+
+	logger.DebugWithCtx(initCtx, config.Show())
+	logger.InfoWithCtx(initCtx, "[logger] was initialized")
 
 	if cfg.App.OpenJwt {
 		var sm *v5.SigningMethodHMAC
@@ -175,7 +127,7 @@ func InitApp() {
 			jwt.WithSigningMethod(sm),
 			jwt.WithIssuer(config.Get().Jwt.Issuer),
 		)
-		logger.Info("init jwt succeeded")
+		logger.InfoWithCtx(initCtx, "init jwt succeeded")
 	}
 
 	// initializing tracing
@@ -189,7 +141,7 @@ func InitApp() {
 			cfg.App.TracingSamplingRate,
 			cfg.Jaeger.Endpoint, // 添加 endpoint 参数
 		)
-		logger.Info("[tracer] was initialized")
+		logger.InfoWithCtx(initCtx, "[tracer] was initialized")
 	}
 
 	// initializing the print system and process resources
@@ -200,29 +152,29 @@ func InitApp() {
 			stat.WithAlarm(stat.WithCPUThreshold(0.85), stat.WithMemoryThreshold(0.85)), // invalid if it is windows, the default threshold for cpu and memory is 0.8, you can modify them
 			stat.WithPrintField(logger.String("service_name", cfg.App.Name), logger.String("host", cfg.App.Host)),
 		)
-		logger.Info("[resource statistics] was initialized")
+		logger.InfoWithCtx(initCtx, "[resource statistics] was initialized")
 	}
 
 	// initializing database
 	if cfg.Database.Driver == "mysql" {
 		database.InitDB()
-		logger.Infof("[%s] was initialized", cfg.Database.Driver)
+		logger.InfoWithCtx(initCtx, fmt.Sprintf("[%s] was initialized", cfg.Database.Driver))
 	}
 	if cfg.App.CacheType == "redis" {
 		database.InitCache(cfg.App.CacheType)
-		logger.Infof("[%s] was initialized", cfg.App.CacheType)
+		logger.InfoWithCtx(initCtx, fmt.Sprintf("[%s] was initialized", cfg.App.CacheType))
 	}
 	if cfg.Elasticsearch.IsOpen {
 		database.InitElasticsearch()
-		logger.Info("[Elasticsearch] was initialized")
+		logger.InfoWithCtx(initCtx, "[Elasticsearch] was initialized")
 	}
 	if int64(cfg.App.MachineID) > 0 {
 		database.GetSnowNode()
-		logger.Info("init SnowNode  succeeded")
+		logger.InfoWithCtx(initCtx, "init SnowNode  succeeded")
 	}
 	if cfg.Rabbitmq.Enable {
 		database.InitRabbitmq()
-		logger.Info("init RabbitMQ succeeded")
+		logger.InfoWithCtx(initCtx, "init RabbitMQ succeeded")
 	}
 }
 

@@ -8,18 +8,18 @@ import (
 )
 
 var (
-	defaultLevel    = "debug" // output log levels debug, info, warn, error, default is debug
-	defaultEncoding = formatConsole
-	defaultIsSave   = false // false:output to terminal, true:output to file, default is false
+	defaultLevel    = "info"  // output log levels debug, info, warn, error, default is info (production recommended)
+	defaultEncoding = formatJSON // default is json for structured parsing
+	defaultIsSave   = true    // false:output to terminal, true:output to file, default is true (production required)
 
-	defaultFilename      = "out.log" // file name
-	defaultMaxSize       = 10        // maximum file size (MB)
-	defaultMaxBackups    = 100       // maximum number of old files
-	defaultMaxAge        = 30        // maximum number of days for old documents
-	defaultIsCompression = false     // whether to compress and archive old files
-	defaultIsLocalTime   = true      // whether to use local time
-	defaultSaveDay       = false
-	defaultNoPrint       = false //禁止终端/文件输出）
+	defaultFilename      = "logs/app.log" // file name (support relative path)
+	defaultMaxSize       = 100            // maximum file size (MB), avoid frequent rotation
+	defaultMaxBackups    = 30             // maximum number of old files (~3GB space)
+	defaultMaxAge        = 7              // maximum number of days for old documents (balance storage & traceability)
+	defaultIsCompression = true           // whether to compress and archive old files (save 90% storage)
+	defaultIsLocalTime   = true           // whether to use local time
+	defaultSaveDay       = true           // save by day for better log management
+	defaultNoPrint       = false          //禁止终端/文件输出（default false for dev environment visibility）
 )
 
 // customHookWrapper wraps CustomHook to implement zap's Hook interface
@@ -48,6 +48,12 @@ type options struct {
 
 	// Custom hooks that can access fields data
 	customHooks []CustomHook
+
+	// Custom hooks with context support
+	customHooksWithCtx []CustomHookWithCtx
+
+	// 日志路由配置
+	routes []*RouteConfig
 }
 
 func defaultOptions() *options {
@@ -55,9 +61,9 @@ func defaultOptions() *options {
 		level:    defaultLevel,
 		encoding: defaultEncoding,
 		isSave:   defaultIsSave,
-		isAsync:  false, // 默认不启用异步日志
-		asyncBufferSize:    512 * 1024,      // 512KB 默认缓冲区大小
-		asyncFlushInterval: 30 * time.Second, // 30秒默认刷新间隔
+		isAsync:  true,               // 默认启用异步日志（性能提升155%）
+		asyncBufferSize:    8 * 1024 * 1024, // 8MB 默认缓冲区大小（平衡内存与性能）
+		asyncFlushInterval: 5 * time.Second, // 5秒默认刷新间隔（降低延迟）
 	}
 }
 
@@ -119,6 +125,14 @@ func WithCustomHooks(hooks ...CustomHook) Option {
 	}
 }
 
+// WithCustomHooksWithCtx sets custom hooks that can access context and fields data
+// This allows hooks to extract request_id, trace_id from context
+func WithCustomHooksWithCtx(hooks ...CustomHookWithCtx) Option {
+	return func(o *options) {
+		o.customHooksWithCtx = hooks
+	}
+}
+
 // WithAsync enables asynchronous logging
 func WithAsync(enabled bool) Option {
 	return func(o *options) {
@@ -137,6 +151,13 @@ func WithAsyncBufferSize(size int) Option {
 func WithAsyncFlushInterval(interval time.Duration) Option {
 	return func(o *options) {
 		o.asyncFlushInterval = interval
+	}
+}
+
+// WithRoutes 设置日志路由配置
+func WithRoutes(routes []*RouteConfig) Option {
+	return func(o *options) {
+		o.routes = routes
 	}
 }
 

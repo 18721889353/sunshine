@@ -40,9 +40,9 @@ func (s *httpServer) Start() error {
 				case <-ticker.C:
 					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
 					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						logger.Warn("s.iRegistry.Register error", logger.Err(err))
+						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
 					} else {
-						logger.Warn("s.iRegistry.Register")
+						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register")
 					}
 				}
 			}
@@ -70,7 +70,7 @@ func (s *httpServer) Stop() error {
 	tryStrategy := func(name string, timeout time.Duration, action func(context.Context) error) error {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		logger.Info(fmt.Sprintf("尝试%s，超时时间: %v\n", name, timeout))
+		logger.InfoWithCtx(context.Background(), fmt.Sprintf("尝试%s，超时时间: %v\n", name, timeout))
 		return action(ctx)
 	}
 
@@ -90,17 +90,17 @@ func (s *httpServer) Stop() error {
 	for _, strategy := range strategies {
 		err := tryStrategy(strategy.name, strategy.timeout, strategy.action)
 		if err == nil {
-			logger.Info(fmt.Sprintf("%s成功\n", strategy.name))
+			logger.InfoWithCtx(context.Background(), fmt.Sprintf("%s成功\n", strategy.name))
 			return nil
 		}
 		if err == context.DeadlineExceeded {
-			logger.Info(fmt.Sprintf("%s超时，尝试下一策略\n", strategy.name))
+			logger.InfoWithCtx(context.Background(), fmt.Sprintf("%s超时，尝试下一策略\n", strategy.name))
 			continue
 		}
-		logger.Warn(fmt.Sprintf("%s出错: %v\n", strategy.name, err))
+		logger.WarnWithCtx(context.Background(), fmt.Sprintf("%s出错: %v\n", strategy.name, err))
 		continue
 	}
-	logger.Info("所有关闭策略均已尝试，服务关闭完成")
+	logger.InfoWithCtx(context.Background(), "所有关闭策略均已尝试，服务关闭完成")
 	return nil
 }
 

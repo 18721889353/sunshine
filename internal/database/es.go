@@ -15,6 +15,8 @@ var (
 	esClient *es.Client
 	// esOnce 确保ES客户端只初始化一次
 	esOnce sync.Once
+	// initCtx 初始化阶段使用的 context
+	initCtx = context.Background()
 )
 
 // InitElasticsearch 初始化Elasticsearch客户端
@@ -69,7 +71,7 @@ func InitElasticsearch() *es.Client {
 	defer cancel()
 
 	if err := client.Ping(ctx); err != nil {
-		logger.Warnf("elasticsearch ping failed: %v", err)
+		logger.WarnWithCtx(initCtx, "elasticsearch ping failed", logger.Err(err))
 		// 根据配置决定是否panic
 		if esCfg.EnablePingCheck {
 			panic("elasticsearch connection failed: " + err.Error())
@@ -80,16 +82,16 @@ func InitElasticsearch() *es.Client {
 	if esCfg.EnableHealthCheck {
 		health, err := client.HealthCheck(ctx)
 		if err != nil {
-			logger.Warnf("elasticsearch health check failed: %v", err)
+			logger.WarnWithCtx(initCtx, "elasticsearch health check failed", logger.Err(err))
 			if esCfg.EnablePingCheck {
 				panic("elasticsearch health check failed: " + err.Error())
 			}
 		} else {
-			logger.Infof("elasticsearch cluster health status: %s", health)
+			logger.InfoWithCtx(initCtx, "elasticsearch cluster health status", logger.String("status", health))
 		}
 	}
 
-	logger.Info("elasticsearch client initialized successfully")
+	logger.InfoWithCtx(initCtx, "elasticsearch client initialized successfully")
 	return client
 }
 
@@ -105,6 +107,6 @@ func GetElasticsearch() *es.Client {
 
 // CloseElasticsearch 关闭ES客户端（空实现，仅为了保持接口一致性）
 func CloseElasticsearch() error {
-	logger.Info("elasticsearch client closed")
+	logger.InfoWithCtx(initCtx, "elasticsearch client closed")
 	return nil
 }

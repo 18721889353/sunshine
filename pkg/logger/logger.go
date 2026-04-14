@@ -7,6 +7,7 @@
 package logger
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -33,6 +34,7 @@ const (
 var defaultLogger *zap.Logger
 var defaultSugaredLogger *zap.SugaredLogger
 var customHooks []CustomHook
+var customHooksWithCtx []CustomHookWithCtx
 
 func getLogger() *zap.Logger {
 	checkNil()
@@ -84,6 +86,7 @@ func Init(opts ...Option) (*zap.Logger, error) {
 
 	// 存储自定义钩子供自定义核心使用
 	customHooks = o.customHooks
+	customHooksWithCtx = o.customHooksWithCtx
 
 	var err error
 	var zapLog *zap.Logger
@@ -95,6 +98,10 @@ func Init(opts ...Option) (*zap.Logger, error) {
 		}
 		str = fmt.Sprintf("initialize logger finish, config is output to 'terminal', format=%s, level=%s, async=%t", encoding, levelName, isAsync)
 	} else {
+		// 如果 isSave=true 但未配置 fileConfig，使用默认配置
+		if o.fileConfig == nil {
+			o.fileConfig = defaultFileOptions()
+		}
 		zapLog = log2File(encoding, levelName, o.fileConfig, isAsync, asyncBufferSize, asyncFlushInterval)
 		str = fmt.Sprintf("initialize logger finish, config is output to 'file', format=%s, level=%s, file=%s, async=%t", encoding, levelName, o.fileConfig.filename, isAsync)
 	}
@@ -105,7 +112,34 @@ func Init(opts ...Option) (*zap.Logger, error) {
 
 	defaultLogger = zapLog
 	defaultSugaredLogger = defaultLogger.Sugar()
-	Info(str)
+	
+	// 初始化日志 - 使用 context.Background() 因为此时还没有请求上下文
+	initCtx := context.Background()
+	InfoWithCtx(initCtx, str)
+
+	// 自动初始化日志路由器 (如果配置了路由)
+	if len(o.routes) > 0 {
+		// 构建默认配置,供路由继承
+		fileCfg := o.fileConfig
+		if fileCfg == nil {
+			fileCfg = defaultFileOptions()
+		}
+		defaultRouteConfig := &RouteConfig{
+			MaxSize:       fileCfg.maxSize,
+			MaxBackups:    fileCfg.maxBackups,
+			MaxAge:        fileCfg.maxAge,
+			IsCompression: fileCfg.isCompression,
+			IsSaveDay:     fileCfg.isSaveDay,
+			Format:        o.encoding,
+			IsAsync:       o.isAsync,
+		}
+
+		if err := InitRouter(defaultLogger, o.routes, defaultRouteConfig); err != nil {
+			WarnWithCtx(initCtx, "failed to init log router", Err(err))
+		} else {
+			InfoWithCtx(initCtx, "[log router] was initialized", Int("routes_count", len(o.routes)))
+		}
+	}
 
 	return defaultLogger, err
 }

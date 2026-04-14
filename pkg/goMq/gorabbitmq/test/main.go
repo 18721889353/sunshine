@@ -66,7 +66,7 @@ func main() {
 
 	// 2. 初始化基础设施（在业务 Span 创建之前完成，避免追踪初始化 Span）
 	database.InitSnowNode()
-	logger.Info("[snowflake] initialized")
+	logger.InfoWithCtx(ctx, "[snowflake] initialized")
 
 	// 3. 初始化 OpenTelemetry Tracer
 	pkgtracer.InitWithConfig(
@@ -78,22 +78,22 @@ func main() {
 		samplingRate,   // 全量采样
 		aliyunEndpoint, // 阿里云 OTLP endpoint
 	)
-	logger.Info("[tracer] was initialized")
+	logger.InfoWithCtx(ctx, "[tracer] was initialized")
 
 	// 4. 初始化 MySQL（此时无业务 Span，初始化 Span 会独立上报）
 	mysqlDB := database.InitMysql()
-	logger.Info("[mysql] initialized")
+	logger.InfoWithCtx(ctx, "[mysql] initialized")
 
 	// 5. 初始化 Redis（此时无业务 Span，初始化 Span 会独立上报）
 	database.InitRedis()
 	redisCli := database.GetRedisCli()
-	logger.Info("[redis] initialized")
+	logger.InfoWithCtx(ctx, "[redis] initialized")
 
 	// 预热 Redis 连接（在业务 Span 之前完成连接建立和认证）
 	if err := redisCli.Ping(ctx).Err(); err != nil {
-		logger.Error("Redis ping failed: " + err.Error())
+		logger.ErrorWithCtx(ctx, "Redis ping failed: "+err.Error())
 	}
-	logger.Info("[redis] connection warmed up")
+	logger.InfoWithCtx(ctx, "[redis] connection warmed up")
 
 	// 6. 创建业务 Root Span（此时基础设施已就绪，只追踪业务操作）
 	reqID := database.GetSnowId().String()

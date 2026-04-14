@@ -160,7 +160,7 @@ func verifySign(ctx context.Context, req interface{}, o *signOption) (context.Co
 // 辅助函数：生成签名
 func createSign(ctx context.Context, params map[string]interface{}, signKey string) string {
 	key := strings.Trim(createEncryptStr(params), "&")
-	logger.Info("grpc拦截器拼接的key", logger.String("key", key), ServerCtxRequestIDField(ctx))
+	logger.InfoWithCtx(ctx, "grpc拦截器拼接的key", logger.String("key", key))
 	key = key + "&key=" + signKey
 	// 自定义 MD5 组合
 	return strings.ToUpper(gocrypto.Md5([]byte(key)))

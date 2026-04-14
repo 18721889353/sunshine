@@ -2,13 +2,14 @@ package routers
 
 import (
 	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/copier"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/status"
-	"net/http"
-	"time"
 )
 
 type customResponse2 struct{}
@@ -49,7 +50,8 @@ func (r *customResponse2) Success(c *gin.Context, data interface{}) {
 	var result = dataInfo{}
 	err := copier.Copy(&result, data)
 	if err != nil {
-		logger.Warn("copier.Copy error", zap.Error(err), zap.String("request_id", c.GetString("request_id")))
+		ctx := middleware.WrapCtx(c)
+		logger.WarnWithCtx(ctx, "copier.Copy error", logger.Err(err))
 	}
 	if len(result.ReturnInfo) > 0 {
 		r.response(c, http.StatusOK, result.Result, result.ReturnInfo)

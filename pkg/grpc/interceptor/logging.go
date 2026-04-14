@@ -42,7 +42,7 @@ func UnaryClientLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryClientInter
 			reqIDField,
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" invoker request UnaryClientLog"))
-		pkgLogger.Info("invoker request", fields...)
+		pkgLogger.InfoWithCtx(ctx, "invoker request", pkgLogger.Any("fields", fields))
 
 		err := invoker(ctx, method, req, reply, cc, opts...)
 
@@ -60,7 +60,7 @@ func UnaryClientLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryClientInter
 		}
 
 		fields = append(fields, zap.String("log_from", o.logFrom+" invoker result UnaryClientLog"))
-		pkgLogger.Info("invoker result", fields...)
+		pkgLogger.InfoWithCtx(ctx, "invoker result", pkgLogger.Any("fields", fields))
 		return err
 	}
 }
@@ -211,7 +211,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" <<<<"))
-		pkgLogger.Info(`grpc interceptor UnaryServerLog`, fields...)
+		pkgLogger.InfoWithCtx(ctx, `grpc interceptor UnaryServerLog`, pkgLogger.Any("fields", fields))
 
 		resp, err := handler(ctx, req)
 
@@ -233,7 +233,7 @@ func UnaryServerLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServerInter
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+" >>>>"))
-		pkgLogger.Info(`grpc interceptor UnaryServerLog`, fields...)
+		pkgLogger.InfoWithCtx(ctx, `grpc interceptor UnaryServerLog`, pkgLogger.Any("fields", fields))
 
 		return resp, err
 	}
@@ -277,7 +277,7 @@ func UnaryServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.UnaryServe
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+` [GRPC] UnaryServerSimpleLog`))
-		pkgLogger.Info(`[GRPC]`, fields...)
+		pkgLogger.InfoWithCtx(ctx, `[GRPC]`, pkgLogger.Any("fields", fields))
 
 		return resp, err
 	}
@@ -314,7 +314,7 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 		}
 		fields = append(fields, zap.String("log_from", " <<<<"))
 
-		pkgLogger.Info(`grpc interceptor StreamServerLog`, fields...)
+		pkgLogger.InfoWithCtx(stream.Context(), `grpc interceptor StreamServerLog`, pkgLogger.Any("fields", fields))
 
 		err := handler(srv, stream)
 
@@ -329,7 +329,7 @@ func StreamServerLog(logger *zap.Logger, opts ...LogOption) grpc.StreamServerInt
 			fields = append(fields, zap.String(ContextRequestIDKey, requestID))
 		}
 		fields = append(fields, zap.String("log_from", o.logFrom+` >>>>`))
-		pkgLogger.Info(`grpc interceptor StreamServerLog`, fields...)
+		pkgLogger.InfoWithCtx(stream.Context(), `grpc interceptor StreamServerLog`, pkgLogger.Any("fields", fields))
 
 		return err
 	}
@@ -371,7 +371,7 @@ func StreamServerSimpleLog(logger *zap.Logger, opts ...LogOption) grpc.StreamSer
 		}
 
 		fields = append(fields, zap.String("log_from", o.logFrom+` [GRPC] StreamServerSimpleLog`))
-		pkgLogger.Info(`[GRPC]`, fields...)
+		pkgLogger.InfoWithCtx(stream.Context(), `[GRPC]`, pkgLogger.Any("fields", fields))
 		return err
 	}
 }

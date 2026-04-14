@@ -58,7 +58,8 @@ func (h *userExampleHandler) Create(c *gin.Context) {
 	form := &types.CreateUserExampleRequest{}
 	err := c.ShouldBindJSON(form)
 	if err != nil {
-		logger.Warn("ShouldBindJSON error: ", logger.Err(err), middleware.GCtxRequestIDField(c))
+		ctx := middleware.WrapCtx(c)
+		logger.WarnWithCtx(ctx, "ShouldBindJSON error", logger.Err(err))
 		response.Error(c, ecode.InvalidParams)
 		return
 	}
@@ -74,7 +75,7 @@ func (h *userExampleHandler) Create(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	err = h.iDao.Create(ctx, userExample)
 	if err != nil {
-		logger.Error("Create error", logger.Err(err), logger.Any("form", form), middleware.GCtxRequestIDField(c))
+		logger.ErrorWithCtx(ctx, "Create error", logger.Err(err), logger.Any("form", form))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -102,7 +103,7 @@ func (h *userExampleHandler) DeleteByID(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	err := h.iDao.DeleteByID(ctx, id)
 	if err != nil {
-		logger.Error("DeleteByID error", logger.Err(err), logger.Any("id", id), middleware.GCtxRequestIDField(c))
+		logger.ErrorWithCtx(ctx, "DeleteByID error", logger.Err(err), logger.Uint64("id", id))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -131,7 +132,8 @@ func (h *userExampleHandler) UpdateByID(c *gin.Context) {
 	form := &types.UpdateUserExampleByIDRequest{}
 	err := c.ShouldBindJSON(form)
 	if err != nil {
-		logger.Warn("ShouldBindJSON error: ", logger.Err(err), middleware.GCtxRequestIDField(c))
+		ctx := middleware.WrapCtx(c)
+		logger.WarnWithCtx(ctx, "ShouldBindJSON error", logger.Err(err))
 		response.Error(c, ecode.InvalidParams)
 		return
 	}
@@ -148,7 +150,7 @@ func (h *userExampleHandler) UpdateByID(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	err = h.iDao.UpdateByID(ctx, userExample)
 	if err != nil {
-		logger.Error("UpdateByID error", logger.Err(err), logger.Any("form", form), middleware.GCtxRequestIDField(c))
+		logger.ErrorWithCtx(ctx, "UpdateByID error", logger.Err(err), logger.Any("form", form))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -177,10 +179,10 @@ func (h *userExampleHandler) GetByID(c *gin.Context) {
 	userExample, err := h.iDao.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, database.ErrRecordNotFound) {
-			logger.Warn("GetByID not found", logger.Err(err), logger.Any("id", id), middleware.GCtxRequestIDField(c))
+			logger.WarnWithCtx(ctx, "GetByID not found", logger.Err(err), logger.Uint64("id", id))
 			response.Error(c, ecode.NotFound)
 		} else {
-			logger.Error("GetByID error", logger.Err(err), logger.Any("id", id), middleware.GCtxRequestIDField(c))
+			logger.ErrorWithCtx(ctx, "GetByID error", logger.Err(err), logger.Uint64("id", id))
 			response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		}
 		return
@@ -211,7 +213,8 @@ func (h *userExampleHandler) List(c *gin.Context) {
 	form := &types.ListUserExamplesRequest{}
 	err := c.ShouldBindJSON(form)
 	if err != nil {
-		logger.Warn("ShouldBindJSON error: ", logger.Err(err), middleware.GCtxRequestIDField(c))
+		ctx := middleware.WrapCtx(c)
+		logger.WarnWithCtx(ctx, "ShouldBindJSON error", logger.Err(err))
 		response.Error(c, ecode.InvalidParams)
 		return
 	}
@@ -219,7 +222,7 @@ func (h *userExampleHandler) List(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	userExamples, total, err := h.iDao.GetByColumns(ctx, &form.Params)
 	if err != nil {
-		logger.Error("GetByColumns error", logger.Err(err), logger.Any("form", form), middleware.GCtxRequestIDField(c))
+		logger.ErrorWithCtx(ctx, "GetByColumns error", logger.Err(err), logger.Any("form", form))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -240,7 +243,8 @@ func getUserExampleIDFromPath(c *gin.Context) (string, uint64, bool) {
 	idStr := c.Param("id")
 	id, err := utils.StrToUint64E(idStr)
 	if err != nil || id == 0 {
-		logger.Warn("StrToUint64E error: ", logger.String("idStr", idStr), middleware.GCtxRequestIDField(c))
+		ctx := middleware.WrapCtx(c)
+		logger.WarnWithCtx(ctx, "StrToUint64E error", logger.String("idStr", idStr))
 		return "", 0, true
 	}
 

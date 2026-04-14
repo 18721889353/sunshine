@@ -43,9 +43,9 @@ func (s *cronServer) Start() error {
 				case <-ticker.C:
 					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
 					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						logger.Warn("s.iRegistry.Register error", logger.Err(err))
+						logger.WarnWithCtx(ctx, "s.iRegistry.Register error", logger.Err(err))
 					} else {
-						logger.Warn("s.iRegistry.Register")
+						logger.InfoWithCtx(ctx, "s.iRegistry.Register")
 					}
 				}
 			}
@@ -71,12 +71,12 @@ func (s *cronServer) Start() error {
 	}
 
 	s.isRunning = true
-	logger.Info("cron server started")
+	logger.InfoWithCtx(context.Background(), "cron server started")
 
 	// 保持服务运行，直到收到停止信号
 	<-ctx.Done()
 
-	logger.Info("cron server stopped")
+	logger.InfoWithCtx(context.Background(), "cron server stopped")
 	return nil
 }
 
@@ -108,16 +108,16 @@ func (s *cronServer) Stop() error {
 		for {
 			keys, cursor, err = redisCli.Scan(context.Background(), cursor, "*"+task.Name+"LockKey", 100).Result()
 			if err != nil {
-				logger.Error("redisCli.Scan", logger.Err(err))
+				logger.ErrorWithCtx(context.Background(), "redisCli.Scan", logger.Err(err))
 				break
 			}
 			// 删除当前批次获取到的键
 			for _, key := range keys {
 				del := redisCli.Del(context.Background(), key)
 				if del.Err() != nil {
-					logger.Error("redisCli.Del", logger.Err(del.Err()))
+					logger.ErrorWithCtx(context.Background(), "redisCli.Del", logger.Err(del.Err()))
 				} else {
-					logger.Info("Deleted lock key", logger.String("key", key))
+					logger.InfoWithCtx(context.Background(), "Deleted lock key", logger.String("key", key))
 				}
 			}
 			// 如果游标回到0，表示遍历完成
@@ -127,7 +127,7 @@ func (s *cronServer) Stop() error {
 		}
 	}
 	s.isRunning = false
-	logger.Info("cron server stop signal received")
+	logger.InfoWithCtx(context.Background(), "cron server stop signal received")
 	return nil
 }
 

@@ -43,6 +43,25 @@ type Config struct {
 	Redis         Redis         `yaml:"redis" json:"redis"`
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
 	Sign          Sign          `yaml:"sign" json:"sign"`
+	Sls           Sls           `yaml:"sls" json:"sls"`
+}
+
+type Sls struct {
+	AccessKeyID        string `yaml:"accessKeyId" json:"accessKeyId"`
+	AccessKeySecret    string `yaml:"accessKeySecret" json:"accessKeySecret"`
+	BaseRetryBackoffMs int    `yaml:"baseRetryBackoffMs" json:"baseRetryBackoffMs"`
+	Enable             bool   `yaml:"enable" json:"enable"`
+	Endpoint           string `yaml:"endpoint" json:"endpoint"`
+	LingerMs           int    `yaml:"lingerMs" json:"lingerMs"`
+	Logstore           string `yaml:"logstore" json:"logstore"`
+	MaxBatchCount      int    `yaml:"maxBatchCount" json:"maxBatchCount"`
+	MaxBatchSize       int    `yaml:"maxBatchSize" json:"maxBatchSize"`
+	MaxRetryBackoffMs  int    `yaml:"maxRetryBackoffMs" json:"maxRetryBackoffMs"`
+	Project            string `yaml:"project" json:"project"`
+	Retries            int    `yaml:"retries" json:"retries"`
+	Source             string `yaml:"source" json:"source"`
+	Topic              string `yaml:"topic" json:"topic"`
+	TotalSizeInBytes   int    `yaml:"totalSizeInBytes" json:"totalSizeInBytes"`
 }
 
 type Elasticsearch struct {
@@ -114,6 +133,7 @@ type Logger struct {
 	Level              string        `yaml:"level" json:"level"`
 	LogFileConfig      LogFileConfig `yaml:"logFileConfig" json:"logFileConfig"`
 	MaxLen             int           `yaml:"maxLen" json:"maxLen"`
+	Routes             []Routes      `yaml:"routes" json:"routes"`
 }
 
 type NormalQueueDeclareOption struct {
@@ -255,6 +275,16 @@ type Jwt struct {
 	Issuer        string        `yaml:"issuer" json:"issuer"`
 	SigningKey    string        `yaml:"signingKey" json:"signingKey"`
 	SigningMethod string        `yaml:"signingMethod" json:"signingMethod"`
+}
+
+type Routes struct {
+	Filename  string `yaml:"filename" json:"filename"`
+	Format    string `yaml:"format" json:"format"`
+	IsAsync   bool   `yaml:"isAsync" json:"isAsync"`
+	IsSaveDay bool   `yaml:"isSaveDay" json:"isSaveDay"`
+	MaxAge    int    `yaml:"maxAge" json:"maxAge"`
+	MaxSize   int    `yaml:"maxSize" json:"maxSize"`
+	Module    string `yaml:"module" json:"module"`
 }
 
 type LogFileConfig struct {

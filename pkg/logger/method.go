@@ -1,71 +1,13 @@
 package logger
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"go.uber.org/zap/zapcore"
-	"strconv"
+	"context"
+	"runtime"
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
-
-// Debug level information
-func Debug(msg string, fields ...Field) {
-	getLogger().Debug(msg, fields...)
-}
-
-// Info level information
-func Info(msg string, fields ...Field) {
-	getLogger().Info(msg, fields...)
-}
-
-// Warn level information
-func Warn(msg string, fields ...Field) {
-	getLogger().Warn(msg, fields...)
-}
-
-// Error level information
-func Error(msg string, fields ...Field) {
-	getLogger().Error(msg, fields...)
-}
-
-// Panic level information
-func Panic(msg string, fields ...Field) {
-	getLogger().Panic(msg, fields...)
-}
-
-// Fatal level information
-func Fatal(msg string, fields ...Field) {
-	getLogger().Fatal(msg, fields...)
-}
-
-// Debugf format level information
-func Debugf(format string, a ...interface{}) {
-	getSugaredLogger().Debugf(format, a...)
-}
-
-// Infof format level information
-func Infof(format string, a ...interface{}) {
-	getSugaredLogger().Infof(format, a...)
-}
-
-// Warnf format level information
-func Warnf(format string, a ...interface{}) {
-	getSugaredLogger().Warnf(format, a...)
-}
-
-// Errorf format level information
-func Errorf(format string, a ...interface{}) {
-	getSugaredLogger().Errorf(format, a...)
-}
-
-// Fatalf format level information
-func Fatalf(format string, a ...interface{}) {
-	getSugaredLogger().Fatalf(format, a...)
-}
 
 // Sync flushing any buffered log entries, applications should take care to call Sync before exiting.
 func Sync() error {
@@ -77,75 +19,182 @@ func Sync() error {
 	return nil
 }
 
-func toJSON(fields []zap.Field) string {
-	// 创建一个空的 map 用于存储键值对
-	keyValuePairs := make(map[string]interface{})
+// ==================== 强制使用 Context 的日志方法 ====================
 
-	// 遍历 Zap 字段，将键值对添加到 map 中
-	for _, f := range fields {
-		key := f.Key
+// DebugWithCtx 调试级别日志（必须提供 context）
+// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
+// 自动执行 customHooksWithCtx（如 SLS 日志上报）
+func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	
+	// 执行自定义 Hook（如 SLS 上报）
+	if len(customHooksWithCtx) > 0 {
+		ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...)
+	}
+	
+	getLogger().Debug(msg, allFields...)
+}
 
-		// 根据字段的类型获取相应的值
-		switch f.Type {
-		case zapcore.StringType:
-			keyValuePairs[key] = f.String
-		case zapcore.Int64Type, zapcore.Int32Type, zapcore.Int16Type, zapcore.Int8Type, zapcore.Uint64Type, zapcore.Uint32Type, zapcore.Uint16Type, zapcore.Uint8Type:
-			keyValuePairs[key] = strconv.FormatInt(f.Integer, 10)
-		case zapcore.Float64Type, zapcore.Float32Type:
-			if floatVal, ok := f.Interface.(float64); ok {
-				keyValuePairs[key] = strconv.FormatFloat(floatVal, 'f', -1, 64)
-			} else if floatVal, ok := f.Interface.(float32); ok {
-				keyValuePairs[key] = strconv.FormatFloat(float64(floatVal), 'f', -1, 64)
-			}
-		case zapcore.BoolType:
-			if b, ok := f.Interface.(bool); ok {
-				keyValuePairs[key] = strconv.FormatBool(b)
-			}
-		case zapcore.ByteStringType:
-			if bs, ok := f.Interface.([]byte); ok {
-				keyValuePairs[key] = string(bs)
-			}
-		case zapcore.ErrorType:
-			if err, ok := f.Interface.(error); ok {
-				keyValuePairs[key] = err.Error()
-			}
-		case zapcore.DurationType:
-			if dur, ok := f.Interface.(time.Duration); ok {
-				keyValuePairs[key] = dur.String()
-			}
-		default:
-			// 对于其他类型，尝试将其转换为字符串
-			keyValuePairs[key] = fmt.Sprintf("%v", f.Interface)
+// InfoWithCtx 信息级别日志（必须提供 context）
+// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
+// 自动执行 customHooksWithCtx（如 SLS 日志上报）
+func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	
+	// 执行自定义 Hook（如 SLS 上报）
+	if len(customHooksWithCtx) > 0 {
+		ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...)
+	}
+	
+	getLogger().Info(msg, allFields...)
+}
+
+// WarnWithCtx 警告级别日志（必须提供 context）
+// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
+// 自动执行 customHooksWithCtx（如 SLS 日志上报）
+func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	
+	// 执行自定义 Hook（如 SLS 上报）
+	if len(customHooksWithCtx) > 0 {
+		ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...)
+	}
+	
+	getLogger().Warn(msg, allFields...)
+}
+
+// ErrorWithCtx 错误级别日志（必须提供 context）
+// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
+// 自动执行 customHooksWithCtx（如 SLS 日志上报）
+func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	
+	// 执行自定义 Hook（如 SLS 上报）
+	if len(customHooksWithCtx) > 0 {
+		ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...)
+	}
+	
+	getLogger().Error(msg, allFields...)
+}
+
+// PanicWithCtx panic 级别日志（必须提供 context）
+// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
+// 自动执行 customHooksWithCtx（如 SLS 日志上报）
+func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	
+	// 执行自定义 Hook（如 SLS 上报）
+	if len(customHooksWithCtx) > 0 {
+		ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...)
+	}
+	
+	getLogger().Panic(msg, allFields...)
+}
+
+// FatalWithCtx fatal 级别日志（必须提供 context）
+// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
+// 自动执行 customHooksWithCtx（如 SLS 日志上报）
+func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	
+	// 执行自定义 Hook（如 SLS 上报）
+	if len(customHooksWithCtx) > 0 {
+		ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...)
+	}
+	
+	getLogger().Fatal(msg, allFields...)
+}
+
+// IsDebugEnabled 检查是否启用了 DEBUG 级别日志
+// 用于性能敏感场景，避免不必要的字符串拼接或对象创建
+func IsDebugEnabled() bool {
+	return getLogger().Core().Enabled(zapcore.DebugLevel)
+}
+
+// IsInfoEnabled 检查是否启用了 INFO 级别日志
+func IsInfoEnabled() bool {
+	return getLogger().Core().Enabled(zapcore.InfoLevel)
+}
+
+// ModuleLogWithCtx 按模块记录日志(带Context) - 自动提取 request_id/trace_id
+// 用法: logger.ModuleErrorWithCtx(ctx, "order", "订单创建失败", logger.Err(err))
+func ModuleLogWithCtx(ctx context.Context, module string, levelFunc func(string, ...Field), msg string, fields ...Field) {
+	// 从 context 中提取链路字段
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+
+	levelFunc(msg, allFields...)
+}
+
+// ModuleErrorWithCtx 按模块记录错误日志(带Context)
+func ModuleErrorWithCtx(ctx context.Context, module string, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	GetLogger(module).Error(msg, append(ctxFields, fields...)...)
+}
+
+// ModuleWarnWithCtx 按模块记录警告日志(带Context)
+func ModuleWarnWithCtx(ctx context.Context, module string, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	GetLogger(module).Warn(msg, append(ctxFields, fields...)...)
+}
+
+// ModuleInfoWithCtx 按模块记录信息日志(带Context)
+func ModuleInfoWithCtx(ctx context.Context, module string, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	GetLogger(module).Info(msg, append(ctxFields, fields...)...)
+}
+
+// ModuleDebugWithCtx 按模块记录调试日志(带Context)
+func ModuleDebugWithCtx(ctx context.Context, module string, msg string, fields ...Field) {
+	ctxFields := extractContextFields(ctx)
+	GetLogger(module).Debug(msg, append(ctxFields, fields...)...)
+}
+
+// ExecuteCustomHooksWithCtx 手动执行带 Context 的自定义钩子
+// 用法: 在业务代码中调用此函数来执行需要访问 context 的钩子
+// 示例:
+//   ctx := context.WithValue(context.Background(), "request_id", "12345")
+//   logger.ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, "user login", logger.String("user_id", "123"))
+func ExecuteCustomHooksWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...Field) error {
+	if len(customHooksWithCtx) == 0 {
+		return nil
+	}
+
+	// 获取调用者信息（跳过 ExecuteCustomHooksWithCtx 和 *WithCtx 两层）
+	pc, file, line, ok := runtime.Caller(2)
+	caller := zapcore.NewEntryCaller(0, "", 0, false)
+	if ok {
+		// 简化文件路径，只保留最后两层目录
+		if idx := strings.LastIndex(file, "/"); idx != -1 {
+			file = file[idx+1:]
+		}
+		caller = zapcore.EntryCaller{
+			Defined: true,
+			PC:      uintptr(pc),
+			File:    file,
+			Line:    line,
 		}
 	}
 
-	// 将 map 转换为 JSON 格式的字符串
-	//jsonBytes, err := json.Marshal(keyValuePairs)
-	//if err != nil {
-	//	return fmt.Sprintf(`{"error": "%s"}`, err)
-	//}
-	//bf := bytes.NewBuffer([]byte{})
-	//encoder := json.NewEncoder(bf)
-	//encoder.SetEscapeHTML(false)
-	//encoder.Encode(keyValuePairs)
-	//fmt.Println(string(jsonBytes),"44444")
-	//fmt.Println(bf.String(),"555555555")
-
-	// 创建一个缓冲区来存储编码后的 JSON 数据
-	var buf bytes.Buffer
-
-	// 创建一个 JSON 编码器
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false) // 禁用 HTML 转义
-
-	// 编码 map 为 JSON 字符串
-	if err := encoder.Encode(keyValuePairs); err != nil {
-		return fmt.Sprintf(`{"error": "%s"}`, err)
+	entry := zapcore.Entry{
+		Level:      level,
+		Time:       time.Now(),
+		LoggerName: "",
+		Message:    msg,
+		Caller:     caller,
+		Stack:      "",
 	}
-	// 获取编码后的 JSON 数据
-	jsonData := buf.Bytes()
 
-	// 去除末尾的换行符
-	jsonData = bytes.TrimRight(jsonData, "\n")
-	return string(jsonData)
+	for _, hook := range customHooksWithCtx {
+		if err := hook(ctx, entry, fields); err != nil {
+			return err
+		}
+	}
+	return nil
 }

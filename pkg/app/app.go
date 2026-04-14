@@ -26,6 +26,9 @@ type IServer interface {
 // Close 定义了一个关闭资源的函数类型。
 type Close func() error
 
+// initCtx 初始化阶段使用的 context
+var initCtx = context.Background()
+
 // App 管理一组服务和关闭函数。
 type App struct {
 	servers []IServer // 服务列表
@@ -115,12 +118,12 @@ func writePIDToFile(msg string) {
 	filePath := "sun.txt"
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		logger.Warnf("failed to open file %s: %v", filePath, err)
+		logger.WarnWithCtx(initCtx, "failed to open file", logger.String("file", filePath), logger.Err(err))
 	}
 	defer func(file *os.File) {
 		err := file.Close()
 		if err != nil {
-			logger.Warnf("Failed to open file %s: %v", filePath, err)
+			logger.WarnWithCtx(initCtx, "Failed to close file", logger.String("file", filePath), logger.Err(err))
 		}
 	}(file)
 
@@ -133,6 +136,6 @@ func writePIDToFile(msg string) {
 
 	_, err = fmt.Fprintf(file, "%v\n", msg)
 	if err != nil {
-		logger.Warnf("failed to write msg to file %s: %v", filePath, err)
+		logger.WarnWithCtx(initCtx, "failed to write msg to file", logger.String("file", filePath), logger.Err(err))
 	}
 }

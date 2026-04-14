@@ -41,7 +41,7 @@ func New{{.TableNameCamel}}Handler() serverNameExampleV1.{{.TableNameCamel}}Logi
 func (h *{{.TableNameCamelFCL}}Handler) Create(ctx context.Context, req *serverNameExampleV1.Create{{.TableNameCamel}}Request) (*serverNameExampleV1.Create{{.TableNameCamel}}Reply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.InvalidParams.Err()
 	}
 
@@ -54,7 +54,7 @@ func (h *{{.TableNameCamelFCL}}Handler) Create(ctx context.Context, req *serverN
 
 	err = h.{{.TableNameCamelFCL}}Dao.Create(ctx, {{.TableNameCamelFCL}})
 	if err != nil {
-		logger.Error("Create error", logger.Err(err), logger.Any("{{.TableNameCamelFCL}}", {{.TableNameCamelFCL}}), middleware.CtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "Create error", logger.Err(err), logger.Any("{{.TableNameCamelFCL}}", {{.TableNameCamelFCL}}))
 		return nil, ecode.InternalServerError.Err()
 	}
 
@@ -65,13 +65,13 @@ func (h *{{.TableNameCamelFCL}}Handler) Create(ctx context.Context, req *serverN
 func (h *{{.TableNameCamelFCL}}Handler) DeleteBy{{.ColumnNameCamel}}(ctx context.Context, req *serverNameExampleV1.Delete{{.TableNameCamel}}By{{.ColumnNameCamel}}Request) (*serverNameExampleV1.Delete{{.TableNameCamel}}By{{.ColumnNameCamel}}Reply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.InvalidParams.Err()
 	}
 
 	err = h.{{.TableNameCamelFCL}}Dao.DeleteBy{{.ColumnNameCamel}}(ctx, req.{{if .IsStandardPrimaryKey}}Id{{else}}{{.ColumnNameCamel}}{{end}})
 	if err != nil {
-		logger.Warn("DeleteBy{{.ColumnNameCamel}} error", logger.Err(err), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "DeleteBy{{.ColumnNameCamel}} error", logger.Err(err))
 		return nil, ecode.InternalServerError.Err()
 	}
 
@@ -82,7 +82,7 @@ func (h *{{.TableNameCamelFCL}}Handler) DeleteBy{{.ColumnNameCamel}}(ctx context
 func (h *{{.TableNameCamelFCL}}Handler) UpdateBy{{.ColumnNameCamel}}(ctx context.Context, req *serverNameExampleV1.Update{{.TableNameCamel}}By{{.ColumnNameCamel}}Request) (*serverNameExampleV1.Update{{.TableNameCamel}}By{{.ColumnNameCamel}}Reply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.InvalidParams.Err()
 	}
 
@@ -96,7 +96,7 @@ func (h *{{.TableNameCamelFCL}}Handler) UpdateBy{{.ColumnNameCamel}}(ctx context
 
 	err = h.{{.TableNameCamelFCL}}Dao.UpdateBy{{.ColumnNameCamel}}(ctx, {{.TableNameCamelFCL}})
 	if err != nil {
-		logger.Error("UpdateBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.TableNameCamelFCL}}", {{.TableNameCamelFCL}}), middleware.CtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "UpdateBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.TableNameCamelFCL}}", {{.TableNameCamelFCL}}))
 		return nil, ecode.InternalServerError.Err()
 	}
 
@@ -107,23 +107,23 @@ func (h *{{.TableNameCamelFCL}}Handler) UpdateBy{{.ColumnNameCamel}}(ctx context
 func (h *{{.TableNameCamelFCL}}Handler) GetBy{{.ColumnNameCamel}}(ctx context.Context, req *serverNameExampleV1.Get{{.TableNameCamel}}By{{.ColumnNameCamel}}Request) (*serverNameExampleV1.Get{{.TableNameCamel}}By{{.ColumnNameCamel}}Reply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.InvalidParams.Err()
 	}
 
 	record, err := h.{{.TableNameCamelFCL}}Dao.GetBy{{.ColumnNameCamel}}(ctx, req.{{if .IsStandardPrimaryKey}}Id{{else}}{{.ColumnNameCamel}}{{end}})
 	if err != nil {
 		if errors.Is(err, database.ErrRecordNotFound) {
-			logger.Warn("GetBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", req.{{if .IsStandardPrimaryKey}}Id{{else}}{{.ColumnNameCamel}}{{end}}), middleware.CtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "GetBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", req.{{if .IsStandardPrimaryKey}}Id{{else}}{{.ColumnNameCamel}}{{end}}))
 			return nil, ecode.NotFound.Err()
 		}
-		logger.Error("GetBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", req.{{if .IsStandardPrimaryKey}}Id{{else}}{{.ColumnNameCamel}}{{end}}), middleware.CtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "GetBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", req.{{if .IsStandardPrimaryKey}}Id{{else}}{{.ColumnNameCamel}}{{end}}))
 		return nil, ecode.InternalServerError.Err()
 	}
 
 	data, err := convert{{.TableNameCamel}}Pb(record)
 	if err != nil {
-		logger.Warn("convert{{.TableNameCamel}} error", logger.Err(err), logger.Any("{{.TableNameCamelFCL}}", record), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "convert{{.TableNameCamel}} error", logger.Err(err), logger.Any("{{.TableNameCamelFCL}}", record))
 		return nil, ecode.ErrGetBy{{.ColumnNameCamel}}{{.TableNameCamel}}.Err()
 	}
 
@@ -136,7 +136,7 @@ func (h *{{.TableNameCamelFCL}}Handler) GetBy{{.ColumnNameCamel}}(ctx context.Co
 func (h *{{.TableNameCamelFCL}}Handler) List(ctx context.Context, req *serverNameExampleV1.List{{.TableNameCamel}}Request) (*serverNameExampleV1.List{{.TableNameCamel}}Reply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.InvalidParams.Err()
 	}
 
@@ -150,10 +150,10 @@ func (h *{{.TableNameCamelFCL}}Handler) List(ctx context.Context, req *serverNam
 	records, total, err := h.{{.TableNameCamelFCL}}Dao.GetByColumns(ctx, params)
 	if err != nil {
 		if strings.Contains(err.Error(), "query params error:") {
-			logger.Warn("GetByColumns error", logger.Err(err), logger.Any("params", params), middleware.CtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "GetByColumns error", logger.Err(err), logger.Any("params", params))
 			return nil, ecode.InvalidParams.Err()
 		}
-		logger.Error("GetByColumns error", logger.Err(err), logger.Any("params", params), middleware.CtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "GetByColumns error", logger.Err(err), logger.Any("params", params))
 		return nil, ecode.InternalServerError.Err()
 	}
 
@@ -161,7 +161,7 @@ func (h *{{.TableNameCamelFCL}}Handler) List(ctx context.Context, req *serverNam
 	for _, record := range records {
 		data, err := convert{{.TableNameCamel}}Pb(record)
 		if err != nil {
-			logger.Warn("convert{{.TableNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", record.{{.ColumnNameCamel}}), middleware.CtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "convert{{.TableNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", record.{{.ColumnNameCamel}}))
 			continue
 		}
 		{{.TableNamePluralCamelFCL}} = append({{.TableNamePluralCamelFCL}}, data)

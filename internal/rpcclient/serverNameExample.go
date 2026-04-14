@@ -1,6 +1,7 @@
 package rpcclient
 
 import (
+	"context"
 	"fmt"
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
@@ -20,6 +21,7 @@ import (
 var (
 	serverNameExampleConn *grpc.ClientConn
 	serverNameExampleOnce sync.Once
+	initCtx               = context.Background() // 初始化阶段使用的 context
 )
 
 // NewServerNameExampleRPCConn instantiate rpc client connection
@@ -115,7 +117,10 @@ func NewServerNameExampleRPCConn() {
 	if isUseDiscover {
 		msg += " with service discovery from " + grpcClientCfg.RegistryDiscoveryType
 	}
-	logger.Info(msg, logger.String("name", serverName), logger.String("endpoint", endpoint))
+	logger.InfoWithCtx(initCtx, msg,
+		logger.String("name", serverName),
+		logger.String("endpoint", endpoint),
+	)
 
 	var err error
 	serverNameExampleConn, err = grpccli.NewClient(endpoint, cliOptions...)

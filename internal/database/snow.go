@@ -2,6 +2,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/18721889353/sunshine/internal/config"
@@ -31,14 +32,15 @@ func GetSnowNode() *snowflake.Node {
 
 // InitSnowNode connect redis
 func InitSnowNode() {
+	initCtx := context.Background()
 	machineID, err := getMachineID()
 	if err != nil {
-		logger.Error("getMachineID err", logger.Err(err))
+		logger.ErrorWithCtx(initCtx, "getMachineID err", logger.Err(err))
 		panic("getMachineID error: " + err.Error())
 	}
 	node, err := snowflake.NewNode(machineID)
 	if err != nil {
-		logger.Error("snowflake.NewNode err", logger.Err(err))
+		logger.ErrorWithCtx(initCtx, "snowflake.NewNode err", logger.Err(err))
 		panic("snowflake.NewNode error: " + err.Error())
 	}
 	snowNode = node

@@ -166,7 +166,6 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getColumnsCacheKey(key string) stri
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
 func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先从缓存获取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -182,7 +181,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 				// 设置占位符缓存防止缓存穿透
 				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 					if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id), requestId)
+						logger.WarnWithCtx(ctx, "cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
 					}
 					return nil, database.ErrRecordNotFound
 				}
@@ -191,7 +190,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 			// 设置缓存（使用随机化过期时间防止雪崩）
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 			if cacheErr := m.cache.Set(ctx, id, table, expireTime); cacheErr != nil {
-				logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", id), requestId)
+				logger.WarnWithCtx(ctx, "cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
 			}
 			return table, nil
 		})
@@ -206,7 +205,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 	}
 
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
-	logger.Warn("cache.Get error, falling back to database", logger.Err(err), logger.Any("id", id), requestId)
+	logger.WarnWithCtx(ctx, "cache.Get error, falling back to database", logger.Err(err), logger.Any("id", id))
 
 	// 如果是占位符错误，返回记录未找到
 	if m.cache.IsPlaceholderErr(err) {
@@ -225,7 +224,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 		// 尝试设置缓存（失败仅记录日志）
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 		if cacheErr := m.cache.Set(ctx, id, table, expireTime); cacheErr != nil {
-			logger.Warn("cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", id), requestId)
+			logger.WarnWithCtx(ctx, "cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", id))
 		}
 		return table, nil
 	})
@@ -245,7 +244,6 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
 func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, key string, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先尝试从缓存获取 ID
@@ -281,7 +279,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 				// 设置占位符缓存防止缓存穿透
 				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
-						logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey), requestId)
+						logger.WarnWithCtx(ctx, "cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
 					}
 					return nil, database.ErrRecordNotFound
 				}
@@ -292,11 +290,11 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 			if record != nil {
 				expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
-					logger.Warn("cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID), requestId)
+					logger.WarnWithCtx(ctx, "cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
 				}
 				// 同时缓存完整记录（使用随机化过期时间）
 				if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
-					logger.Warn("cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID), requestId)
+					logger.WarnWithCtx(ctx, "cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
 				}
 			}
 			return record, nil
@@ -312,7 +310,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	}
 
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
-	logger.Warn("cache.GetIdByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey), requestId)
+	logger.WarnWithCtx(ctx, "cache.GetIdByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
 
 	// 如果是占位符错误，返回记录未找到
 	if m.cache.IsPlaceholderErr(err) {
@@ -333,10 +331,10 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 		if record != nil {
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 			if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
-				logger.Warn("cache.SetIdByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID), requestId)
+				logger.WarnWithCtx(ctx, "cache.SetIdByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
 			}
 			if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
-				logger.Warn("cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", record.ID), requestId)
+				logger.WarnWithCtx(ctx, "cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", record.ID))
 			}
 		}
 		return record, nil
@@ -357,7 +355,6 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
 func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先从缓存获取
@@ -365,7 +362,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 	if err == nil {
 		// 检查 ID 列表大小，如果过大则不使用缓存，直接查询数据库
 		if len(ids) > {{.TableNameCamel}}MaxCacheableIDs {
-			logger.Warn("cached id list too large, querying database directly", logger.Any("count", len(ids)), logger.Any("key", key), requestId)
+			logger.WarnWithCtx(ctx, "cached id list too large, querying database directly", logger.Any("count", len(ids)), logger.Any("key", key))
 			return queryFunc()
 		}
 		return ids, nil
@@ -379,21 +376,21 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 			if dbErr != nil {
 				// 设置占位符缓存防止缓存穿透
 				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
-					logger.Warn("cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey), requestId)
+					logger.WarnWithCtx(ctx, "cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
 				}
 				return nil, dbErr
 			}
 
 			// 对于大数据量的结果集，不进行缓存，直接返回
 			if len(result) > {{.TableNameCamel}}MaxCacheableIDs {
-				logger.Warn("result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key), requestId)
+				logger.WarnWithCtx(ctx, "result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key))
 				return result, nil
 			}
 
 			// 设置缓存（使用随机化过期时间）
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
-				logger.Warn("cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result), requestId)
+				logger.WarnWithCtx(ctx, "cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 			}
 			return result, nil
 		})
@@ -408,7 +405,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 	}
 
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
-	logger.Warn("cache.GetIdsByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey), requestId)
+	logger.WarnWithCtx(ctx, "cache.GetIdsByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
 
 	// 如果是占位符错误，返回记录未找到
 	if m.cache.IsPlaceholderErr(err) {
@@ -424,14 +421,14 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 
 		// 对于大数据量的结果集，不进行缓存，直接返回
 		if len(result) > {{.TableNameCamel}}MaxCacheableIDs {
-			logger.Warn("result set too large to cache (fallback)", logger.Any("count", len(result)), logger.Any("key", key), requestId)
+			logger.WarnWithCtx(ctx, "result set too large to cache (fallback)", logger.Any("count", len(result)), logger.Any("key", key))
 			return result, nil
 		}
 
 		// 尝试设置缓存（失败仅记录日志）
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 		if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
-			logger.Warn("cache.SetIdsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result), requestId)
+			logger.WarnWithCtx(ctx, "cache.SetIdsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 		}
 		return result, nil
 	})
@@ -481,12 +478,11 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByIDs(ctx context.Context, ids [
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
 func (m *{{.TableNameCamelFCL}}CacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.{{.TableNameCamel}}, error)) (map[uint64]*model.{{.TableNameCamel}}, error) {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先从缓存获取
 	itemMap, err := m.cache.MultiGet(ctx, ids)
 	if err != nil {
 		// 缓存错误时，记录日志并回退到直接数据库查询
-		logger.Warn("cache.MultiGet error, falling back to database", logger.Err(err), logger.Any("ids", ids), requestId)
+		logger.WarnWithCtx(ctx, "cache.MultiGet error, falling back to database", logger.Err(err), logger.Any("ids", ids))
 		// 返回空 map，让后续逻辑从数据库获取
 		itemMap = make(map[uint64]*model.{{.TableNameCamel}})
 	}
@@ -515,7 +511,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByIDsBatch(ctx context.Context, 
 			// 批量设置缓存（使用随机化过期时间）
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 			if cacheErr := m.cache.MultiSet(ctx, records, expireTime); cacheErr != nil {
-				logger.Warn("cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", missedIDs), requestId)
+				logger.WarnWithCtx(ctx, "cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", missedIDs))
 			}
 		}
 
@@ -529,7 +525,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByIDsBatch(ctx context.Context, 
 			for _, id := range missedIDs {
 				if !existingIDs[id] {
 					if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
-						logger.Warn("cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id), requestId)
+						logger.WarnWithCtx(ctx, "cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
 					}
 				}
 			}
@@ -562,42 +558,38 @@ func New{{.TableNameCamel}}Dao(db *gorm.DB, xCache cache.{{.TableNameCamel}}Cach
 }
 
 func (d *{{.TableNameCamelFCL}}Dao) Create(ctx context.Context, table *model.{{.TableNameCamel}}) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 创建操作只清除条件查询缓存，保留单条记录缓存
 		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-			logger.Warn("Create: failed to delete condition cache", logger.Err(err), requestId)
+			logger.WarnWithCtx(ctx, "Create: failed to delete condition cache", logger.Err(err))
 		}
 	}()
 	return d.db.WithContext(ctx).Create(table).Error
 }
 func (d *{{.TableNameCamelFCL}}Dao) CreateInBatches(ctx context.Context, tables []*model.{{.TableNameCamel}}, batchSize int) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 批量创建操作只清除条件查询缓存
 		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-			logger.Warn("CreateInBatches: failed to delete condition cache", logger.Err(err), requestId)
+			logger.WarnWithCtx(ctx, "CreateInBatches: failed to delete condition cache", logger.Err(err))
 		}
 	}()
 	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
 }
 func (d *{{.TableNameCamelFCL}}Dao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) (uint64, error) {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 事务创建操作只清除条件查询缓存
 		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-			logger.Warn("CreateByTx: failed to delete condition cache", logger.Err(err), requestId)
+			logger.WarnWithCtx(ctx, "CreateByTx: failed to delete condition cache", logger.Err(err))
 		}
 	}()
 	err := tx.WithContext(ctx).Create(table).Error
 	return table.ID, err
 }
 func (d *{{.TableNameCamelFCL}}Dao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.{{.TableNameCamel}}, batchSize int) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	defer func() {
 		// 事务批量创建操作只清除条件查询缓存
 		if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-			logger.Warn("CreateByInBatchesTx: failed to delete condition cache", logger.Err(err), requestId)
+			logger.WarnWithCtx(ctx, "CreateByInBatchesTx: failed to delete condition cache", logger.Err(err))
 		}
 	}()
 	return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
@@ -609,7 +601,6 @@ func (d *{{.TableNameCamelFCL}}Dao) CreateByInBatchesTx(ctx context.Context, tx 
 //   - "condition": 删除条件查询缓存（包括 condition、columns、count、exists）
 //   - "all": 删除所有缓存（最彻底，谨慎使用）
 func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 
 	if d.cache == nil {
 		return nil
@@ -648,10 +639,10 @@ func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, id uint64, 
 	// 记录缓存删除错误，但不影响主流程
 	if len(errs) > 0 {
 		for _, err := range errs {
-			logger.Warn("cache: failed to delete",
+			logger.WarnWithCtx(ctx, "cache: failed to delete",
 				logger.String("type", deleteType),
 				logger.Any("id", id),
-				logger.Err(err), requestId)
+				logger.Err(err))
 		}
 		// 返回第一个错误，供调用方参考
 		return errs[0]
@@ -666,7 +657,6 @@ func (d *{{.TableNameCamelFCL}}Dao) deleteCache(ctx context.Context, id uint64, 
 //   - ids: 批量 ID 列表（nil 表示不批量删除）
 //   - deleteType: 删除类型（"condition"=只删除条件缓存，"all"=删除所有缓存）
 func (d *{{.TableNameCamelFCL}}Dao) delayedDoubleDelete(ctx context.Context, id uint64, ids []uint64, deleteType string) {
-	requestId := interceptor.CtxRequestIDField(ctx)
 
 	if d.cache == nil {
 		return
@@ -676,10 +666,10 @@ func (d *{{.TableNameCamelFCL}}Dao) delayedDoubleDelete(ctx context.Context, id 
 		// panic 保护，防止异步 goroutine 崩溃
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Warn("delayedDoubleDelete panic recovered",
+				logger.WarnWithCtx(ctx, "delayedDoubleDelete panic recovered",
 					logger.Any("recover", r),
 					logger.Any("id", id),
-					logger.String("deleteType", deleteType), requestId)
+					logger.String("deleteType", deleteType))
 			}
 		}()
 
@@ -692,9 +682,9 @@ func (d *{{.TableNameCamelFCL}}Dao) delayedDoubleDelete(ctx context.Context, id 
 			// 单个 ID 删除
 			if id > 0 {
 				if err := d.deleteCache(ctx, id, "single"); err != nil {
-					logger.Warn("delayedDoubleDelete: failed to delete single cache",
+					logger.WarnWithCtx(ctx, "delayedDoubleDelete: failed to delete single cache",
 						logger.Err(err),
-						logger.Any("id", id), requestId)
+						logger.Any("id", id))
 				}
 			}
 
@@ -710,10 +700,10 @@ func (d *{{.TableNameCamelFCL}}Dao) delayedDoubleDelete(ctx context.Context, id 
 				}
 			}
 			if len(failedIDs) > 0 {
-				logger.Warn("delayedDoubleDelete: failed to delete batch cache",
+				logger.WarnWithCtx(ctx, "delayedDoubleDelete: failed to delete batch cache",
 					logger.Err(firstErr),
 					logger.Any("failed_ids", failedIDs),
-					logger.Int("total_failed", len(failedIDs)), requestId)
+					logger.Int("total_failed", len(failedIDs)))
 			}
 
 			// 按条件删除（根据 deleteType 参数决定删除范围）
@@ -721,40 +711,39 @@ func (d *{{.TableNameCamelFCL}}Dao) delayedDoubleDelete(ctx context.Context, id 
 			case "all":
 				// 删除所有缓存（包括 single、condition、columns、count、exists）
 				if err := d.deleteCache(ctx, 0, "all"); err != nil {
-					logger.Warn("delayedDoubleDelete: failed to delete all cache",
+					logger.WarnWithCtx(ctx, "delayedDoubleDelete: failed to delete all cache",
 						logger.Err(err),
-						logger.String("type", "all"), requestId)
+						logger.String("type", "all"))
 				}
 			case "condition":
 				// 只删除条件缓存（condition、columns、count、exists）
 				if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-					logger.Warn("delayedDoubleDelete: failed to delete condition cache",
+					logger.WarnWithCtx(ctx, "delayedDoubleDelete: failed to delete condition cache",
 						logger.Err(err),
-						logger.String("type", "condition"), requestId)
+						logger.String("type", "condition"))
 				}
 			}
 
 		case <-ctx.Done():
 			// ctx 被取消或超时，直接退出 goroutine
-			logger.Info("delayedDoubleDelete: context canceled before sleep completed",
+			logger.InfoWithCtx(ctx, "delayedDoubleDelete: context canceled before sleep completed",
 				logger.Any("id", id),
 				logger.String("deleteType", deleteType),
-				logger.Err(ctx.Err()), requestId)
+				logger.Err(ctx.Err()))
 			return
 		}
 	}()
 }
 
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByID(ctx context.Context, id uint64) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
 	if err := d.deleteCache(ctx, id, "single"); err != nil {
-		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", id), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", id))
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", id), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", id))
 	}
 
 	// 执行数据库删除
@@ -771,7 +760,6 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByID(ctx context.Context, id uint64) e
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 聚合批量删除失败的 ID，避免日志刷屏
 	var failedIDs []uint64
@@ -785,19 +773,19 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDs(ctx context.Context, ids []uint6
 		}
 	}
 	if len(failedIDs) > 0 {
-		logger.Warn("pre-delete batch single cache failed",
+		logger.WarnWithCtx(ctx, "pre-delete batch single cache failed",
 			logger.Err(firstErr),
 			logger.Any("failed_ids", failedIDs),
 			logger.Int("total_failed", len(failedIDs)),
-			logger.Any("ids", ids), requestId)
+			logger.Any("ids", ids))
 	} else {
 		// 全部成功时记录调试日志
-		logger.Debug("pre-delete batch single cache success",
-			logger.Any("count", len(ids)), requestId)
+		logger.DebugWithCtx(ctx, "pre-delete batch single cache success",
+			logger.Any("count", len(ids)))
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids))
 	}
 
 	// 执行数据库删除
@@ -814,7 +802,6 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDs(ctx context.Context, ids []uint6
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件删除会影响多条记录，需要删除所有相关缓存：
 	// 1. condition: 条件查询缓存
@@ -823,7 +810,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *qu
 	// 4. exists: 存在性检查缓存
 	// 5. single: 单条记录缓存（防止删除后读到已删除的数据）
 	if err := d.deleteCache(ctx, 0, "all"); err != nil {
-		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
 	}
 
 	// 构建查询条件
@@ -846,15 +833,14 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *qu
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
 	if err := d.deleteCache(ctx, id, "single"); err != nil {
-		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", id), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", id))
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", id), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", id))
 	}
 
 	// 执行数据库软删除
@@ -874,7 +860,6 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB,
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 聚合批量删除失败的 ID，避免日志刷屏
 	var failedIDs []uint64
@@ -888,15 +873,15 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDsTx(ctx context.Context, tx *gorm.
 		}
 	}
 	if len(failedIDs) > 0 {
-		logger.Warn("pre-delete batch single cache failed",
+		logger.WarnWithCtx(ctx, "pre-delete batch single cache failed",
 			logger.Err(firstErr),
 			logger.Any("failed_ids", failedIDs),
 			logger.Int("total_failed", len(failedIDs)),
-			logger.Any("ids", ids), requestId)
+			logger.Any("ids", ids))
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids))
 	}
 
 	// 执行数据库删除
@@ -913,7 +898,6 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDsTx(ctx context.Context, tx *gorm.
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件删除会影响多条记录，需要删除所有相关缓存：
 	// 1. condition: 条件查询缓存
@@ -922,7 +906,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx 
 	// 4. exists: 存在性检查缓存
 	// 5. single: 单条记录缓存（防止删除后读到已删除的数据）
 	if err := d.deleteCache(ctx, 0, "all"); err != nil {
-		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
 	}
 
 	// 构建查询条件
@@ -962,15 +946,14 @@ func (d *{{.TableNameCamelFCL}}Dao) updateDataByID(db *gorm.DB, table *model.{{.
 	return db.Model(table).Updates(update).Error
 }
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model.{{.TableNameCamel}}) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
 	if err := d.deleteCache(ctx, table.ID, "single"); err != nil {
-		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID))
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID))
 	}
 
 	// 执行数据库更新
@@ -987,7 +970,6 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有相关缓存：
 	// 1. condition: 条件查询缓存
@@ -996,7 +978,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *qu
 	// 4. exists: 存在性检查缓存
 	// 5. single: 单条记录缓存（防止更新后读到旧数据）
 	if err := d.deleteCache(ctx, 0, "all"); err != nil {
-		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
 	}
 
 	// 构建查询条件
@@ -1023,15 +1005,14 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *qu
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 1. 删除单条记录缓存（一级缓存）
 	if err := d.deleteCache(ctx, table.ID, "single"); err != nil {
-		logger.Warn("pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID))
 	}
 	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, "condition"); err != nil {
-		logger.Warn("pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID))
 	}
 
 	// 执行数据库更新
@@ -1048,7 +1029,6 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB,
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先删除缓存（第一次删除）
 	// 按条件更新会影响多条记录，需要删除所有相关缓存：
 	// 1. condition: 条件查询缓存
@@ -1057,7 +1037,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx 
 	// 4. exists: 存在性检查缓存
 	// 5. single: 单条记录缓存（防止更新后读到旧数据）
 	if err := d.deleteCache(ctx, 0, "all"); err != nil {
-		logger.Warn("pre-delete all cache failed", logger.Err(err), requestId)
+		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
 	}
 
 	// 构建查询条件
@@ -1121,11 +1101,10 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx 
 //})
 
 func (d *{{.TableNameCamelFCL}}Dao) ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error {
-	requestId := interceptor.CtxRequestIDField(ctx)
 	// 先清除所有缓存（自定义函数可能影响任意数据，必须全量清理）
 	// 包括 single、condition、columns、count、exists
 	if err := d.deleteCache(ctx, 0, "all"); err != nil {
-		logger.Warn("ExecByCustomFunc: failed to delete all cache", logger.Err(err), requestId)
+		logger.WarnWithCtx(ctx, "ExecByCustomFunc: failed to delete all cache", logger.Err(err))
 	}
 
 	db := d.db.WithContext(ctx)
@@ -1264,7 +1243,6 @@ func (d *{{.TableNameCamelFCL}}Dao) queryByColumnsWithDB(db *gorm.DB, params *qu
 //	}
 func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *query.Params, opts ...{{.TableNameCamel}}QueryOption) ([]*model.{{.TableNameCamel}}, int64, error) {
 	optsConfig := {{.TableNameCamel}}ApplyOptions(opts...)
-	requestId := interceptor.CtxRequestIDField(ctx)
 
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
@@ -1303,9 +1281,9 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 
 		// 大数据量警告
 		if len(result.records) > {{.TableNameCamel}}MaxCacheableRecords {
-			logger.Warn("GetByColumns: result set too large",
+			logger.WarnWithCtx(ctx, "GetByColumns: result set too large",
 				logger.Any("count", len(result.records)),
-				logger.String("cache_key", cacheKey), requestId)
+				logger.String("cache_key", cacheKey))
 		}
 		return result.records, result.total, nil
 	}
@@ -1371,9 +1349,9 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 			return nil, fmt.Errorf("GetByColumns: query database failed, page=%d, limit=%d: type assertion failed", params.Page, params.Limit)
 		}
 		if len(res.records) > {{.TableNameCamel}}MaxCacheableRecords {
-			logger.Warn("GetByColumns: result set too large",
+			logger.WarnWithCtx(ctx, "GetByColumns: result set too large",
 				logger.Any("count", len(res.records)),
-				logger.String("cache_key", cacheKey), requestId)
+				logger.String("cache_key", cacheKey))
 		}
 
 		// 缓存结果（控制缓存数据量，使用随机化过期时间）
@@ -1383,10 +1361,10 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 
 			// 缓存总数（增加数据值信息）
 			if setErr := d.cache.SetIdByKey(ctx, fullCacheKey+":total", uint64(res.total), expireTime); setErr != nil {
-				logger.Warn("cache: failed to set total count",
+				logger.WarnWithCtx(ctx, "cache: failed to set total count",
 					logger.Err(setErr),
 					logger.String("key", fullCacheKey+":total"),
-					logger.Uint64("total", uint64(res.total)), requestId)
+					logger.Uint64("total", uint64(res.total)))
 			}
 
 			// 提取并缓存 ID 列表（增加数量信息）
@@ -1395,18 +1373,18 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 				ids = append(ids, record.ID)
 			}
 			if setErr := d.cache.SetIdsByKey(ctx, fullCacheKey+":ids", ids, expireTime); setErr != nil {
-				logger.Warn("cache: failed to set ID list",
+				logger.WarnWithCtx(ctx, "cache: failed to set ID list",
 					logger.Err(setErr),
 					logger.String("key", fullCacheKey+":ids"),
-					logger.Int("id_count", len(ids)), requestId)
+					logger.Int("id_count", len(ids)))
 			}
 
 			// 同时缓存单条记录（增加记录数信息）
 			if setErr := d.cache.MultiSet(ctx, res.records, expireTime); setErr != nil {
-				logger.Warn("cache: failed to multi-set records",
+				logger.WarnWithCtx(ctx, "cache: failed to multi-set records",
 					logger.Err(setErr),
 					logger.Any("count", len(res.records)),
-					logger.Int("total_records", len(res.records)), requestId)
+					logger.Int("total_records", len(res.records)))
 			}
 		}
 
@@ -1431,9 +1409,9 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 
 	// 只需要检查大数据量警告即可，不需要再设置缓存
 	if len(result.records) > {{.TableNameCamel}}MaxCacheableRecords {
-		logger.Warn("GetByColumns: result set too large",
+		logger.WarnWithCtx(ctx, "GetByColumns: result set too large",
 			logger.Any("count", len(result.records)),
-			logger.String("cache_key", cacheKey), requestId)
+			logger.String("cache_key", cacheKey))
 	}
 
 	return result.records, result.total, nil
@@ -1512,7 +1490,6 @@ func (d *{{.TableNameCamelFCL}}Dao) GetOneByColumns(ctx context.Context, params 
 //	}
 func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query.Conditions, opts ...{{.TableNameCamel}}QueryOption) (ids []uint64, err error) {
 	optsConfig := {{.TableNameCamel}}ApplyOptions(opts...)
-	requestId := interceptor.CtxRequestIDField(ctx)
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -1536,9 +1513,9 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCondition(ctx context.Context, c *query
 		}
 		// 大数据量警告
 		if len(tables) > {{.TableNameCamel}}MaxCacheableIDs {
-			logger.Warn("GetByCondition: result set too large",
+			logger.WarnWithCtx(ctx, "GetByCondition: result set too large",
 				logger.Any("count", len(tables)),
-				logger.String("cache_key", cacheKey), requestId)
+				logger.String("cache_key", cacheKey))
 		}
 		// 提取 ID 列表
 		result := make([]uint64, 0, len(tables))
@@ -1604,7 +1581,6 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByIDs(ctx context.Context, ids []uint64, 
 
 func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *query.Conditions, opts ...{{.TableNameCamel}}QueryOption) (int64, error) {
 	optsConfig := {{.TableNameCamel}}ApplyOptions(opts...)
-	requestId := interceptor.CtxRequestIDField(ctx)
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -1651,7 +1627,7 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 		// 缓存计数结果（包括 0，避免重复查询，使用随机化过期时间）
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 		if setErr := d.cache.SetIdByKey(ctx, countCacheKey, uint64(count), expireTime); setErr != nil {
-			logger.Warn("cache: failed to set count", logger.Err(setErr), logger.String("key", countCacheKey), requestId)
+			logger.WarnWithCtx(ctx, "cache: failed to set count", logger.Err(setErr), logger.String("key", countCacheKey))
 		}
 		return count, nil
 	})
@@ -1667,7 +1643,6 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 
 func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *query.Conditions, opts ...{{.TableNameCamel}}QueryOption) (bool, error) {
 	optsConfig := {{.TableNameCamel}}ApplyOptions(opts...)
-	requestId := interceptor.CtxRequestIDField(ctx)
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -1720,7 +1695,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 		}
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 		if setErr := d.cache.SetIdByKey(ctx, existsCacheKey, cacheValue, expireTime); setErr != nil {
-			logger.Warn("cache: failed to set exists result", logger.Err(setErr), logger.String("key", existsCacheKey), requestId)
+			logger.WarnWithCtx(ctx, "cache: failed to set exists result", logger.Err(setErr), logger.String("key", existsCacheKey))
 		}
 		return exists, nil
 	})
@@ -1789,7 +1764,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCustomQuery(ctx context.Context, queryF
 			} else if stmt.SQL.Len() > 0 {
 				// 对于原始 SQL 查询，手动构造 COUNT 查询
 				originalSQL := stmt.SQL.String()
-				countSQL := d.convertToCountSQL(originalSQL)
+				countSQL := d.convertToCountSQL(ctx, originalSQL)
 
 				var count int64
 				err := db.Raw(countSQL, stmt.Vars...).Scan(&count).Error
@@ -1832,6 +1807,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCustomQuery(ctx context.Context, queryF
 // 4. 从后往前匹配 ORDER BY，避免误判子查询中的 ORDER BY
 // 适用范围：常规 SELECT 查询，不支持 UNION、复杂子查询嵌套等极端场景
 // 参数:
+//   - ctx: 上下文
 //   - sql: 原始 SELECT SQL 语句
 //
 // 返回:
@@ -1841,7 +1817,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByCustomQuery(ctx context.Context, queryF
 //
 //	输入：SELECT * FROM users WHERE age > 18 ORDER BY id DESC LIMIT 10
 //	输出：SELECT COUNT(*) FROM (SELECT * FROM users WHERE age > 18) AS count_query
-func (d *{{.TableNameCamelFCL}}Dao) convertToCountSQL(sql string) string {
+func (d *{{.TableNameCamelFCL}}Dao) convertToCountSQL(ctx context.Context, sql string) string {
 	if sql == "" {
 		return "SELECT COUNT(*) FROM (SELECT 1) AS count_query WHERE 1=0"
 	}
@@ -1884,7 +1860,7 @@ func (d *{{.TableNameCamelFCL}}Dao) convertToCountSQL(sql string) string {
 	// 最终校验：确保是有效的 SELECT 语句
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(trimmedSQL)), "select") {
 		// 非 SELECT 语句属于预期内的边界情况，使用 Info 级别记录
-		logger.Info("convertToCountSQL: received non-SELECT SQL, returning empty result",
+		logger.InfoWithCtx(ctx, "convertToCountSQL: received non-SELECT SQL, returning empty result",
 			logger.String("original_sql", sql),
 			logger.String("processed_sql", trimmedSQL))
 		return "SELECT COUNT(*) FROM (SELECT 1) AS count_query WHERE 1=0"

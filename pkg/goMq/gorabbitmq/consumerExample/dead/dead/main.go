@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
@@ -46,12 +44,12 @@ func main() {
 		),
 	)
 	if err != nil {
-		logger.Fatal("Failed to create connection pool", zap.Error(err))
+		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
 	defer pool.Close(ctx)
 	conn, err := pool.Get(ctx)
 	if err != nil {
-		logger.Fatal("Failed to get connection from pool", zap.Error(err))
+		logger.FatalWithCtx(ctx, "Failed to get connection from pool", logger.Err(err))
 	}
 	exchangeName := "exchange"
 	deadQueueName := "deadQueueName"

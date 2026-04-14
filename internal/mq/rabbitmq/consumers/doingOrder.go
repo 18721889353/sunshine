@@ -59,13 +59,11 @@ func (s *orderConsumer) handleMessage(ctx context.Context, data []byte, messageI
 		middleware.ContextRequestIDKey: messageId,
 	}))
 	ctx = interceptor.WrapServerCtx(ctx)
-	requestId := interceptor.ServerCtxRequestIDField(ctx)
 	defer func() {
 		if r := recover(); r != nil {
 			//使用 debug.Stack() 获取堆栈信息并保持原始格式
-			logger.Warn(
+			logger.WarnWithCtx(ctx,
 				fmt.Sprintf(s.Name()+" panic recovered: %v\nstack: %s", r, string(debug.Stack())),
-				requestId,
 			)
 			err = fmt.Errorf("panic recovered: %v\n", r)
 		}

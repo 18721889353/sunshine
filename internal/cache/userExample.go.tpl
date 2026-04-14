@@ -1,11 +1,9 @@
-package cache
+lopackage cache
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-	"go.uber.org/zap"
 	"strings"
 	"time"
 
@@ -110,7 +108,6 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 	if expiry <= 0 {
 		expiry = 10 * time.Second // 默认兜底
 	}
-	requestId := interceptor.ServerCtxRequestIDField(ctx)
 	// --- 看门狗实现开始 ---
 	// 3. 启动看门狗协程
 	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
@@ -126,9 +123,9 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 				if err != nil || !ok {
 					// 关键点：续期失败，立即取消任务 context
 					if err != nil {
-						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key), requestId)
+						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(err), logger.String("key", key))
 					} else {
-						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key), requestId)
+						logger.WarnWithCtx(ctx, "看门狗续期失败：锁已过期", logger.String("key", key))
 					}
 					stopWatchdog() // 续期失败，通知业务中断
 					return
@@ -144,7 +141,7 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 		stopWatchdog() // 确保退出时关闭协程
 		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
 			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
-				logger.Warn("释放分布式锁失败", zap.Error(releaseErr), requestId)
+				logger.WarnWithCtx(ctx, "释放分布式锁失败", logger.Err(releaseErr))
 			}
 		}
 	}()
@@ -163,7 +160,6 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 	if expiry <= 0 {
 		expiry = 10 * time.Second // 默认兜底
 	}
-	requestId := interceptor.ServerCtxRequestIDField(ctx)
 	// --- 看门狗实现开始 ---
 	// 3. 启动看门狗协程
 	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
@@ -179,9 +175,9 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 				if err != nil || !ok {
 					// 关键点：续期失败，立即取消任务 context
 					if err != nil {
-						logger.Warn("看门狗续期异常", zap.Error(err), zap.String("key", key), requestId)
+						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(err), logger.String("key", key))
 					} else {
-						logger.Warn("看门狗续期失败：锁已过期", zap.String("key", key), requestId)
+						logger.WarnWithCtx(ctx, "看门狗续期失败：锁已过期", logger.String("key", key))
 					}
 					stopWatchdog() // 续期失败，通知业务中断
 					return
@@ -197,7 +193,7 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 		stopWatchdog() // 确保退出时关闭协程
 		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
 			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
-				logger.Warn("释放分布式锁失败", zap.Error(releaseErr), requestId)
+				logger.WarnWithCtx(ctx, "释放分布式锁失败", logger.Err(releaseErr))
 			}
 		}
 	}()

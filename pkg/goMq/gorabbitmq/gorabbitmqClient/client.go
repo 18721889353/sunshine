@@ -20,6 +20,7 @@ import (
 var (
 	rabbitmqInstances sync.Map
 	sfGroup           singleflight.Group
+	initCtx           = context.Background() // 初始化阶段使用的 context
 )
 
 // RabbitMQ 封装了 RabbitMQ 连接池及相关操作
@@ -124,7 +125,7 @@ func InitRabbitmq(name string, mqCfg any) {
 		rabbitmqInstances.Store(name, instance)
 		// 4. 启动后台维护任务（自动清理过期 Producer 和打印状态）
 		go instance.startBackgroundMaintenance(poolCfg.StatsLogOpen)
-		logger.Info("RabbitMQ module initialized successfully")
+		logger.InfoWithCtx(initCtx, "RabbitMQ module initialized successfully")
 
 		return nil, nil
 	})
@@ -149,7 +150,7 @@ func (r *RabbitMQ) safeCloseProducer(ctx context.Context, routingKey string, p *
 	// 核心修复：必须手动将连接归还给 Pool，否则在高并发删除 Producer 时会导致连接泄露
 	if p.Connection != nil {
 		if err := r.pool.Put(ctx, p.Connection); err != nil {
-			logger.Warn("Failed to return connection to pool during cleanup", zap.Error(err))
+			logger.WarnWithCtx(initCtx, "Failed to return connection to pool during cleanup", logger.Err(err))
 		}
 	}
 }
@@ -276,7 +277,7 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 	})
 
 	if r.pool != nil {
-		logger.Info("Closing RabbitMQ connection pool")
+		logger.InfoWithCtx(initCtx, "Closing RabbitMQ connection pool")
 		return r.pool.Close(ctx) // 最后关闭物理连接池
 	}
 	return nil
@@ -296,10 +297,10 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 			zap.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
 		}
 		if err != nil {
-			fields = append(fields, zap.Error(err))
-			logger.Warn("SendMessage failed", fields...)
+			fields = append(fields, logger.Err(err))
+			logger.WarnWithCtx(initCtx, "SendMessage failed", logger.Any("fields", fields))
 		} else {
-			logger.Info("SendMessage success", fields...)
+			logger.InfoWithCtx(initCtx, "SendMessage success", logger.Any("fields", fields))
 		}
 	}()
 	maxRetries := 3
@@ -325,7 +326,8 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 		}
 		// 如果发生连接错误，清理缓存并重试
 		if isConnectionError(err) {
-			logger.Warn("Connection error detected, evicting producer", zap.String("routingKey", routingKey), zap.Error(err))
+			logger.WarnWithCtx(initCtx, "Connection error detected, evicting producer",
+				logger.String("routingKey", routingKey), logger.Err(err))
 			r.safeCloseProducer(ctx, routingKey, producer)
 		} else {
 			// 业务逻辑错误（如 AccessRefused）重试通常无用
@@ -378,7 +380,7 @@ func (r *RabbitMQ) cleanupInvalidProducers() {
 	r.producerCache.Range(func(routingKey, value interface{}) bool {
 		p, ok := value.(*gorabbitmq.Producer)
 		if !ok || !r.isProducerValid(cleanCtx, p) {
-			logger.Info("Cleanup: Evicting invalid producer", zap.Any("routingKey", routingKey))
+			logger.InfoWithCtx(initCtx, "Cleanup: Evicting invalid producer", logger.String("routingKey", cast.ToString(routingKey)))
 			r.safeCloseProducer(cleanCtx, cast.ToString(routingKey), p)
 		}
 		return true
@@ -396,7 +398,7 @@ func (r *RabbitMQ) clearProducerCache(exchangeName, routingKey string) {
 			r.safeCloseProducer(context.Background(), cast.ToString(routingKey), value.(*gorabbitmq.Producer))
 			return true
 		})
-		logger.Info("Safely cleared all producer cache and returned connections")
+		logger.InfoWithCtx(initCtx, "Safely cleared all producer cache and returned connections")
 	}
 }
 
@@ -433,7 +435,7 @@ func (r *RabbitMQ) printStats() {
 	ctx, cancel := context.WithTimeout(r.ctx, time.Second*2)
 	defer cancel()
 
-	logger.Info("RabbitMQ Pool Stats", zap.Any("stats", r.pool.Stats(ctx)))
+	logger.InfoWithCtx(initCtx, "RabbitMQ Pool Stats", logger.Any("stats", r.pool.Stats(ctx)))
 }
 
 // startBackgroundMaintenance 启动统一的后台维护和监控任务
@@ -441,7 +443,7 @@ func (r *RabbitMQ) startBackgroundMaintenance(open bool) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				logger.Warn("BackgroundMaintenance panic", zap.Any("err", err))
+				logger.WarnWithCtx(initCtx, "BackgroundMaintenance panic", logger.Any("err", err))
 				// 指数退避重启，防止死循环导致 CPU 暴涨
 				time.Sleep(time.Second * 5)
 				r.startBackgroundMaintenance(open)
@@ -456,9 +458,9 @@ func (r *RabbitMQ) startBackgroundMaintenance(open bool) {
 		iteration := uint64(0)
 		cleanupMultiplier := uint64(4) // 假设 interval=10s，则每5分钟执行一次清理
 
-		logger.Info("RabbitMQ maintenance worker started",
-			zap.Duration("stats_interval", interval),
-			zap.Duration("cleanup_interval", interval*time.Duration(cleanupMultiplier)))
+		logger.InfoWithCtx(initCtx, "RabbitMQ maintenance worker started",
+			logger.String("stats_interval", interval.String()),
+			logger.String("cleanup_interval", (interval * time.Duration(cleanupMultiplier)).String()))
 		for {
 			select {
 			case <-r.ctx.Done(): // 响应优雅关闭

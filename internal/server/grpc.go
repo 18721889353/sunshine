@@ -63,9 +63,9 @@ func (s *grpcServer) Start() error {
 				case <-ticker.C:
 					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
 					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						logger.Warn("s.iRegistry.Register error", logger.Err(err))
+						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
 					} else {
-						logger.Warn("s.iRegistry.Register")
+						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register")
 					}
 				}
 			}
@@ -141,7 +141,7 @@ func (s *grpcServer) secureServerOption() grpc.ServerOption {
 		if err != nil {
 			panic(err)
 		}
-		logger.Info("grpc security type: sever-side certification")
+		logger.InfoWithCtx(context.Background(), "grpc security type: sever-side certification")
 		return grpc.Creds(credentials)
 
 	case "two-way": // both client and server side certification
@@ -153,11 +153,11 @@ func (s *grpcServer) secureServerOption() grpc.ServerOption {
 		if err != nil {
 			panic(err)
 		}
-		logger.Info("grpc security type: both client-side and server-side certification")
+		logger.InfoWithCtx(context.Background(), "grpc security type: both client-side and server-side certification")
 		return grpc.Creds(credentials)
 	}
 
-	logger.Info("grpc security type: insecure")
+	logger.InfoWithCtx(context.Background(), "grpc security type: insecure")
 	return nil
 }
 

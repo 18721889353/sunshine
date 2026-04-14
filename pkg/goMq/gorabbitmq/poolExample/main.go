@@ -6,10 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
-
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
-	"go.uber.org/zap"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 func main() {
@@ -34,7 +32,7 @@ func main() {
 	)
 
 	if err != nil {
-		logger.Fatal("Failed to create connection pool", zap.Error(err))
+		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
 	defer pool.Close(ctx)
 
@@ -50,7 +48,7 @@ func main() {
 			// 从连接池获取连接
 			conn, err := pool.Get(ctx)
 			if err != nil {
-				logger.Error("Failed to get connection from pool", zap.Error(err))
+				logger.ErrorWithCtx(ctx, "Failed to get connection from pool", logger.Err(err))
 				return
 			}
 
@@ -61,7 +59,7 @@ func main() {
 			// 将连接放回连接池
 			err = pool.Put(ctx, conn)
 			if err != nil {
-				logger.Error("Failed to put connection back to pool", zap.Error(err))
+				logger.ErrorWithCtx(ctx, "Failed to put connection back to pool", logger.Err(err))
 				return
 			}
 

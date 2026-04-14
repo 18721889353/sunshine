@@ -16,6 +16,7 @@ import (
 var (
 	dataFile = saveDir + "/data.json"
 	rcd      *record
+	initCtx  = context.Background() // 初始化阶段使用的 context
 )
 
 type parameters struct {
@@ -74,7 +75,7 @@ func (r *record) set(ip string, commandType string, params *parameters) {
 		r.HostRecord[key] = params
 		data, err := json.Marshal(r.HostRecord)
 		if err != nil {
-			logger.Warn("json marshal error", logger.Err(err))
+			logger.WarnWithCtx(initCtx, "json marshal error", logger.Err(err))
 			return
 		}
 
@@ -86,7 +87,7 @@ func (r *record) set(ip string, commandType string, params *parameters) {
 		_ = gofile.CreateDir(dir)
 		err = os.WriteFile(file, data, 0666)
 		if err != nil {
-			logger.Warn("WriteFile error", logger.Err(err))
+			logger.WarnWithCtx(initCtx, "WriteFile error", logger.Err(err))
 			return
 		}
 	})

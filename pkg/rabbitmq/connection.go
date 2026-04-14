@@ -5,6 +5,7 @@
 package rabbitmq
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -17,6 +18,9 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
+
+// initCtx 初始化阶段使用的 context
+var initCtx = context.Background()
 
 // DefaultURL default rabbitmq url
 const DefaultURL = "amqp://guest:guest@localhost:5672/"
@@ -155,7 +159,7 @@ func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 
 	conn, err := connect(connection)
 	if err != nil {
-		logger.Error("[rabbitmq connection] connection error", zap.String("err", err.Error()))
+		logger.ErrorWithCtx(initCtx, "[rabbitmq connection] connection error", zap.String("err", err.Error()))
 
 		return nil, err
 	}
@@ -232,9 +236,9 @@ func (c *Connection) monitor() {
 			return
 		case b := <-c.blockChan:
 			if b.Active {
-				logger.Error("[rabbitmq connection] TCP blocked: " + b.Reason)
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] TCP blocked: " + b.Reason)
 			} else {
-				logger.Error("[rabbitmq connection] TCP unblocked")
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] TCP unblocked")
 			}
 		case closeChanErr := <-c.closeChan:
 			c.mutex.Lock()
@@ -243,16 +247,16 @@ func (c *Connection) monitor() {
 
 			retryCount++
 			if closeChanErr != nil {
-				logger.Error("[rabbitmq connection] lost connection error", zap.String("err", closeChanErr.Error()), zap.Int("retryCount", retryCount))
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] lost connection error", zap.String("err", closeChanErr.Error()), zap.Int("retryCount", retryCount))
 			} else {
-				logger.Error("[rabbitmq connection] lost connection error", zap.Int("retryCount", retryCount))
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] lost connection error", zap.Int("retryCount", retryCount))
 			}
-			logger.Error(reconnectTip)
+			logger.ErrorWithCtx(initCtx, reconnectTip)
 			time.Sleep(c.reconnectTime) // wait for reconnect
 
 			amqpConn, amqpErr := connect(c)
 			if amqpErr != nil {
-				logger.Error("[rabbitmq connection] reconnect error", zap.String("err", amqpErr.Error()), zap.Int("retryCount", retryCount))
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] reconnect error", zap.String("err", amqpErr.Error()), zap.Int("retryCount", retryCount))
 				continue
 			}
 			//c.zapLog.Info("[rabbitmq connection] reconnected successfully.")
