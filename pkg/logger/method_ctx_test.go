@@ -130,8 +130,8 @@ func TestSLSIntegration(t *testing.T) {
 	// SLS 配置（从环境变量或配置文件读取）
 	slsConfig := &SLSConfig{
 		Endpoint:        getEnv("SLS_ENDPOINT", "cn-shanghai.log.aliyuncs.com"),
-		AccessKeyID:     getEnv("SLS_ACCESS_KEY_ID", ""),
-		AccessKeySecret: getEnv("SLS_ACCESS_KEY_SECRET", ""),
+		AccessKeyID:     getEnv("SLS_ACCESS_KEY_ID", "REMOVED_SECRET"),
+		AccessKeySecret: getEnv("SLS_ACCESS_KEY_SECRET", "REMOVED_SECRET"),
 		ProjectName:     getEnv("SLS_PROJECT", "sunshine123"),
 		LogStoreName:    getEnv("SLS_LOGSTORE", "sunshine"),
 		Topic:           "test",
@@ -162,7 +162,7 @@ func TestSLSIntegration(t *testing.T) {
 	_, err = Init(
 		WithLevel("debug"),
 		WithFormat("json"),
-		WithAsync(true), // 启用异步写入，提升高并发性能
+		WithAsync(true),  // 启用异步写入，提升高并发性能
 		WithSave(true,
 			WithFileName("test-sls.log"),
 			WithFileMaxSize(10),   // 10MB
@@ -288,8 +288,8 @@ func TestMixedLogging(t *testing.T) {
 	// SLS 配置
 	slsConfig := &SLSConfig{
 		Endpoint:        getEnv("SLS_ENDPOINT", "cn-shanghai.log.aliyuncs.com"),
-		AccessKeyID:     getEnv("SLS_ACCESS_KEY_ID", ""),
-		AccessKeySecret: getEnv("SLS_ACCESS_KEY_SECRET", ""),
+		AccessKeyID:     getEnv("SLS_ACCESS_KEY_ID", "REMOVED_SECRET"),
+		AccessKeySecret: getEnv("SLS_ACCESS_KEY_SECRET", "REMOVED_SECRET"),
 		ProjectName:     getEnv("SLS_PROJECT", "sunshine123"),
 		LogStoreName:    getEnv("SLS_LOGSTORE", "sunshine"),
 		Topic:           "mixed-test",
