@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 // producerOptions 生产者配置选项
 type producerOptions struct {
-	logger             *zap.Logger                // 日志记录器
 	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
 	normalLetter       *NormalLetterOptions       // 正常队列选项
 	deadLetter         *DeadLetterOptions         // 死信队列选项
@@ -38,7 +37,6 @@ func (o *producerOptions) apply(opts ...ProducerOption) {
 // defaultProducerOptions 默认生产者配置选项
 func defaultProducerOptions() *producerOptions {
 	return &producerOptions{
-		logger:             defaultLogger,
 		customerDeadLetter: defaultCustomerDeadLetterOptions(),
 		normalLetter:       defaultNormalLetterOptions(),
 		deadLetter:         defaultDeadLetterOptions(),
@@ -95,9 +93,8 @@ func WithProducerIsDelay(enable bool) ProducerOption {
 
 // Producer RabbitMQ生产者结构体
 type Producer struct {
-	zapLog     *zap.Logger // 日志记录器
-	Exchange   *Exchange   // 交换机
-	QueueName  string      // 队列名称
+	Exchange   *Exchange // 交换机
+	QueueName  string    // 队列名称
 	Connection *Connection
 	conn       *amqp.Connection // RabbitMQ连接
 	channel    *amqp.Channel    // RabbitMQ通道
@@ -123,7 +120,6 @@ type Producer struct {
 func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection, opts ...ProducerOption) (*Producer, error) {
 	o := defaultProducerOptions()
 	o.apply(opts...)
-	//var fields []zap.Field
 
 	// crate a new channel
 	amqpConn := connection.GetConn(ctx)
@@ -164,20 +160,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-message-ttl":             int32(600000), // 600秒后过期
 			}
 		}
-		// QueueDeclare 声明队列
-		//exclusive 当设置为 true 时，队列变为排他队列（Exclusive Queue）
-		//排他队列只能被当前连接（Connection）中的信道（Channel）访问
-		//当连接关闭时，排他队列会自动删除
-		//当 noWait = false（默认值）时：
-		//客户端发送队列声明或交换机声明请求
-		//客户端等待服务器返回确认响应
-		//只有收到服务器确认后，方法才返回
-		//如果操作失败，会返回错误
-		//当 noWait = true 时：
-		//客户端发送队列声明或交换机声明请求
-		//客户端不等待服务器的确认响应，立即返回
-		//无法知道操作是否成功执行
-		//即使操作失败，也不会返回错误
 		dlq, err := channel.QueueDeclare(
 			o.customerDeadLetter.deadQueueName,               //队列名称
 			o.customerDeadLetter.deadQueueDeclare.durable,    //是否持久化
@@ -210,7 +192,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
 			}
 		}
-		// QueueDeclare 声明队列
 		elq, err := channel.QueueDeclare(
 			o.customerDeadLetter.errQueueName,               //队列名称
 			o.customerDeadLetter.errQueueDeclare.durable,    //是否持久化
@@ -242,7 +223,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
 			}
 		}
-		// QueueDeclare 声明队列
 		lq, err := channel.QueueDeclare(
 			o.customerDeadLetter.normalQueueName,               //队列名称
 			o.customerDeadLetter.normalQueueDeclare.durable,    //是否持久化
@@ -292,20 +272,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-message-ttl":             int32(600000), // 600秒后过期
 			}
 		}
-		// QueueDeclare 声明队列
-		//exclusive 当设置为 true 时，队列变为排他队列（Exclusive Queue）
-		//排他队列只能被当前连接（Connection）中的信道（Channel）访问
-		//当连接关闭时，排他队列会自动删除
-		//当 noWait = false（默认值）时：
-		//客户端发送队列声明或交换机声明请求
-		//客户端等待服务器返回确认响应
-		//只有收到服务器确认后，方法才返回
-		//如果操作失败，会返回错误
-		//当 noWait = true 时：
-		//客户端发送队列声明或交换机声明请求
-		//客户端不等待服务器的确认响应，立即返回
-		//无法知道操作是否成功执行
-		//即使操作失败，也不会返回错误
 		dlq, err := channel.QueueDeclare(
 			o.deadLetter.deadQueueName,               //队列名称
 			o.deadLetter.deadQueueDeclare.durable,    //是否持久化
@@ -338,7 +304,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-dead-letter-routing-key": o.deadLetter.deadRoutingKey,
 			}
 		}
-		// QueueDeclare 声明队列
 		lq, err := channel.QueueDeclare(
 			o.deadLetter.normalQueueName,               //队列名称
 			o.deadLetter.normalQueueDeclare.durable,    //是否持久化
@@ -417,7 +382,6 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	}
 
 	return &Producer{
-		zapLog:             connection.zapLog,
 		Connection:         connection,
 		conn:               amqpConn,
 		channel:            channel,
@@ -473,6 +437,9 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 			),
 		)
 		span.SetStatus(codes.Error, err.Error())
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] invalid exchange type",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name))
 		return err
 	}
 
@@ -545,6 +512,12 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
 			),
 		)
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] publish direct failed",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name),
+			logger.String("routing_key", routingKey),
+			logger.String("message_id", messageID),
+			logger.Float64("duration_ms", float64(duration.Milliseconds())))
 	} else {
 		span.AddEvent("message published successfully",
 			trace.WithAttributes(
@@ -604,6 +577,9 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 			),
 		)
 		span.SetStatus(codes.Error, err.Error())
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] invalid exchange type",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name))
 		return err
 	}
 
@@ -676,6 +652,12 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
 			),
 		)
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] publish fanout failed",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name),
+			logger.String("routing_key", routingKey),
+			logger.String("message_id", messageID),
+			logger.Float64("duration_ms", float64(duration.Milliseconds())))
 	} else {
 		span.AddEvent("message published successfully",
 			trace.WithAttributes(
@@ -730,6 +712,9 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 			),
 		)
 		span.SetStatus(codes.Error, err.Error())
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] invalid exchange type",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name))
 		return err
 	}
 
@@ -801,6 +786,12 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
 			),
 		)
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] publish topic failed",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name),
+			logger.String("routing_key", routingKey),
+			logger.String("message_id", messageID),
+			logger.Float64("duration_ms", float64(duration.Milliseconds())))
 	} else {
 		span.AddEvent("message published successfully",
 			trace.WithAttributes(
@@ -855,6 +846,9 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 			),
 		)
 		span.SetStatus(codes.Error, err.Error())
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] invalid exchange type",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name))
 		return err
 	}
 
@@ -931,6 +925,13 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
 			),
 		)
+		logger.WarnWithCtx(ctx, "[rabbitmq producer] publish headers failed",
+			logger.Err(err),
+			logger.String("exchange", p.Exchange.name),
+			logger.String("routing_key", p.Exchange.routingKey),
+			logger.String("message_id", messageID),
+			logger.Int("headers_count", len(headersKeys)),
+			logger.Float64("duration_ms", float64(duration.Milliseconds())))
 	} else {
 		span.AddEvent("message published successfully",
 			trace.WithAttributes(
@@ -950,7 +951,7 @@ func (p *Producer) Close() error {
 	return p.channel.Close()
 }
 
-func logFields(exchange *Exchange, data map[string]any) []zap.Field {
+func logFields(exchange *Exchange, data map[string]any) []logger.Field {
 	body := map[string]any{
 		"exchange": exchange.name,
 		"type":     exchange.eType,
@@ -964,7 +965,7 @@ func logFields(exchange *Exchange, data map[string]any) []zap.Field {
 	case exchangeTypeHeaders:
 		body["headersKeys"] = exchange.headersKeys
 	}
-	return []zap.Field{
-		zap.Any("body", body),
+	return []logger.Field{
+		logger.Any("body", body),
 	}
 }

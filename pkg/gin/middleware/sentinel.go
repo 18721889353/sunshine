@@ -3,13 +3,11 @@ package middleware
 import (
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
-	"github.com/18721889353/sunshine/pkg/logger"
 	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/alibaba/sentinel-golang/core/flow"
 	SentinelGin "github.com/alibaba/sentinel-golang/pkg/adapters/gin"
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/copier"
-	"go.uber.org/zap"
 )
 
 var resourceName = "default"
@@ -18,10 +16,8 @@ var resourceName = "default"
 type SentinelOptions func(*sentinelOptions)
 
 func defaultSentinelOptions() *sentinelOptions {
-	defaultLogger, _ := zap.NewProduction()
 	return &sentinelOptions{
 		resourceExtractor: defaultResourceExtractor,
-		log:               defaultLogger,
 		rules: []*flow.Rule{
 			{
 				Resource:               resourceName, // 默认资源名
@@ -38,7 +34,6 @@ type sentinelOptions struct {
 	resourceExtractor func(*gin.Context) string // 资源提取器
 	threshold         float64                   // 每秒请求次数（QPS）
 	statIntervalInMs  uint32                    // 统计周期1秒
-	log               *zap.Logger
 	rules             []*flow.Rule
 }
 
@@ -56,24 +51,13 @@ func WithSentinelResourceExtractor(fn func(*gin.Context) string) SentinelOptions
 	}
 }
 
-// WithSentinelLog set log
-func WithSentinelLog(log *zap.Logger) SentinelOptions {
-	return func(o *sentinelOptions) {
-		if log != nil {
-			o.log = log
-		}
-	}
-}
-
-// ... existing code ...
-
 // WithSentinelRules set rules
 func WithSentinelRules(ruleInfos any) SentinelOptions {
 	return func(o *sentinelOptions) {
 		var rules []*flow.Rule
 		err := copier.Copy(&rules, ruleInfos)
 		if err != nil {
-			o.log.Panic("copier.Copy err", logger.Err(err))
+			panic("copier.Copy err: " + err.Error())
 		}
 		o.rules = rules
 	}
@@ -94,11 +78,11 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 	//初始化sentinel
 	err := sentinel.InitDefault()
 	if err != nil {
-		o.log.Panic("初始化sentinel失败", logger.Err(err))
+		panic("初始化sentinel失败: " + err.Error())
 	}
 	_, err = flow.LoadRules(o.rules)
 	if err != nil {
-		o.log.Panic("初始化sentinel加载限流规则失败", logger.Err(err))
+		panic("初始化sentinel加载限流规则失败: " + err.Error())
 	}
 	return SentinelGin.SentinelMiddleware(
 		SentinelGin.WithResourceExtractor(o.resourceExtractor),

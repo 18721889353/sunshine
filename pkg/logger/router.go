@@ -201,8 +201,10 @@ func mergeRouteConfig(route, defaultConfig *RouteConfig) *RouteConfig {
 	// 字符串:如果路由配置为空,则使用默认配置
 	if route.Format == "" && defaultConfig.Format != "" {
 		merged.Format = defaultConfig.Format
-	} else {
+	} else if route.Format != "" {
 		merged.Format = route.Format
+	} else {
+		merged.Format = "json" // 最后的兜底
 	}
 
 	return merged
@@ -350,35 +352,43 @@ func extractContextFields(ctx context.Context) []Field {
 		}
 	}
 
+	// DEBUG: 检查是否有重复的 request_id
+	// if len(fields) > 0 {
+	// 	fmt.Printf("[DEBUG] extractContextFields returning %d fields\n", len(fields))
+	// 	for i, f := range fields {
+	// 		fmt.Printf("[DEBUG]   field[%d]: key=%s, type=%v\n", i, f.Key, f.Type)
+	// 	}
+	// }
+
 	return fields
 }
 
 // getRequestIDFromCtx 从 context 中获取 request_id
-// 支持 gin middleware 和 gRPC interceptor 的 context key
+// 只使用统一的 ContextKey 类型，避免重复提取
 func getRequestIDFromCtx(ctx context.Context) string {
-	// 尝试常见的 request_id context keys（支持 string 和 contextKey 类型）
-	commonKeys := []string{"request_id", "RequestID", "x-request-id", "X-Request-Id"}
+	if ctx == nil {
+		return ""
+	}
 
-	for _, key := range commonKeys {
-		// 先尝试用 contextKey 类型
-		if v := ctx.Value(contextKey(key)); v != nil {
-			if reqID, ok := v.(string); ok && reqID != "" {
-				return reqID
-			}
-		}
-		// 再尝试用 string 类型（兼容 context.WithValue(ctx, "request_id", value) 的写法）
-		if v := ctx.Value(key); v != nil {
-			if reqID, ok := v.(string); ok && reqID != "" {
-				return reqID
-			}
+	// 只使用 ContextKey 类型（与 middleware 注入的类型完全一致）
+	// 不再尝试 string 类型，避免重复
+	if v := ctx.Value(ContextKey("request_id")); v != nil {
+		if reqID, ok := v.(string); ok && reqID != "" {
+			return reqID
 		}
 	}
 
 	return ""
 }
 
-// contextKey context key 类型
-type contextKey string
+// ContextKey context key 类型 (供外部包使用)
+type ContextKey string
+
+// ContextKeyForRequestID 返回用于存储 request_id 的 context key
+// 供 middleware 包在注入 request_id 时使用，确保与 logger 包一致
+func ContextKeyForRequestID() ContextKey {
+	return "request_id"
+}
 
 // getTraceIDFromCtx 从 context 中获取 trace_id
 func getTraceIDFromCtx(ctx context.Context) string {

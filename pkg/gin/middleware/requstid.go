@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/18721889353/sunshine/pkg/krand"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (
@@ -115,6 +116,10 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 		// Set X-Request-Id header
 		c.Writer.Header().Set(HeaderXRequestIDKey, requestID)
 
+		// 使用 logger 包统一的 context key 类型，确保 logger 能正确提取 request_id
+		ctx := context.WithValue(c.Request.Context(), logger.ContextKeyForRequestID(), requestID)
+		c.Request = c.Request.WithContext(ctx)
+
 		c.Next()
 	}
 }
@@ -151,7 +156,7 @@ var RequestHeaderKey = "request_header_key"
 
 // WrapCtx wrap context, put the Keys and Header of gin.Context into context
 func WrapCtx(c *gin.Context) context.Context {
-	ctx := context.WithValue(c.Request.Context(), ContextRequestIDKey, c.GetString(ContextRequestIDKey)) //nolint
+	ctx := context.WithValue(c.Request.Context(), logger.ContextKeyForRequestID(), c.GetString(ContextRequestIDKey)) //nolint
 	return context.WithValue(ctx, RequestHeaderKey, c.Request.Header)                                    //nolint
 }
 

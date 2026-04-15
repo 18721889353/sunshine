@@ -8,17 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 var (
 	// Print body max length
 	defaultMaxLength = 300
 	defaultLogFrom   = ""
-
-	// default zap log
-	defaultLogger, _ = zap.NewProduction()
 
 	// Ignore route list
 	defaultIgnoreRoutes = map[string]struct{}{
@@ -37,9 +34,8 @@ type Option func(*options)
 func defaultOptions() *options {
 	return &options{
 		maxLength:     defaultMaxLength,
-		log:           defaultLogger,
 		ignoreRoutes:  defaultIgnoreRoutes,
-		requestIDFrom: 0,
+		requestIDFrom: 1, // 默认从 context 获取 request_id
 		logFrom:       defaultLogFrom,
 		logHeaders:    false,
 	}
@@ -47,9 +43,8 @@ func defaultOptions() *options {
 
 type options struct {
 	maxLength        int
-	log              *zap.Logger
 	ignoreRoutes     map[string]struct{}
-	requestIDFrom    int // 0: ignore, 1: from context, 2: from header
+	requestIDFrom    int // Deprecated: request_id is now automatically extracted from context
 	logFrom          string
 	logHeaders       bool                // 是否记录请求头
 	sensitiveHeaders map[string]struct{} // 敏感请求头列表(不记录)
@@ -77,15 +72,6 @@ func WithLogFrom(logFrom string) Option {
 	}
 }
 
-// WithLog set log
-func WithLog(log *zap.Logger) Option {
-	return func(o *options) {
-		if log != nil {
-			o.log = log
-		}
-	}
-}
-
 // WithIgnoreRoutes no logger content routes
 func WithIgnoreRoutes(routes ...string) Option {
 	return func(o *options) {
@@ -96,16 +82,18 @@ func WithIgnoreRoutes(routes ...string) Option {
 }
 
 // WithRequestIDFromContext name is field in context, default value is request_id
+// Deprecated: request_id is now automatically extracted from context, this option is no longer needed
 func WithRequestIDFromContext() Option {
 	return func(o *options) {
-		o.requestIDFrom = 1
+		// 保留空实现以维持向后兼容
 	}
 }
 
 // WithRequestIDFromHeader name is field in header, default value is X-Request-Id
+// Deprecated: request_id is now automatically extracted from context, this option is no longer needed
 func WithRequestIDFromHeader() Option {
 	return func(o *options) {
-		o.requestIDFrom = 2
+		// 保留空实现以维持向后兼容
 	}
 }
 
@@ -229,17 +217,17 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			_, _ = buf.ReadFrom(c.Request.Body)
 		}
 
-		fields := []zap.Field{
-			zap.String("method", c.Request.Method),
-			zap.String("url", c.Request.URL.String()),
-			zap.String("userAgent", c.Request.UserAgent()),
-			zap.String("ip", c.ClientIP()),
+		fields := []logger.Field{
+			logger.String("method", c.Request.Method),
+			logger.String("url", c.Request.URL.String()),
+			logger.String("userAgent", c.Request.UserAgent()),
+			logger.String("ip", c.ClientIP()),
 		}
 
 		// Add request headers to log fields if enabled
 		if o.logHeaders {
 			headers := filterHeaders(c.Request.Header, o.sensitiveHeaders)
-			fields = append(fields, zap.Any("headers", headers))
+			fields = append(fields, logger.Any("headers", headers))
 		}
 
 		if c.Request.Method == http.MethodPost || c.Request.Method == http.MethodPut || c.Request.Method == http.MethodPatch || c.Request.Method == http.MethodDelete {
@@ -247,29 +235,18 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			contentType := c.Request.Header.Get("Content-Type")
 			if !strings.HasPrefix(contentType, "multipart/form-data") {
 				fields = append(fields,
-					zap.Int("size", buf.Len()),
-					zap.ByteString("body", getRequestBody(&buf, o.maxLength)),
+					logger.Int("size", buf.Len()),
+					logger.String("body", string(getRequestBody(&buf, o.maxLength))),
 				)
 			} else {
-				fields = append(fields, zap.String("body", "form-data not logged"))
+				fields = append(fields, logger.String("body", "form-data not logged"))
 			}
 		}
+		
+		// request_id 已由 extractContextFields 自动从 context 中提取，无需手动添加
+		fields = append(fields, logger.String("log_from", `<<<<`+o.logFrom))
 
-		reqID := ""
-		if o.requestIDFrom == 1 {
-			if v, isExist := c.Get(ContextRequestIDKey); isExist {
-				if requestID, ok := v.(string); ok {
-					reqID = requestID
-					fields = append(fields, zap.String(ContextRequestIDKey, reqID))
-				}
-			}
-		} else if o.requestIDFrom == 2 {
-			reqID = c.Request.Header.Get(HeaderXRequestIDKey)
-			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
-		}
-		fields = append(fields, zap.String("log_from", `<<<<`+o.logFrom))
-
-		o.log.Info(`gin middleware Logging`, fields...)
+		logger.InfoWithCtx(c.Request.Context(), `gin middleware Logging`, fields...)
 
 		if buf.Len() > 0 {
 			c.Request.Body = io.NopCloser(&buf)
@@ -285,18 +262,17 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		c.Next()
 
 		// print return message after processing
-		fields = []zap.Field{
-			zap.Int("code", c.Writer.Status()),
-			zap.String("method", c.Request.Method),
-			zap.String("url", c.Request.URL.Path),
-			zap.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
-			zap.Int("size", newWriter.body.Len()),
-			zap.ByteString("response", getResponseBody(newWriter.body, o.maxLength)),
+		fields = []logger.Field{
+			logger.Int("code", c.Writer.Status()),
+			logger.String("method", c.Request.Method),
+			logger.String("url", c.Request.URL.Path),
+			logger.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
+			logger.Int("size", newWriter.body.Len()),
+			logger.String("response", string(getResponseBody(newWriter.body, o.maxLength))),
 		}
-		if reqID != "" {
-			fields = append(fields, zap.String(ContextRequestIDKey, reqID))
-		}
-		fields = append(fields, zap.String("log_from", `>>>>`+o.logFrom))
-		o.log.Info(`gin middleware Logging`, fields...)
+		// request_id 已由 extractContextFields 自动从 context 中提取，无需手动添加
+		fields = append(fields, logger.String("log_from", `>>>>`+o.logFrom))
+		
+		logger.InfoWithCtx(c.Request.Context(), `gin middleware Logging`, fields...)
 	}
 }

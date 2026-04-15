@@ -2,7 +2,6 @@ package logger
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -85,24 +84,21 @@ func Duration(key string, val time.Duration) Field {
 	return zap.Duration(key, val)
 }
 
+// Skip skips the field
+func Skip() Field {
+	return zap.Skip()
+}
+
 // Err type
 func Err(err error) Field {
+	if err == nil {
+		return zap.Skip()
+	}
 	return zap.String("err", err.Error())
 }
 
 // Any type, if it is a composite type such as object, slice, map, etc., use Any
+// For better performance and readability, prefer using specific type functions when possible
 func Any(key string, val interface{}) Field {
-	anyToJSON := zapAnyToJSON(val)
-	return zap.String(key, anyToJSON)
-}
-
-func zapAnyToJSON(val interface{}) string {
-	if str, ok := val.(string); ok {
-		return str
-	}
-	jsonBytes, err := json.Marshal(val)
-	if err != nil {
-		return err.Error()
-	}
-	return string(jsonBytes)
+	return zap.Any(key, val)
 }

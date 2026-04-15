@@ -38,27 +38,36 @@ func InitApp() {
 	initConfig()
 	cfg := config.Get()
 
-	// 初始化 SLS Hook（如果启用）
+	// 初始化 SLS Hook（如果启用）- 注意：此时 Logger 尚未初始化，不要记录日志
 	if cfg.Sls.Enable {
+		// 如果未配置 Source，默认使用应用名称作为日志来源
+		source := cfg.Sls.Source
+		if source == "" {
+			source = cfg.App.Name
+		}
 		slsConfig := &logger.SLSConfig{
-			Endpoint:        cfg.Sls.Endpoint,
-			AccessKeyID:     cfg.Sls.AccessKeyID,
-			AccessKeySecret: cfg.Sls.AccessKeySecret,
-			ProjectName:     cfg.Sls.Project,
-			LogStoreName:    cfg.Sls.Logstore,
-			Topic:           cfg.Sls.Topic,
-			Source:          cfg.Sls.Source,
-			MaxRetries:      cfg.Sls.Retries,
-			Timeout:         60, // 默认 60 秒超时
+			Endpoint:            cfg.Sls.Endpoint,
+			AccessKeyID:         cfg.Sls.AccessKeyID,
+			AccessKeySecret:     cfg.Sls.AccessKeySecret,
+			ProjectName:         cfg.Sls.Project,
+			LogStoreName:        cfg.Sls.Logstore,
+			Topic:               cfg.Sls.Topic,
+			Source:              source,
+			MaxRetries:          cfg.Sls.Retries,
+			Timeout:             cfg.Sls.Timeout,           // 从配置文件读取超时时间
+			EnableHealthCheck:   cfg.Sls.EnableHealthCheck, // 从配置文件读取是否启用健康检查
+			HealthCheckInterval: time.Duration(cfg.Sls.HealthCheckInterval) * time.Second,
+			SendTimeout:         time.Duration(cfg.Sls.SendTimeout) * time.Second,
 		}
 
 		var err error
 		slsHookInstance, err = logger.NewSLSHook(slsConfig)
 		if err != nil {
-			logger.WarnWithCtx(initCtx, "failed to init SLS hook", logger.Err(err))
-		} else {
-			logger.InfoWithCtx(initCtx, "[SLS hook] was initialized")
+			// SLS 启动失败，直接终止服务（此时不能用 logger，用 fmt）
+			panic(fmt.Sprintf("failed to init SLS hook: %v", err))
 		}
+		// 注意：这里不能记录日志，因为 Logger 还没初始化
+		// logger.InfoWithCtx(initCtx, "[SLS hook] was initialized", ...)
 	}
 
 	// initializing log
@@ -109,7 +118,6 @@ func InitApp() {
 		panic(err)
 	}
 
-	logger.DebugWithCtx(initCtx, config.Show())
 	logger.InfoWithCtx(initCtx, "[logger] was initialized")
 
 	if cfg.App.OpenJwt {
@@ -147,10 +155,8 @@ func InitApp() {
 	// initializing the print system and process resources
 	if cfg.App.EnableStat {
 		stat.Init(
-			stat.WithLog(logger.Get()),
 			stat.WithPrintInterval(time.Minute),                                         // 打印统计信息间隔
 			stat.WithAlarm(stat.WithCPUThreshold(0.85), stat.WithMemoryThreshold(0.85)), // invalid if it is windows, the default threshold for cpu and memory is 0.8, you can modify them
-			stat.WithPrintField(logger.String("service_name", cfg.App.Name), logger.String("host", cfg.App.Host)),
 		)
 		logger.InfoWithCtx(initCtx, "[resource statistics] was initialized")
 	}

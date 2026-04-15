@@ -83,7 +83,7 @@ func getRPCClientConnForTest(grpcClient ...config.GrpcClient) *grpc.ClientConn {
 	if isUseDiscover {
 		msg += " with discovery from " + grpcClientCfg.RegistryDiscoveryType
 	}
-	logger.Info(msg, logger.String("name", grpcClientCfg.Name), logger.String("endpoint", endpoint))
+	logger.InfoWithCtx(context.Background(), msg, logger.String("name", grpcClientCfg.Name), logger.String("endpoint", endpoint))
 
 	conn, err := grpccli.NewClient(endpoint, cliOptions...)
 	if err != nil {

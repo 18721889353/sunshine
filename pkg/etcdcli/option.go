@@ -4,7 +4,6 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.uber.org/zap"
 )
 
 // Option 用于设置 etcd 客户端的选项。
@@ -22,7 +21,6 @@ type options struct {
 	certFile           string // 证书文件路径
 
 	autoSyncInterval time.Duration // 成员列表自动同步的时间间隔
-	logger           *zap.Logger   // 日志记录器
 
 	// 如果设置了此参数，上述所有字段均无效
 	config *clientv3.Config
@@ -70,13 +68,6 @@ func WithSecure(serverNameOverride string, certFile string) Option {
 func WithAutoSyncInterval(duration time.Duration) Option {
 	return func(o *options) {
 		o.autoSyncInterval = duration
-	}
-}
-
-// WithLog 设置日志记录器。
-func WithLog(l *zap.Logger) Option {
-	return func(o *options) {
-		o.logger = l
 	}
 }
 

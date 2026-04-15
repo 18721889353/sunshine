@@ -20,7 +20,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/prof"
 	"github.com/18721889353/sunshine/pkg/gin/swagger"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
-	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/docs"
 	"github.com/18721889353/sunshine/internal/config"
@@ -88,7 +87,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
-		middleware.WithLog(logger.Get()),
 		middleware.WithMaxLen(config.Get().Logger.MaxLen),
 		middleware.WithRequestIDFromContext(),
 		middleware.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
@@ -98,7 +96,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	if config.Get().App.OpenSign {
 		r.Use(
 			middleware.VerifySignatureMiddleware(
-				middleware.WithSignLog(logger.Get()),
 				middleware.WithSignKey(config.Get().Sign.SignKey),
 				middleware.WithIgnoreUrl(config.Get().Sign.IgnoreUrls.HTTP...),
 				middleware.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
@@ -107,7 +104,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	}
 	// 将XSSMiddleware添加为全局中间件
 	if config.Get().App.OpenXSS {
-		r.Use(middleware.XSSCrossMiddleware(middleware.WithXsLog(logger.Get())))
+		r.Use(middleware.XSSCrossMiddleware())
 	}
 	// metrics middleware
 	if config.Get().App.EnableMetrics {
@@ -121,7 +118,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	if config.Get().App.EnableLimit {
 		r.Use(
 			middleware.SentinelMiddleware(
-				middleware.WithSentinelLog(logger.Get()),
 				middleware.WithSentinelResourceExtractor(func(c *gin.Context) string {
 					return c.FullPath()
 				}),
@@ -149,7 +145,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		//全局权限验证
 		r.Use(
 			middleware.Auth(
-				middleware.WithAuthLog(logger.Get()),
 				middleware.WithSwitchHTTPCode(),
 				middleware.WithJwtIgnoreMethods(config.Get().Jwt.IgnoreMethods.HTTP...)),
 		)

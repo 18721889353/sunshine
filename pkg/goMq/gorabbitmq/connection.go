@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"net"
 	"strings"
 	"sync"
@@ -12,13 +13,12 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go.uber.org/zap"
 )
 
 // DefaultURL 默认的 RabbitMQ 连接 URL
 const DefaultURL = "amqp://guest:guest@localhost:5672/"
 
-var defaultLogger, _ = zap.NewProduction()
+var defaultLogger = logger.Get()
 
 // ConnectionOption 连接配置选项函数类型
 type ConnectionOption func(*connectionOptions)
@@ -30,7 +30,6 @@ type connectionOptions struct {
 	dialTimeout     time.Duration // 连接超时时间，默认为 5 秒
 	heartbeat       time.Duration // 心跳间隔
 	deadlineTimeout time.Duration // 截止时间超时
-	zapLog          *zap.Logger   // 日志记录器
 	maxRetries      int           // 最大重连次数，0 表示无限重试
 }
 
@@ -49,7 +48,6 @@ func defaultConnectionOptions() *connectionOptions {
 		dialTimeout:     time.Second * 5,
 		heartbeat:       time.Second * 3,
 		deadlineTimeout: time.Second * 30,
-		zapLog:          defaultLogger,
 		maxRetries:      0, // 默认无限重试
 	}
 }
@@ -106,16 +104,6 @@ func WithDeadlineTimeout(d time.Duration) ConnectionOption {
 	}
 }
 
-// WithLogger 设置日志记录器选项
-func WithLogger(zapLog *zap.Logger) ConnectionOption {
-	return func(o *connectionOptions) {
-		if zapLog == nil {
-			return
-		}
-		o.zapLog = zapLog
-	}
-}
-
 // WithMaxRetries 设置最大重连次数，0表示无限重试，默认为0
 func WithMaxRetries(maxRetries int) ConnectionOption {
 	return func(o *connectionOptions) {
@@ -137,7 +125,6 @@ type Connection struct {
 	deadlineTimeout time.Duration // 截止时间超时
 	maxRetries      int           // 最大重连次数
 	exit            chan struct{} // 退出信号通道
-	zapLog          *zap.Logger   // 日志记录器
 
 	conn        *amqp.Connection   // AMQP 连接对象
 	blockChan   chan amqp.Blocking // 阻塞通知通道
@@ -167,7 +154,6 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 		deadlineTimeout: o.deadlineTimeout,
 		maxRetries:      o.maxRetries,
 		exit:            make(chan struct{}),
-		zapLog:          o.zapLog,
 	}
 
 	conn, err := connect(connection)
@@ -182,7 +168,6 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 
 	go connection.monitor(ctx)
 
-	//connection.zapLog.Info("[rabbitmq connection] connected successfully", zap.String("url", url))
 	return connection, nil
 }
 
@@ -270,20 +255,20 @@ func (c *Connection) monitor(ctx context.Context) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					c.zapLog.Warn("[rabbitmq connection] monitor recovered from panic",
-						zap.Any("panic", r),
-						zap.String("url", c.url))
+					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] monitor recovered from panic",
+						logger.Any("panic", r),
+						logger.String("url", c.url))
 				}
 			}()
 
 			select {
 			case <-c.exit:
 				_ = c.closeConn()
-				c.zapLog.Warn("[rabbitmq connection] closed")
+				logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
 				return
 			case b := <-c.blockChan:
 				if b.Active {
-					c.zapLog.Warn("[rabbitmq connection] TCP blocked", zap.String("reason", b.Reason))
+					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] TCP blocked", logger.String("reason", b.Reason))
 				}
 			case closeChanErr := <-c.closeChan:
 				c.mutex.Lock()
@@ -297,32 +282,32 @@ func (c *Connection) monitor(ctx context.Context) {
 
 				// 检查是否超过最大重试次数
 				if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
-					c.zapLog.Warn("[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
-						zap.Int64("retryCount", retryCount),
-						zap.Int("maxRetries", c.maxRetries),
-						zap.String("url", c.url))
+					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
+						logger.Int64("retryCount", retryCount),
+						logger.Int("maxRetries", c.maxRetries),
+						logger.String("url", c.url))
 					return
 				}
 
 				if closeChanErr != nil {
 					if retryCount%10 == 1 {
-						c.zapLog.Warn("[rabbitmq connection] lost connection error",
-							zap.String("err", closeChanErr.Error()),
-							zap.Int64("retryCount", retryCount),
-							zap.String("url", c.url))
+						logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
+							logger.String("err", closeChanErr.Error()),
+							logger.Int64("retryCount", retryCount),
+							logger.String("url", c.url))
 					}
 				} else {
 					if retryCount%10 == 1 {
-						c.zapLog.Warn("[rabbitmq connection] lost connection error",
-							zap.Int64("retryCount", retryCount),
-							zap.String("url", c.url))
+						logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
+							logger.Int64("retryCount", retryCount),
+							logger.String("url", c.url))
 					}
 				}
 
 				if retryCount%10 == 1 {
-					c.zapLog.Info(reconnectTip,
-						zap.Int64("retryCount", retryCount),
-						zap.String("url", c.url))
+					logger.InfoWithCtx(context.Background(), reconnectTip,
+						logger.Int64("retryCount", retryCount),
+						logger.String("url", c.url))
 				}
 				time.Sleep(c.reconnectTime)
 
@@ -333,19 +318,19 @@ func (c *Connection) monitor(ctx context.Context) {
 
 				if amqpErr != nil {
 					if retryCount%10 == 1 {
-						c.zapLog.Warn("[rabbitmq connection] reconnect error",
-							zap.String("err", amqpErr.Error()),
-							zap.Int64("retryCount", retryCount),
-							zap.String("url", c.url))
+						logger.WarnWithCtx(context.Background(), "[rabbitmq connection] reconnect error",
+							logger.Err(amqpErr),
+							logger.Int64("retryCount", retryCount),
+							logger.String("url", c.url))
 					}
 					// 继续下一次循环尝试重连
 					return
 				}
 
-				c.zapLog.Info("[rabbitmq connection] reconnected successfully",
-					zap.Int64("retryCount", retryCount),
-					zap.String("url", c.url),
-					zap.Duration("duration", reconnectDuration))
+				logger.InfoWithCtx(context.Background(), "[rabbitmq connection] reconnected successfully",
+					logger.Int64("retryCount", retryCount),
+					logger.String("url", c.url),
+					logger.Duration("duration", reconnectDuration))
 
 				// 设置新连接
 				c.mutex.Lock()
@@ -361,7 +346,7 @@ func (c *Connection) monitor(ctx context.Context) {
 		select {
 		case <-c.exit:
 			_ = c.closeConn()
-			c.zapLog.Warn("[rabbitmq connection] closed")
+			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
 			return
 		case <-time.After(time.Millisecond * 100):
 			// 继续下一次循环

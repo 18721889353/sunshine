@@ -3,8 +3,8 @@ package kafka
 import (
 	"context"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/IBM/sarama"
-	"go.uber.org/zap"
 )
 
 // ---------------------------------- consume group---------------------------------------
@@ -13,7 +13,6 @@ import (
 type ConsumerGroup struct {
 	Group            sarama.ConsumerGroup
 	groupID          string
-	zapLogger        *zap.Logger
 	autoCommitEnable bool
 }
 
@@ -46,7 +45,6 @@ func InitConsumerGroup(addrs []string, groupID string, opts ...ConsumerOption) (
 	return &ConsumerGroup{
 		Group:            consumer,
 		groupID:          groupID,
-		zapLogger:        o.zapLogger,
 		autoCommitEnable: config.Consumer.Offsets.AutoCommit.Enable,
 	}, nil
 }
@@ -56,13 +54,15 @@ func (c *ConsumerGroup) Consume(ctx context.Context, topics []string, handleMess
 	handler := &defaultConsumerHandler{
 		ctx:              ctx,
 		handleMessageFn:  handleMessageFn,
-		zapLogger:        c.zapLogger,
 		autoCommitEnable: c.autoCommitEnable,
 	}
 
 	err := c.Group.Consume(ctx, topics, handler)
 	if err != nil {
-		c.zapLogger.Error("failed to consume messages", zap.String("group_id", c.groupID), zap.Strings("topics", topics), zap.Error(err))
+		logger.ErrorWithCtx(ctx, "failed to consume messages",
+			logger.String("group_id", c.groupID),
+			logger.Any("topics", topics),
+			logger.Err(err))
 		return err
 	}
 	return nil
@@ -72,7 +72,10 @@ func (c *ConsumerGroup) Consume(ctx context.Context, topics []string, handleMess
 func (c *ConsumerGroup) ConsumeCustom(ctx context.Context, topics []string, handler sarama.ConsumerGroupHandler) error {
 	err := c.Group.Consume(ctx, topics, handler)
 	if err != nil {
-		c.zapLogger.Error("failed to consume messages", zap.String("group_id", c.groupID), zap.Strings("topics", topics), zap.Error(err))
+		logger.ErrorWithCtx(ctx, "failed to consume messages",
+			logger.String("group_id", c.groupID),
+			logger.Any("topics", topics),
+			logger.Err(err))
 		return err
 	}
 	return nil
@@ -88,19 +91,18 @@ func (c *ConsumerGroup) Close() error {
 type defaultConsumerHandler struct {
 	ctx              context.Context
 	handleMessageFn  HandleMessageFn
-	zapLogger        *zap.Logger
 	autoCommitEnable bool
 }
 
 // Setup is run at the beginning of a new session, before ConsumeClaim
 func (h *defaultConsumerHandler) Setup(sess sarama.ConsumerGroupSession) error {
-	h.zapLogger.Info("consumer group session [setup]", zap.Any("claims", sess.Claims()))
+	logger.InfoWithCtx(h.ctx, "consumer group session [setup]", logger.Any("claims", sess.Claims()))
 	return nil
 }
 
 // Cleanup is run at the end of a session, once all ConsumeClaim goroutines have exited
 func (h *defaultConsumerHandler) Cleanup(sess sarama.ConsumerGroupSession) error {
-	h.zapLogger.Info("consumer group session [cleanup]", zap.Any("claims", sess.Claims()))
+	logger.InfoWithCtx(h.ctx, "consumer group session [cleanup]", logger.Any("claims", sess.Claims()))
 	return nil
 }
 
@@ -108,7 +110,7 @@ func (h *defaultConsumerHandler) Cleanup(sess sarama.ConsumerGroupSession) error
 func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	defer func() {
 		if e := recover(); e != nil {
-			h.zapLogger.Error("panic occurred while consuming messages", zap.Any("error", e))
+			logger.ErrorWithCtx(h.ctx, "panic occurred while consuming messages", logger.Any("error", e))
 			_ = h.ConsumeClaim(sess, claim)
 		}
 	}()
@@ -123,7 +125,7 @@ func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, 
 			}
 			err := h.handleMessageFn(msg)
 			if err != nil {
-				h.zapLogger.Error("failed to handle message", zap.Error(err))
+				logger.ErrorWithCtx(h.ctx, "failed to handle message", logger.Err(err))
 				continue
 			}
 			sess.MarkMessage(msg, "")
@@ -138,8 +140,7 @@ func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, 
 
 // Consumer consume partition
 type Consumer struct {
-	C         sarama.Consumer
-	zapLogger *zap.Logger
+	C sarama.Consumer
 }
 
 // InitConsumer init consumer
@@ -167,8 +168,7 @@ func InitConsumer(addrs []string, opts ...ConsumerOption) (*Consumer, error) {
 	}
 
 	return &Consumer{
-		C:         consumer,
-		zapLogger: o.zapLogger,
+		C: consumer,
 	}, nil
 }
 
@@ -176,28 +176,38 @@ func InitConsumer(addrs []string, opts ...ConsumerOption) (*Consumer, error) {
 func (c *Consumer) ConsumePartition(ctx context.Context, topic string, partition int32, offset int64, handleFn HandleMessageFn) {
 	defer func() {
 		if e := recover(); e != nil {
-			c.zapLogger.Error("panic occurred while consuming messages", zap.Any("error", e))
+			logger.ErrorWithCtx(ctx, "panic occurred while consuming messages", logger.Any("error", e))
 			c.ConsumePartition(ctx, topic, partition, offset, handleFn)
 		}
 	}()
 
 	pc, err := c.C.ConsumePartition(topic, partition, offset)
 	if err != nil {
-		c.zapLogger.Error("failed to create partition consumer", zap.Error(err), zap.String("topic", topic), zap.Int32("partition", partition))
+		logger.ErrorWithCtx(ctx, "failed to create partition consumer",
+			logger.Err(err),
+			logger.String("topic", topic),
+			logger.Int32("partition", partition))
 		return
 	}
 
-	c.zapLogger.Info("start consuming partition", zap.String("topic", topic), zap.Int32("partition", partition), zap.Int64("offset", offset))
+	logger.InfoWithCtx(ctx, "start consuming partition",
+		logger.String("topic", topic),
+		logger.Int32("partition", partition),
+		logger.Int64("offset", offset))
 
 	for {
 		select {
 		case msg := <-pc.Messages():
 			err = handleFn(msg)
 			if err != nil {
-				c.zapLogger.Warn("failed to handle message", zap.Error(err), zap.String("topic", topic), zap.Int32("partition", partition), zap.Int64("offset", msg.Offset))
+				logger.WarnWithCtx(ctx, "failed to handle message",
+					logger.Err(err),
+					logger.String("topic", topic),
+					logger.Int32("partition", partition),
+					logger.Int64("offset", msg.Offset))
 			}
 		case err := <-pc.Errors():
-			c.zapLogger.Error("partition consumer error", zap.Any("err", err))
+			logger.ErrorWithCtx(ctx, "partition consumer error", logger.Any("err", err))
 		case <-ctx.Done():
 			return
 		}
@@ -208,7 +218,7 @@ func (c *Consumer) ConsumePartition(ctx context.Context, topic string, partition
 func (c *Consumer) ConsumeAllPartition(ctx context.Context, topic string, offset int64, handleFn HandleMessageFn) {
 	partitionList, err := c.C.Partitions(topic)
 	if err != nil {
-		c.zapLogger.Error("failed to get partition", zap.Error(err))
+		logger.ErrorWithCtx(ctx, "failed to get partition", logger.Err(err))
 		return
 	}
 

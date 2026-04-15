@@ -37,8 +37,8 @@ func TestInitTidb(t *testing.T) {
 func Test_gormConfig(t *testing.T) {
 	o := defaultOptions()
 	o.apply(
-		WithLogging(nil),
-		WithLogging(nil, 4),
+		WithLogging(),
+		WithLogging(logger.Info),
 		WithSlowThreshold(time.Millisecond*100),
 		WithEnableTrace(),
 		WithMaxIdleConns(5),

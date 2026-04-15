@@ -1,8 +1,10 @@
 package gocron
 
 import (
+	"context"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/robfig/cron/v3"
-	"go.uber.org/zap"
 )
 
 var (
@@ -10,10 +12,7 @@ var (
 	MinuteType = 1
 )
 
-var defaultLog, _ = zap.NewProduction()
-
 type options struct {
-	zapLog           *zap.Logger
 	isOnlyPrintError bool // default false
 
 	granularity int // 0: second, 1: minute
@@ -21,7 +20,6 @@ type options struct {
 
 func defaultOptions() *options {
 	return &options{
-		zapLog:           defaultLog,
 		isOnlyPrintError: false,
 
 		granularity: SecondType,
@@ -34,7 +32,7 @@ func (o *options) apply(opts ...Option) {
 	}
 }
 
-// Option set the cron options.
+// Option set the cron Options.
 type Option func(*options)
 
 // WithGranularity set log
@@ -49,24 +47,20 @@ func WithGranularity(granularity int) Option {
 	}
 }
 
-// WithLog set granularity
-func WithLog(log *zap.Logger, isOnlyPrintError ...bool) Option {
+// WithOnlyPrintError set only print error
+func WithOnlyPrintError(enable bool) Option {
 	return func(o *options) {
-		if len(isOnlyPrintError) > 0 {
-			o.isOnlyPrintError = isOnlyPrintError[0]
-		}
-		o.zapLog = log
+		o.isOnlyPrintError = enable
 	}
 }
 
-type zapLog struct {
-	zapLog           *zap.Logger
+type projectLog struct {
 	isOnlyPrintError bool
 }
 
 // Info print info
-func (l *zapLog) Info(msg string, keysAndValues ...interface{}) {
-	if l.zapLog == nil || l.isOnlyPrintError {
+func (l *projectLog) Info(msg string, keysAndValues ...interface{}) {
+	if l.isOnlyPrintError {
 		return
 	}
 	if msg == "wake" { // 忽略wake
@@ -74,22 +68,19 @@ func (l *zapLog) Info(msg string, keysAndValues ...interface{}) {
 	}
 	msg = "cron_" + msg
 	fields := parseKVs(keysAndValues)
-	l.zapLog.Info(msg, fields...)
+	logger.InfoWithCtx(context.Background(), msg, fields...)
 }
 
 // Error print error
-func (l *zapLog) Error(err error, msg string, keysAndValues ...interface{}) {
-	if l.zapLog == nil {
-		return
-	}
+func (l *projectLog) Error(err error, msg string, keysAndValues ...interface{}) {
 	fields := parseKVs(keysAndValues)
-	fields = append(fields, zap.String("err", err.Error()))
+	fields = append(fields, logger.Err(err))
 	msg = "cron_" + msg
-	l.zapLog.Error(msg, fields...)
+	logger.ErrorWithCtx(context.Background(), msg, fields...)
 }
 
-func parseKVs(kvs interface{}) []zap.Field {
-	var fields []zap.Field
+func parseKVs(kvs interface{}) []logger.Field {
+	var fields []logger.Field
 
 	infos, ok := kvs.([]interface{})
 	if !ok {
@@ -115,7 +106,7 @@ func parseKVs(kvs interface{}) []zap.Field {
 			}
 		}
 
-		fields = append(fields, zap.Any(key, value))
+		fields = append(fields, logger.Any(key, value))
 	}
 
 	return fields

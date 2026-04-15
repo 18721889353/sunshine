@@ -73,7 +73,7 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	case "redis":
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.{{.TableNameCamel}}{}
-		}, cache.WithCacheLog(logger.Get()))
+		})
 		return &{{.TableNameCamelFCL}}Cache{cache: c}
 	}
 

@@ -96,11 +96,7 @@ func gormConfig(o *options) *gorm.Config {
 	// print SQL
 	var logMode logger.Interface
 	if o.isLog {
-		if o.gLog == nil {
-			logMode = logger.Default.LogMode(o.logLevel)
-		} else {
-			logMode = glog.NewCustomGormLogger(o.gLog, o.requestIDKey, o.logLevel)
-		}
+		logMode = glog.NewCustomGormLogger(o.requestIDKey, o.logLevel)
 	} else {
 		logMode = logger.Default.LogMode(logger.Silent)
 	}

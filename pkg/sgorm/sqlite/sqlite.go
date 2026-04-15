@@ -58,11 +58,7 @@ func gormConfig(o *options) *gorm.Config {
 
 	// print SQL
 	if o.isLog {
-		if o.gLog == nil {
-			config.Logger = logger.Default.LogMode(o.logLevel)
-		} else {
-			config.Logger = glog.NewCustomGormLogger(o.gLog, o.requestIDKey, o.logLevel)
-		}
+		config.Logger = glog.NewCustomGormLogger(o.requestIDKey, o.logLevel)
 	} else {
 		config.Logger = logger.Default.LogMode(logger.Silent)
 	}

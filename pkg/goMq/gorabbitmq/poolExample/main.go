@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"sync"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
-	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 func main() {
@@ -22,7 +22,6 @@ func main() {
 		gorabbitmq.WithMaxCap(1000),                      // 最大连接数
 		gorabbitmq.WithMaxIdle(time.Minute*1),            // 最大空闲时间
 		gorabbitmq.WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		gorabbitmq.WithPoolLogger(logger.Get()),          // 日志记录器
 		gorabbitmq.WithAntsPoolSize(10),                  // 配置 ants 协程池大小为 10
 		gorabbitmq.WithConnOptions( // 连接选项
 			gorabbitmq.WithReconnectTime(time.Second*3),

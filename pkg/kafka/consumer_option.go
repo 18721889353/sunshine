@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"go.uber.org/zap"
 )
 
 // HandleMessageFn is a function that handles a message from a partition consumer
@@ -28,8 +27,6 @@ type consumerOptions struct {
 
 	// custom config, if not nil, it will override the default config, the above parameters are invalid
 	config *sarama.Config // default nil
-
-	zapLogger *zap.Logger // default NewProduction
 }
 
 func (o *consumerOptions) apply(opts ...ConsumerOption) {
@@ -39,7 +36,6 @@ func (o *consumerOptions) apply(opts ...ConsumerOption) {
 }
 
 func defaultConsumerOptions() *consumerOptions {
-	zapLogger, _ := zap.NewProduction()
 	return &consumerOptions{
 		version:                   sarama.V2_1_0_0,
 		groupStrategies:           []sarama.BalanceStrategy{sarama.NewBalanceStrategyRange()},
@@ -47,7 +43,6 @@ func defaultConsumerOptions() *consumerOptions {
 		offsetsAutoCommitEnable:   true,
 		offsetsAutoCommitInterval: time.Second,
 		clientID:                  "sarama",
-		zapLogger:                 zapLogger,
 	}
 }
 
@@ -103,15 +98,6 @@ func ConsumerWithTLS(certFile, keyFile, caFile string, isSkipVerify bool) Consum
 		o.tlsConfig, err = getTLSConfig(certFile, keyFile, caFile, isSkipVerify)
 		if err != nil {
 			fmt.Println("ConsumerWithTLS error:", err)
-		}
-	}
-}
-
-// ConsumerWithZapLogger set zapLogger.
-func ConsumerWithZapLogger(zapLogger *zap.Logger) ConsumerOption {
-	return func(o *consumerOptions) {
-		if zapLogger != nil {
-			o.zapLogger = zapLogger
 		}
 	}
 }

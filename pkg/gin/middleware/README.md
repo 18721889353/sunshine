@@ -25,7 +25,6 @@ You can set the maximum length for printing, add a request id field, ignore prin
         middleware.WithMaxLen(400),
         WithRequestIDFromHeader(),
         //WithRequestIDFromContext(),
-        //middleware.WithLog(log), // custom zap log
         //middleware.WithIgnoreRoutes("/hello"),
     ))
 ```

@@ -3,7 +3,6 @@ package sqlite
 import (
 	"time"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -23,7 +22,6 @@ type options struct {
 	enableTrace       bool
 
 	requestIDKey string
-	gLog         *zap.Logger
 	logLevel     logger.LogLevel
 
 	plugins []gorm.Plugin
@@ -49,20 +47,19 @@ func defaultOptions() *options {
 		enableTrace:       false, // whether to enable link tracing, default is off
 
 		requestIDKey: "",          // request id key
-		gLog:         nil,         // custom logger
 		logLevel:     logger.Info, // default logLevel
 	}
 }
 
-// WithLogging set log sql, If l=nil, the gorm log library will be used
-func WithLogging(l *zap.Logger, level ...logger.LogLevel) Option {
+// WithLogging set log sql
+func WithLogging(level ...logger.LogLevel) Option {
 	return func(o *options) {
 		o.isLog = true
-		o.gLog = l
 		if len(level) > 0 {
 			o.logLevel = level[0]
+		} else {
+			o.logLevel = logger.Info
 		}
-		o.logLevel = logger.Info
 	}
 }
 

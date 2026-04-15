@@ -7,19 +7,15 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 func TestConcurrentLoggingMiddleware(t *testing.T) {
 	// Set gin to test mode
 	gin.SetMode(gin.TestMode)
 
-	// Create a test logger
-	logger, _ := zap.NewProduction()
-
 	// Create a router with logging middleware
 	r := gin.New()
-	r.Use(Logging(WithLog(logger), WithLogHeaders()))
+	r.Use(Logging(WithLogHeaders()))
 
 	// Add a simple test route
 	r.GET("/test", func(c *gin.Context) {
@@ -58,12 +54,9 @@ func TestConcurrentLoggingMiddleware(t *testing.T) {
 func TestConcurrentSensitiveHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	logger, _ := zap.NewProduction()
-
 	// Create a router with logging middleware that logs headers and has sensitive headers
 	r := gin.New()
 	r.Use(Logging(
-		WithLog(logger),
 		WithLogHeaders(),
 		WithSensitiveHeaders("authorization", "cookie", "x-api-key"),
 	))
@@ -100,10 +93,9 @@ func TestConcurrentSensitiveHeaders(t *testing.T) {
 
 func BenchmarkConcurrentLogging(b *testing.B) {
 	gin.SetMode(gin.TestMode)
-	logger, _ := zap.NewProduction()
 
 	r := gin.New()
-	r.Use(Logging(WithLog(logger)))
+	r.Use(Logging())
 
 	r.GET("/benchmark", func(c *gin.Context) {
 		c.JSON(200, gin.H{"message": "ok"})

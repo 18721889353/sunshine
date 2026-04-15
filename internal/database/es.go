@@ -60,7 +60,6 @@ func InitElasticsearch() *es.Client {
 	// 使用选项模式创建ES客户端
 	client, err := es.NewClient(
 		es.WithConfig(esConfig),
-		es.WithLogger(logger.Get()),
 	)
 	if err != nil {
 		panic("failed to create elasticsearch client: " + err.Error())

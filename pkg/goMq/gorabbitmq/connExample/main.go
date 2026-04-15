@@ -7,8 +7,6 @@ import (
 
 	"golang.org/x/net/context"
 
-	"github.com/18721889353/sunshine/pkg/logger"
-
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )
 
@@ -35,7 +33,6 @@ func createConnectionWithRetry(ctx context.Context, url string, maxRetries int) 
 	var conn *gorabbitmq.Connection
 	var err error
 	conn, err = gorabbitmq.NewConnection(ctx, url,
-		gorabbitmq.WithLogger(logger.Get()),
 		gorabbitmq.WithMaxRetries(maxRetries), // 无限重试
 		gorabbitmq.WithReconnectTime(2*time.Second),
 		gorabbitmq.WithDialTimeout(5*time.Second))

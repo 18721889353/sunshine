@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/jinzhu/copier"
 	"github.com/spf13/cast"
 	"golang.org/x/sync/singleflight"
@@ -12,9 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/18721889353/sunshine/pkg/logger"
-	"go.uber.org/zap"
 )
 
 var (
@@ -95,11 +93,9 @@ func InitRabbitmq(name string, mqCfg any) {
 			gorabbitmq.WithInitialCap(poolCfg.InitialCap),                                          // 初始连接数
 			gorabbitmq.WithMaxCap(poolCfg.MaxCap),                                                  // 最大连接数
 			gorabbitmq.WithMaxIdle(time.Second*time.Duration(poolCfg.MaxIdle)),                     // 最大空闲时间
-			gorabbitmq.WithPoolLogger(logger.Get()),                                                // 日志记录器
 			gorabbitmq.WithAntsPoolSize(poolCfg.AntsCap),                                           // 配置 ants 协程池大小
 			gorabbitmq.WithHealthCheckPeriod(time.Second*time.Duration(poolCfg.HealthCheckPeriod)), // 健康检查间隔秒
 			gorabbitmq.WithConnOptions( // 连接选项
-				gorabbitmq.WithLogger(logger.Get()),
 				gorabbitmq.WithReconnectTime(time.Second*time.Duration(poolCfg.ReconnectTime)),
 				gorabbitmq.WithDialTimeout(time.Second*time.Duration(poolCfg.DialTimeout)),
 				gorabbitmq.WithHeartbeat(time.Second*time.Duration(poolCfg.Heartbeat)),
@@ -289,18 +285,21 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 	var err error
 	defer func() {
 		// 记录耗时（注意：不记录完整消息内容，避免敏感信息泄露）
-		fields := []zap.Field{
-			zap.String("exchangeName", exchangeName),
-			zap.String("routingKey", routingKey),
-			zap.Int("message_size_bytes", len(message)), // 只记录消息大小
-			zap.String("message_id", messageId),
-			zap.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
-		}
 		if err != nil {
-			fields = append(fields, logger.Err(err))
-			logger.WarnWithCtx(initCtx, "SendMessage failed", logger.Any("fields", fields))
+			logger.WarnWithCtx(initCtx, "SendMessage failed",
+				logger.String("exchangeName", exchangeName),
+				logger.String("routingKey", routingKey),
+				logger.Int("message_size_bytes", len(message)), // 只记录消息大小
+				logger.String("message_id", messageId),
+				logger.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
+				logger.Err(err))
 		} else {
-			logger.InfoWithCtx(initCtx, "SendMessage success", logger.Any("fields", fields))
+			logger.InfoWithCtx(initCtx, "SendMessage success",
+				logger.String("exchangeName", exchangeName),
+				logger.String("routingKey", routingKey),
+				logger.Int("message_size_bytes", len(message)),
+				logger.String("message_id", messageId),
+				logger.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"))
 		}
 	}()
 	maxRetries := 3

@@ -51,7 +51,6 @@ func main() {
 	defer logger.Sync()
 	client, err := es.NewClient(
 		es.WithConfig(config),
-		es.WithLogger(logger),
 	)
 	if err != nil {
 		log.Fatal("Failed to create client:", err)

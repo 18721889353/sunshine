@@ -58,7 +58,7 @@ func (s *cronServer) Start() error {
 	s.cancel = cancel
 
 	err := gocron.Init(
-		gocron.WithLog(logger.Get(), true),
+		gocron.WithOnlyPrintError(true),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize cron: %v", err)

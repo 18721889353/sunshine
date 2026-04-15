@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"sync"
@@ -18,7 +17,6 @@ import (
 // Client ES客户端封装
 type Client struct {
 	*elasticsearch.Client
-	log *zap.Logger
 	// 添加缓冲池以提高并发性能
 	bufferPool sync.Pool
 }
@@ -28,16 +26,13 @@ type ESOptions func(*esOptions)
 
 // esOptions ES客户端配置选项
 type esOptions struct {
-	config  Config
-	logger  *zap.Logger
+	config Config
 }
 
 // defaultESOptions 默认ES客户端选项
 func defaultESOptions() *esOptions {
-	defaultLogger, _ := zap.NewProduction()
 	return &esOptions{
 		config: GetDefaultConfig(),
-		logger: defaultLogger,
 	}
 }
 
@@ -46,16 +41,6 @@ func WithConfig(config Config) ESOptions {
 	return func(o *esOptions) {
 		o.config = config
 	}
-}
-
-// WithLogger 设置日志记录器
-func WithLogger(logger *zap.Logger) ESOptions {
-	return func(o *esOptions) {
-		if logger != nil {
-			o.logger = logger
-		}
-	}
-
 }
 
 // apply 应用选项
@@ -71,7 +56,6 @@ func NewClient(opts ...ESOptions) (*Client, error) {
 	o.apply(opts...)
 
 	config := o.config
-	log := o.logger
 
 	// 验证配置
 	if err := config.Validate(); err != nil {
@@ -117,7 +101,7 @@ func NewClient(opts ...ESOptions) (*Client, error) {
 		return nil, fmt.Errorf("failed to create elasticsearch client: %w", err)
 	}
 
-	esClient := &Client{client, log, sync.Pool{}}
+	esClient := &Client{client, sync.Pool{}}
 	// 初始化缓冲池
 	esClient.bufferPool.New = func() interface{} {
 		return new(bytes.Buffer)

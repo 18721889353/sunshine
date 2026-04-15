@@ -90,20 +90,17 @@ func Init(opts ...Option) (*zap.Logger, error) {
 
 	var err error
 	var zapLog *zap.Logger
-	var str string
 	if !isSave {
 		zapLog, err = log2Terminal(levelName, encoding, isAsync, asyncBufferSize, asyncFlushInterval)
 		if err != nil {
 			panic(err)
 		}
-		str = fmt.Sprintf("initialize logger finish, config is output to 'terminal', format=%s, level=%s, async=%t", encoding, levelName, isAsync)
 	} else {
 		// 如果 isSave=true 但未配置 fileConfig，使用默认配置
 		if o.fileConfig == nil {
 			o.fileConfig = defaultFileOptions()
 		}
 		zapLog = log2File(encoding, levelName, o.fileConfig, isAsync, asyncBufferSize, asyncFlushInterval)
-		str = fmt.Sprintf("initialize logger finish, config is output to 'file', format=%s, level=%s, file=%s, async=%t", encoding, levelName, o.fileConfig.filename, isAsync)
 	}
 
 	if len(o.hooks) > 0 {
@@ -112,13 +109,12 @@ func Init(opts ...Option) (*zap.Logger, error) {
 
 	defaultLogger = zapLog
 	defaultSugaredLogger = defaultLogger.Sugar()
-	
-	// 初始化日志 - 使用 context.Background() 因为此时还没有请求上下文
-	initCtx := context.Background()
-	InfoWithCtx(initCtx, str)
 
-	// 自动初始化日志路由器 (如果配置了路由)
-	if len(o.routes) > 0 {
+	// 使用 context.Background() 因为此时还没有请求上下文
+	initCtx := context.Background()
+
+	// 自动初始化日志路由器 (如果配置了路由且开启了文件保存)
+	if isSave && len(o.routes) > 0 {
 		// 构建默认配置,供路由继承
 		fileCfg := o.fileConfig
 		if fileCfg == nil {
@@ -139,6 +135,15 @@ func Init(opts ...Option) (*zap.Logger, error) {
 		} else {
 			InfoWithCtx(initCtx, "[log router] was initialized", Int("routes_count", len(o.routes)))
 		}
+	} else if !isSave && len(o.routes) > 0 {
+		// 如果未开启文件保存但配置了路由，记录一条提示，明确告知用户路由已忽略
+		InfoWithCtx(initCtx, "[log router] skipped because 'isSave' is false")
+	}
+
+	// 强制同步一次，确保之前的 InfoWithCtx 写入完成
+	// 注意：即使是终端输出，如果是异步模式也需要同步
+	if isAsync {
+		_ = zapLog.Sync()
 	}
 
 	return defaultLogger, err
@@ -179,19 +184,19 @@ func log2Terminal(levelName string, encoding string, isAsync bool, asyncBufferSi
 	if isAsync {
 		bufferedSyncer := &zapcore.BufferedWriteSyncer{
 			WS:            writeSyncer,
-			Size:          asyncBufferSize,      // 使用配置的缓冲区大小
+			Size:          asyncBufferSize,    // 使用配置的缓冲区大小
 			FlushInterval: asyncFlushInterval, // 使用配置的刷新间隔
 		}
 		// 使用缓冲同步器创建核心
 		core := zapcore.NewCore(encoder, bufferedSyncer, getLevelSize(levelName))
-		
+
 		// 如果有自定义钩子，则包装核心
 		if len(customHooks) > 0 {
 			core = &customHookCore{
 				Core: core,
 			}
 		}
-		
+
 		return zap.New(core, zap.AddCaller()), nil
 	}
 
@@ -256,7 +261,7 @@ func log2File(encoding string, levelName string, fo *fileOptions, isAsync bool, 
 		// 为异步操作创建缓冲写同步器
 		ws = &zapcore.BufferedWriteSyncer{
 			WS:            ws,
-			Size:          asyncBufferSize,      // 使用配置的缓冲区大小
+			Size:          asyncBufferSize,    // 使用配置的缓冲区大小
 			FlushInterval: asyncFlushInterval, // 使用配置的刷新间隔
 		}
 	}
@@ -324,7 +329,7 @@ func getLevelSize(levelName string) zapcore.Level {
 }
 
 func timeFormatter(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-	enc.AppendString(t.Format("2006-01-02 15:04:05.000000"))
+	enc.AppendString(t.Format("2006-01-02 15:04:05.000000000"))
 }
 
 // GetWithSkip 获取 defaultLogger，设置跳过的调用者值，自定义显示的代码行数
@@ -341,7 +346,9 @@ func Get() *zap.Logger {
 
 func checkNil() {
 	if defaultLogger == nil {
-		_, err := Init() // 默认输出到控制台
+		// 如果 Logger 未初始化，自动初始化为终端输出（不写文件，使用 console 格式便于阅读）
+		// 注意：这是兜底逻辑，正式的 Init() 调用会覆盖此配置
+		_, err := Init(WithSave(false), WithFormat(formatConsole))
 		if err != nil {
 			panic(err)
 		}

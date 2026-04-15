@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"go.uber.org/zap"
 )
 
 // -------------------------------------- sync producer ------------------------------------
@@ -120,7 +119,6 @@ type asyncProducerOptions struct {
 	// custom config, if not nil, it will override the default config, the above parameters are invalid
 	config *sarama.Config // default nil
 
-	zapLogger      *zap.Logger              // default NewProduction
 	handleFailedFn AsyncSendFailedHandlerFn // default nil
 }
 
@@ -131,7 +129,6 @@ func (o *asyncProducerOptions) apply(opts ...AsyncProducerOption) {
 }
 
 func defaultAsyncProducerOptions() *asyncProducerOptions {
-	zapLogger, _ := zap.NewProduction()
 	return &asyncProducerOptions{
 		version:         sarama.V2_1_0_0,
 		requiredAcks:    sarama.WaitForLocal,
@@ -140,7 +137,6 @@ func defaultAsyncProducerOptions() *asyncProducerOptions {
 		clientID:        "sarama",
 		flushMessages:   20,
 		flushFrequency:  2 * time.Second,
-		zapLogger:       zapLogger,
 	}
 }
 
@@ -208,15 +204,6 @@ func AsyncProducerWithTLS(certFile, keyFile, caFile string, isSkipVerify bool) A
 		o.tlsConfig, err = getTLSConfig(certFile, keyFile, caFile, isSkipVerify)
 		if err != nil {
 			fmt.Println("AsyncProducerWithTLS error:", err)
-		}
-	}
-}
-
-// AsyncProducerWithZapLogger set zapLogger.
-func AsyncProducerWithZapLogger(zapLogger *zap.Logger) AsyncProducerOption {
-	return func(o *asyncProducerOptions) {
-		if zapLogger != nil {
-			o.zapLogger = zapLogger
 		}
 	}
 }

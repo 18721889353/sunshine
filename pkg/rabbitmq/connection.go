@@ -16,7 +16,6 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go.uber.org/zap"
 )
 
 // initCtx 初始化阶段使用的 context
@@ -24,8 +23,6 @@ var initCtx = context.Background()
 
 // DefaultURL default rabbitmq url
 const DefaultURL = "amqp://guest:guest@localhost:5672/"
-
-var defaultLogger, _ = zap.NewProduction()
 
 // ConnectionOption connection option.
 type ConnectionOption func(*connectionOptions)
@@ -36,7 +33,6 @@ type connectionOptions struct {
 	dialTimeout     time.Duration // dial timeout for the connection, default is 5s
 	heartbeat       time.Duration
 	deadlineTimeout time.Duration
-	zapLog          *zap.Logger
 }
 
 func (o *connectionOptions) apply(opts ...ConnectionOption) {
@@ -53,7 +49,6 @@ func defaultConnectionOptions() *connectionOptions {
 		dialTimeout:     time.Second * 5, // 设置默认超时时间为5秒
 		heartbeat:       time.Second * 3,
 		deadlineTimeout: time.Second * 30,
-		zapLog:          defaultLogger,
 	}
 }
 
@@ -106,16 +101,6 @@ func WithDeadlineTimeout(d time.Duration) ConnectionOption {
 	}
 }
 
-// WithLogger set logger option.
-func WithLogger(zapLog *zap.Logger) ConnectionOption {
-	return func(o *connectionOptions) {
-		if zapLog == nil {
-			return
-		}
-		o.zapLog = zapLog
-	}
-}
-
 // -------------------------------------------------------------------------------------------
 
 // Connection rabbitmq connection
@@ -129,7 +114,6 @@ type Connection struct {
 	heartbeat       time.Duration
 	deadlineTimeout time.Duration
 	exit            chan struct{}
-	zapLog          *zap.Logger
 
 	conn        *amqp.Connection
 	blockChan   chan amqp.Blocking
@@ -154,16 +138,14 @@ func NewConnection(url string, opts ...ConnectionOption) (*Connection, error) {
 		heartbeat:       o.heartbeat,
 		deadlineTimeout: o.deadlineTimeout,
 		exit:            make(chan struct{}),
-		zapLog:          o.zapLog,
 	}
 
 	conn, err := connect(connection)
 	if err != nil {
-		logger.ErrorWithCtx(initCtx, "[rabbitmq connection] connection error", zap.String("err", err.Error()))
+		logger.ErrorWithCtx(initCtx, "[rabbitmq connection] connection error", logger.Err(err))
 
 		return nil, err
 	}
-	//connection.zapLog.Info("[rabbitmq connection] connected successfully.")
 
 	connection.conn = conn
 	connection.blockChan = connection.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
@@ -196,7 +178,6 @@ func connect(c *Connection) (*amqp.Connection, error) {
 	} else {
 		conn, err = amqp.DialConfig(url, amqp.Config{
 			Dial: func(network, addr string) (net.Conn, error) {
-				//return net.DialTimeout(network, addr, dialTimeout) // 使用自定义的超时时间
 				conn, err := net.DialTimeout(network, addr, dialTimeout)
 				if err != nil {
 					return nil, err
@@ -232,11 +213,10 @@ func (c *Connection) monitor() {
 		select {
 		case <-c.exit:
 			_ = c.closeConn()
-			//c.zapLog.Info("[rabbitmq connection] closed")
 			return
 		case b := <-c.blockChan:
 			if b.Active {
-				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] TCP blocked: " + b.Reason)
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] TCP blocked: "+b.Reason)
 			} else {
 				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] TCP unblocked")
 			}
@@ -247,19 +227,23 @@ func (c *Connection) monitor() {
 
 			retryCount++
 			if closeChanErr != nil {
-				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] lost connection error", zap.String("err", closeChanErr.Error()), zap.Int("retryCount", retryCount))
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] lost connection error",
+					logger.Err(closeChanErr),
+					logger.Int("retryCount", retryCount))
 			} else {
-				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] lost connection error", zap.Int("retryCount", retryCount))
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] lost connection error",
+					logger.Int("retryCount", retryCount))
 			}
 			logger.ErrorWithCtx(initCtx, reconnectTip)
 			time.Sleep(c.reconnectTime) // wait for reconnect
 
 			amqpConn, amqpErr := connect(c)
 			if amqpErr != nil {
-				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] reconnect error", zap.String("err", amqpErr.Error()), zap.Int("retryCount", retryCount))
+				logger.ErrorWithCtx(initCtx, "[rabbitmq connection] reconnect error",
+					logger.Err(amqpErr),
+					logger.Int("retryCount", retryCount))
 				continue
 			}
-			//c.zapLog.Info("[rabbitmq connection] reconnected successfully.")
 			// set new connection
 			c.mutex.Lock()
 			c.isConnected = true

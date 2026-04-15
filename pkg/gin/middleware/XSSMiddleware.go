@@ -2,13 +2,14 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"go.uber.org/zap"
 	"io"
 	"strings"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/tidwall/gjson"
@@ -18,15 +19,12 @@ import (
 type XssOptions func(*xssOptions)
 
 func defaultXssOptions() *xssOptions {
-	defaultLogger, _ := zap.NewProduction()
 	return &xssOptions{
-		log:        defaultLogger,
 		ignoreUrls: map[string]struct{}{},
 	}
 }
 
 type xssOptions struct {
-	log        *zap.Logger
 	ignoreUrls map[string]struct{}
 }
 
@@ -40,15 +38,6 @@ func WithIgnoreXssUrl(urls ...string) XssOptions {
 	return func(o *xssOptions) {
 		for _, url := range urls {
 			o.ignoreUrls[url] = struct{}{}
-		}
-	}
-}
-
-// WithXsLog set log
-func WithXsLog(log *zap.Logger) XssOptions {
-	return func(o *xssOptions) {
-		if log != nil {
-			o.log = log
 		}
 	}
 }
@@ -74,7 +63,7 @@ func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
 func xssCross(ctx *gin.Context, o *xssOptions) error {
 	body, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
-		o.log.Warn("io.ReadAll error", zap.Error(err))
+		logger.WarnWithCtx(ctx.Request.Context(), "io.ReadAll error", logger.Err(err))
 		return err
 	}
 
@@ -86,9 +75,9 @@ func xssCross(ctx *gin.Context, o *xssOptions) error {
 	}
 
 	// 使用更高效的方式处理JSON，避免递归中的性能问题
-	sanitizedBody, err := sanitizeJSONEfficient(body, o.log)
+	sanitizedBody, err := sanitizeJSONEfficient(ctx.Request.Context(), body)
 	if err != nil {
-		o.log.Warn("sanitize JSON error", zap.Error(err))
+		logger.WarnWithCtx(ctx.Request.Context(), "sanitize JSON error", logger.Err(err))
 		return err
 	}
 
@@ -98,14 +87,14 @@ func xssCross(ctx *gin.Context, o *xssOptions) error {
 }
 
 // 高效处理JSON的XSS过滤
-func sanitizeJSONEfficient(body []byte, log *zap.Logger) ([]byte, error) {
+func sanitizeJSONEfficient(ctx context.Context, body []byte) ([]byte, error) {
 	policy := bluemonday.UGCPolicy()
 
 	// 使用gjson解析JSON并保持字段顺序
 	jsonResult := gjson.ParseBytes(body)
 
 	// 递归处理JSON并使用sjson构建结果以保持键顺序
-	result, err := sanitizeJSONWithSJSON(jsonResult, policy, log)
+	result, err := sanitizeJSONWithSJSON(ctx, jsonResult, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -114,17 +103,17 @@ func sanitizeJSONEfficient(body []byte, log *zap.Logger) ([]byte, error) {
 }
 
 // 递归处理JSON值并使用sjson构建结果以保持键顺序
-func sanitizeJSONWithSJSON(value gjson.Result, policy *bluemonday.Policy, log *zap.Logger) (string, error) {
+func sanitizeJSONWithSJSON(ctx context.Context, value gjson.Result, policy *bluemonday.Policy) (string, error) {
 	switch {
 	case value.IsObject():
 		result := "{}"
 		var processErr error
 
 		value.ForEach(func(key, val gjson.Result) bool {
-			processedVal, err := sanitizeJSONWithSJSON(val, policy, log)
+			processedVal, err := sanitizeJSONWithSJSON(ctx, val, policy)
 			if err != nil {
 				processErr = err
-				log.Warn("process object value error", zap.String("key", key.String()), zap.Error(err))
+				logger.WarnWithCtx(ctx, "process object value error", logger.String("key", key.String()), logger.Err(err))
 				return false
 			}
 
@@ -132,7 +121,7 @@ func sanitizeJSONWithSJSON(value gjson.Result, policy *bluemonday.Policy, log *z
 			result, err = sjson.SetRaw(result, key.Str, processedVal)
 			if err != nil {
 				processErr = err
-				log.Warn("sjson set raw error", zap.String("key", key.String()), zap.Error(err))
+				logger.WarnWithCtx(ctx, "sjson set raw error", logger.String("key", key.String()), logger.Err(err))
 				return false
 			}
 			return true
@@ -147,9 +136,9 @@ func sanitizeJSONWithSJSON(value gjson.Result, policy *bluemonday.Policy, log *z
 		// 先收集所有处理后的数组元素
 		var processedItems []string
 		value.ForEach(func(_, val gjson.Result) bool {
-			processedVal, err := sanitizeJSONWithSJSON(val, policy, log)
+			processedVal, err := sanitizeJSONWithSJSON(ctx, val, policy)
 			if err != nil {
-				log.Warn("process array value error", zap.Error(err))
+				logger.WarnWithCtx(ctx, "process array value error", logger.Err(err))
 				return false
 			}
 			processedItems = append(processedItems, processedVal)
@@ -174,7 +163,7 @@ func sanitizeJSONWithSJSON(value gjson.Result, policy *bluemonday.Policy, log *z
 		// 使用json.Marshal确保正确的JSON编码
 		encoded, err := json.Marshal(cleaned)
 		if err != nil {
-			log.Warn("json marshal string error", zap.Error(err))
+			logger.WarnWithCtx(ctx, "json marshal string error", logger.Err(err))
 			return `""`, nil // 返回空字符串作为fallback
 		}
 		return string(encoded), nil

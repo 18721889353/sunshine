@@ -27,7 +27,6 @@ func init() {
 	oc.BaseConsumer = gorabbitmqConsumer.NewBaseConsumer(
 		"doingOrderMqConsumer",
 		oc.handleMessage,
-		gorabbitmqConsumer.WithLogger(logger.Get()), // 注入自定义日志对象
 	)
 	// 注册到全局注册表 (mq.go 中的 registry)
 	mq.RegisterConsumer(oc)

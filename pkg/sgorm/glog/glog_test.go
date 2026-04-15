@@ -6,25 +6,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-	"gorm.io/gorm/logger"
+	gormLogger "gorm.io/gorm/logger"
 )
 
 func TestNewCustomGormLogger(t *testing.T) {
-	zapLog, _ := zap.NewDevelopment()
-	l := NewCustomGormLogger(zapLog, "request_id", logger.Info)
+	l := NewCustomGormLogger("request_id", gormLogger.Info)
 
-	l.LogMode(logger.Info)
+	l.LogMode(gormLogger.Info)
 	ctx := context.WithValue(context.Background(), "request_id", "123")
 	l.Info(ctx, "info", "foo")
 	l.Warn(ctx, "warn", "bar")
 	l.Error(ctx, "error", "foo bar")
 
-	l.LogMode(logger.Silent)
+	l.LogMode(gormLogger.Silent)
 	l.Trace(ctx, time.Now(), nil, nil)
 
-	l.LogMode(logger.Info)
+	l.LogMode(gormLogger.Info)
 	l.Trace(ctx, time.Now(), func() (string, int64) {
 		return "sql statement", 1
 	}, nil)
@@ -34,24 +33,24 @@ func TestNewCustomGormLogger(t *testing.T) {
 
 	l.Trace(ctx, time.Now(), func() (string, int64) {
 		return "sql statement", 0
-	}, logger.ErrRecordNotFound)
+	}, gormLogger.ErrRecordNotFound)
 
 	l.Trace(ctx, time.Now(), func() (string, int64) {
 		return "sql statement", 0
 	}, errors.New("Error 1054: Unknown column 'test_column'"))
 
-	l.LogMode(logger.Warn)
+	l.LogMode(gormLogger.Warn)
 	l.Trace(ctx, time.Now(), func() (string, int64) {
 		return "sql statement", 0
-	}, logger.ErrRecordNotFound)
+	}, gormLogger.ErrRecordNotFound)
 }
 
 func Test_requestIDField(t *testing.T) {
 	ctx := context.WithValue(context.Background(), "request_id", "123")
 	field := requestIDField(ctx, "")
-	assert.Equal(t, zap.Skip(), field)
+	assert.Equal(t, logger.Skip(), field)
 	field = requestIDField(ctx, "your request id key")
-	assert.Equal(t, zap.Skip(), field)
+	assert.Equal(t, logger.Skip(), field)
 	field = requestIDField(ctx, "request_id")
-	assert.Equal(t, zap.String("request_id", "123"), field)
+	assert.Equal(t, logger.String("request_id", "123"), field)
 }

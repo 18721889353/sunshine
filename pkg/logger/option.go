@@ -69,7 +69,9 @@ func defaultOptions() *options {
 
 func (o *options) apply(opts ...Option) {
 	for _, opt := range opts {
-		opt(o)
+		if opt != nil { // 防止空指针解引用
+			opt(o)
+		}
 	}
 }
 
@@ -102,8 +104,8 @@ func WithFormat(format string) Option {
 // WithSave save log to file
 func WithSave(isSave bool, opts ...FileOption) Option {
 	return func(o *options) {
+		o.isSave = isSave // Explicitly set the value, whether true or false
 		if isSave {
-			o.isSave = true
 			fo := defaultFileOptions()
 			fo.apply(opts...)
 			o.fileConfig = fo
@@ -189,7 +191,9 @@ func defaultFileOptions() *fileOptions {
 
 func (o *fileOptions) apply(opts ...FileOption) {
 	for _, opt := range opts {
-		opt(o)
+		if opt != nil { // 防止空指针解引用
+			opt(o)
+		}
 	}
 }
 
@@ -208,7 +212,7 @@ func WithFileName(filename string) FileOption {
 // WithFileMaxSize set maximum file size (MB)
 func WithFileMaxSize(maxSize int) FileOption {
 	return func(f *fileOptions) {
-		if f.maxSize > 0 {
+		if maxSize > 0 {
 			f.maxSize = maxSize
 		}
 	}
@@ -217,7 +221,7 @@ func WithFileMaxSize(maxSize int) FileOption {
 // WithFileMaxBackups set maximum number of old files
 func WithFileMaxBackups(maxBackups int) FileOption {
 	return func(f *fileOptions) {
-		if f.maxBackups > 0 {
+		if maxBackups > 0 {
 			f.maxBackups = maxBackups
 		}
 	}
@@ -226,7 +230,7 @@ func WithFileMaxBackups(maxBackups int) FileOption {
 // WithFileMaxAge set maximum number of days for old documents
 func WithFileMaxAge(maxAge int) FileOption {
 	return func(f *fileOptions) {
-		if f.maxAge > 0 {
+		if maxAge > 0 {
 			f.maxAge = maxAge
 		}
 	}

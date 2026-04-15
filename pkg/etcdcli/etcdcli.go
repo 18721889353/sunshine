@@ -41,7 +41,6 @@ func Init(endpoints []string, opts ...Option) (*clientv3.Client, error) {
 		DialKeepAliveTime:    20 * time.Second,   // 保持连接的时间间隔
 		DialKeepAliveTimeout: 10 * time.Second,   // 保持连接的超时时间
 		AutoSyncInterval:     o.autoSyncInterval, // 自动同步间隔
-		Logger:               o.logger,           // 日志记录器
 		Username:             o.username,         // 用户名
 		Password:             o.password,         // 密码
 	}

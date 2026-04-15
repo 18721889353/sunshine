@@ -10,7 +10,6 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/grpc/gtls"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/discovery"
 )
 
@@ -127,7 +126,7 @@ func unaryClientOptions(o *options) grpc.DialOption {
 
 	// logging
 	if o.enableLog {
-		unaryClientInterceptors = append(unaryClientInterceptors, interceptor.UnaryClientLog(logger.Get()))
+		unaryClientInterceptors = append(unaryClientInterceptors, interceptor.UnaryClientLog())
 	}
 
 	// metrics
@@ -166,7 +165,7 @@ func streamClientOptions(o *options) grpc.DialOption {
 
 	// logging
 	if o.enableLog {
-		streamClientInterceptors = append(streamClientInterceptors, interceptor.StreamClientLog(logger.Get()))
+		streamClientInterceptors = append(streamClientInterceptors, interceptor.StreamClientLog())
 	}
 
 	// metrics

@@ -8,12 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/panjf2000/ants/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 )
 
 // --- 优化点 1: 定义常量和错误类型 ---
@@ -32,7 +32,6 @@ type poolOptions struct {
 	initialCap        int                // 初始连接数
 	maxCap            int                // 最大连接数
 	maxIdle           time.Duration      // 连接最大空闲时间
-	zapLog            *zap.Logger        // 日志记录器
 	connOpts          []ConnectionOption // 连接选项
 	antsCap           int                // ants协程池容量
 	healthCheckPeriod time.Duration      // 健康检查周期
@@ -53,7 +52,6 @@ func defaultPoolOptions() *poolOptions {
 		initialCap:        5,
 		maxCap:            30,
 		maxIdle:           time.Minute * 10,
-		zapLog:            defaultLogger,
 		connOpts:          []ConnectionOption{},
 		antsCap:           0,           // 默认使用ants库的默认容量
 		healthCheckPeriod: time.Minute, // 默认健康检查周期为1分钟
@@ -85,15 +83,6 @@ func WithMaxIdle(d time.Duration) PoolOption {
 	return func(o *poolOptions) {
 		if d > 0 {
 			o.maxIdle = d
-		}
-	}
-}
-
-// WithPoolLogger 设置连接池日志记录器
-func WithPoolLogger(zapLog *zap.Logger) PoolOption {
-	return func(o *poolOptions) {
-		if zapLog != nil {
-			o.zapLog = zapLog
 		}
 	}
 }
@@ -213,10 +202,10 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 	go pool.idleCleanup(ctx)
 
 	//pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
-	//	zap.String("url", url),
-	//	zap.Int("initialCap", poolOpts.initialCap),
-	//	zap.Int("maxCap", poolOpts.maxCap),
-	//	zap.Duration("healthCheckPeriod", poolOpts.healthCheckPeriod))
+	//	logger.String("url", url),
+	//	logger.Int("initialCap", poolOpts.initialCap),
+	//	logger.Int("maxCap", poolOpts.maxCap),
+	//	logger.Duration("healthCheckPeriod", poolOpts.healthCheckPeriod))
 
 	return pool, nil
 }
@@ -524,15 +513,13 @@ func (p *Pool) doCleanup(ctx context.Context) {
 			// 从池中移除
 			p.conns = append(p.conns[:i], p.conns[i+1:]...)
 			removedCount++
-			p.poolOpts.zapLog.Warn("[rabbitmq pool] removed idle connection",
-				zap.Duration("idleTime", now.Sub(pc.lastUsed)))
 		}
 	}
 
 	if removedCount > 0 {
-		p.poolOpts.zapLog.Info("[rabbitmq pool] cleanup completed",
-			zap.Int("removed_count", removedCount),
-			zap.Int("remaining_pool_size", len(p.conns)))
+		logger.InfoWithCtx(context.Background(), "[rabbitmq pool] cleanup completed",
+			logger.Int("removed_count", removedCount),
+			logger.Int("remaining_pool_size", len(p.conns)))
 	}
 }
 
@@ -643,7 +630,7 @@ func (p *Pool) HealthCheck(ctx context.Context) {
 	}
 
 	if removedCount > 0 {
-		p.poolOpts.zapLog.Info("[rabbitmq pool] health check removed invalid connections",
-			zap.Int("removedCount", removedCount))
+		logger.InfoWithCtx(context.Background(), "[rabbitmq pool] health check removed invalid connections",
+			logger.Int("removedCount", removedCount))
 	}
 }

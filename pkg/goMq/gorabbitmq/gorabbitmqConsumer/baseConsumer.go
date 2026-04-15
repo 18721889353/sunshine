@@ -3,12 +3,12 @@ package gorabbitmqConsumer
 import (
 	"context"
 	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"strconv"
 	"sync"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/jinzhu/copier"
-	"go.uber.org/zap"
 )
 
 // MessageHandler 定义消息处理函数类型
@@ -21,25 +21,16 @@ type BaseConsumer struct {
 	handler        MessageHandler
 	consumers      []*gorabbitmq.Consumer
 	consumersMutex sync.RWMutex
-	logger         *zap.Logger
 }
 
 // ConsumerOption 定义初始化选项
 type ConsumerOption func(*BaseConsumer)
-
-// WithLogger 允许注入自定义 zap.Logger
-func WithLogger(log *zap.Logger) ConsumerOption {
-	return func(bc *BaseConsumer) {
-		bc.logger = log
-	}
-}
 
 // NewBaseConsumer 创建一个新的基础消费者
 func NewBaseConsumer(name string, handler MessageHandler, opts ...ConsumerOption) *BaseConsumer {
 	bc := &BaseConsumer{
 		name:    name,
 		handler: handler,
-		logger:  zap.L(), // 默认全局 logger
 	}
 	for _, opt := range opts {
 		opt(bc)
@@ -65,7 +56,7 @@ func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageI
 func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connection, rawConfig any) error {
 	var queueConfig config.DoingOrder
 	if err := copier.Copy(&queueConfig, rawConfig); err != nil {
-		bc.logger.Error(bc.name+" config copy error", zap.Error(err))
+		logger.ErrorWithCtx(ctx, bc.name+" config copy error", logger.Err(err))
 		return err
 	}
 	if !queueConfig.Enable {
@@ -76,13 +67,13 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 		// 防止 goroutine panic 导致整个服务崩溃
 		defer func() {
 			if r := recover(); r != nil {
-				bc.logger.Error(bc.name+" consumer goroutine panicked",
-					zap.Any("panic", r),
-					zap.Stack("stack"))
+				logger.ErrorWithCtx(ctx, bc.name+" consumer goroutine panicked",
+					logger.Any("panic", r),
+					logger.String("stack", "")) // Stack trace 会在 panic 时自动记录
 			}
 		}()
 
-		bc.logger.Info("Starting " + bc.name)
+		logger.InfoWithCtx(ctx, "Starting "+bc.name)
 		exchangeName := queueConfig.ExchangeName
 		deadQueueName := queueConfig.DeadQueueName
 		deadRoutingKey := queueConfig.DeadKey
@@ -112,7 +103,7 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 
 			consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
 			if err != nil {
-				bc.logger.Panic("异步消息队列 failed to create rabbitmq consumer error", zap.Error(err))
+				logger.PanicWithCtx(ctx, "异步消息队列 failed to create rabbitmq consumer error", logger.Err(err))
 			}
 			bc.consumersMutex.Lock()
 			bc.consumers = append(bc.consumers, consumer)
@@ -121,16 +112,16 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 			// 启动异步消费 (底层 consumer.go)
 			// 将上下文向下传递给具体的底层消费逻辑
 			consumer.Consume(ctx, bc.handleMessage)
-			bc.logger.Info("队列 " + normalQueueName + " 消费者 " + strconv.Itoa(i+1) + " 已启动")
+			logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
 		}
 
 		//监听信号，无论是内部 Stop 还是外部 Context 取消
 		select {
 		case <-ctx.Done():
-			bc.logger.Warn(bc.name + " 收到全局 Context 取消信号")
+			logger.WarnWithCtx(ctx, bc.name + " 收到全局 Context 取消信号")
 		}
 
-		bc.logger.Warn(bc.name + " 收到 Context 取消信号，主循环退出")
+		logger.WarnWithCtx(ctx, bc.name + " 收到 Context 取消信号，主循环退出")
 	}()
 
 	return nil
@@ -236,17 +227,18 @@ func (bc *BaseConsumer) buildNormalLetterOptions(exchange *gorabbitmq.Exchange, 
 
 // Stop 优雅停止
 func (bc *BaseConsumer) Stop() error {
-	bc.logger.Warn(">>> 接收到停止指令: " + bc.name)
+	ctx := context.Background()
+	logger.WarnWithCtx(ctx, ">>> 接收到停止指令: "+bc.name)
 	bc.consumersMutex.Lock()
 	for _, consumer := range bc.consumers {
 		if consumer != nil {
 			consumer.Close()
-			bc.logger.Info("成功停止" + consumer.QueueName)
+			logger.InfoWithCtx(ctx, "成功停止"+consumer.QueueName)
 		}
 	}
 	bc.consumersMutex.Unlock()
 	bc.wg.Wait()
-	bc.logger.Warn("<<< 消费者服务已安全停止: " + bc.name)
+	logger.WarnWithCtx(ctx, "<<< 消费者服务已安全停止: "+bc.name)
 	return nil
 
 }

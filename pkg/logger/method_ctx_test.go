@@ -240,6 +240,32 @@ func TestSLSIntegration(t *testing.T) {
 	// 注意：defer slsHook.Close() 会自动等待日志发送完成（最多30秒）
 }
 
+// TestTerminalLoggingOnly 测试日志只输出到终端，不保存到文件
+func TestTerminalLoggingOnly(t *testing.T) {
+	// 初始化 Logger：isSave=false
+	_, err := Init(
+		WithLevel("debug"),
+		WithFormat("console"), // 使用 console 格式便于肉眼观察
+		WithSave(false),       // ✅ 关键：设置为 false，不保存文件
+	)
+	if err != nil {
+		t.Fatalf("Failed to init logger: %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), "request_id", "test-req-terminal-001")
+
+	// 记录日志（应该只出现在终端/控制台，不会生成任何 .log 文件）
+	InfoWithCtx(ctx, "终端日志测试 - 这条日志不应该保存到文件")
+	ErrorWithCtx(ctx, "终端错误测试", Err(fmt.Errorf("模拟错误")))
+
+	// 验证：检查当前目录下是否意外生成了日志文件
+	if _, err := os.Stat("logs/app.log"); err == nil {
+		t.Error("Unexpected log file 'logs/app.log' was created when isSave=false")
+	}
+
+	t.Log("Terminal-only logging test passed (no files should be generated)")
+}
+
 // TestLocalFileLogging 测试本地文件日志保存
 func TestLocalFileLogging(t *testing.T) {
 	// 初始化 Logger，只保存到本地文件

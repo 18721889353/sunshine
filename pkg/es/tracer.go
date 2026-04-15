@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
 	"go.opentelemetry.io/otel/codes"
-	"go.uber.org/zap"
 )
 
 // withSpan 创建一个带有追踪信息的 span
@@ -24,11 +24,9 @@ func (c *Client) withSpan(ctx context.Context, operation string, opts ...interfa
 	ctx, span := tracer.NewSpan(ctx, fmt.Sprintf("es.%s", operation), tags)
 
 	// 记录操作开始的日志
-	if c.log != nil {
-		c.log.Info("ES operation started",
-			zap.String("operation", operation),
-			zap.Any("params", opts))
-	}
+	logger.DebugWithCtx(ctx, "ES operation started",
+		logger.String("operation", operation),
+		logger.Any("params", opts))
 
 	// 返回上下文和结束函数
 	return ctx, func(err error) {
@@ -36,20 +34,16 @@ func (c *Client) withSpan(ctx context.Context, operation string, opts ...interfa
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			// 记录错误日志
-			if c.log != nil {
-				c.log.Error("ES operation failed",
-					zap.String("operation", operation),
-					zap.Error(err),
-					zap.Any("params", opts))
-			}
+			logger.ErrorWithCtx(ctx, "ES operation failed",
+				logger.String("operation", operation),
+				logger.Err(err),
+				logger.Any("params", opts))
 		} else {
 			span.SetStatus(codes.Ok, "Operation successful")
 			// 记录成功日志
-			if c.log != nil {
-				c.log.Info("ES operation completed successfully",
-					zap.String("operation", operation),
-					zap.Any("params", opts))
-			}
+			logger.InfoWithCtx(ctx, "ES operation completed successfully",
+				logger.String("operation", operation),
+				logger.Any("params", opts))
 		}
 		span.End()
 	}

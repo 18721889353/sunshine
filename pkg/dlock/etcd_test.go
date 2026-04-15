@@ -5,8 +5,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"testing"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 func TestEtcdLock_TryLock(t *testing.T) {
@@ -29,7 +27,6 @@ func getEtcdLock() Locker {
 		etcdcli.WithDialTimeout(time.Second*2),
 		etcdcli.WithAuth("", ""),
 		etcdcli.WithAutoSyncInterval(0),
-		etcdcli.WithLog(zap.NewNop()),
 	)
 	if err != nil {
 		fmt.Println(err)

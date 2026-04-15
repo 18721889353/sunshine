@@ -12,11 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"go.uber.org/zap"
-
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
 	"github.com/18721889353/sunshine/pkg/gocrypto"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,9 +24,7 @@ var defaultIgnoreUrl = map[string]struct{}{}
 type SignOption func(*signOptions)
 
 func defaultSignOptions() *signOptions {
-	defaultLogger, _ := zap.NewProduction()
 	return &signOptions{
-		log:             defaultLogger,
 		ignoreUrls:      defaultIgnoreUrl,
 		signKey:         "",
 		signExpiredTime: time.Second * 5,
@@ -35,7 +32,6 @@ func defaultSignOptions() *signOptions {
 }
 
 type signOptions struct {
-	log             *zap.Logger
 	ignoreUrls      map[string]struct{}
 	signKey         string
 	signExpiredTime time.Duration
@@ -61,15 +57,6 @@ func WithSignKey(signKey string) SignOption {
 func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	return func(o *signOptions) {
 		o.signExpiredTime = signExpiredTime
-	}
-}
-
-// WithSignLog set log
-func WithSignLog(log *zap.Logger) SignOption {
-	return func(o *signOptions) {
-		if log != nil {
-			o.log = log
-		}
 	}
 }
 
@@ -175,7 +162,8 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 
 func createSign(ctx context.Context, o *signOptions, params map[string]interface{}, signKey string) string {
 	key := strings.Trim(createEncryptStr(params), "&")
-	o.log.Info("gin中间件拼接的key", zap.String("key", key), zap.String("request_id", fmt.Sprintf("%s", ctx.Value("request_id"))))
+	logger.InfoWithCtx(ctx, "gin中间件拼接的key",
+		logger.String("key", key))
 	key = key + "&key=" + signKey
 	// 自定义 MD5 组合
 	return strings.ToUpper(gocrypto.Md5([]byte(key)))

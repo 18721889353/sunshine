@@ -72,7 +72,7 @@ func NewUserExampleCache(cacheType *database.CacheType) UserExampleCache {
 	case "redis":
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.UserExample{}
-		}, cache.WithCacheLog(logger.Get()))
+		})
 		return &userExampleCache{cache: c}
 	}
 

@@ -11,11 +11,8 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
-
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
-	"go.uber.org/zap"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -26,18 +23,8 @@ var CacheNotFound = redis.Nil
 // NewRedisCacheOption 是NewRedisCache的可选配置
 type NewRedisCacheOption func(*redisCache)
 
-// WithCacheLog set log
-func WithCacheLog(log *zap.Logger) NewRedisCacheOption {
-	return func(rc *redisCache) {
-		if log != nil {
-			rc.log = log
-		}
-	}
-}
-
 // redisCache redis cache object
 type redisCache struct {
-	log               *zap.Logger
 	client            *redis.Client
 	KeyPrefix         string
 	encoding          encoding.Encoding
@@ -51,7 +38,6 @@ func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encod
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
 	return &redisCache{
-		log:               logger.Get(),
 		client:            client,
 		KeyPrefix:         keyPrefix,
 		encoding:          encode,
@@ -68,7 +54,7 @@ func (c *redisCache) GetLoopLock(ctx context.Context, key string, options ...red
 	// 初始化锁
 	lockKey := c.buildLockKey(key)
 	defer func() {
-		c.logOperation(ctx, "GetLoopLock", start, err, zap.String("lockKey", lockKey))
+		c.logOperation(ctx, "GetLoopLock", start, err, logger.String("lockKey", lockKey))
 	}()
 	// 创建新的互斥锁
 	mutex := c.redsSync.NewMutex(lockKey, options...)
@@ -89,7 +75,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	// 初始化锁
 	lockKey := c.buildLockKey(key)
 	defer func() {
-		c.logOperation(ctx, "GetLock", start, err, zap.String("lockKey", lockKey))
+		c.logOperation(ctx, "GetLock", start, err, logger.String("lockKey", lockKey))
 	}()
 
 	// 创建新的互斥锁
@@ -108,7 +94,7 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "Set", start, err, zap.String("key", key), zap.Duration("expireTime", expireTime))
+		c.logOperation(ctx, "Set", start, err, logger.String("key", key), logger.Any("expireTime", expireTime))
 	}()
 
 	buf, err := encoding.Marshal(c.encoding, val)
@@ -135,7 +121,7 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "Get", start, err, zap.String("key", key), zap.Any("val", val))
+		c.logOperation(ctx, "Get", start, err, logger.String("key", key), logger.Any("val", val))
 	}()
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
@@ -170,7 +156,7 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err 
 func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface{}, expireTime time.Duration) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "MultiSet", start, err, zap.Duration("expireTime", expireTime), zap.Any("valueMap", valueMap))
+		c.logOperation(ctx, "MultiSet", start, err, logger.Any("expireTime", expireTime), logger.Any("valueMap", valueMap))
 	}()
 
 	if len(valueMap) == 0 {
@@ -188,12 +174,12 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	for key, value := range valueMap {
 		buf, err := encoding.Marshal(c.encoding, value)
 		if err != nil {
-			fmt.Printf("encoding.Marshal error, %v, value:%v\n", err, value)
+			logger.WarnWithCtx(ctx, "encoding.Marshal error", logger.Err(err), logger.Any("value", value))
 			continue
 		}
 		cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 		if err != nil {
-			fmt.Printf("BuildCacheKey error, %v, key:%v\n", err, key)
+			logger.WarnWithCtx(ctx, "BuildCacheKey error", logger.Err(err), logger.String("key", key))
 			continue
 		}
 		// 直接添加命令到pipeline，避免中间数组
@@ -214,7 +200,7 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interface{}) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "MultiGet", start, err, zap.Any("keys", keys), zap.Any("value", value))
+		c.logOperation(ctx, "MultiGet", start, err, logger.Any("keys", keys), logger.Any("value", value))
 	}()
 
 	if len(keys) == 0 {
@@ -245,7 +231,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 			object := c.newObject()
 			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object)
 			if err != nil {
-				fmt.Printf("unmarshal data error: %+v, key=%s, cacheKey=%s type=%v\n", err, keys[i], cacheKeys[i], reflect.TypeOf(value))
+				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(err), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]), logger.String("type", reflect.TypeOf(value).String()))
 				continue
 			}
 			m[keys[i]] = object
@@ -263,7 +249,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 			object := c.newObject()
 			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object)
 			if err != nil {
-				fmt.Printf("unmarshal data error: %+v, key=%s, cacheKey=%s type=%v\n", err, keys[i], cacheKeys[i], reflect.TypeOf(value))
+				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(err), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]), logger.String("type", reflect.TypeOf(value).String()))
 				continue
 			}
 			valueMap.SetMapIndex(reflect.ValueOf(keys[i]), reflect.ValueOf(object))
@@ -277,7 +263,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 func (c *redisCache) Del(ctx context.Context, keys ...string) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "Del", start, err, zap.Any("keys", keys))
+		c.logOperation(ctx, "Del", start, err, logger.Any("keys", keys))
 	}()
 	if len(keys) == 0 {
 		return nil
@@ -303,7 +289,7 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) (err error) {
 func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "DelByPrefix", start, err, zap.String("prefix", prefix))
+		c.logOperation(ctx, "DelByPrefix", start, err, logger.String("prefix", prefix))
 	}()
 
 	var cursor uint64
@@ -346,7 +332,7 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error)
 func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) (err error) {
 	start := time.Now()
 	defer func() {
-		c.logOperation(ctx, "SetCacheWithNotFound", start, err, zap.String("key", key))
+		c.logOperation(ctx, "SetCacheWithNotFound", start, err, logger.String("key", key))
 	}()
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
@@ -392,7 +378,7 @@ func (c *redisCache) buildLockKey(key string) string {
 }
 
 // 统一的日志记录函数
-func (c *redisCache) logOperation(ctx context.Context, operation string, start time.Time, err error, fields ...zap.Field) {
+func (c *redisCache) logOperation(ctx context.Context, operation string, start time.Time, err error, fields ...logger.Field) {
 	// 缓存未命中是正常情况，不记录日志
 	if errors.Is(err, CacheNotFound) {
 		return
@@ -403,36 +389,24 @@ func (c *redisCache) logOperation(ctx context.Context, operation string, start t
 		return
 	}
 
-	// 检查日志级别，避免不必要的计算
-	logLevel := zap.DebugLevel
+	// 构建 logger 字段
+	loggerFields := []logger.Field{
+		logger.String("operation", operation),
+		logger.String("ms", fmt.Sprintf("%v", float64(duration)/float64(time.Millisecond))),
+	}
+
 	if err != nil {
-		logLevel = zap.WarnLevel
+		loggerFields = append(loggerFields, logger.Err(err))
+	}
+
+	// 添加额外字段
+	loggerFields = append(loggerFields, fields...)
+
+	if err != nil {
+		logger.WarnWithCtx(ctx, "cache_operation", loggerFields...)
 	} else if duration > 50*time.Millisecond { // 慢操作
-		logLevel = zap.WarnLevel
-	}
-	// 只有在需要记录日志时才构建字段
-	if !c.log.Core().Enabled(logLevel) {
-		return
-	}
-
-	logFields := make([]zap.Field, 0, len(fields)+4)
-	logFields = append(logFields,
-		zap.String("request_id", metautils.ExtractIncoming(ctx).Get("request_id")),
-		zap.String("operation", operation),
-		zap.String("ms", fmt.Sprintf("%v", float64(duration)/float64(time.Millisecond))),
-	)
-
-	if err != nil {
-		logFields = append(logFields, zap.Error(err))
-	}
-
-	logFields = append(logFields, fields...)
-
-	if err != nil {
-		c.log.Warn("cache_operation", logFields...)
-	} else if duration > 50*time.Millisecond { // 慢操作
-		c.log.Info("cache_slow_operation", logFields...)
+		logger.InfoWithCtx(ctx, "cache_slow_operation", loggerFields...)
 	} else {
-		c.log.Info("cache_operation", logFields...)
+		logger.DebugWithCtx(ctx, "cache_operation", loggerFields...)
 	}
 }

@@ -44,7 +44,6 @@ func NewServerNameExampleRPCConn() {
 	var cliOptions = []grpccli.Option{
 		grpccli.WithUnaryInterceptors(
 			interceptor.UnaryClientLog(
-				logger.Get(),
 				interceptor.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 				interceptor.WithMaxLen(config.Get().Logger.MaxLen),
 				interceptor.WithReplaceGRPCLogger(),

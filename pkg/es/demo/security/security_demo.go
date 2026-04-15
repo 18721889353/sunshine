@@ -48,7 +48,6 @@ func main() {
 	// 使用选项模式创建客户端
 	client, err := es.NewClient(
 		es.WithConfig(config),
-		es.WithLogger(logger),
 	)
 	if err != nil {
 		log.Fatal("Failed to create client:", err)

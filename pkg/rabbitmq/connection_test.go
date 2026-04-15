@@ -6,11 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/utils"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-
-	"github.com/18721889353/sunshine/pkg/utils"
 )
 
 var (
@@ -21,8 +19,6 @@ var (
 
 func TestConnectionOptions(t *testing.T) {
 	opts := []ConnectionOption{
-		WithLogger(nil),
-		WithLogger(zap.NewNop()),
 		WithReconnectTime(time.Second),
 		WithTLSConfig(nil),
 		WithTLSConfig(&tls.Config{
@@ -71,7 +67,6 @@ func TestConnection_monitor(t *testing.T) {
 		url:           urlTLS,
 		reconnectTime: time.Second,
 		exit:          make(chan struct{}),
-		zapLog:        defaultLogger,
 		conn:          &amqp.Connection{},
 		blockChan:     make(chan amqp.Blocking, 1),
 		closeChan:     make(chan *amqp.Error, 1),

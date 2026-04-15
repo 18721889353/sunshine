@@ -6,11 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/utils"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
-
-	"github.com/18721889353/sunshine/pkg/utils"
 )
 
 func TestConsumerOptions(t *testing.T) {
@@ -339,7 +337,6 @@ func producerDelayedMessage(ctx context.Context, queueName string, exchange *Exc
 func TestConsumerErr(t *testing.T) {
 	connection := &Connection{
 		exit:        make(chan struct{}),
-		zapLog:      zap.NewNop(),
 		conn:        &amqp.Connection{},
 		isConnected: true,
 	}

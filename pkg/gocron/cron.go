@@ -35,7 +35,7 @@ func Init(opts ...Option) error {
 	o := defaultOptions()
 	o.apply(opts...)
 
-	log := &zapLog{zapLog: o.zapLog, isOnlyPrintError: o.isOnlyPrintError}
+	log := &projectLog{isOnlyPrintError: o.isOnlyPrintError}
 	cronOpts := []cron.Option{
 		cron.WithLogger(log),
 		cron.WithChain(

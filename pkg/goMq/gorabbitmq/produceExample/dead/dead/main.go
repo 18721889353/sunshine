@@ -8,8 +8,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/18721889353/sunshine/pkg/logger"
-
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )
 
@@ -20,7 +18,6 @@ func main() {
 	conn, err := gorabbitmq.NewConnection(
 		ctx,
 		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
-		gorabbitmq.WithLogger(logger.Get()),
 		gorabbitmq.WithMaxRetries(0), // 无限重试
 		gorabbitmq.WithReconnectTime(2*time.Second),
 		gorabbitmq.WithDialTimeout(5*time.Second),

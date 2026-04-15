@@ -11,9 +11,16 @@ import (
 
 // Sync flushing any buffered log entries, applications should take care to call Sync before exiting.
 func Sync() error {
+	// 如果默认 logger 是输出到终端 (stdout)，则跳过 Sync，避免在关闭时产生文件 I/O
+	if defaultLogger != nil {
+		// zap 的 stdout 路径通常包含 "stdout" 或 "/dev/stdout"
+		// 我们通过检查是否开启了 isSave 来判断，但这里无法直接获取 options
+		// 简单的做法是：如果 Sync 报错且与 stdout 有关，则忽略
+	}
+	
 	_ = getSugaredLogger().Sync()
 	err := getLogger().Sync()
-	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") {
+	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") && !strings.Contains(err.Error(), "stdout") {
 		return err
 	}
 	return nil

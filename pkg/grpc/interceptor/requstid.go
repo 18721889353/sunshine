@@ -2,10 +2,10 @@ package interceptor
 
 import (
 	"context"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
@@ -37,8 +37,8 @@ var RequestIDKey = CtxKeyString(ContextRequestIDKey)
 // ---------------------------------- client interceptor ----------------------------------
 
 // CtxRequestIDField get request id field from context.Context
-func CtxRequestIDField(ctx context.Context) zap.Field {
-	return zap.String(ContextRequestIDKey, metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey))
+func CtxRequestIDField(ctx context.Context) logger.Field {
+	return logger.String(ContextRequestIDKey, metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey))
 }
 
 // ClientCtxRequestID get request id from rpc client context.Context
@@ -47,8 +47,8 @@ func ClientCtxRequestID(ctx context.Context) string {
 }
 
 // ClientCtxRequestIDField get request id field from rpc client context.Context
-func ClientCtxRequestIDField(ctx context.Context) zap.Field {
-	return zap.String(ContextRequestIDKey, metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey))
+func ClientCtxRequestIDField(ctx context.Context) logger.Field {
+	return logger.String(ContextRequestIDKey, metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey))
 }
 
 // UnaryClientRequestID client-side request_id unary interceptor
@@ -100,8 +100,8 @@ func ServerCtxRequestID(ctx context.Context) string {
 }
 
 // ServerCtxRequestIDField get request id field from rpc server context.Context
-func ServerCtxRequestIDField(ctx context.Context) zap.Field {
-	return zap.String(ContextRequestIDKey, metautils.ExtractIncoming(ctx).Get(ContextRequestIDKey))
+func ServerCtxRequestIDField(ctx context.Context) logger.Field {
+	return logger.String(ContextRequestIDKey, metautils.ExtractIncoming(ctx).Get(ContextRequestIDKey))
 }
 
 // UnaryServerRequestID server-side request_id unary interceptor

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 func TestInitAndRun(t *testing.T) {
@@ -41,7 +39,7 @@ func TestInitAndRun(t *testing.T) {
 		},
 	}
 
-	err := Init(WithLog(defaultLog, false), WithGranularity(SecondType))
+	err := Init(WithGranularity(SecondType))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +71,7 @@ func TestRunOnce(t *testing.T) {
 		IsRunOnce: true,
 	}
 
-	err := Init(WithLog(zap.NewNop()), WithGranularity(MinuteType))
+	err := Init(WithGranularity(MinuteType))
 	if err != nil {
 		t.Fatal(err)
 	}

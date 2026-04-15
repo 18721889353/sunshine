@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
 	"github.com/spf13/cast"
 	"time"
@@ -139,11 +138,9 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 			))
 		defer span.End()
 
-		// 4. 将 request_id 注入到 Gin Keys 和 Context，供下游组件（Redis/MySQL/RabbitMQ/Handler）使用
-		c.Set(ContextRequestIDKey, reqID)
-		if reqID != "" {
-			ctx = context.WithValue(ctx, ContextRequestIDKey, reqID)
-		}
+		// 4. request_id 已由 RequestID 中间件注入到 Gin Keys 和 Context，此处仅使用，不再重复注入
+		// 如果 Tracing 中间件在 RequestID 之后执行，reqID 已经从 Gin Keys 中读取
+		// 只需要确保 Gin Keys 中存在即可（RequestID 中间件已设置）
 
 		// 5. 将更新后的 Context 注入到 Request，确保 c.Request.Context() 能拿到 requestId
 		c.Request = c.Request.WithContext(ctx)

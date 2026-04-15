@@ -8,7 +8,7 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go.uber.org/zap"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ProducerOption producer option.
@@ -105,8 +105,6 @@ type Producer struct {
 	// found according to its own exchange type and routeKey rules.
 	mandatory bool
 
-	zapLog *zap.Logger
-
 	exchangeArgs  amqp.Table
 	queueArgs     amqp.Table
 	queueBindArgs amqp.Table
@@ -189,8 +187,12 @@ func NewProducer(exchange *Exchange, queueName string, connection *Connection, o
 		return nil, err
 	}
 
-	fields := logFields(queueName, exchange)
-	fields = append(fields, zap.Bool("isPersistent", o.isPersistent))
+	ctx := context.Background()
+	logger.InfoWithCtx(ctx, "[rabbit producer] initialized",
+		logger.String("queue", queueName),
+		logger.String("exchange", exchange.name),
+		logger.String("exchangeType", exchange.eType),
+		logger.Bool("isPersistent", o.isPersistent))
 
 	// create dead letter exchange and queue if enabled
 	if o.deadLetter.isEnabled() {
@@ -199,20 +201,17 @@ func NewProducer(exchange *Exchange, queueName string, connection *Connection, o
 			_ = ch.Close()
 			return nil, err
 		}
-		fields = append(fields, zap.Any("deadLetter", map[string]string{
-			"exchange":   o.deadLetter.exchangeName,
-			"queue":      o.deadLetter.queueName,
-			"routingKey": o.deadLetter.routingKey,
-			"type":       exchangeTypeDirect,
-		}))
+		logger.InfoWithCtx(ctx, "[rabbit producer] dead letter configured",
+			logger.String("exchange", o.deadLetter.exchangeName),
+			logger.String("queue", o.deadLetter.queueName),
+			logger.String("routingKey", o.deadLetter.routingKey),
+			logger.String("type", exchangeTypeDirect))
 	}
 
 	deliveryMode := amqp.Persistent
 	if !o.isPersistent {
 		deliveryMode = amqp.Transient
 	}
-
-	//connection.zapLog.Info("[rabbit producer] initialized", fields...)
 
 	return &Producer{
 		QueueName:    queueName,
@@ -222,7 +221,6 @@ func NewProducer(exchange *Exchange, queueName string, connection *Connection, o
 		isPersistent: o.isPersistent,
 		deliveryMode: deliveryMode,
 		mandatory:    o.mandatory,
-		zapLog:       connection.zapLog,
 
 		exchangeArgs:  o.exchangeDeclare.args,
 		queueArgs:     o.queueDeclare.args,
@@ -377,29 +375,6 @@ func (p *Producer) QueueArgs() amqp.Table {
 // QueueBindArgs returns the queue bind args.
 func (p *Producer) QueueBindArgs() amqp.Table {
 	return p.queueBindArgs
-}
-
-func logFields(queueName string, exchange *Exchange) []zap.Field {
-	fields := []zap.Field{
-		zap.String("queue", queueName),
-		zap.String("exchange", exchange.name),
-		zap.String("exchangeType", exchange.eType),
-	}
-	switch exchange.eType {
-	case exchangeTypeDirect, exchangeTypeTopic:
-		fields = append(fields, zap.String("routingKey", exchange.routingKey))
-	case exchangeTypeHeaders:
-		fields = append(fields, zap.Any("headersKeys", exchange.headersKeys))
-	case exchangeTypeDelayedMessage:
-		fields = append(fields, zap.String("delayedMessageType", exchange.delayedMessageType))
-		switch exchange.delayedMessageType {
-		case exchangeTypeDirect, exchangeTypeTopic:
-			fields = append(fields, zap.String("routingKey", exchange.routingKey))
-		case exchangeTypeHeaders:
-			fields = append(fields, zap.Any("headersKeys", exchange.headersKeys))
-		}
-	}
-	return fields
 }
 
 // -------------------------------------------------------------------------------------------

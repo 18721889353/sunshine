@@ -17,7 +17,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/handlerfunc"
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
-	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 //go:embed static
@@ -34,7 +33,7 @@ func NewRouter(sunshineAddr string, isLog bool) *gin.Engine {
 	r.Use(gin.Recovery())
 	r.Use(middleware.Cors())
 	if isLog {
-		r.Use(middleware.Logging(middleware.WithLog(logger.Get())))
+		r.Use(middleware.Logging())
 	}
 	binding.Validator = validator.Init()
 

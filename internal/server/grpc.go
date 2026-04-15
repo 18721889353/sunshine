@@ -170,7 +170,6 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 
 	// logger interceptor, to print simple messages, replace interceptor.UnaryServerLog with interceptor.UnaryServerSimpleLog
 	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerLog(
-		logger.Get(),
 		interceptor.WithMaxLen(config.Get().Logger.MaxLen),
 		interceptor.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 		interceptor.WithReplaceGRPCLogger(),
@@ -240,7 +239,6 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 
 	// logger interceptor, to print simple messages, replace interceptor.StreamServerLog with interceptor.StreamServerSimpleLog
 	streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerLog(
-		logger.Get(),
 		interceptor.WithReplaceGRPCLogger(),
 	))
 

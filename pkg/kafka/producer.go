@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/IBM/sarama"
-	"go.uber.org/zap"
 )
 
 // ProducerMessage is sarama ProducerMessage
@@ -95,9 +95,8 @@ type Message struct {
 
 // AsyncProducer is async producer.
 type AsyncProducer struct {
-	Producer  sarama.AsyncProducer
-	zapLogger *zap.Logger
-	exit      chan struct{}
+	Producer sarama.AsyncProducer
+	exit     chan struct{}
 }
 
 // InitAsyncProducer init async producer.
@@ -130,9 +129,8 @@ func InitAsyncProducer(addrs []string, opts ...AsyncProducerOption) (*AsyncProdu
 	}
 
 	p := &AsyncProducer{
-		Producer:  producer,
-		zapLogger: o.zapLogger,
-		exit:      make(chan struct{}),
+		Producer: producer,
+		exit:     make(chan struct{}),
 	}
 
 	go p.handleResponse(o.handleFailedFn)
@@ -185,7 +183,7 @@ func (p *AsyncProducer) SendData(topic string, multiData ...interface{}) error {
 func (p *AsyncProducer) handleResponse(handleFn AsyncSendFailedHandlerFn) {
 	defer func() {
 		if e := recover(); e != nil {
-			p.zapLogger.Error("panic occurred while processing async message", zap.Any("error", e))
+			logger.ErrorWithCtx(nil, "panic occurred while processing async message", logger.Any("error", e))
 			p.handleResponse(handleFn)
 		}
 	}()
@@ -193,16 +191,16 @@ func (p *AsyncProducer) handleResponse(handleFn AsyncSendFailedHandlerFn) {
 	for {
 		select {
 		case pm := <-p.Producer.Successes():
-			p.zapLogger.Info("async send successfully",
-				zap.String("topic", pm.Topic),
-				zap.Int32("partition", pm.Partition),
-				zap.Int64("offset", pm.Offset))
+			logger.InfoWithCtx(nil, "async send successfully",
+				logger.String("topic", pm.Topic),
+				logger.Int32("partition", pm.Partition),
+				logger.Int64("offset", pm.Offset))
 		case err := <-p.Producer.Errors():
-			p.zapLogger.Error("async send failed", zap.Error(err.Err), zap.Any("msg", err.Msg))
+			logger.ErrorWithCtx(nil, "async send failed", logger.Err(err.Err), logger.Any("msg", err.Msg))
 			if handleFn != nil {
 				e := handleFn(err.Msg)
 				if e != nil {
-					p.zapLogger.Error("handle failed msg failed", zap.Error(e))
+					logger.ErrorWithCtx(nil, "handle failed msg failed", logger.Err(e))
 				}
 			}
 		case <-p.exit:

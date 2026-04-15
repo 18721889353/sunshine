@@ -2,7 +2,6 @@ package gorabbitmq
 
 import (
 	"context"
-	"go.uber.org/zap"
 	"sync"
 	"testing"
 	"time"
@@ -21,7 +20,6 @@ func BenchmarkPoolGetAndPut(b *testing.B) {
 		WithMaxCap(500),                       // 最大连接数
 		WithMaxIdle(time.Minute*1),            // 最大空闲时间
 		WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		WithPoolLogger(zap.NewNop()),          // 日志记录器
 		WithAntsPoolSize(200),                 // 配置 ants 协程池大小为 10
 		WithConnOptions( // 连接选项
 			WithReconnectTime(time.Second*3),
@@ -66,7 +64,6 @@ func BenchmarkPoolConcurrentAccess(b *testing.B) {
 		WithMaxCap(500),                       // 最大连接数
 		WithMaxIdle(time.Minute*1),            // 最大空闲时间
 		WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		WithPoolLogger(zap.NewNop()),          // 日志记录器
 		WithAntsPoolSize(200),                 // 配置 ants 协程池大小为 10
 		WithConnOptions( // 连接选项
 			WithReconnectTime(time.Second*3),
@@ -112,7 +109,6 @@ func BenchmarkPoolHighConcurrency(b *testing.B) {
 		WithMaxCap(500),                       // 最大连接数
 		WithMaxIdle(time.Minute*1),            // 最大空闲时间
 		WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		WithPoolLogger(zap.NewNop()),          // 日志记录器
 		WithAntsPoolSize(200),                 // 配置 ants 协程池大小为 10
 		WithConnOptions( // 连接选项
 			WithReconnectTime(time.Second*3),
@@ -181,7 +177,6 @@ func BenchmarkPoolDifferentSizes(b *testing.B) {
 				WithMaxCap(500),                       // 最大连接数
 				WithMaxIdle(time.Minute*1),            // 最大空闲时间
 				WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-				WithPoolLogger(zap.NewNop()),          // 日志记录器
 				WithAntsPoolSize(200),                 // 配置 ants 协程池大小为 10
 				WithConnOptions( // 连接选项
 					WithReconnectTime(time.Second*3),
@@ -227,7 +222,6 @@ func BenchmarkPoolGetOnly(b *testing.B) {
 		WithMaxCap(500),                       // 最大连接数
 		WithMaxIdle(time.Minute*1),            // 最大空闲时间
 		WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		WithPoolLogger(zap.NewNop()),          // 日志记录器
 		WithAntsPoolSize(200),                 // 配置 ants 协程池大小为 10
 		WithConnOptions( // 连接选项
 			WithReconnectTime(time.Second*3),
@@ -269,7 +263,6 @@ func BenchmarkAntsPoolPerformance(b *testing.B) {
 		WithMaxCap(500),                       // 最大连接数
 		WithMaxIdle(time.Minute*1),            // 最大空闲时间
 		WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		WithPoolLogger(zap.NewNop()),          // 日志记录器
 		WithAntsPoolSize(200),                 // 配置 ants 协程池大小为 10
 		WithConnOptions( // 连接选项
 			WithReconnectTime(time.Second*3),

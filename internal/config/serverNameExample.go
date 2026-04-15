@@ -47,21 +47,19 @@ type Config struct {
 }
 
 type Sls struct {
-	AccessKeyID        string `yaml:"accessKeyId" json:"accessKeyId"`
-	AccessKeySecret    string `yaml:"accessKeySecret" json:"accessKeySecret"`
-	BaseRetryBackoffMs int    `yaml:"baseRetryBackoffMs" json:"baseRetryBackoffMs"`
-	Enable             bool   `yaml:"enable" json:"enable"`
-	Endpoint           string `yaml:"endpoint" json:"endpoint"`
-	LingerMs           int    `yaml:"lingerMs" json:"lingerMs"`
-	Logstore           string `yaml:"logstore" json:"logstore"`
-	MaxBatchCount      int    `yaml:"maxBatchCount" json:"maxBatchCount"`
-	MaxBatchSize       int    `yaml:"maxBatchSize" json:"maxBatchSize"`
-	MaxRetryBackoffMs  int    `yaml:"maxRetryBackoffMs" json:"maxRetryBackoffMs"`
-	Project            string `yaml:"project" json:"project"`
-	Retries            int    `yaml:"retries" json:"retries"`
-	Source             string `yaml:"source" json:"source"`
-	Topic              string `yaml:"topic" json:"topic"`
-	TotalSizeInBytes   int    `yaml:"totalSizeInBytes" json:"totalSizeInBytes"`
+	AccessKeyID         string `yaml:"accessKeyId" json:"accessKeyId"`
+	AccessKeySecret     string `yaml:"accessKeySecret" json:"accessKeySecret"`
+	Enable              bool   `yaml:"enable" json:"enable"`
+	EnableHealthCheck   bool   `yaml:"enableHealthCheck" json:"enableHealthCheck"`
+	Endpoint            string `yaml:"endpoint" json:"endpoint"`
+	HealthCheckInterval int    `yaml:"healthCheckInterval" json:"healthCheckInterval"`
+	Logstore            string `yaml:"logstore" json:"logstore"`
+	Project             string `yaml:"project" json:"project"`
+	Retries             int    `yaml:"retries" json:"retries"`
+	SendTimeout         int    `yaml:"sendTimeout" json:"sendTimeout"`
+	Source              string `yaml:"source" json:"source"`
+	Timeout             int    `yaml:"timeout" json:"timeout"`
+	Topic               string `yaml:"topic" json:"topic"`
 }
 
 type Elasticsearch struct {
@@ -278,13 +276,15 @@ type Jwt struct {
 }
 
 type Routes struct {
-	Filename  string `yaml:"filename" json:"filename"`
-	Format    string `yaml:"format" json:"format"`
-	IsAsync   bool   `yaml:"isAsync" json:"isAsync"`
-	IsSaveDay bool   `yaml:"isSaveDay" json:"isSaveDay"`
-	MaxAge    int    `yaml:"maxAge" json:"maxAge"`
-	MaxSize   int    `yaml:"maxSize" json:"maxSize"`
-	Module    string `yaml:"module" json:"module"`
+	Filename      string `yaml:"filename" json:"filename"`
+	Format        string `yaml:"format" json:"format"`
+	IsAsync       bool   `yaml:"isAsync" json:"isAsync"`
+	IsCompression bool   `yaml:"isCompression" json:"isCompression"`
+	IsSaveDay     bool   `yaml:"isSaveDay" json:"isSaveDay"`
+	MaxAge        int    `yaml:"maxAge" json:"maxAge"`
+	MaxBackups    int    `yaml:"maxBackups" json:"maxBackups"`
+	MaxSize       int    `yaml:"maxSize" json:"maxSize"`
+	Module        string `yaml:"module" json:"module"`
 }
 
 type LogFileConfig struct {

@@ -2,19 +2,18 @@
 package stat
 
 import (
+	"context"
 	"math"
 	"runtime"
 	"time"
 
-	"go.uber.org/zap"
-
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/stat/cpu"
 	"github.com/18721889353/sunshine/pkg/stat/mem"
 )
 
 var (
 	printInfoInterval = time.Minute // minimum 1 second
-	zapLog, _         = zap.NewProduction()
 
 	notifyCh = make(chan struct{})
 )
@@ -24,7 +23,6 @@ type Option func(*options)
 
 type options struct {
 	enableAlarm bool
-	zapFields   []zap.Field
 }
 
 func (o *options) apply(opts ...Option) {
@@ -43,20 +41,10 @@ func WithPrintInterval(d time.Duration) Option {
 	}
 }
 
-// WithLog set zapLog
-func WithLog(l *zap.Logger) Option {
+// WithPrintField set print field (保留以兼容，但不再使用)
+func WithPrintField(fields ...interface{}) Option {
 	return func(o *options) {
-		if l == nil {
-			return
-		}
-		zapLog = l
-	}
-}
-
-// WithPrintField set print field
-func WithPrintField(fields ...zap.Field) Option {
-	return func(o *options) {
-		o.zapFields = fields
+		// 已废弃，保留仅为了兼容性
 	}
 }
 
@@ -86,7 +74,7 @@ func Init(opts ...Option) {
 		for {
 			select {
 			case <-printTick.C:
-				data := printUsageInfo(o.zapFields...)
+				data := printUsageInfo()
 				if o.enableAlarm {
 					if sg.check(data) {
 						sendSystemSignForLinux()
@@ -105,7 +93,7 @@ func sendSystemSignForLinux() {
 	}
 }
 
-func printUsageInfo(fields ...zap.Field) *statData {
+func printUsageInfo() *statData {
 	defer func() { _ = recover() }()
 
 	mSys := mem.GetSystemMemory()
@@ -136,8 +124,9 @@ func printUsageInfo(fields ...zap.Field) *statData {
 		Goroutines: runtime.NumGoroutine(),
 	}
 
-	fields = append(fields, zap.Any("system", sys), zap.Any("process", proc))
-	zapLog.Info("statistics", fields...)
+	logger.InfoWithCtx(context.Background(), "statistics",
+		logger.Any("system", sys),
+		logger.Any("process", proc))
 
 	return &statData{
 		sys:  sys,

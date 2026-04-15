@@ -44,8 +44,6 @@ func NewPublisher(channelName string, connection *Connection, opts ...ProducerOp
 		deliveryMode = amqp.Transient
 	}
 
-	//connection.zapLog.Info("[rabbit producer] initialized", zap.String("channel", channelName), zap.Bool("isPersistent", o.isPersistent))
-
 	p := &Producer{
 		Exchange:     exchange,
 		conn:         connection.conn,
@@ -53,7 +51,6 @@ func NewPublisher(channelName string, connection *Connection, opts ...ProducerOp
 		isPersistent: o.isPersistent,
 		deliveryMode: deliveryMode,
 		mandatory:    o.mandatory,
-		zapLog:       connection.zapLog,
 	}
 
 	return &Publisher{p}, nil

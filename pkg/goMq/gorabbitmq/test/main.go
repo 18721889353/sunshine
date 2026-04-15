@@ -121,7 +121,6 @@ func main() {
 	conn, err := gorabbitmq.NewConnection(
 		rootCtx,
 		rabbitMQURL,
-		gorabbitmq.WithLogger(logger.Get()),
 		gorabbitmq.WithMaxRetries(0),
 		gorabbitmq.WithReconnectTime(2*time.Second),
 		gorabbitmq.WithDialTimeout(5*time.Second),

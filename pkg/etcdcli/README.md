@@ -13,7 +13,6 @@ Connect to the etcd service client.
         endpoints,
         etcdcli.WithConnectTimeout(time.Second*2),
         // etcdcli.WithAutoSyncInterval(0),
-        // etcdcli.WithLog(zap.NewNop()),
         // etcdcli.WithAuth("", ""),
     )
 
