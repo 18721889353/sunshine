@@ -3,15 +3,14 @@ package consumers
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"runtime/debug"
+
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/database"
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq/gorabbitmqConsumer"
-	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"github.com/18721889353/sunshine/pkg/logger"
-	"google.golang.org/grpc/metadata"
-	"runtime"
-	"runtime/debug"
 )
 
 // orderConsumer 结构体
@@ -53,10 +52,7 @@ func (s *orderConsumer) getErrorWithLine(err error, params ...map[string]any) er
 
 // handleMessage 具体的业务逻辑处理
 func (s *orderConsumer) handleMessage(ctx context.Context, data []byte, messageId, tagID string) (err error) {
-	ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): messageId,
-	}))
-	ctx = interceptor.WrapServerCtx(ctx)
+	ctx = context.WithValue(ctx, logger.ContextKeyRequestID, messageId)
 	defer func() {
 		if r := recover(); r != nil {
 			//使用 debug.Stack() 获取堆栈信息并保持原始格式

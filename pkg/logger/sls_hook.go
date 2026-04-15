@@ -30,7 +30,7 @@ type SLSConfig struct {
 	Timeout    int    // 超时时间（秒），默认 60
 
 	// 高级配置（大厂最佳实践）
-	EnableHealthCheck   bool          // 是否启用健康检查，默认 true
+	EnableHealthCheck   bool          // 是否启用健康检查，默认 false（关闭），true 表示开启
 	HealthCheckInterval time.Duration // 健康检查间隔，默认 30 秒
 	SendTimeout         time.Duration // 发送超时时间，默认 5 秒
 }
@@ -94,15 +94,13 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	}
 
 	// 设置高级配置默认值
-	if !config.EnableHealthCheck {
-		config.EnableHealthCheck = true // 默认启用健康检查
-	}
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 30 * time.Second // 默认 30 秒检查一次
 	}
 	if config.SendTimeout == 0 {
 		config.SendTimeout = 5 * time.Second // 默认 5 秒超时
 	}
+	// EnableHealthCheck 默认为 false（关闭），如需开启请显式设置为 true
 
 	// 边界检查：验证配置的合理性
 	if err := validateSLSConfig(config); err != nil {
@@ -141,6 +139,7 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	hook.setState(StateStarting)
 
 	// 异步健康检查：验证 Producer 是否正常启动
+	// EnableHealthCheck 为 true 时开启，false 时关闭（默认关闭）
 	if config.EnableHealthCheck {
 		go hook.startHealthCheck()
 	}
@@ -487,9 +486,15 @@ func (h *SLSHook) performHealthCheck() {
 		failureRate := float64(sendFailedCount) / float64(totalCount)
 		if failureRate > 0.9 {
 			h.setState(StateFailed)
-			// 记录严重告警
-			fmt.Printf("[SLS Health Check] CRITICAL: High failure rate detected: %.2f%% (success=%d, failed=%d)\n",
-				failureRate*100, sendSuccessCount, sendFailedCount)
+			// 记录严重告警到日志系统
+			WarnWithCtx(context.Background(), "[SLS Health Check] CRITICAL: High failure rate detected",
+				Float64("failure_rate", failureRate*100),
+				Int64("success_count", sendSuccessCount),
+				Int64("failed_count", sendFailedCount),
+				Int64("total_count", totalCount),
+				String("endpoint", h.config.Endpoint),
+				String("project", h.config.ProjectName),
+				String("logstore", h.config.LogStoreName))
 		}
 	}
 }
@@ -537,19 +542,28 @@ func (h *SLSHook) verifyProducerState() error {
 func (h *SLSHook) printCloseStats() {
 	successCount := atomic.LoadInt64(&h.sendSuccessCount)
 	failedCount := atomic.LoadInt64(&h.sendFailedCount)
+	totalCount := successCount + failedCount
 
-	fmt.Printf("[SLS Hook Closed] Statistics:\n")
-	fmt.Printf("  - Total Sent: %d\n", successCount+failedCount)
-	fmt.Printf("  - Success: %d\n", successCount)
-	fmt.Printf("  - Failed: %d\n", failedCount)
-	if successCount+failedCount > 0 {
-		successRate := float64(successCount) / float64(successCount+failedCount) * 100
-		fmt.Printf("  - Success Rate: %.2f%%\n", successRate)
+	// 使用 logger 记录关闭统计信息
+	InfoWithCtx(context.Background(), "[SLS Hook Closed] Statistics",
+		Int64("total_sent", totalCount),
+		Int64("success_count", successCount),
+		Int64("failed_count", failedCount),
+		String("endpoint", h.config.Endpoint),
+		String("project", h.config.ProjectName),
+		String("logstore", h.config.LogStoreName))
+
+	if totalCount > 0 {
+		successRate := float64(successCount) / float64(totalCount) * 100
+		InfoWithCtx(context.Background(), "[SLS Hook Closed] Success rate",
+			Float64("success_rate", successRate))
 	}
 
 	h.errorMu.RLock()
 	if h.lastErrorMessage != "" {
-		fmt.Printf("  - Last Error: %s (at %s)\n", h.lastErrorMessage, h.lastErrorTime.Format(time.RFC3339))
+		WarnWithCtx(context.Background(), "[SLS Hook Closed] Last error",
+			String("last_error", h.lastErrorMessage),
+			String("error_time", h.lastErrorTime.Format(time.RFC3339)))
 	}
 	h.errorMu.RUnlock()
 }

@@ -117,8 +117,8 @@ sls:
   retries: 10                     # 重试次数, 默认10次
   timeout: 60                     # 超时时间(秒)，默认 60 秒
   # 高级配置
-  enableHealthCheck: true         # 是否启用健康检查，默认 true
-  healthCheckInterval: 30         # 健康检查间隔(秒)，默认 30 秒
+  enableHealthCheck: false         # 是否启用健康检查，默认 false
+  healthCheckInterval: 30         # 健康检查间隔(秒)，默认 30 秒 最少5秒
   sendTimeout: 5                  # 发送超时时间(秒)，默认 5 秒
 
 # 待生成的数据库配置
