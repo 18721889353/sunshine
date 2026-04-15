@@ -5,6 +5,7 @@ import (
 	"github.com/spf13/cast"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
 	otelcontrib "go.opentelemetry.io/contrib"
 	"go.opentelemetry.io/otel"
@@ -70,7 +71,7 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		// 1. 获取 RequestID（优先使用 RequestID 作为链路标识）
 		reqID := c.Request.Header.Get(HeaderXRequestIDKey)
 		if reqID == "" {
-			if v, isExist := c.Get(ContextRequestIDKey); isExist {
+			if v, isExist := c.Get(string(logger.ContextKeyRequestID)); isExist {
 				if requestID, ok := v.(string); ok {
 					reqID = requestID
 				}
@@ -116,7 +117,7 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 				// 请求大小
 				semconv.HTTPRequestBodySize(int(requestSize)),
 				// 核心：将 RequestID 作为 Span 属性，与 TraceID 关联
-				attribute.String(ContextRequestIDKey, reqID),
+				attribute.String(string(logger.ContextKeyRequestID), reqID),
 				attribute.String("trace.request_id", reqID), // 兼容性字段
 				// 其他诊断信息
 				attribute.String("http.scheme", c.Request.URL.Scheme),

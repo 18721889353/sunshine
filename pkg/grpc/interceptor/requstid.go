@@ -13,42 +13,37 @@ import (
 )
 
 var (
-	// ContextRequestIDKey request id key for context
-	ContextRequestIDKey = "request_id"
-	once                sync.Once
+	once sync.Once
 )
 
-// SetContextRequestIDKey set context request id key
+// SetContextRequestIDKey set context request id key (deprecated: use logger.ContextKeyRequestID directly)
+// Deprecated: This function is kept for backward compatibility. Use logger.ContextKeyRequestID directly.
 func SetContextRequestIDKey(key string) {
-	if len(key) < 4 {
-		return
-	}
-	once.Do(func() {
-		ContextRequestIDKey = key
-	})
+	// This function is deprecated and does nothing now
+	// All code should use logger.ContextKeyRequestID directly
 }
 
 // CtxKeyString for context.WithValue key type
 type CtxKeyString string
 
 // RequestIDKey request_id
-var RequestIDKey = CtxKeyString(ContextRequestIDKey)
+var RequestIDKey = CtxKeyString(string(logger.ContextKeyRequestID))
 
 // ---------------------------------- client interceptor ----------------------------------
 
 // CtxRequestIDField get request id field from context.Context
 func CtxRequestIDField(ctx context.Context) logger.Field {
-	return logger.String(ContextRequestIDKey, metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey))
+	return logger.String(string(logger.ContextKeyRequestID), metautils.ExtractOutgoing(ctx).Get(string(logger.ContextKeyRequestID)))
 }
 
 // ClientCtxRequestID get request id from rpc client context.Context
 func ClientCtxRequestID(ctx context.Context) string {
-	return metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey)
+	return metautils.ExtractOutgoing(ctx).Get(string(logger.ContextKeyRequestID))
 }
 
 // ClientCtxRequestIDField get request id field from rpc client context.Context
 func ClientCtxRequestIDField(ctx context.Context) logger.Field {
-	return logger.String(ContextRequestIDKey, metautils.ExtractOutgoing(ctx).Get(ContextRequestIDKey))
+	return logger.String(string(logger.ContextKeyRequestID), metautils.ExtractOutgoing(ctx).Get(string(logger.ContextKeyRequestID)))
 }
 
 // UnaryClientRequestID client-side request_id unary interceptor
@@ -57,7 +52,7 @@ func UnaryClientRequestID() grpc.UnaryClientInterceptor {
 		requestID := ClientCtxRequestID(ctx)
 		if requestID == "" {
 			requestID = krand.String(krand.R_NUM, 32)
-			ctx = metadata.AppendToOutgoingContext(ctx, ContextRequestIDKey, requestID)
+			ctx = metadata.AppendToOutgoingContext(ctx, string(logger.ContextKeyRequestID), requestID)
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
@@ -70,7 +65,7 @@ func StreamClientRequestID() grpc.StreamClientInterceptor {
 		requestID := ClientCtxRequestID(ctx)
 		if requestID == "" {
 			requestID = krand.String(krand.R_NUM, 32)
-			ctx = metadata.AppendToOutgoingContext(ctx, ContextRequestIDKey, requestID)
+			ctx = metadata.AppendToOutgoingContext(ctx, string(logger.ContextKeyRequestID), requestID)
 		}
 
 		return streamer(ctx, desc, cc, method, opts...)
@@ -87,7 +82,7 @@ type KV struct {
 
 // WrapServerCtx wrap context, used in grpc server-side
 func WrapServerCtx(ctx context.Context, kvs ...KV) context.Context {
-	ctx = context.WithValue(ctx, ContextRequestIDKey, metautils.ExtractIncoming(ctx).Get(ContextRequestIDKey)) //nolint
+	ctx = context.WithValue(ctx, logger.ContextKeyRequestID, metautils.ExtractIncoming(ctx).Get(string(logger.ContextKeyRequestID))) //nolint
 	for _, kv := range kvs {
 		ctx = context.WithValue(ctx, kv.Key, kv.Val) //nolint
 	}
@@ -96,12 +91,12 @@ func WrapServerCtx(ctx context.Context, kvs ...KV) context.Context {
 
 // ServerCtxRequestID get request id from rpc server context.Context
 func ServerCtxRequestID(ctx context.Context) string {
-	return metautils.ExtractIncoming(ctx).Get(ContextRequestIDKey)
+	return metautils.ExtractIncoming(ctx).Get(string(logger.ContextKeyRequestID))
 }
 
 // ServerCtxRequestIDField get request id field from rpc server context.Context
 func ServerCtxRequestIDField(ctx context.Context) logger.Field {
-	return logger.String(ContextRequestIDKey, metautils.ExtractIncoming(ctx).Get(ContextRequestIDKey))
+	return logger.String(string(logger.ContextKeyRequestID), metautils.ExtractIncoming(ctx).Get(string(logger.ContextKeyRequestID)))
 }
 
 // UnaryServerRequestID server-side request_id unary interceptor
@@ -110,7 +105,7 @@ func UnaryServerRequestID() grpc.UnaryServerInterceptor {
 		requestID := ServerCtxRequestID(ctx)
 		if requestID == "" {
 			requestID = krand.String(krand.R_NUM, 32)
-			ctx = metautils.ExtractIncoming(ctx).Add(ContextRequestIDKey, requestID).ToIncoming(ctx)
+			ctx = metautils.ExtractIncoming(ctx).Add(string(logger.ContextKeyRequestID), requestID).ToIncoming(ctx)
 		}
 
 		return handler(ctx, req)

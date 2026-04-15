@@ -31,7 +31,7 @@ func UnaryClientLog(opts ...LogOption) grpc.UnaryClientInterceptor {
 			logger.Any("request", req),
 		}
 		if requestID := ClientCtxRequestID(ctx); requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", o.logFrom+" invoker request UnaryClientLog"))
 		logger.InfoWithCtx(ctx, "invoker request", fields...)
@@ -49,7 +49,7 @@ func UnaryClientLog(opts ...LogOption) grpc.UnaryClientInterceptor {
 			fields = append(fields, logger.Err(err))
 		}
 		if requestID := ClientCtxRequestID(ctx); requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", o.logFrom+" invoker result UnaryClientLog"))
 		logger.InfoWithCtx(ctx, "invoker result", fields...)
@@ -81,7 +81,7 @@ func StreamClientLog(opts ...LogOption) grpc.StreamClientInterceptor {
 			fields = append(fields, logger.Err(err))
 		}
 		if requestID := ClientCtxRequestID(ctx); requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", "gw StreamClientLog"))
 		logger.InfoWithCtx(ctx, "invoker result", fields...)
@@ -186,7 +186,7 @@ func UnaryServerLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 			logger.Any("request", req),
 		}
 		if requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", o.logFrom+" <<<<"))
 		logger.InfoWithCtx(ctx, `grpc interceptor UnaryServerLog`, fields...)
@@ -208,7 +208,7 @@ func UnaryServerLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 			fields = append(fields, logger.Err(err))
 		}
 		if requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", o.logFrom+" >>>>"))
 		logger.InfoWithCtx(ctx, `grpc interceptor UnaryServerLog`, fields...)
@@ -248,7 +248,7 @@ func UnaryServerSimpleLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 			fields = append(fields, logger.Err(err))
 		}
 		if requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", o.logFrom+` [GRPC] UnaryServerSimpleLog`))
 		logger.InfoWithCtx(ctx, `[GRPC]`, fields...)
@@ -281,7 +281,7 @@ func StreamServerLog(opts ...LogOption) grpc.StreamServerInterceptor {
 			logger.String("method", info.FullMethod),
 		}
 		if requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", " <<<<"))
 
@@ -296,7 +296,7 @@ func StreamServerLog(opts ...LogOption) grpc.StreamServerInterceptor {
 			logger.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
 		}
 		if requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 		fields = append(fields, logger.String("log_from", o.logFrom+` >>>>`))
 		logger.InfoWithCtx(stream.Context(), `grpc interceptor StreamServerLog`, fields...)
@@ -333,7 +333,7 @@ func StreamServerSimpleLog(opts ...LogOption) grpc.StreamServerInterceptor {
 			logger.String("ms", fmt.Sprintf("%v", float64(time.Since(startTime).Nanoseconds())/1e6)),
 		}
 		if requestID != "" {
-			fields = append(fields, logger.String(ContextRequestIDKey, requestID))
+			fields = append(fields, logger.String(string(logger.ContextKeyRequestID), requestID))
 		}
 
 		fields = append(fields, logger.String("log_from", o.logFrom+` [GRPC] StreamServerSimpleLog`))

@@ -9,13 +9,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	mysqlDriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormLogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 	"gorm.io/plugin/dbresolver"
 
@@ -25,12 +25,12 @@ import (
 
 // combinedLogger combines normal logger and slow query logger
 type combinedLogger struct {
-	normalLogger logger.Interface
-	slowLogger   logger.Interface
+	normalLogger gormLogger.Interface
+	slowLogger   gormLogger.Interface
 }
 
 // LogMode log mode
-func (c *combinedLogger) LogMode(level logger.LogLevel) logger.Interface {
+func (c *combinedLogger) LogMode(level gormLogger.LogLevel) gormLogger.Interface {
 	return &combinedLogger{
 		normalLogger: c.normalLogger.LogMode(level),
 		slowLogger:   c.slowLogger.LogMode(level),
@@ -94,21 +94,21 @@ func gormConfig(o *options) *gorm.Config {
 	}
 
 	// print SQL
-	var logMode logger.Interface
+	var logMode gormLogger.Interface
 	if o.isLog {
 		logMode = glog.NewCustomGormLogger(o.requestIDKey, o.logLevel)
 	} else {
-		logMode = logger.Default.LogMode(logger.Silent)
+		logMode = gormLogger.Default.LogMode(gormLogger.Silent)
 	}
 
 	// add slow query logging if threshold is set
 	if o.slowThreshold > 0 {
-		slowLogger := logger.New(
+		slowLogger := gormLogger.New(
 			log.New(os.Stdout, "\r\n", log.LstdFlags), // use the standard output asWriter
-			logger.Config{
+			gormLogger.Config{
 				SlowThreshold: o.slowThreshold,
 				Colorful:      true,
-				LogLevel:      logger.Warn, // set the logging level, only above the specified level will output the slow query log
+				LogLevel:      gormLogger.Warn, // set the logging level, only above the specified level will output the slow query log
 			},
 		)
 		// Combine both loggers if both are needed
@@ -240,8 +240,8 @@ func enhanceSpanWithQueryInfo(ctx context.Context, db *gorm.DB, operation string
 		return
 	}
 
-	// 1. 提取 request_id（使用统一的 ContextRequestIDKey）
-	if reqID := ctx.Value(middleware.ContextRequestIDKey); reqID != nil {
+	// 1. 提取 request_id（使用 logger 统一的常量）
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			span.SetAttributes(attribute.String("request_id", reqIDStr))
 		}

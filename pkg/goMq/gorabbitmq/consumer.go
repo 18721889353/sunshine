@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
@@ -571,10 +570,12 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	defer span.End()
 
 	var reqIDStr string
-	if reqIDVal, ok := d.Headers[middleware.ContextRequestIDKey].(string); ok && reqIDVal != "" {
+	// 从 RabbitMQ headers 中读取 request_id（headers key 必须是 string 类型）
+	if reqIDVal, ok := d.Headers[string(logger.ContextKeyRequestID)].(string); ok && reqIDVal != "" {
 		reqIDStr = reqIDVal
 		span.SetAttributes(attribute.String("request_id", reqIDStr))
-		msgCtx = context.WithValue(msgCtx, middleware.ContextRequestIDKey, reqIDStr)
+		// 注入到 context 时使用 logger 统一的 ContextKey 类型，确保 logger 能正确提取
+		msgCtx = context.WithValue(msgCtx, logger.ContextKeyForRequestID(), reqIDStr)
 	}
 
 	tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")

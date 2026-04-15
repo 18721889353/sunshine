@@ -340,7 +340,7 @@ func extractContextFields(ctx context.Context) []Field {
 
 	// 提取 request_id (从 context value)
 	if reqID := getRequestIDFromCtx(ctx); reqID != "" {
-		fields = append(fields, String("request_id", reqID))
+		fields = append(fields, String(string(ContextKeyRequestID), reqID))
 	}
 
 	// 提取 trace_id (OpenTelemetry)
@@ -372,7 +372,7 @@ func getRequestIDFromCtx(ctx context.Context) string {
 
 	// 只使用 ContextKey 类型（与 middleware 注入的类型完全一致）
 	// 不再尝试 string 类型，避免重复
-	if v := ctx.Value(ContextKey("request_id")); v != nil {
+	if v := ctx.Value(ContextKeyRequestID); v != nil {
 		if reqID, ok := v.(string); ok && reqID != "" {
 			return reqID
 		}
@@ -384,10 +384,13 @@ func getRequestIDFromCtx(ctx context.Context) string {
 // ContextKey context key 类型 (供外部包使用)
 type ContextKey string
 
+// ContextKeyRequestID request_id 的 context key 常量
+const ContextKeyRequestID ContextKey = "request_id"
+
 // ContextKeyForRequestID 返回用于存储 request_id 的 context key
 // 供 middleware 包在注入 request_id 时使用，确保与 logger 包一致
 func ContextKeyForRequestID() ContextKey {
-	return "request_id"
+	return ContextKeyRequestID
 }
 
 // getTraceIDFromCtx 从 context 中获取 trace_id

@@ -408,7 +408,7 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			span.SetAttributes(attribute.String("request_id", reqIDStr))
 		}
@@ -459,9 +459,9 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
 
 	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			headersMap["request_id"] = reqIDStr
+			headersMap[string(logger.ContextKeyRequestID)] = reqIDStr
 		}
 	}
 
@@ -542,7 +542,7 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			span.SetAttributes(attribute.String("request_id", reqIDStr))
 		}
@@ -599,9 +599,9 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
 
 	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			headersMap["request_id"] = reqIDStr
+			headersMap[string(logger.ContextKeyRequestID)] = reqIDStr
 		}
 	}
 
@@ -683,7 +683,7 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			span.SetAttributes(attribute.String("request_id", reqIDStr))
 		}
@@ -733,9 +733,9 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
 
 	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			headersMap["request_id"] = reqIDStr
+			headersMap[string(logger.ContextKeyRequestID)] = reqIDStr
 		}
 	}
 
@@ -817,7 +817,7 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 	startTime := time.Now()
 
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			span.SetAttributes(attribute.String("request_id", reqIDStr))
 		}
@@ -868,9 +868,9 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
 
 	// 将 request_id 也注入到消息 Header，以便 Consumer 可以获取
-	if reqID := ctx.Value("request_id"); reqID != nil {
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			headersMap["request_id"] = reqIDStr
+			headersMap[string(logger.ContextKeyRequestID)] = reqIDStr
 		}
 	}
 

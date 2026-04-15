@@ -32,7 +32,7 @@ func userExampleServiceRouter(
 	fn := func(c *gin.Context) context.Context {
 		md := metadata.New(map[string]string{
 			// set metadata to be passed from http to rpc
-			middleware.ContextRequestIDKey: middleware.GCtxRequestID(c), // request_id
+			string(logger.ContextKeyRequestID): middleware.GCtxRequestID(c), // request_id
 			//middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey),  // authorization
 		})
 		return metadata.NewOutgoingContext(c.Request.Context(), md)

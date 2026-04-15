@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"google.golang.org/grpc/metadata"
 
@@ -754,7 +753,7 @@ func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), id, nil, "condition")
 	return nil
 }
@@ -796,7 +795,7 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只批量删除单条记录缓存 + 条件缓存，避免全量删除
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, ids, "condition")
 	return nil
 }
@@ -827,7 +826,7 @@ func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditi
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, nil, "all")
 	return nil
 }
@@ -854,7 +853,7 @@ func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64)
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), id, nil, "condition")
 	return nil
 }
@@ -892,7 +891,7 @@ func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []u
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只批量删除单条记录缓存 + 条件缓存，避免全量删除
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, ids, "condition")
 	return nil
 }
@@ -923,7 +922,7 @@ func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, nil, "all")
 	return nil
 }
@@ -964,7 +963,7 @@ func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExampl
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), table.ID, nil, "condition")
 	return nil
 }
@@ -999,7 +998,7 @@ func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditi
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, nil, "all")
 	return nil
 }
@@ -1023,7 +1022,7 @@ func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *mod
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), table.ID, nil, "condition")
 	return nil
 }
@@ -1058,7 +1057,7 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, nil, "all")
 	return nil
 }
@@ -1123,7 +1122,7 @@ func (d *userExampleDao) ExecByCustomFunc(ctx context.Context, updateFunc func(*
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：自定义函数可能影响任意数据，必须删除所有类型缓存
 	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		middleware.ContextRequestIDKey: interceptor.CtxRequestIDField(ctx).String,
+		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
 	})), 0, nil, "all")
 
 	return err

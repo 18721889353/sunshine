@@ -14,9 +14,6 @@ import (
 )
 
 var (
-	// ContextRequestIDKey request id for context
-	ContextRequestIDKey = "request_id"
-
 	// HeaderXRequestIDKey header request id key
 	HeaderXRequestIDKey = "X-Request-Id"
 )
@@ -32,7 +29,7 @@ type requestIDOptions struct {
 
 func defaultRequestIDOptions() *requestIDOptions {
 	return &requestIDOptions{
-		contextRequestIDKey: ContextRequestIDKey,
+		contextRequestIDKey: string(logger.ContextKeyRequestID),
 		headerXRequestIDKey: HeaderXRequestIDKey,
 	}
 }
@@ -44,9 +41,6 @@ func (o *requestIDOptions) apply(opts ...RequestIDOption) {
 }
 
 func (o *requestIDOptions) setRequestIDKey() {
-	if o.contextRequestIDKey != ContextRequestIDKey {
-		ContextRequestIDKey = o.contextRequestIDKey
-	}
 	if o.headerXRequestIDKey != HeaderXRequestIDKey {
 		HeaderXRequestIDKey = o.headerXRequestIDKey
 	}
@@ -82,7 +76,7 @@ func WithSnow(snow *snowflake.Node) RequestIDOption {
 type CtxKeyString string
 
 // RequestIDKey request_id
-var RequestIDKey = CtxKeyString(ContextRequestIDKey)
+var RequestIDKey = CtxKeyString(string(logger.ContextKeyRequestID))
 
 // -------------------------------------------------------------------------------------------
 
@@ -111,7 +105,7 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 		}
 
 		// Expose it for use in the application
-		c.Set(ContextRequestIDKey, requestID)
+		c.Set(string(logger.ContextKeyRequestID), requestID)
 
 		// Set X-Request-Id header
 		c.Writer.Header().Set(HeaderXRequestIDKey, requestID)
@@ -126,7 +120,7 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 
 // GCtxRequestID get request id from gin.Context
 func GCtxRequestID(c *gin.Context) string {
-	if v, isExist := c.Get(ContextRequestIDKey); isExist {
+	if v, isExist := c.Get(string(logger.ContextKeyRequestID)); isExist {
 		if requestID, ok := v.(string); ok {
 			return requestID
 		}
@@ -136,7 +130,7 @@ func GCtxRequestID(c *gin.Context) string {
 
 // GCtxRequestIDField get request id field from gin.Context
 func GCtxRequestIDField(c *gin.Context) zap.Field {
-	return zap.String(ContextRequestIDKey, GCtxRequestID(c))
+	return zap.String(string(logger.ContextKeyRequestID), GCtxRequestID(c))
 }
 
 // HeaderRequestID get request id from the header
@@ -156,8 +150,8 @@ var RequestHeaderKey = "request_header_key"
 
 // WrapCtx wrap context, put the Keys and Header of gin.Context into context
 func WrapCtx(c *gin.Context) context.Context {
-	ctx := context.WithValue(c.Request.Context(), logger.ContextKeyForRequestID(), c.GetString(ContextRequestIDKey)) //nolint
-	return context.WithValue(ctx, RequestHeaderKey, c.Request.Header)                                    //nolint
+	ctx := context.WithValue(c.Request.Context(), logger.ContextKeyForRequestID(), c.GetString(string(logger.ContextKeyRequestID))) //nolint
+	return context.WithValue(ctx, RequestHeaderKey, c.Request.Header)                                                                //nolint
 }
 
 // AdaptCtx adapt context, if ctx is gin.Context, return gin.Context and context of the transformation
@@ -176,7 +170,7 @@ func GetFromCtx(ctx context.Context, key string) interface{} {
 
 // CtxRequestID get request id from context.Context
 func CtxRequestID(ctx context.Context) string {
-	v := ctx.Value(ContextRequestIDKey)
+	v := ctx.Value(logger.ContextKeyRequestID)
 	if str, ok := v.(string); ok {
 		return str
 	}
@@ -185,7 +179,7 @@ func CtxRequestID(ctx context.Context) string {
 
 // CtxRequestIDField get request id field from context.Context
 func CtxRequestIDField(ctx context.Context) zap.Field {
-	return zap.String(ContextRequestIDKey, CtxRequestID(ctx))
+	return zap.String(string(logger.ContextKeyRequestID), CtxRequestID(ctx))
 }
 
 // GetFromHeader get value from header

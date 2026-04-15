@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -138,8 +138,8 @@ func enhanceRedisSpan(ctx context.Context, cmd redis.Cmder) {
 
 // setRequestIDToRedisSpan 从 Context 提取 request_id 并设置到当前 Span 属性
 func setRequestIDToRedisSpan(ctx context.Context) {
-	// 从 Context 中提取 request_id（使用统一的 ContextRequestIDKey）
-	if reqID := ctx.Value(middleware.ContextRequestIDKey); reqID != nil {
+	// 从 Context 中提取 request_id（使用 logger 统一的常量）
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			// 获取当前 Span 并设置属性
 			if span := trace.SpanFromContext(ctx); span.IsRecording() {

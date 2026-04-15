@@ -10,6 +10,7 @@ import (
 	"github.com/18721889353/sunshine/internal/database"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 
@@ -224,7 +225,7 @@ func MyCtx(c *gin.Context) context.Context {
 	md := metadata.New(map[string]string{
 		"clientIP": clientIP,
 		// set metadata to be passed from http to rpc
-		middleware.ContextRequestIDKey:    middleware.GCtxRequestID(c),                    // request_id
+		string(logger.ContextKeyRequestID): middleware.GCtxRequestID(c),                    // request_id
 		middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey), // authorization
 	})
 	return metadata.NewOutgoingContext(ctx, md)
