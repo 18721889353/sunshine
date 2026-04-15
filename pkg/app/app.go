@@ -54,7 +54,7 @@ func (a *App) Run() {
 	for _, server := range a.servers {
 		s := server
 		eg.Go(func() error {
-			fmt.Println(s.String()) // 打印服务名称
+			logger.InfoWithCtx(initCtx, s.String()) // 记录服务启动信息
 			writePIDToFile(s.String())
 			return s.Start() // 启动服务
 		})
@@ -84,7 +84,7 @@ func (a *App) watch(ctx context.Context) error {
 			return ctx.Err() // 返回上下文的错误
 
 		case sigType := <-sig: // 系统通知信号
-			fmt.Printf("收到系统通知信号: %s\n", sigType.String()) // 打印接收到的信号
+			logger.InfoWithCtx(initCtx, "收到系统通知信号", logger.String("signal", sigType.String())) // 记录接收到的信号
 
 			writePIDToFile(fmt.Sprintf("收到系统通知信号: %s", sigType.String()))
 			switch sigType {
@@ -94,7 +94,7 @@ func (a *App) watch(ctx context.Context) error {
 				if err := a.stop(); err != nil {
 					return err // 如果停止服务时出错，返回错误
 				}
-				fmt.Println("应用已成功停止") // 打印停止成功的消息
+				logger.InfoWithCtx(initCtx, "应用已成功停止") // 记录停止成功的消息
 				writePIDToFile(fmt.Sprintf("结束时间%v 应用已成功停止", time.Now().Format(time.DateTime)))
 				return nil
 			}

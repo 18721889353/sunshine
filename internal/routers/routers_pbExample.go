@@ -232,8 +232,8 @@ func MyCtx(c *gin.Context) context.Context {
 	//ctx = metadata.NewIncomingContext(ctx, md)
 	////return ctx
 	//ctx = context.WithValue(ctx, "clientIP", clientIP)
-	//ctx = context.WithValue(ctx, middleware.ContextRequestIDKey, c.GetString(middleware.ContextRequestIDKey))
-	//dump.P(metautils.ExtractOutgoing(ctx).Get(middleware.HeaderAuthorizationKey), ctx.Value("clientIP"), ctx.Value(middleware.ContextRequestIDKey), ctx.Value(middleware.HeaderAuthorizationKey))
+	//ctx = context.WithValue(ctx, string(logger.ContextKeyRequestID), c.GetString(string(logger.ContextKeyRequestID)))
+	//dump.P(metautils.ExtractOutgoing(ctx).Get(middleware.HeaderAuthorizationKey), ctx.Value("clientIP"), ctx.Value(string(logger.ContextKeyRequestID)), ctx.Value(middleware.HeaderAuthorizationKey))
 	//// 赋值到ctx
 	//return context.WithValue(ctx, middleware.HeaderAuthorizationKey, c.GetHeader(middleware.HeaderAuthorizationKey))
 }

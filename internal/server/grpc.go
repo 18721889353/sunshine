@@ -87,7 +87,7 @@ func (s *grpcServer) Start() error {
 			IdleTimeout: time.Second * 60, //当 HTTP 连接在 60 秒内没有任何活动时，服务器将主动关闭该连接
 		}
 		go func() {
-			fmt.Printf("http address of pprof and metrics %s\n", addr)
+			logger.InfoWithCtx(context.Background(), "http address of pprof and metrics", logger.String("address", addr))
 			if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				panic("listen and serve error: " + err.Error())
 			}

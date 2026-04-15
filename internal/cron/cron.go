@@ -1,9 +1,10 @@
 package cron
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/18721889353/sunshine/pkg/gocron"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (
@@ -25,6 +26,6 @@ func GetTasks() []*gocron.Task {
 	for _, task := range taskRegistry {
 		tasks = append(tasks, task)
 	}
-	fmt.Println("GetTasks:", tasks)
+	logger.InfoWithCtx(context.Background(), "GetTasks", logger.Int("count", len(tasks)))
 	return tasks
 }

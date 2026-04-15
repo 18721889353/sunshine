@@ -55,7 +55,7 @@ package tasks
 //		s.isRunning = false
 //	}()
 //	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-//		middleware.ContextRequestIDKey: database.GetSnowId().String(),
+//		string(logger.ContextKeyRequestID): database.GetSnowId().String(),
 //	}))
 //	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 //	defer cancel()
