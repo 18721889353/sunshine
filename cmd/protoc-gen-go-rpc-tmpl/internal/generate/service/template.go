@@ -77,6 +77,35 @@ func New{{.Name}}Server() {{.ProtoPkgName}}.{{.Name}}Server {
 	}
 }
 
+// trace 耗时监控装饰器
+// 标准实践：所有关键业务操作都应该有耗时监控
+// 参数:
+//   - ctx: 上下文对象，用于日志记录
+//   - name: 操作名称，用于日志标识（建议使用 "模块名:操作名" 格式）
+//   - fn: 要执行的业务逻辑函数
+// 返回:
+//   - error: 业务逻辑函数的返回值，原样返回
+func (s *{{.LowerName}}) trace(ctx context.Context, name string, fn func() error) error {
+	startTime := time.Now()
+	err := fn()
+	duration := time.Since(startTime)
+
+	// 构建日志字段
+	fields := []zap.Field{
+		zap.String("duration", duration.String()),
+		zap.Int64("ms", duration.Milliseconds()),
+	}
+
+	// 根据执行结果记录不同级别的日志
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+		logger.WarnWithCtx(ctx, name+"(失败)", fields...)
+	} else {
+		logger.InfoWithCtx(ctx, name+"(成功)", fields...)
+	}
+	return err
+}
+
 {{- range .Methods}}
 {{if eq .InvokeType 1}}
 {{.Comment}}
@@ -201,30 +230,44 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 {{.Comment}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (resp *{{.ReplyImportPkgName}}.{{.Reply}}, err error) {
 	panic("{{.Prompt}}")
-	//logger.InfoWithCtx(ctx, "数据验证", logger.Any("body", req))
-	//{
-	//	err = req.Validate()
-	//	if err != nil {
-	//		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err))
-	//		return nil, ecode.StatusInvalidParams.Err(err.Error())
-	//	}
-	//}
-    //
-	//     reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{
-				{{- range .RequestFields}}
-	//     	{{.Name}}: req.{{.Name}},
-				{{- end}}
-	//     })
-	//     if err != nil {
-	//			logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Err(err))
-	//			return nil, ecode.StatusInternalServerError.Err()
-	//		}
-	//
-	//     return &{{.ReplyImportPkgName}}.{{.Reply}}{
-				{{- range .ReplyFields}}
-	//     	{{.Name}}: reply.{{.Name}},
-				{{- end}}
-	//     }, nil
+	
+	//// ========== 步骤 1: 耗时监控（trace 装饰器） ==========
+	//// 标准实践：所有关键业务操作都应该有耗时监控
+	// err = s.trace(ctx, "{{.MethodName}}", func() error {
+		//// ========== 步骤 2: 参数验证 ==========
+		// logger.InfoWithCtx(ctx, "数据验证", logger.Any("body", req))
+		// {
+		// 	err = req.Validate()
+		// 	if err != nil {
+		// 		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err))
+		// 		return ecode.StatusInvalidParams.Err(err.Error())
+		// 	}
+		// }
+		
+		//// ========== 步骤 3: 分布式锁（保证幂等性） ==========
+		//// 标准：所有写操作必须使用分布式锁防止重复处理
+		// lockKey := "LockKey:{{.MethodName}}:" + cast.ToString("id")
+		// expiry := time.Second * 5
+		// err = s.iCache.WatchDogLock(ctx, lockKey, expiry,
+		// 	func(ctx context.Context) error {
+		//// 在锁保护下执行业务逻辑
+
+		// 		resp = &{{.ReplyImportPkgName}}.{{.Reply}}{
+						{{- range .ReplyFields}}
+		// 			{{.Name}}: reply.{{.Name}},
+						{{- end}}
+		// 		}
+		// 		return nil
+		// 	},
+		// 	redsync.WithExpiry(expiry),
+		// )
+		// if err != nil {
+		// 	logger.WarnWithCtx(ctx, "获取分布式锁失败", zap.Error(err))
+		// 	return ecode.StatusResourceExhausted.Err("系统繁忙，请稍后重试")
+		// }
+		// return nil
+	// })
+		//return
 }
 {{end}}
 {{- end}}
