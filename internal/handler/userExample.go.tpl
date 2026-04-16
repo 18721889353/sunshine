@@ -58,7 +58,7 @@ func (h *{{.TableNameCamelFCL}}Handler) Create(c *gin.Context) {
 	form := &types.Create{{.TableNameCamel}}Request{}
 	err := c.ShouldBindJSON(form)
 	if err != nil {
-		logger.WarnWithCtx(middleware.WrapCtx(c), "ShouldBindJSON error: ", logger.Err(err))
+		logger.WarnWithCtx(c.Request.Context(), "ShouldBindJSON error: ", logger.Err(err))
 		response.Error(c, ecode.InvalidParams)
 		return
 	}
@@ -74,7 +74,7 @@ func (h *{{.TableNameCamelFCL}}Handler) Create(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	err = h.iDao.Create(ctx, {{.TableNameCamelFCL}})
 	if err != nil {
-		logger.ErrorWithCtx(middleware.WrapCtx(c), "Create error", logger.Err(err), logger.Any("form", form))
+		logger.ErrorWithCtx(ctx, "Create error", logger.Err(err), logger.Any("form", form))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -102,7 +102,7 @@ func (h *{{.TableNameCamelFCL}}Handler) DeleteBy{{.ColumnNameCamel}}(c *gin.Cont
 	ctx := middleware.WrapCtx(c)
 	err := h.iDao.DeleteBy{{.ColumnNameCamel}}(ctx, {{.ColumnNameCamelFCL}})
 	if err != nil {
-		logger.ErrorWithCtx(middleware.WrapCtx(c), "DeleteBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
+		logger.ErrorWithCtx(ctx, "DeleteBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -131,7 +131,7 @@ func (h *{{.TableNameCamelFCL}}Handler) UpdateBy{{.ColumnNameCamel}}(c *gin.Cont
 	form := &types.Update{{.TableNameCamel}}By{{.ColumnNameCamel}}Request{}
 	err := c.ShouldBindJSON(form)
 	if err != nil {
-		logger.WarnWithCtx(middleware.WrapCtx(c), "ShouldBindJSON error: ", logger.Err(err))
+		logger.WarnWithCtx(c.Request.Context(), "ShouldBindJSON error: ", logger.Err(err))
 		response.Error(c, ecode.InvalidParams)
 		return
 	}
@@ -148,7 +148,7 @@ func (h *{{.TableNameCamelFCL}}Handler) UpdateBy{{.ColumnNameCamel}}(c *gin.Cont
 	ctx := middleware.WrapCtx(c)
 	err = h.iDao.UpdateBy{{.ColumnNameCamel}}(ctx, {{.TableNameCamelFCL}})
 	if err != nil {
-		logger.ErrorWithCtx(middleware.WrapCtx(c), "UpdateBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("form", form))
+		logger.ErrorWithCtx(ctx, "UpdateBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("form", form))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -177,10 +177,10 @@ func (h *{{.TableNameCamelFCL}}Handler) GetBy{{.ColumnNameCamel}}(c *gin.Context
 	{{.TableNameCamelFCL}}, err := h.iDao.GetBy{{.ColumnNameCamel}}(ctx, {{.ColumnNameCamelFCL}})
 	if err != nil {
 		if errors.Is(err, database.ErrRecordNotFound) {
-			logger.WarnWithCtx(middleware.WrapCtx(c), "GetBy{{.ColumnNameCamel}} not found", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
+			logger.WarnWithCtx(ctx, "GetBy{{.ColumnNameCamel}} not found", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
 			response.Error(c, ecode.NotFound)
 		} else {
-			logger.ErrorWithCtx(middleware.WrapCtx(c), "GetBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
+			logger.ErrorWithCtx(ctx, "GetBy{{.ColumnNameCamel}} error", logger.Err(err), logger.Any("{{.ColumnNameCamelFCL}}", {{.ColumnNameCamelFCL}}))
 			response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		}
 		return
@@ -211,7 +211,7 @@ func (h *{{.TableNameCamelFCL}}Handler) List(c *gin.Context) {
 	form := &types.List{{.TableNamePluralCamel}}Request{}
 	err := c.ShouldBindJSON(form)
 	if err != nil {
-		logger.WarnWithCtx(middleware.WrapCtx(c), "ShouldBindJSON error: ", logger.Err(err))
+		logger.WarnWithCtx(c.Request.Context(), "ShouldBindJSON error: ", logger.Err(err))
 		response.Error(c, ecode.InvalidParams)
 		return
 	}
@@ -219,7 +219,7 @@ func (h *{{.TableNameCamelFCL}}Handler) List(c *gin.Context) {
 	ctx := middleware.WrapCtx(c)
 	{{.TableNamePluralCamelFCL}}, total, err := h.iDao.GetByColumns(ctx, &form.Params)
 	if err != nil {
-		logger.ErrorWithCtx(middleware.WrapCtx(c), "GetByColumns error", logger.Err(err), logger.Any("form", form))
+		logger.ErrorWithCtx(ctx, "GetByColumns error", logger.Err(err), logger.Any("form", form))
 		response.Output(c, ecode.InternalServerError.ToHTTPCode())
 		return
 	}
@@ -240,14 +240,14 @@ func get{{.TableNameCamel}}{{.ColumnNameCamel}}FromPath(c *gin.Context) ({{.GoTy
 	{{.ColumnNameCamelFCL}}Str := c.Param("{{.ColumnNameCamelFCL}}")
 {{if .IsStringType}}
 	if {{.ColumnNameCamelFCL}}Str == "" {
-		logger.WarnWithCtx(middleware.WrapCtx(c), "{{.ColumnNameCamelFCL}} is empty")
+		logger.WarnWithCtx(c.Request.Context(), "{{.ColumnNameCamelFCL}} is empty")
 		return "", true
 	}
 	return {{.ColumnNameCamelFCL}}Str, false
 {{else}}
 	{{.ColumnNameCamelFCL}}, err := utils.StrTo{{.GoTypeFCU}}E({{.ColumnNameCamelFCL}}Str)
 	if err != nil || {{.ColumnNameCamelFCL}}Str == "" {
-		logger.WarnWithCtx(middleware.WrapCtx(c), "StrTo{{.GoTypeFCU}}E error: ", logger.String("{{.ColumnNameCamelFCL}}Str", {{.ColumnNameCamelFCL}}Str))
+		logger.WarnWithCtx(c.Request.Context(), "StrTo{{.GoTypeFCU}}E error: ", logger.String("{{.ColumnNameCamelFCL}}Str", {{.ColumnNameCamelFCL}}Str))
 		return 0, true
 	}
 	return {{.ColumnNameCamelFCL}}, false

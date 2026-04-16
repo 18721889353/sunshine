@@ -77,7 +77,7 @@ func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req 
 	// example:
 	//	    {{if .IsIgnoreShouldBind}}c, ctx := middleware.AdaptCtx(ctx)
 	//	    if err = c.ShouldBindJSON(req); err != nil {
-	//	    	logger.WarnWithCtx(ctx, "ShouldBindJSON error", logger.Error(err))
+	//	    	logger.WarnWithCtx(ctx, "ShouldBindJSON error", logger.Err(err))
 	//	    	return nil, ecode.InvalidParams.Err()
 	//	    }{{else}}{{if .IsPassGinContext}}c, ctx := middleware.AdaptCtx(ctx){{end}}{{end}}
 	//	    err := req.Validate()

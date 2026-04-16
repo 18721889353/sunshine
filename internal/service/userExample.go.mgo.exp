@@ -51,7 +51,7 @@ func NewUserExampleServer() serverNameExampleV1.UserExampleServer {
 func (s *userExample) Create(ctx context.Context, req *serverNameExampleV1.CreateUserExampleRequest) (*serverNameExampleV1.CreateUserExampleReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
@@ -65,7 +65,7 @@ func (s *userExample) Create(ctx context.Context, req *serverNameExampleV1.Creat
 
 	err = s.iDao.Create(ctx, record)
 	if err != nil {
-		logger.Error("Create error", logger.Err(err), logger.Any("userExample", record), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "Create error", logger.Err(err), logger.Any("userExample", record))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -76,14 +76,14 @@ func (s *userExample) Create(ctx context.Context, req *serverNameExampleV1.Creat
 func (s *userExample) DeleteByID(ctx context.Context, req *serverNameExampleV1.DeleteUserExampleByIDRequest) (*serverNameExampleV1.DeleteUserExampleByIDReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
 
 	err = s.iDao.DeleteByID(ctx, req.Id)
 	if err != nil {
-		logger.Error("DeleteByID error", logger.Err(err), logger.Any("id", req.Id), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "DeleteByID error", logger.Err(err), logger.Any("id", req.Id))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -94,7 +94,7 @@ func (s *userExample) DeleteByID(ctx context.Context, req *serverNameExampleV1.D
 func (s *userExample) UpdateByID(ctx context.Context, req *serverNameExampleV1.UpdateUserExampleByIDRequest) (*serverNameExampleV1.UpdateUserExampleByIDReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
@@ -109,7 +109,7 @@ func (s *userExample) UpdateByID(ctx context.Context, req *serverNameExampleV1.U
 
 	err = s.iDao.UpdateByID(ctx, record)
 	if err != nil {
-		logger.Error("UpdateByID error", logger.Err(err), logger.Any("userExample", record), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "UpdateByID error", logger.Err(err), logger.Any("userExample", record))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -120,7 +120,7 @@ func (s *userExample) UpdateByID(ctx context.Context, req *serverNameExampleV1.U
 func (s *userExample) GetByID(ctx context.Context, req *serverNameExampleV1.GetUserExampleByIDRequest) (*serverNameExampleV1.GetUserExampleByIDReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
@@ -128,16 +128,16 @@ func (s *userExample) GetByID(ctx context.Context, req *serverNameExampleV1.GetU
 	record, err := s.iDao.GetByID(ctx, req.Id)
 	if err != nil {
 		if errors.Is(err, database.ErrRecordNotFound) {
-			logger.Warn("GetByID error", logger.Err(err), logger.Any("id", req.Id), interceptor.ServerCtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "GetByID error", logger.Err(err), logger.Any("id", req.Id))
 			return nil, ecode.StatusNotFound.Err()
 		}
-		logger.Error("GetByID error", logger.Err(err), logger.Any("id", req.Id), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "GetByID error", logger.Err(err), logger.Any("id", req.Id))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
 	data, err := convertUserExample(record)
 	if err != nil {
-		logger.Warn("convertUserExample error", logger.Err(err), logger.Any("userExample", record), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "convertUserExample error", logger.Err(err), logger.Any("userExample", record))
 		return nil, ecode.StatusGetByIDUserExample.Err()
 	}
 
@@ -148,7 +148,7 @@ func (s *userExample) GetByID(ctx context.Context, req *serverNameExampleV1.GetU
 func (s *userExample) List(ctx context.Context, req *serverNameExampleV1.ListUserExampleRequest) (*serverNameExampleV1.ListUserExampleReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
@@ -163,10 +163,10 @@ func (s *userExample) List(ctx context.Context, req *serverNameExampleV1.ListUse
 	records, total, err := s.iDao.GetByColumns(ctx, params)
 	if err != nil {
 		if strings.Contains(err.Error(), "query params error:") {
-			logger.Warn("GetByColumns error", logger.Err(err), logger.Any("params", params), interceptor.ServerCtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "GetByColumns error", logger.Err(err), logger.Any("params", params))
 			return nil, ecode.StatusInvalidParams.Err()
 		}
-		logger.Error("GetByColumns error", logger.Err(err), logger.Any("params", params), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "GetByColumns error", logger.Err(err), logger.Any("params", params))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -174,7 +174,7 @@ func (s *userExample) List(ctx context.Context, req *serverNameExampleV1.ListUse
 	for _, record := range records {
 		data, err := convertUserExample(record)
 		if err != nil {
-			logger.Warn("convertUserExample error", logger.Err(err), logger.Any("id", record.ID), interceptor.ServerCtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "convertUserExample error", logger.Err(err), logger.Any("id", record.ID))
 			continue
 		}
 		userExamples = append(userExamples, data)
@@ -190,14 +190,14 @@ func (s *userExample) List(ctx context.Context, req *serverNameExampleV1.ListUse
 func (s *userExample) DeleteByIDs(ctx context.Context, req *serverNameExampleV1.DeleteUserExampleByIDsRequest) (*serverNameExampleV1.DeleteUserExampleByIDsReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
 
 	err = s.iDao.DeleteByIDs(ctx, req.Ids)
 	if err != nil {
-		logger.Error("DeleteByID error", logger.Err(err), logger.Any("ids", req.Ids), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "DeleteByID error", logger.Err(err), logger.Any("ids", req.Ids))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -208,7 +208,7 @@ func (s *userExample) DeleteByIDs(ctx context.Context, req *serverNameExampleV1.
 func (s *userExample) GetByCondition(ctx context.Context, req *serverNameExampleV1.GetUserExampleByConditionRequest) (*serverNameExampleV1.GetUserExampleByConditionReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
@@ -221,23 +221,23 @@ func (s *userExample) GetByCondition(ctx context.Context, req *serverNameExample
 	}
 	err = conditions.CheckValid()
 	if err != nil {
-		logger.Warn("Parameters error", logger.Err(err), logger.Any("conditions", conditions), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "Parameters error", logger.Err(err), logger.Any("conditions", conditions))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 
 	record, err := s.iDao.GetByCondition(ctx, conditions)
 	if err != nil {
 		if errors.Is(err, database.ErrRecordNotFound) {
-			logger.Warn("GetByCondition error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "GetByCondition error", logger.Err(err), logger.Any("req", req))
 			return nil, ecode.StatusNotFound.Err()
 		}
-		logger.Error("GetByCondition error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "GetByCondition error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
 	data, err := convertUserExample(record)
 	if err != nil {
-		logger.Warn("convertUserExample error", logger.Err(err), logger.Any("userExample", record), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "convertUserExample error", logger.Err(err), logger.Any("userExample", record))
 		return nil, ecode.StatusGetByConditionUserExample.Err()
 	}
 
@@ -250,14 +250,14 @@ func (s *userExample) GetByCondition(ctx context.Context, req *serverNameExample
 func (s *userExample) ListByIDs(ctx context.Context, req *serverNameExampleV1.ListUserExampleByIDsRequest) (*serverNameExampleV1.ListUserExampleByIDsReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.ServerCtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	ctx = interceptor.WrapServerCtx(ctx)
 
 	userExampleMap, err := s.iDao.GetByIDs(ctx, req.Ids)
 	if err != nil {
-		logger.Error("GetByIDs error", logger.Err(err), logger.Any("ids", req.Ids), interceptor.ServerCtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "GetByIDs error", logger.Err(err), logger.Any("ids", req.Ids))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -266,7 +266,7 @@ func (s *userExample) ListByIDs(ctx context.Context, req *serverNameExampleV1.Li
 		if v, ok := userExampleMap[id]; ok {
 			record, err := convertUserExample(v)
 			if err != nil {
-				logger.Warn("convertUserExample error", logger.Err(err), logger.Any("userExample", v), interceptor.ServerCtxRequestIDField(ctx))
+				logger.WarnWithCtx(ctx, "convertUserExample error", logger.Err(err), logger.Any("userExample", v))
 				return nil, ecode.StatusInternalServerError.ToRPCErr()
 			}
 			userExamples = append(userExamples, record)
@@ -280,7 +280,7 @@ func (s *userExample) ListByIDs(ctx context.Context, req *serverNameExampleV1.Li
 func (s *userExample) ListByLastID(ctx context.Context, req *serverNameExampleV1.ListUserExampleByLastIDRequest) (*serverNameExampleV1.ListUserExampleByLastIDReply, error) {
 	err := req.Validate()
 	if err != nil {
-		logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), interceptor.CtxRequestIDField(ctx))
+		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 		return nil, ecode.StatusInvalidParams.Err()
 	}
 	if req.LastID == "" {
@@ -292,7 +292,7 @@ func (s *userExample) ListByLastID(ctx context.Context, req *serverNameExampleV1
 
 	records, err := s.iDao.GetByLastID(ctx, req.LastID, int(req.Limit), req.Sort)
 	if err != nil {
-		logger.Error("ListByLastID error", logger.Err(err), interceptor.CtxRequestIDField(ctx))
+		logger.ErrorWithCtx(ctx, "ListByLastID error", logger.Err(err))
 		return nil, ecode.StatusInternalServerError.ToRPCErr()
 	}
 
@@ -300,7 +300,7 @@ func (s *userExample) ListByLastID(ctx context.Context, req *serverNameExampleV1
 	for _, record := range records {
 		data, err := convertUserExample(record)
 		if err != nil {
-			logger.Warn("convertUserExample error", logger.Err(err), logger.Any("id", record.ID), interceptor.ServerCtxRequestIDField(ctx))
+			logger.WarnWithCtx(ctx, "convertUserExample error", logger.Err(err), logger.Any("id", record.ID))
 			continue
 		}
 		userExamples = append(userExamples, data)

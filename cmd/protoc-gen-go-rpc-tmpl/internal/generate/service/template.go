@@ -101,7 +101,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//
 	//	        err = req.Validate()
 	//	        if err != nil {
-	//		        logger.WarnWithCtx(ctx, "req.Validate error", logger.Error(err), logger.Any("body", req))
+	//		        logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("body", req))
 	//		        return ecode.StatusInvalidParams.Err()
 	//	        }
 	//
@@ -111,7 +111,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 				    {{- end}}
 	//         })
 	//	        if err != nil {
-	//			    logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Error(err))
+	//			    logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Err(err))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//	    }
@@ -126,7 +126,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 	//	    ctx := interceptor.WrapServerCtx(stream.Context())
 	//	    err := req.Validate()
 	//	    if err != nil {
-	//		    logger.WarnWithCtx(ctx, "req.Validate error", logger.Error(err), logger.Any("body", req))
+	//		    logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("body", req))
 	//		    return ecode.StatusInvalidParams.Err()
 	//	    }
 	//
@@ -137,7 +137,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 				    {{- end}}
 	//         })
 	//         if err != nil {
-	//			    logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Error(err))
+	//			    logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Err(err))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//
@@ -147,7 +147,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(req *{{.RequestImportPkgName}}.{
 				    {{- end}}
 	//	        })
 	//	        if err != nil {
-	//			    logger.WarnWithCtx(ctx, "stream.Send error", logger.Error(err))
+	//			    logger.WarnWithCtx(ctx, "stream.Send error", logger.Err(err))
 	//	    	    return err
 	//	        }
 	//	    }
@@ -172,7 +172,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 	//
 	//	        err = req.Validate()
 	//	        if err != nil {
-	//		        logger.WarnWithCtx(ctx, "req.Validate error", logger.Error(err), logger.Any("body", req))
+	//		        logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("body", req))
 	//		        return ecode.StatusInvalidParams.Err()
 	//	        }
 	//
@@ -182,7 +182,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 				    {{- end}}
 	//         })
 	//         if err != nil {
-	//			    logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Error(err))
+	//			    logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Err(err))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//
@@ -192,7 +192,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 				    {{- end}}
 	//	    	})
 	//         if err != nil {
-	//			    logger.WarnWithCtx(ctx, "stream.Send error", logger.Error(err))
+	//			    logger.WarnWithCtx(ctx, "stream.Send error", logger.Err(err))
 	//			    return ecode.StatusInternalServerError.Err()
 	//		    }
 	//	    }
@@ -215,7 +215,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//{
 	//	err = req.Validate()
 	//	if err != nil {
-	//		logger.WarnWithCtx(ctx, "req.Validate error", logger.Error(err))
+	//		logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err))
 	//		return nil, ecode.StatusInvalidParams.Err(err.Error())
 	//	}
 	//}
@@ -226,7 +226,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 				{{- end}}
 	//     })
 	//     if err != nil {
-	//			logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Error(err))
+	//			logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Err(err))
 	//			return nil, ecode.StatusInternalServerError.Err()
 	//		}
 	//
