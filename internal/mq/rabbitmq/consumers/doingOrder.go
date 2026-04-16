@@ -9,6 +9,8 @@ import (
 	"runtime/debug"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
 
@@ -26,21 +28,21 @@ import (
 
 // init 包初始化函数
 // 在包被导入时自动执行，用于注册消费者到全局注册表
-// 
-// 大厂标准实践：
+//
+// 标准实践：
 // 1. 使用 init 函数自动注册消费者，避免手动注册的遗漏
 // 2. 消费者名称应该具有唯一性和可读性
 // 3. HandleMessage 方法是消费者的核心处理逻辑
 func init() {
 	// 实例化订单消费者对象
 	oc := &orderConsumer{}
-	
+
 	// 创建基础消费者，传入消费者名称和消息处理函数
 	oc.BaseConsumer = gorabbitmqConsumer.NewBaseConsumer(
 		"doingOrderMqConsumer", // 消费者名称，用于日志和监控标识
 		oc.HandleMessage,       // 消息处理函数
 	)
-	
+
 	// 注册到全局注册表（mq.go 中的 registry）
 	// 这样在应用启动时，所有注册的消费者会自动启动
 	mq.RegisterConsumer(oc)
@@ -74,16 +76,17 @@ func (b *OrderMQParam) Validate() error {
 // orderConsumer 订单消费者结构体
 // 继承 BaseConsumer，实现订单消息的具体处理逻辑
 type orderConsumer struct {
-	*gorabbitmqConsumer.BaseConsumer // 嵌入基础消费者，复用通用功能
-	iUserExampleDao dao.UserExampleDao      // 数据访问对象（示例）
-	iCache          cache.UserExampleCache  // 缓存对象（用于分布式锁）
-	httpClient      *httpcli.Client         // HTTP 客户端（预留，可用于调用外部服务）
+	*gorabbitmqConsumer.BaseConsumer                        // 嵌入基础消费者，复用通用功能
+	iUserExampleDao                  dao.UserExampleDao     // 数据访问对象（示例）
+	iCache                           cache.UserExampleCache // 缓存对象（用于分布式锁）
+	httpClient                       *httpcli.Client        // HTTP 客户端（预留，可用于调用外部服务）
 }
 
 // Start 启动订单消费者
 // 初始化消费者所需的依赖组件，并启动消费流程
 // 参数:
 //   - ctx: 上下文对象，用于控制启动过程的生命周期
+//
 // 返回:
 //   - error: 启动过程中的错误，包括连接错误、配置错误等
 func (s *orderConsumer) Start(ctx context.Context) error {
@@ -101,15 +104,17 @@ func (s *orderConsumer) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf(s.Name()+":get connection error: %w", err)
 	}
-	
+
 	// 4. 调用基础消费者的 Start 方法，开始消费消息
 	return s.BaseConsumer.Start(ctx, conn, config.Get().Rabbitmq.DoingOrder)
 }
+
 // getErrorWithLine 获取带文件位置信息的错误
 // 用于在错误信息中包含出错的文件名和行号，便于快速定位问题
 // 参数:
 //   - err: 原始错误对象
 //   - params: 可选的参数 map，会被序列化为 JSON 附加到错误信息中
+//
 // 返回:
 //   - error: 包装后的错误，包含文件位置、参数信息和原始错误
 func (s *orderConsumer) getErrorWithLine(err error, params ...map[string]any) error {
@@ -126,11 +131,12 @@ func (s *orderConsumer) getErrorWithLine(err error, params ...map[string]any) er
 
 // trace 耗时监控装饰器
 // 包裹业务逻辑函数，自动记录执行时间和成功/失败状态
-// 大厂标准实践：所有关键业务操作都应该有耗时监控
+// 标准实践：所有关键业务操作都应该有耗时监控
 // 参数:
 //   - ctx: 上下文对象，用于日志记录
 //   - name: 操作名称，用于日志标识（建议使用 "模块名:操作名" 格式）
 //   - fn: 要执行的业务逻辑函数
+//
 // 返回:
 //   - error: 业务逻辑函数的返回值，原样返回
 func (s *orderConsumer) trace(ctx context.Context, name string, fn func() error) error {
@@ -157,7 +163,7 @@ func (s *orderConsumer) trace(ctx context.Context, name string, fn func() error)
 // HandleMessage 处理订单消息的核心方法
 // 这是 MQ 消费者的入口函数，由底层框架调用
 //
-// 大厂标准处理流程：
+// 标准处理流程：
 // 1. 初始化 Context（注入 RequestID，用于全链路追踪）
 // 2. 注册 Panic 恢复机制（防止单个消息异常导致消费者崩溃）
 // 3. 使用 trace 装饰器包裹业务逻辑（自动记录耗时）
@@ -170,6 +176,7 @@ func (s *orderConsumer) trace(ctx context.Context, name string, fn func() error)
 //   - data: 消息体字节数组（JSON 格式）
 //   - messageId: 消息 ID，用作 RequestID 和幂等性标识
 //   - tagID: 消息标签 ID，用于调试和追踪
+//
 // 返回:
 //   - err: 处理错误，如果返回非 nil 错误，消息会被重新投递或进入死信队列
 func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageId, tagID string) (err error) {
@@ -182,7 +189,7 @@ func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageI
 	var orderSn string // 订单号，用于后续日志记录和分布式锁
 
 	// ========== 步骤 2: 统一处理收尾工作（Panic 恢复） ==========
-	// 大厂标准：必须在最外层注册 defer recover，防止 panic 导致消费者进程崩溃
+	// 标准：必须在最外层注册 defer recover，防止 panic 导致消费者进程崩溃
 	defer func() {
 		if r := recover(); r != nil {
 			// 使用 debug.Stack() 获取完整的堆栈信息，便于问题排查
@@ -218,10 +225,10 @@ func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageI
 		}
 
 		// ===== C. 分布式锁防止重复消费 =====
-		// 大厂标准：订单处理必须保证幂等性，使用分布式锁防止同一订单被重复处理
+		// 标准：订单处理必须保证幂等性，使用分布式锁防止同一订单被重复处理
 		lockKey := "LockKey:handleOrderMessage:OrderSn:" + cast.ToString(orderSn)
 		expiry := time.Second * 6 // 锁的过期时间，应该大于业务处理的最大预期时间
-		
+
 		// WatchDogLoopLock: 看门狗模式的分布式锁
 		// - 自动续期：在锁持有期间自动续期，防止业务未执行完锁就过期
 		// - 重试机制：获取锁失败时会自动重试
@@ -230,12 +237,13 @@ func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageI
 				// 在锁保护下执行真正的业务逻辑
 				return s.logic(ctx, orderMQParam)
 			},
-			redsync.WithExpiry(expiry),                // 锁的初始过期时间
+			redsync.WithExpiry(expiry),                  // 锁的初始过期时间
 			redsync.WithRetryDelay(time.Millisecond*25), // 重试间隔
 			redsync.WithTries(400),                      // 最大重试次数（总计等待约 10 秒）
 		)
 	})
 }
+
 // logic 订单业务逻辑处理方法
 // 在这里实现具体的订单处理业务，例如：
 // - 更新订单状态
@@ -246,9 +254,10 @@ func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageI
 // 参数:
 //   - ctx: 上下文对象，包含 RequestID 等信息
 //   - orderMQParam: 解析后的订单消息参数
+//
 // 返回:
 //   - error: 业务处理错误，如果返回错误，分布式锁会释放，消息可能会重试
-func (s *orderConsumer) logic(ctx context.Context, orderMQParam *OrderMQParam) error {
+func (s *orderConsumer) logic(ctx context.Context, orderMQParam *OrderMQParam) (err error) {
 	// 使用 trace 装饰器记录业务逻辑的耗时
 	return s.trace(ctx, s.Name()+":logic", func() error {
 		// TODO: 在这里实现具体的业务逻辑
@@ -257,12 +266,57 @@ func (s *orderConsumer) logic(ctx context.Context, orderMQParam *OrderMQParam) e
 		// 2. 更新订单状态
 		// 3. 发送通知
 		// 4. 记录业务日志
-		
-		logger.InfoWithCtx(ctx, "订单处理完成", 
+
+		// ========== 数据库事务处理 ==========
+		// 标准：所有写操作必须在事务中执行，保证数据一致性
+		err = s.iUserExampleDao.ExecByCustomFunc(ctx, func(db *gorm.DB) *gorm.DB {
+			// 在事务中执行数据库操作
+			txErr := db.Transaction(func(tx *gorm.DB) error {
+				// 设置 InnoDB 锁等待超时时间（5秒）
+				// 防止长时间锁等待导致雪崩效应
+				if err := tx.Exec("SET SESSION innodb_lock_wait_timeout = 5").Error; err != nil {
+					return s.getErrorWithLine(fmt.Errorf("设置锁等待超时时败: %w", err))
+				}
+				// TODO: 在这里添加实际的业务逻辑
+				// 示例：更新订单状态
+				// result := tx.Model(&Order{}).
+				//     Where("order_sn = ?", orderMQParam.OrderSn).
+				//     Update("status", "processing")
+				// if result.Error != nil {
+				//     return result.Error
+				// }
+				// if result.RowsAffected == 0 {
+				//     return errors.New("订单不存在或已被处理")
+				// }
+
+				return nil // 事务成功
+			})
+
+			// 将事务中的错误传递出去
+			if txErr != nil {
+				db.Error = txErr
+			}
+			return db
+		})
+
+		// ========== 错误处理 ==========
+		if err != nil {
+			// 数据库操作失败，记录错误日志并返回错误触发重试
+			logger.ErrorWithCtx(ctx, "订单处理失败",
+				zap.String("orderSn", orderMQParam.OrderSn),
+				zap.String("source", orderMQParam.Source),
+				zap.String("busType", orderMQParam.BusType),
+				zap.Error(err))
+			return s.getErrorWithLine(fmt.Errorf("订单处理失败: %w", err))
+		}
+
+		// ========== 成功日志 ==========
+		// 记录业务处理成功的日志
+		logger.InfoWithCtx(ctx, "订单处理完成",
 			zap.String("orderSn", orderMQParam.OrderSn),
 			zap.String("source", orderMQParam.Source),
 			zap.String("busType", orderMQParam.BusType))
-		
-		return nil
+
+		return nil // 成功返回
 	})
 }
