@@ -22,7 +22,7 @@ type gLogger struct {
 // NewCustomGormLogger custom gorm logger
 func NewCustomGormLogger(requestIDKey string, logLevel gormLogger.LogLevel) gormLogger.Interface {
 	if requestIDKey == "" {
-		requestIDKey = "request_id"
+		requestIDKey = string(logger.ContextKeyForRequestID())
 	}
 	if logLevel == 0 {
 		logLevel = gormLogger.Info

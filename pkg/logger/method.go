@@ -166,7 +166,7 @@ func ModuleDebugWithCtx(ctx context.Context, module string, msg string, fields .
 // ExecuteCustomHooksWithCtx 手动执行带 Context 的自定义钩子
 // 用法: 在业务代码中调用此函数来执行需要访问 context 的钩子
 // 示例:
-//   ctx := context.WithValue(context.Background(), "request_id", "12345")
+//   ctx := context.WithValue(context.Background(), logger.ContextKeyForRequestID(), "12345")
 //   logger.ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, "user login", logger.String("user_id", "123"))
 func ExecuteCustomHooksWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...Field) error {
 	if len(customHooksWithCtx) == 0 {

@@ -243,7 +243,7 @@ func enhanceSpanWithQueryInfo(ctx context.Context, db *gorm.DB, operation string
 	// 1. 提取 request_id（使用 logger 统一的常量）
 	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			span.SetAttributes(attribute.String("request_id", reqIDStr))
+			span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 		}
 	}
 

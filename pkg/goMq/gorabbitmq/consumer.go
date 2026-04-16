@@ -573,7 +573,7 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	// 从 RabbitMQ headers 中读取 request_id（headers key 必须是 string 类型）
 	if reqIDVal, ok := d.Headers[string(logger.ContextKeyRequestID)].(string); ok && reqIDVal != "" {
 		reqIDStr = reqIDVal
-		span.SetAttributes(attribute.String("request_id", reqIDStr))
+		span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 		// 注入到 context 时使用 logger 统一的 ContextKey 类型，确保 logger 能正确提取
 		msgCtx = context.WithValue(msgCtx, logger.ContextKeyForRequestID(), reqIDStr)
 	}

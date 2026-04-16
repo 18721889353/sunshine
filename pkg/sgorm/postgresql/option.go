@@ -3,8 +3,9 @@ package postgresql
 import (
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	glogger "gorm.io/gorm/logger"
 )
 
 // Option set the mysql options.
@@ -22,7 +23,7 @@ type options struct {
 	enableTrace       bool
 
 	requestIDKey string
-	logLevel     logger.LogLevel
+	logLevel     glogger.LogLevel
 
 	plugins []gorm.Plugin
 }
@@ -46,19 +47,19 @@ func defaultOptions() *options {
 		disableForeignKey: true,  // disables the use of foreign keys, true is recommended for production environments, enabled by default
 		enableTrace:       false, // whether to enable link tracing, default is off
 
-		requestIDKey: "request_id", // request id key
-		logLevel:     logger.Info,  // default logLevel
+		requestIDKey: string(logger.ContextKeyForRequestID()), // request id key
+		logLevel:     glogger.Info,                            // default logLevel
 	}
 }
 
 // WithLogging set log sql
-func WithLogging(level ...logger.LogLevel) Option {
+func WithLogging(level ...glogger.LogLevel) Option {
 	return func(o *options) {
 		o.isLog = true
 		if len(level) > 0 {
 			o.logLevel = level[0]
 		} else {
-			o.logLevel = logger.Info
+			o.logLevel = glogger.Info
 		}
 	}
 }
@@ -109,7 +110,7 @@ func WithEnableTrace() Option {
 func WithLogRequestIDKey(key string) Option {
 	return func(o *options) {
 		if key == "" {
-			key = "request_id"
+			key = string(logger.ContextKeyForRequestID())
 		}
 		o.requestIDKey = key
 	}

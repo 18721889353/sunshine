@@ -410,7 +410,7 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			span.SetAttributes(attribute.String("request_id", reqIDStr))
+			span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 		}
 	}
 
@@ -544,7 +544,7 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			span.SetAttributes(attribute.String("request_id", reqIDStr))
+			span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 		}
 	}
 
@@ -685,7 +685,7 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			span.SetAttributes(attribute.String("request_id", reqIDStr))
+			span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 		}
 	}
 
@@ -819,7 +819,7 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
 	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
-			span.SetAttributes(attribute.String("request_id", reqIDStr))
+			span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 		}
 	}
 

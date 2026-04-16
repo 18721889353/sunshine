@@ -23,7 +23,7 @@ func BenchmarkInfoWithCtx(b *testing.B) {
 		),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-req-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-req-001")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -48,7 +48,7 @@ func BenchmarkErrorWithCtx(b *testing.B) {
 		),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-req-002")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-req-002")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -81,7 +81,7 @@ func BenchmarkModuleLog(b *testing.B) {
 		}),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-req-003")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-req-003")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -124,7 +124,7 @@ func BenchmarkSLSHook(b *testing.B) {
 		WithCustomHooksWithCtx(slsHook.Hook),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-req-sls-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-req-sls-001")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -155,7 +155,7 @@ func BenchmarkConcurrentLogging(b *testing.B) {
 		}),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-req-concurrent")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-req-concurrent")
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -186,7 +186,7 @@ func BenchmarkSyncVsAsync(b *testing.B) {
 			),
 		)
 
-		ctx := context.WithValue(context.Background(), "request_id", "bench-sync")
+		ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-sync")
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -207,7 +207,7 @@ func BenchmarkSyncVsAsync(b *testing.B) {
 			),
 		)
 
-		ctx := context.WithValue(context.Background(), "request_id", "bench-async")
+		ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-async")
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -231,7 +231,7 @@ func BenchmarkContextExtraction(b *testing.B) {
 	)
 
 	b.Run("WithRequestID", func(b *testing.B) {
-		ctx := context.WithValue(context.Background(), "request_id", "bench-req-001")
+		ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-req-001")
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			InfoWithCtx(ctx, "benchmark with request_id",
@@ -283,7 +283,7 @@ func BenchmarkRouteLookup(b *testing.B) {
 		}),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-route")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-route")
 
 	b.Run("ModuleOrder", func(b *testing.B) {
 		b.ResetTimer()
@@ -341,7 +341,7 @@ func BenchmarkHighConcurrency(b *testing.B) {
 		}),
 	)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-high-concurrent")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-high-concurrent")
 
 	b.ResetTimer()
 	// 模拟100个并发 goroutine
@@ -420,7 +420,7 @@ func BenchmarkMixedScenarios(b *testing.B) {
 
 	Init(opts...)
 
-	ctx := context.WithValue(context.Background(), "request_id", "bench-mixed")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-mixed")
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {

@@ -143,7 +143,7 @@ func setRequestIDToRedisSpan(ctx context.Context) {
 		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
 			// 获取当前 Span 并设置属性
 			if span := trace.SpanFromContext(ctx); span.IsRecording() {
-				span.SetAttributes(attribute.String("request_id", reqIDStr))
+				span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
 			}
 		}
 	}

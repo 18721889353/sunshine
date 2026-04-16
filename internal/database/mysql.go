@@ -1,6 +1,7 @@
 package database
 
 import (
+	"github.com/18721889353/sunshine/pkg/logger"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/sgorm"
@@ -23,7 +24,7 @@ func InitMysql() *sgorm.DB {
 	if mysqlCfg.EnableLog {
 		opts = append(opts,
 			mysql.WithLogging(),
-			mysql.WithLogRequestIDKey("request_id"),
+			mysql.WithLogRequestIDKey(string(logger.ContextKeyForRequestID())),
 		)
 	}
 

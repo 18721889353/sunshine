@@ -11,7 +11,7 @@ import (
 func TestInfoWithCtx(t *testing.T) {
 	Init(WithLevel("debug"))
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-001")
 	ctx = context.WithValue(ctx, "trace_id", "test-trace-001")
 
 	// 应该自动包含 request_id 和 trace_id
@@ -27,7 +27,7 @@ func TestInfoWithCtx(t *testing.T) {
 func TestErrorWithCtx(t *testing.T) {
 	Init(WithLevel("debug"))
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-002")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-002")
 
 	ErrorWithCtx(ctx, "测试错误日志",
 		Err(fmt.Errorf("模拟错误")),
@@ -41,7 +41,7 @@ func TestErrorWithCtx(t *testing.T) {
 func TestWarnWithCtx(t *testing.T) {
 	Init(WithLevel("debug"))
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-003")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-003")
 
 	WarnWithCtx(ctx, "测试警告日志",
 		String("warning_type", "rate_limit"),
@@ -55,7 +55,7 @@ func TestWarnWithCtx(t *testing.T) {
 func TestDebugWithCtx(t *testing.T) {
 	Init(WithLevel("debug"))
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-004")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-004")
 
 	DebugWithCtx(ctx, "测试调试日志",
 		String("step", "validation"),
@@ -69,7 +69,7 @@ func TestDebugWithCtx(t *testing.T) {
 func TestModuleLogWithCtxIntegration(t *testing.T) {
 	Init(WithLevel("debug"))
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-005")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-005")
 	ctx = context.WithValue(ctx, "trace_id", "test-trace-005")
 
 	// 测试不同模块的日志
@@ -109,13 +109,13 @@ func TestContextExtraction(t *testing.T) {
 	Init(WithLevel("debug"))
 
 	// 测试完整的 context
-	ctx := context.WithValue(context.Background(), "request_id", "req-123")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "req-123")
 	ctx = context.WithValue(ctx, "trace_id", "trace-456")
 
 	InfoWithCtx(ctx, "完整 context 测试")
 
 	// 测试只有 request_id
-	ctx2 := context.WithValue(context.Background(), "request_id", "req-789")
+	ctx2 := context.WithValue(context.Background(), ContextKeyForRequestID(), "req-789")
 	InfoWithCtx(ctx2, "只有 request_id")
 
 	// 测试空 context
@@ -194,7 +194,7 @@ func TestSLSIntegration(t *testing.T) {
 	}
 
 	// 创建带追踪信息的 context
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-sls-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-sls-001")
 
 	// 记录不同级别的日志（会同时保存到本地文件和 SLS）
 	InfoWithCtx(ctx, "SLS 集成测试 - 信息日志",
@@ -252,7 +252,7 @@ func TestTerminalLoggingOnly(t *testing.T) {
 		t.Fatalf("Failed to init logger: %v", err)
 	}
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-terminal-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-terminal-001")
 
 	// 记录日志（应该只出现在终端/控制台，不会生成任何 .log 文件）
 	InfoWithCtx(ctx, "终端日志测试 - 这条日志不应该保存到文件")
@@ -284,7 +284,7 @@ func TestLocalFileLogging(t *testing.T) {
 		t.Fatalf("Failed to init logger: %v", err)
 	}
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-local-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-local-001")
 	ctx = context.WithValue(ctx, "trace_id", "test-trace-local-001")
 
 	// 记录各种类型的日志
@@ -355,7 +355,7 @@ func TestMixedLogging(t *testing.T) {
 		t.Fatalf("Failed to init logger: %v", err)
 	}
 
-	ctx := context.WithValue(context.Background(), "request_id", "test-req-mixed-001")
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "test-req-mixed-001")
 
 	// 记录日志（会保存到本地，如果 SLS 可用也会上报）
 	InfoWithCtx(ctx, "混合模式测试",

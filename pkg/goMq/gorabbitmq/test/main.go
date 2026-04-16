@@ -104,10 +104,10 @@ func main() {
 		semconv.HTTPRequestMethodKey.String("GET"),
 		semconv.URLPath("/api/test"),
 	))
-	rootSpan.SetAttributes(attribute.String("request_id", reqID))
+	rootSpan.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqID))
 
 	// 将 request_id 注入 Context
-	rootCtx = context.WithValue(rootCtx, "request_id", reqID)
+	rootCtx = context.WithValue(rootCtx, string(logger.ContextKeyForRequestID()), reqID)
 
 	// 5. 在业务 Span 内执行 Redis 测试（验证 request_id 传递）
 	fmt.Println("\n📝 Testing Redis operations...")
@@ -256,7 +256,7 @@ func testRedisOps(ctx context.Context, redisCli *goredis.Client, reqID string) {
 func testMySQLOps(ctx context.Context, db *gorm.DB, reqID string) {
 	// 执行一个简单的 SELECT 查询
 	selectSQL := "SELECT @@version as version, DATABASE() as current_db"
-	
+
 	var version, currentDB string
 	if err := db.Raw(selectSQL).Scan(&struct {
 		Version   *string
