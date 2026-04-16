@@ -188,9 +188,14 @@ package handler
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 
 	// import api service package here
+	"moduleNameExample/internal/ecode"
 	"moduleNameExample/internal/service"
+    "github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 {{- range .PbServices}}
@@ -211,7 +216,17 @@ func New{{.Name}}Handler() {{.ProtoPkgName}}.{{.Name}}Logicer {
 {{- range .Methods}}
 
 {{if eq .InvokeType 0}}{{if .Path}}{{.Comment}}
-func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (*{{.ReplyImportPkgName}}.{{.Reply}}, error) {
+func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (reply *{{.ReplyImportPkgName}}.{{.Reply}}, err error) {
+	ctx = interceptor.WrapServerCtx(ctx)
+	defer func() {
+		if r := recover(); r != nil {
+		//使用 debug.Stack() 获取堆栈信息并保持原始格式
+			logger.ErrorWithCtx(ctx,
+				fmt.Sprintf("panic recovered: %v\nstack: %s", r, string(debug.Stack())),
+			)
+			err = ecode.StatusInternalServerError.Err()
+		}
+	}()
 	{{if eq true .IsIgnoreShouldBind .IsPassGinContext}}_, ctx = middleware.AdaptCtx(ctx){{end}}
 	return h.server.{{.MethodName}}(ctx, req)
 }{{end}}{{end}}

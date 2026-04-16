@@ -201,16 +201,6 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(stream {{.RequestImportPkgName}}
 {{.Comment}}
 func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (resp *{{.ReplyImportPkgName}}.{{.Reply}}, err error) {
 	panic("{{.Prompt}}")
-	//ctx = interceptor.WrapServerCtx(ctx)
-	//defer func() {
-	//	if r := recover(); r != nil {
-    //   //使用 debug.Stack() 获取堆栈信息并保持原始格式
-	//      logger.ErrorWithCtx(ctx,
-	//			fmt.Sprintf("panic recovered: %v\nstack: %s", r, string(debug.Stack())),
-	//      )
-	//		err = ecode.StatusInternalServerError.Err()
-	//	}
-	//}()
 	//logger.InfoWithCtx(ctx, "数据验证", logger.Any("body", req))
 	//{
 	//	err = req.Validate()
