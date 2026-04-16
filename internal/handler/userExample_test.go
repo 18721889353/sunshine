@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -96,15 +97,21 @@ func Test_userExampleHandler_Create(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("Create"), testData)
+	client := httpcli.New()
+	result := make(map[string]interface{})
+	resp, err := client.Request(context.Background()).
+		SetBody(testData).
+		SetResult(&result).
+		Post(h.GetRequestURL("Create"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !resp.IsSuccess() {
+		t.Fatalf("request failed: %s", resp.String())
 	}
 
 	t.Logf("%+v", result)
 	// delete the templates code start
-	result = &httpcli.StdResult{}
 	testData = &types.CreateUserExampleRequest{
 		Name:     "foo",
 		Password: "f447b20a7fcbf53a5d5be013ea0b15af",
@@ -114,7 +121,11 @@ func Test_userExampleHandler_Create(t *testing.T) {
 		Age:      10,
 		Gender:   1,
 	}
-	err = httpcli.Post(result, h.GetRequestURL("Create"), testData)
+	result = make(map[string]interface{})
+	resp, err = client.Request(context.Background()).
+		SetBody(testData).
+		SetResult(&result).
+		Post(h.GetRequestURL("Create"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +134,11 @@ func Test_userExampleHandler_Create(t *testing.T) {
 	h.MockDao.SQLMock.ExpectBegin()
 	h.MockDao.SQLMock.ExpectCommit()
 	// create error test
-	result = &httpcli.StdResult{}
-	err = httpcli.Post(result, h.GetRequestURL("Create"), testData)
+	result = make(map[string]interface{})
+	_, err = client.Request(context.Background()).
+		SetBody(testData).
+		SetResult(&result).
+		Post(h.GetRequestURL("Create"))
 	assert.Error(t, err)
 	// delete the templates code end
 }
@@ -142,21 +156,28 @@ func Test_userExampleHandler_DeleteByID(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Delete(result, h.GetRequestURL("DeleteByID", testData.ID))
+	client := httpcli.New()
+	result := make(map[string]interface{})
+	resp, err := client.Request(context.Background()).
+		SetResult(&result).
+		Delete(h.GetRequestURL("DeleteByID", testData.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Code != 0 {
-		t.Fatalf("%+v", result)
+	if !resp.IsSuccess() {
+		t.Fatalf("request failed: %+v", result)
 	}
 
 	// zero id error test
-	err = httpcli.Delete(result, h.GetRequestURL("DeleteByID", 0))
+	_, err = client.Request(context.Background()).
+		SetResult(&result).
+		Delete(h.GetRequestURL("DeleteByID", 0))
 	assert.NoError(t, err)
 
 	// delete error test
-	err = httpcli.Delete(result, h.GetRequestURL("DeleteByID", 111))
+	_, err = client.Request(context.Background()).
+		SetResult(&result).
+		Delete(h.GetRequestURL("DeleteByID", 111))
 	assert.Error(t, err)
 }
 
@@ -172,21 +193,31 @@ func Test_userExampleHandler_UpdateByID(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Put(result, h.GetRequestURL("UpdateByID", testData.ID), testData)
+	client := httpcli.New()
+	result := make(map[string]interface{})
+	resp, err := client.Request(context.Background()).
+		SetBody(testData).
+		SetResult(&result).
+		Put(h.GetRequestURL("UpdateByID", testData.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Code != 0 {
-		t.Fatalf("%+v", result)
+	if !resp.IsSuccess() {
+		t.Fatalf("request failed: %+v", result)
 	}
 
 	// zero id error test
-	err = httpcli.Put(result, h.GetRequestURL("UpdateByID", 0), testData)
+	_, err = client.Request(context.Background()).
+		SetBody(testData).
+		SetResult(&result).
+		Put(h.GetRequestURL("UpdateByID", 0))
 	assert.NoError(t, err)
 
 	// update error test
-	err = httpcli.Put(result, h.GetRequestURL("UpdateByID", 111), testData)
+	_, err = client.Request(context.Background()).
+		SetBody(testData).
+		SetResult(&result).
+		Put(h.GetRequestURL("UpdateByID", 111))
 	assert.Error(t, err)
 }
 
@@ -203,21 +234,28 @@ func Test_userExampleHandler_GetByID(t *testing.T) {
 		WithArgs(testData.ID).
 		WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Get(result, h.GetRequestURL("GetByID", testData.ID))
+	client := httpcli.New()
+	result := make(map[string]interface{})
+	resp, err := client.Request(context.Background()).
+		SetResult(&result).
+		Get(h.GetRequestURL("GetByID", testData.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Code != 0 {
-		t.Fatalf("%+v", result)
+	if !resp.IsSuccess() {
+		t.Fatalf("request failed: %+v", result)
 	}
 
 	// zero id error test
-	err = httpcli.Get(result, h.GetRequestURL("GetByID", 0))
+	_, err = client.Request(context.Background()).
+		SetResult(&result).
+		Get(h.GetRequestURL("GetByID", 0))
 	assert.NoError(t, err)
 
 	// get error test
-	err = httpcli.Get(result, h.GetRequestURL("GetByID", 111))
+	_, err = client.Request(context.Background()).
+		SetResult(&result).
+		Get(h.GetRequestURL("GetByID", 111))
 	assert.Error(t, err)
 }
 
@@ -232,29 +270,38 @@ func Test_userExampleHandler_List(t *testing.T) {
 
 	h.MockDao.SQLMock.ExpectQuery("SELECT .*").WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("List"), &types.ListUserExamplesRequest{query.Params{
-		Page:  0,
-		Limit: 10,
-		Sort:  "ignore count", // ignore test count
-	}})
+	client := httpcli.New()
+	result := make(map[string]interface{})
+	resp, err := client.Request(context.Background()).
+		SetBody(&types.ListUserExamplesRequest{query.Params{
+			Page:  0,
+			Limit: 10,
+			Sort:  "ignore count", // ignore test count
+		}}).
+		SetResult(&result).
+		Post(h.GetRequestURL("List"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Code != 0 {
-		t.Fatalf("%+v", result)
+	if !resp.IsSuccess() {
+		t.Fatalf("request failed: %+v", result)
 	}
 
 	// nil params error test
-	err = httpcli.Post(result, h.GetRequestURL("List"), nil)
+	_, err = client.Request(context.Background()).
+		SetResult(&result).
+		Post(h.GetRequestURL("List"))
 	assert.NoError(t, err)
 
 	// get error test
-	err = httpcli.Post(result, h.GetRequestURL("List"), &types.ListUserExamplesRequest{query.Params{
-		Page:  0,
-		Limit: 10,
-		Sort:  "unknown-column",
-	}})
+	_, err = client.Request(context.Background()).
+		SetBody(&types.ListUserExamplesRequest{query.Params{
+			Page:  0,
+			Limit: 10,
+			Sort:  "unknown-column",
+		}}).
+		SetResult(&result).
+		Post(h.GetRequestURL("List"))
 	assert.Error(t, err)
 }
 

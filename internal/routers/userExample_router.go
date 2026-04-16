@@ -43,7 +43,6 @@ func userExampleServiceRouter(
 		groupPathMiddlewares,
 		singlePathMiddlewares,
 		iService,
-		serverNameExampleV1.WithUserExampleLogger(logger.Get()),
 		serverNameExampleV1.WithUserExampleRPCResponse(),
 		serverNameExampleV1.WithUserExampleWrapCtx(fn),
 		serverNameExampleV1.WithUserExampleRPCStatusToHTTPCode(
