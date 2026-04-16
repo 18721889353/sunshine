@@ -155,7 +155,6 @@ func {{.LowerName}}Router(
 		groupPathMiddlewares,
 		singlePathMiddlewares,
 		iService,
-		{{.ProtoPkgName}}.With{{.Name}}Logger(logger.Get()),
 		{{.ProtoPkgName}}.With{{.Name}}RPCResponse(),
 		{{.ProtoPkgName}}.With{{.Name}}WrapCtx(ctxFn),
 		{{.ProtoPkgName}}.With{{.Name}}RPCStatusToHTTPCode(

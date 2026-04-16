@@ -89,7 +89,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
 		middleware.WithMaxLen(config.Get().Logger.MaxLen),
-		middleware.WithRequestIDFromContext(),
 		middleware.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
