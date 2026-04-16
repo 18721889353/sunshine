@@ -38,7 +38,27 @@ func getSunshineDir() string {
 		return envDir
 	}
 
-	// 2. 从可执行文件路径向上查找项目根目录
+	// 2. 从当前目录的 go.mod 中读取 replace 指令(适用于在生成的项目中调用)
+	if gofile.IsExists("go.mod") {
+		data, err := os.ReadFile("go.mod")
+		if err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "replace github.com/18721889353/sunshine =>") {
+					parts := strings.Split(line, "=>")
+					if len(parts) == 2 {
+						path := strings.TrimSpace(parts[1])
+						path = filepath.ToSlash(path)
+						if gofile.IsExists(path) {
+							return path
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 3. 从可执行文件路径向上查找项目根目录
 	exePath, err := os.Executable()
 	if err == nil {
 		dir := filepath.Dir(exePath)
@@ -58,7 +78,7 @@ func getSunshineDir() string {
 		}
 	}
 
-	// 3. 尝试从当前工作目录查找
+	// 4. 尝试从当前工作目录查找
 	workDir, err := os.Getwd()
 	if err == nil {
 		dir := workDir
@@ -76,7 +96,7 @@ func getSunshineDir() string {
 		}
 	}
 
-	// 4. 回退到 ~/.sunshine
+	// 5. 回退到 ~/.sunshine
 	homeDir, _ := os.UserHomeDir()
 	if homeDir != "" {
 		return filepath.Join(homeDir, ".sunshine")
@@ -107,13 +127,88 @@ func Init() error {
 	if _, ok := Replacers[TplNameSunshine]; ok {
 		panic(fmt.Sprintf("template name \"%s\" already exists", TplNameSunshine))
 	}
-	// 创建新的替换器并存储
-	Replacers[TplNameSunshine], err = replacer.New(SunshineDir)
+	
+	// 如果当前工作目录是 sunshine 源码目录，优先使用本地源码
+	localSrcDir := detectLocalSunshineSource()
+	if localSrcDir != "" {
+		fmt.Printf("Using LOCAL sunshine source: %s\n", localSrcDir)
+		Replacers[TplNameSunshine], err = replacer.New(localSrcDir)
+	} else {
+		// 否则使用 ~/.sunshine 或检测到的目录
+		Replacers[TplNameSunshine], err = replacer.New(SunshineDir)
+	}
+	
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// detectLocalSunshineSource 检测是否在 sunshine 源码目录运行
+func detectLocalSunshineSource() string {
+	// 1. 从当前工作目录向上查找
+	wd, err := os.Getwd()
+	if err == nil {
+		searchDir := wd
+		for i := 0; i < 5; i++ {
+			if gofile.IsExists(filepath.Join(searchDir, "cmd")) &&
+				gofile.IsExists(filepath.Join(searchDir, "pkg")) &&
+				gofile.IsExists(filepath.Join(searchDir, "internal")) {
+				if gofile.IsExists(filepath.Join(searchDir, "go.mod")) {
+					return filepath.ToSlash(searchDir)
+				}
+			}
+			parent := filepath.Dir(searchDir)
+			if parent == searchDir {
+				break
+			}
+			searchDir = parent
+		}
+	}
+	
+	// 2. 从可执行文件路径向上查找(适用于 make proto 调用的情况)
+	exePath, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(exePath)
+		for i := 0; i < 10; i++ {
+			if gofile.IsExists(filepath.Join(dir, "cmd")) &&
+				gofile.IsExists(filepath.Join(dir, "pkg")) &&
+				gofile.IsExists(filepath.Join(dir, "internal")) {
+				if gofile.IsExists(filepath.Join(dir, "go.mod")) {
+					return filepath.ToSlash(dir)
+				}
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
+		}
+	}
+	
+	// 3. 从当前目录的 go.mod 中读取 replace 指令(适用于在生成的项目中调用)
+	if gofile.IsExists("go.mod") {
+		data, err := os.ReadFile("go.mod")
+		if err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "replace github.com/18721889353/sunshine =>") {
+					parts := strings.Split(line, "=>")
+					if len(parts) == 2 {
+						path := strings.TrimSpace(parts[1])
+						// Convert Windows path to Unix path
+						path = filepath.ToSlash(path)
+						if gofile.IsExists(path) {
+							return path
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return ""
 }
 
 // InitFS 初始化嵌入文件系统的模板

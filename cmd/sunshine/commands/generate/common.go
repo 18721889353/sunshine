@@ -902,6 +902,96 @@ func GetGoModFields(moduleName string) []replacer.Field {
 	}
 }
 
+// AddLocalReplaceField add replace directive for local development
+// Deprecated: Use appendReplaceDirective instead
+func AddLocalReplaceField(fields []replacer.Field) []replacer.Field {
+	return fields
+}
+
+// appendReplaceDirective appends replace directive to go.mod file after generation
+func appendReplaceDirective(outputDir string, moduleName string) error {
+	// Use SunshineDir to get the absolute path of sunshine project
+	// On Windows, use backslashes; on Linux/Mac, use forward slashes
+	var sunshinePath string
+	if gofile.IsWindows() {
+		sunshinePath = SunshineDir
+	} else {
+		sunshinePath = filepath.ToSlash(SunshineDir)
+	}
+
+	goModFile := outputDir + gofile.GetPathDelimiter() + "go.mod"
+	replaceContent := fmt.Sprintf("\n// Replace sunshine module to local path for development\nreplace github.com/18721889353/sunshine => %s\n", sunshinePath)
+
+	// Append to go.mod file
+	f, err := os.OpenFile(goModFile, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.WriteString(replaceContent)
+	return err
+}
+
+// getSunshineCmdForScript returns the sunshine command path for generated scripts
+// If running from local source code, return the absolute path with forward slashes (for bash scripts)
+// If installed via go install, return "sunshine" (use system PATH)
+func getSunshineCmdForScript() string {
+	// First, check if SUNSHINE_SRC_DIR environment variable is set
+	if envDir := os.Getenv("SUNSHINE_SRC_DIR"); envDir != "" {
+		exePath, err := os.Executable()
+		if err == nil {
+			return filepath.ToSlash(exePath)
+		}
+	}
+
+	// Check current working directory
+	if wd, err := os.Getwd(); err == nil {
+		// Check if we're in sunshine source directory
+		if gofile.IsExists(filepath.Join(wd, "cmd")) &&
+			gofile.IsExists(filepath.Join(wd, "pkg")) &&
+			gofile.IsExists(filepath.Join(wd, "internal")) {
+			exePath, err := os.Executable()
+			if err == nil {
+				return filepath.ToSlash(exePath)
+			}
+		}
+	}
+
+	// Check executable path
+	exePath, err := os.Executable()
+	if err != nil {
+		return "sunshine"
+	}
+
+	// Check if sunshine is running from source code directory
+	// (contains cmd, pkg, internal directories)
+	exeDir := filepath.Dir(exePath)
+	for i := 0; i < 10; i++ {
+		if gofile.IsExists(filepath.Join(exeDir, "cmd")) &&
+			gofile.IsExists(filepath.Join(exeDir, "pkg")) &&
+			gofile.IsExists(filepath.Join(exeDir, "internal")) {
+			// Found source directory, always use forward slashes for bash scripts
+			return filepath.ToSlash(exePath)
+		}
+		parent := filepath.Dir(exeDir)
+		if parent == exeDir {
+			break
+		}
+		exeDir = parent
+	}
+
+	// Not running from source directory, assume installed via go install
+	return "sunshine"
+}
+
+// updateSunshineCmdInScript updates the sunshine command in protoc.sh script
+// Note: This function is now deprecated. The sunshine command path is automatically detected from go.mod replace directive.
+func updateSunshineCmdInScript(outputDir string) error {
+	// No longer needed - sunshine path is auto-detected from go.mod
+	return nil
+}
+
 func adaptPgDsn(dsn string) string {
 	if !strings.Contains(dsn, "postgres://") {
 		dsn = "postgres://" + dsn

@@ -77,12 +77,12 @@ func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req 
 	// example:
 	//	    {{if .IsIgnoreShouldBind}}c, ctx := middleware.AdaptCtx(ctx)
 	//	    if err = c.ShouldBindJSON(req); err != nil {
-	//	    	logger.Warn("ShouldBindJSON error", logger.Error(err), middleware.CtxRequestIDField(ctx))
+	//	    	logger.WarnWithCtx(ctx, "ShouldBindJSON error", logger.Error(err))
 	//	    	return nil, ecode.InvalidParams.Err()
 	//	    }{{else}}{{if .IsPassGinContext}}c, ctx := middleware.AdaptCtx(ctx){{end}}{{end}}
 	//	    err := req.Validate()
 	//	    if err != nil {
-	//		    logger.Warn("req.Validate error", logger.Err(err), logger.Any("req", req), middleware.CtxRequestIDField(ctx))
+	//		    logger.WarnWithCtx(ctx, "req.Validate error", logger.Err(err), logger.Any("req", req))
 	//		    return nil, ecode.InvalidParams.Err()
 	//	    }
 	//
@@ -92,7 +92,7 @@ func (h *{{.LowerServiceName}}Handler) {{.MethodName}}(ctx context.Context, req 
 {{- end}}
 	//     })
 	//	    if err != nil {
-	//			logger.Warn("{{.MethodName}} error", logger.Err(err), middleware.CtxRequestIDField(ctx))
+	//			logger.WarnWithCtx(ctx, "{{.MethodName}} error", logger.Err(err))
 	//			return nil, ecode.InternalServerError.Err()
 	//		}
 	//

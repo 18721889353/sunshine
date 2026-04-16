@@ -61,6 +61,24 @@ docs:
 .PHONY: proto
 # Generate *.go and template code by proto files, the default is all the proto files in the api directory. you can specify the proto file, multiple files are separated by commas, e.g. make proto FILES=api/user/v1/user.proto
 proto:
+	@# Check if go.mod has replace directive for sunshine
+	@if grep -q "replace.*sunshine =>" go.mod 2>/dev/null; then \
+		SUNSHINE_SRC=$$(grep "replace.*sunshine =>" go.mod | sed 's/.*=> //' | tr -d ' '); \
+		if [ -d "$$SUNSHINE_SRC" ]; then \
+			echo "Detected local sunshine source: $$SUNSHINE_SRC"; \
+			echo "Rebuilding sunshine command and protoc plugins from local source..."; \
+			(cd "$$SUNSHINE_SRC" && go install ./cmd/sunshine ./cmd/protoc-gen-go-gin ./cmd/protoc-gen-go-rpc-tmpl); \
+			echo "Sunshine command and protoc plugins updated successfully!"; \
+		else \
+			echo "Warning: sunshine source directory not found: $$SUNSHINE_SRC"; \
+		fi \
+	else \
+		echo "No local sunshine replace found, ensuring remote tools are installed..."; \
+		which sunshine >/dev/null 2>&1 || go install github.com/18721889353/sunshine/cmd/sunshine@latest; \
+		which protoc-gen-go-gin >/dev/null 2>&1 || go install github.com/18721889353/sunshine/cmd/protoc-gen-go-gin@latest; \
+		which protoc-gen-go-rpc-tmpl >/dev/null 2>&1 || go install github.com/18721889353/sunshine/cmd/protoc-gen-go-rpc-tmpl@latest; \
+		echo "Remote tools ready."; \
+	fi
 	@bash scripts/protoc.sh $(FILES)
 	go mod tidy
 	@gofmt -s -w .

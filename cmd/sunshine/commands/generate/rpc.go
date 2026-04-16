@@ -320,6 +320,18 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}
+	
+	// Add replace directive to go.mod for local development
+	if !g.suitedMonoRepo {
+		if err = appendReplaceDirective(r.GetOutputDir(), g.moduleName); err != nil {
+			return "", err
+		}
+	}
+
+	// Update sunshine command path in protoc.sh script
+	if err = updateSunshineCmdInScript(r.GetOutputDir()); err != nil {
+		return "", err
+	}
 
 	if g.suitedMonoRepo {
 		if err := moveProtoFileToAPIDir(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir()); err != nil {
