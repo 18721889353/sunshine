@@ -21,7 +21,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/krand"
 	"github.com/18721889353/sunshine/pkg/sgorm"
 	"github.com/18721889353/sunshine/pkg/sgorm/mysql"
-	"github.com/18721889353/sunshine/pkg/sgorm/postgresql"
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
@@ -44,7 +43,6 @@ type kv struct {
 func ListDbDrivers(c *gin.Context) {
 	dbDrivers := []string{
 		sgorm.DBDriverMysql,
-		sgorm.DBDriverPostgresql,
 	}
 
 	data := []kv{}
@@ -71,14 +69,6 @@ func ListTables(c *gin.Context) {
 	switch strings.ToLower(form.DbDriver) {
 	case sgorm.DBDriverMysql:
 		tables, err = getMysqlTables(form.Dsn)
-	case sgorm.DBDriverPostgresql:
-		tables, err = getPostgresqlTables(form.Dsn)
-	case "":
-		response.Error(c, errcode.InvalidParams.RewriteMsg("database type cannot be empty"))
-		return
-	default:
-		response.Error(c, errcode.InvalidParams.RewriteMsg("unsupported database type: "+form.DbDriver))
-		return
 	}
 	if err != nil {
 		response.Error(c, errcode.InternalServerError.RewriteMsg(err.Error()))
@@ -440,75 +430,5 @@ func getMysqlTables(dsn string) ([]string, error) {
 	}
 
 	return tables, nil
-}
-
-func getPostgresqlTables(dsn string) ([]string, error) {
-	dsn = utils.AdaptivePostgresqlDsn(dsn)
-	db, err := postgresql.Init(dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer mysql.Close(db) //nolint
-
-	schemas, err := getSchemas(db, dsn)
-	if err != nil {
-		return nil, err
-	}
-
-	return getSchemaTables(db, schemas)
-}
-
-type pgSchema struct {
-	SchemaName string
-}
-
-type pgTable struct {
-	TableName string
-}
-
-func getSchemas(db *sgorm.DB, dsn string) ([]pgSchema, error) {
-	var schemas []pgSchema
-
-	if strings.Contains(dsn, "search_path=") {
-		ss := strings.Split(dsn, " ")
-		for _, s := range ss {
-			if strings.Contains(s, "search_path=") {
-				schemaName := strings.Split(s, "=")[1]
-				if schemaName != "" {
-					schemas = append(schemas, pgSchema{SchemaName: schemaName})
-				}
-			}
-		}
-	}
-
-	if len(schemas) != 0 {
-		return schemas, nil
-	}
-
-	err := db.Raw("SELECT schema_name FROM information_schema.schemata").Scan(&schemas).Error
-	if err != nil {
-		return nil, err
-	}
-	return schemas, nil
-}
-
-func getSchemaTables(db *sgorm.DB, schemas []pgSchema) ([]string, error) {
-	var schemaTables []string
-	for _, schema := range schemas {
-		if schema.SchemaName == "information_schema" || schema.SchemaName == "pg_catalog" || schema.SchemaName == "pg_toast" {
-			continue
-		}
-
-		var tables []pgTable
-		err := db.Raw("SELECT table_name FROM information_schema.tables WHERE table_schema = ?", schema.SchemaName).Scan(&tables).Error
-		if err != nil {
-			return nil, err
-		}
-
-		for _, table := range tables {
-			schemaTables = append(schemaTables, table.TableName)
-		}
-	}
-	return schemaTables, nil
 }
 

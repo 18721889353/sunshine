@@ -34,8 +34,6 @@ const (
 
 	// DBDriverMysql mysql driver
 	DBDriverMysql = "mysql"
-	// DBDriverPostgresql postgresql driver
-	DBDriverPostgresql = "postgresql"
 
 	undeterminedDBDriver = "undetermined" // used in services created based on protobuf.
 
@@ -467,8 +465,6 @@ func getDBConfigCode(dbDriver string) string {
 	switch strings.ToLower(dbDriver) {
 	case DBDriverMysql:
 		dbConfigCode = mysqlConfigCode
-	case DBDriverPostgresql:
-		dbConfigCode = postgresqlConfigCode
 	case undeterminedDBDriver:
 		dbConfigCode = undeterminedDatabaseConfigCode
 	}
@@ -485,8 +481,6 @@ func getInitDBCode(dbDriver string) string {
 	switch strings.ToLower(dbDriver) {
 	case DBDriverMysql:
 		initDBCode = modelInitDBFileMysqlCode
-	case DBDriverPostgresql:
-		initDBCode = modelInitDBFilePostgresqlCode
 	default:
 		panic("getInitDBCode error, unsupported database driver: " + dbDriver)
 	}
@@ -1082,8 +1076,7 @@ func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 	switch dbDriver {
 	case DBDriverMysql:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go", "snow.go", "goRabbitmq.go", "es.go"}
-	case DBDriverPostgresql:
-		selectFiles["internal/database"] = []string{"init.go", "redis.go", "postgresql.go"}
+		selectFiles["internal/database"] = []string{"init.go", "redis.go", }
 	default:
 		return errors.New("unsupported db driver: " + dbDriver)
 	}

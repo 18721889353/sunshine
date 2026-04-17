@@ -18,8 +18,6 @@ var ErrRecordNotFound = gorm.ErrRecordNotFound
 const (
 	// DBDriverMysql mysql driver
 	DBDriverMysql = "mysql"
-	// DBDriverPostgresql postgresql driver
-	DBDriverPostgresql = "postgresql"
 )
 
 // Model embedded structs, add `gorm: "embedded"` when defining table structs

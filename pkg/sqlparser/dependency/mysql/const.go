@@ -476,7 +476,6 @@ const (
 	ModeOnlyFullGroupBy
 	ModeNoUnsignedSubtraction
 	ModeNoDirInCreate
-	ModePostgreSQL
 	ModeOracle
 	ModeMsSQL
 	ModeDb2
@@ -553,7 +552,6 @@ var Str2SQLMode = map[string]SQLMode{
 	"ONLY_FULL_GROUP_BY":         ModeOnlyFullGroupBy,
 	"NO_UNSIGNED_SUBTRACTION":    ModeNoUnsignedSubtraction,
 	"NO_DIR_IN_CREATE":           ModeNoDirInCreate,
-	"POSTGRESQL":                 ModePostgreSQL,
 	"ORACLE":                     ModeOracle,
 	"MSSQL":                      ModeMsSQL,
 	"DB2":                        ModeDb2,
@@ -589,7 +587,6 @@ var CombinationSQLMode = map[string][]string{
 	"MYSQL323":    {"MYSQL323", "HIGH_NOT_PRECEDENCE"},
 	"MYSQL40":     {"MYSQL40", "HIGH_NOT_PRECEDENCE"},
 	"ORACLE":      {"PIPES_AS_CONCAT", "ANSI_QUOTES", "IGNORE_SPACE", "NO_KEY_OPTIONS", "NO_TABLE_OPTIONS", "NO_FIELD_OPTIONS", "NO_AUTO_CREATE_USER"},
-	"POSTGRESQL":  {"PIPES_AS_CONCAT", "ANSI_QUOTES", "IGNORE_SPACE", "NO_KEY_OPTIONS", "NO_TABLE_OPTIONS", "NO_FIELD_OPTIONS"},
 	"TRADITIONAL": {"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES", "NO_ZERO_IN_DATE", "NO_ZERO_DATE", "ERROR_FOR_DIVISION_BY_ZERO", "NO_AUTO_CREATE_USER", "NO_ENGINE_SUBSTITUTION"},
 }
 

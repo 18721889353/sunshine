@@ -500,30 +500,24 @@ database:
     #mastersDsn:            # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
     #  - "your master dsn`
 
-	postgresqlConfigCode = `database:
-  driver: "postgresql"      # database driver
-  # postgresql settings
-  postgresql:
-    # dsn format,  <username>:<password>@<hostname>:<port>/<db>?[k=v& ......]
-    dsn: "root:123456@192.168.3.37:5432/account?sslmode=disable"
-    enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 30     # sets the maximum time for which the connection can be reused, in minutes`
-
-	undeterminedDatabaseConfigCode = `# set database configuration. reference-db-config-url
+	undeterminedDatabaseConfigCode = `# database setting
 database:
   driver: "mysql"           # database driver
   # mysql settings
   mysql:
     # dsn format,  <username>:<password>@(<hostname>:<port>)/<db>?[k=v& ......]
-    dsn: "root:jianguo123@(127.0.0.1:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
+    dsn: "root:123456@(192.168.3.37:3306)/account?parseTime=true&loc=Local&charset=utf8,utf8mb4"
     enableLog: true         # whether to turn on printing of all logs
     maxIdleConns: 10        # 设置空闲连接池中最大连接数
     maxOpenConns: 100       # 设置数据库最大打开连接数
     connMaxLifetime: 30     # 设置连接可重用的最大时间
     maxIdleTime: 10         # 设置空闲连接的最大空闲时间
-`
+    #slavesDsn:             # sets slaves mysql dsn, array type
+    #  - "your slave dsn 1"
+    #  - "your slave dsn 2"
+    #mastersDsn:            # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
+    #  - "your master dsn`
+
 
 	modelInitDBFileMysqlCode = `// InitDB connect database
 func InitDB() {
@@ -531,18 +525,6 @@ func InitDB() {
 	switch strings.ToLower(dbDriver) {
 	case sgorm.DBDriverMysql:
 		gdb = InitMysql()
-	default:
-		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
-			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
-	}
-}`
-
-	modelInitDBFilePostgresqlCode = `// InitDB connect database
-func InitDB() {
-	dbDriver := config.Get().Database.Driver
-	switch strings.ToLower(dbDriver) {
-	case sgorm.DBDriverPostgresql:
-		gdb = InitPostgresql()
 	default:
 		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
 			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")

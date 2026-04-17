@@ -42,8 +42,6 @@ const (
 
 	// DBDriverMysql mysql driver
 	DBDriverMysql = "mysql"
-	// DBDriverPostgresql postgresql driver
-	DBDriverPostgresql = "postgresql"
 
 	jsonTypeName = "datatypes.JSON"
 	jsonPkgPath  = "gorm.io/datatypes"
@@ -398,7 +396,6 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			switch opt.DBDriver {
 			case DBDriverMysql:
 				gormTag.WriteString(col.Tp.InfoSchemaStr())
-			case DBDriverPostgresql:
 				gormTag.WriteString(opt.FieldTypes[colName])
 			}
 		}
@@ -469,10 +466,8 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			}
 			field.GoType = goType
 			field.rewriterField = rrField
-			if opt.DBDriver == DBDriverPostgresql {
-				if opt.FieldTypes[colName] == "bool" {
-					field.GoType = "bool" // rewritten type
-				}
+			if opt.FieldTypes[colName] == "bool" {
+				field.GoType = "bool" // rewritten type
 			}
 		}
 
@@ -575,13 +570,10 @@ func getModelStructCode(data tmplData, importPaths []string, isEmbed bool, jsonN
 			if isIgnoreFields(field.ColName) {
 				continue
 			}
-			switch field.DBDriver {
-			case DBDriverMysql, DBDriverPostgresql:
-				if field.rewriterField != nil {
-					if field.rewriterField.goType == jsonTypeName {
-						field.GoType = jsonTypeName
-						importPaths = append(importPaths, jsonPkgPath)
-					}
+			if field.rewriterField != nil {
+				if field.rewriterField.goType == jsonTypeName {
+					field.GoType = jsonTypeName
+					importPaths = append(importPaths, jsonPkgPath)
 				}
 			}
 			newFields = append(newFields, field)
@@ -616,13 +608,10 @@ func getModelStructCode(data tmplData, importPaths []string, isEmbed bool, jsonN
 					data.Fields[i].GoType = data.CrudInfo.GoType
 				}
 			}
-			switch field.DBDriver {
-			case DBDriverMysql, DBDriverPostgresql:
-				if field.rewriterField != nil {
-					if field.rewriterField.goType == jsonTypeName {
-						data.Fields[i].GoType = jsonTypeName
-						importPaths = append(importPaths, jsonPkgPath)
-					}
+			if field.rewriterField != nil {
+				if field.rewriterField.goType == jsonTypeName {
+					data.Fields[i].GoType = jsonTypeName
+					importPaths = append(importPaths, jsonPkgPath)
 				}
 			}
 		}
@@ -681,12 +670,9 @@ func getUpdateFieldsCode(data tmplData, isEmbed bool) (string, error) {
 		if isIgnoreFields(field.ColName, falseColumns...) || field.ColName == columnID {
 			continue
 		}
-		switch field.DBDriver {
-		case DBDriverMysql, DBDriverPostgresql:
-			if field.rewriterField != nil {
-				if field.rewriterField.goType == jsonTypeName {
-					field.GoType = "[]byte"
-				}
+		if field.rewriterField != nil {
+			if field.rewriterField.goType == jsonTypeName {
+				field.GoType = "[]byte"
 			}
 		}
 		newFields = append(newFields, field)

@@ -122,7 +122,7 @@ func SQLCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "", "database driver, support mysql, postgresql")
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "", "database driver, support mysql")
 	_ = cmd.MarkFlagRequired("db-driver")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database") //nolint
 	_ = cmd.MarkFlagRequired("db-dsn")

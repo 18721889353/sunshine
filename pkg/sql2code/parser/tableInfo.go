@@ -24,7 +24,7 @@ type TableInfo struct {
 	Columns    []Field     // columns of the table
 	PrimaryKey *PrimaryKey // primary key information
 
-	DBDriver string // database driver, example: mysql, postgresql
+	DBDriver string // database driver, example: mysql
 
 	ColumnSubStructure string // column sub structure for model
 	ColumnSubMessage   string // sub message for protobuf
