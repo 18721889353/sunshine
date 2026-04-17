@@ -4,7 +4,6 @@ patchType=$1
 typesPb="types-pb"
 initMysql="mysql"
 initPostgresql="postgresql"
-initSqlite="sqlite"
 
 function checkResult() {
     result=$1
@@ -34,23 +33,15 @@ function generateInitPostgresqlCode() {
     importPkg
 }
 
-function generateInitSqliteCode() {
-    sunshine patch gen-db-init --db-driver=sqlite --out=./
-    checkResult $?
-    importPkg
-}
-
 if [  "$patchType" = "$typesPb"  ]; then
     generateTypesPbCode
 elif [ "$patchType" = "$initMysql" ] || [ "$patchType" == "init-$initMysql" ]; then
     generateInitMysqlCode
 elif [ "$patchType" = "$initPostgresql" ] || [ "$patchType" == "init-$initPostgresql" ]; then
     generateInitPostgresqlCode
-elif [ "$patchType" = "$initSqlite" ] || [ "$patchType" == "init-$initSqlite" ]; then
-    generateInitSqliteCode
 else
     echo "invalid patch type: '$patchType'"
-    echo "supported types: $initMysql, $initPostgresql, $initSqlite, $typesPb"
+    echo "supported types: $initMysql, $initPostgresql, $typesPb"
     echo "e.g. make patch TYPE=$initMysql"
     echo ""
     exit 1

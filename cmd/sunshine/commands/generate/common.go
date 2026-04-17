@@ -38,8 +38,6 @@ const (
 	DBDriverPostgresql = "postgresql"
 	// DBDriverTidb tidb driver
 	DBDriverTidb = "tidb"
-	// DBDriverSqlite sqlite driver
-	DBDriverSqlite = "sqlite"
 
 	undeterminedDBDriver = "undetermined" // used in services created based on protobuf.
 
@@ -473,8 +471,6 @@ func getDBConfigCode(dbDriver string) string {
 		dbConfigCode = mysqlConfigCode
 	case DBDriverPostgresql:
 		dbConfigCode = postgresqlConfigCode
-	case DBDriverSqlite:
-		dbConfigCode = sqliteConfigCode
 	case undeterminedDBDriver:
 		dbConfigCode = undeterminedDatabaseConfigCode
 	}
@@ -493,8 +489,6 @@ func getInitDBCode(dbDriver string) string {
 		initDBCode = modelInitDBFileMysqlCode
 	case DBDriverPostgresql:
 		initDBCode = modelInitDBFilePostgresqlCode
-	case DBDriverSqlite:
-		initDBCode = modelInitDBFileSqliteCode
 	default:
 		panic("getInitDBCode error, unsupported database driver: " + dbDriver)
 	}
@@ -604,14 +598,6 @@ func generateConfigmap(serverName string, outPath string) error {
 	}
 	data := strings.ReplaceAll(string(configmapFileData), configmapFileMark, configFileData)
 	return os.WriteFile(configmapFile, []byte(data), 0666)
-}
-
-func sqliteDSNAdaptation(dbDriver string, dsn string) string {
-	if dbDriver == DBDriverSqlite && gofile.IsWindows() {
-		dsn = strings.Replace(dsn, "\\", "\\\\", -1)
-		dsn = strings.Replace(dsn, "/", "\\\\", -1)
-	}
-	return dsn
 }
 
 func removeElements(slice []string, elements ...string) []string {
@@ -1100,8 +1086,6 @@ func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go", "snow.go", "goRabbitmq.go", "es.go"}
 	case DBDriverPostgresql:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "postgresql.go"}
-	case DBDriverSqlite:
-		selectFiles["internal/database"] = []string{"init.go", "redis.go", "sqlite.go"}
 	default:
 		return errors.New("unsupported db driver: " + dbDriver)
 	}

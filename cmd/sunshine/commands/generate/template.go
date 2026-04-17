@@ -511,16 +511,6 @@ database:
     maxOpenConns: 100       # set the maximum number of open database connections
     connMaxLifetime: 30     # sets the maximum time for which the connection can be reused, in minutes`
 
-	sqliteConfigCode = `database:
-  driver: "sqlite"      # database driver
-  # sqlite settings
-  sqlite:
-    dbFile: "test/sql/sqlite/sunshine.db"
-    enableLog: true         # whether to turn on printing of all logs
-    maxIdleConns: 10        # set the maximum number of connections in the idle connection pool
-    maxOpenConns: 100       # set the maximum number of open database connections
-    connMaxLifetime: 30     # sets the maximum time for which the connection can be reused, in minutes`
-
 	undeterminedDatabaseConfigCode = `# set database configuration. reference-db-config-url
 database:
   driver: "mysql"           # database driver
@@ -553,18 +543,6 @@ func InitDB() {
 	switch strings.ToLower(dbDriver) {
 	case sgorm.DBDriverPostgresql:
 		gdb = InitPostgresql()
-	default:
-		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
-			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
-	}
-}`
-
-	modelInitDBFileSqliteCode = `// InitDB connect database
-func InitDB() {
-	dbDriver := config.Get().Database.Driver
-	switch strings.ToLower(dbDriver) {
-	case sgorm.DBDriverSqlite:
-		gdb = InitSqlite()
 	default:
 		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
 			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")

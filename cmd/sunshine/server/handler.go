@@ -22,7 +22,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/sgorm"
 	"github.com/18721889353/sunshine/pkg/sgorm/mysql"
 	"github.com/18721889353/sunshine/pkg/sgorm/postgresql"
-	"github.com/18721889353/sunshine/pkg/sgorm/sqlite"
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
@@ -47,7 +46,6 @@ func ListDbDrivers(c *gin.Context) {
 		sgorm.DBDriverMysql,
 		sgorm.DBDriverPostgresql,
 		sgorm.DBDriverTidb,
-		sgorm.DBDriverSqlite,
 	}
 
 	data := []kv{}
@@ -76,8 +74,6 @@ func ListTables(c *gin.Context) {
 		tables, err = getMysqlTables(form.Dsn)
 	case sgorm.DBDriverPostgresql:
 		tables, err = getPostgresqlTables(form.Dsn)
-	case sgorm.DBDriverSqlite:
-		tables, err = getSqliteTables(form.Dsn)
 	case "":
 		response.Error(c, errcode.InvalidParams.RewriteMsg("database type cannot be empty"))
 		return
@@ -517,30 +513,3 @@ func getSchemaTables(db *sgorm.DB, schemas []pgSchema) ([]string, error) {
 	return schemaTables, nil
 }
 
-func getSqliteTables(dbFile string) ([]string, error) {
-	if !gofile.IsExists(dbFile) {
-		return nil, fmt.Errorf("sqlite db file %s not found in local host", dbFile)
-	}
-
-	db, err := sqlite.Init(dbFile)
-	if err != nil {
-		return nil, err
-	}
-	defer sqlite.Close(db) //nolint
-
-	var tables []string
-	err = db.Raw("select name from sqlite_master where type = ?", "table").Scan(&tables).Error
-	if err != nil {
-		return nil, err
-	}
-
-	filteredTables := []string{}
-	for _, table := range tables {
-		if table == "sqlite_sequence" {
-			continue
-		}
-		filteredTables = append(filteredTables, table)
-	}
-
-	return filteredTables, nil
-}

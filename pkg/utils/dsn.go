@@ -47,13 +47,6 @@ func AdaptivePostgresqlDsn(dsn string) string {
 		u.Hostname(), u.Port(), u.User.Username(), password, u.Path[1:], strings.Join(ss, " "))
 }
 
-// AdaptiveSqlite 适应 SQLite 数据库文件路径
-// TODO: 转换为绝对路径
-func AdaptiveSqlite(dbFile string) string {
-	// todo convert to absolute path
-	return dbFile
-}
-
 // DeleteBrackets 删除 DSN 中的括号
 // 查找并删除形如 "@(host:port)/" 的括号
 func DeleteBrackets(str string) string {

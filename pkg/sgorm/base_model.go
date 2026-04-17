@@ -22,8 +22,6 @@ const (
 	DBDriverPostgresql = "postgresql"
 	// DBDriverTidb tidb driver
 	DBDriverTidb = "tidb"
-	// DBDriverSqlite sqlite driver
-	DBDriverSqlite = "sqlite"
 )
 
 // Model embedded structs, add `gorm: "embedded"` when defining table structs

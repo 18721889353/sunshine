@@ -46,8 +46,6 @@ const (
 	DBDriverPostgresql = "postgresql"
 	// DBDriverTidb tidb driver
 	DBDriverTidb = "tidb"
-	// DBDriverSqlite sqlite driver
-	DBDriverSqlite = "sqlite"
 
 	jsonTypeName = "datatypes.JSON"
 	jsonPkgPath  = "gorm.io/datatypes"
@@ -400,7 +398,7 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 		if opt.GormType {
 			gormTag.WriteString(";type:")
 			switch opt.DBDriver {
-			case DBDriverMysql, DBDriverTidb, DBDriverSqlite:
+			case DBDriverMysql, DBDriverTidb:
 				gormTag.WriteString(col.Tp.InfoSchemaStr())
 			case DBDriverPostgresql:
 				gormTag.WriteString(opt.FieldTypes[colName])

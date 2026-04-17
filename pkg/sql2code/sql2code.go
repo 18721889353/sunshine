@@ -9,7 +9,6 @@ import (
 	"os"      // 导入操作系统包
 	"strings" // 导入字符串处理包
 
-	"github.com/18721889353/sunshine/pkg/gofile"          // 导入文件操作包
 	"github.com/18721889353/sunshine/pkg/sql2code/parser" // 导入 SQL 解析器包
 	"github.com/18721889353/sunshine/pkg/utils"           // 导入工具包
 )
@@ -20,8 +19,8 @@ type Args struct {
 
 	DDLFile string // DDL 文件路径
 
-	DBDriver   string            // 数据库驱动名称，如 mysql, postgresql, sqlite，默认为 mysql
-	DBDsn      string            // 连接 MySQL 的 DSN，如果是 SQLite，DBDsn 是本地数据库文件路径
+	DBDriver   string            // 数据库驱动名称，如 mysql, postgresql，默认为 mysql
+	DBDsn      string            // 连接数据库的 DSN
 	DBTable    string            // 表名
 	fieldTypes map[string]string // 字段名:类型映射
 
@@ -63,11 +62,6 @@ func (a *Args) checkValid() error {
 	// 设置默认数据库驱动为 MySQL
 	if a.DBDriver == "" {
 		a.DBDriver = parser.DBDriverMysql
-	} else if a.DBDriver == parser.DBDriverSqlite {
-		// 检查 SQLite 数据库文件是否存在
-		if !gofile.IsExists(a.DBDsn) {
-			return fmt.Errorf("未在本地找到 SQLite 数据库文件 %s", a.DBDsn)
-		}
 	}
 	// 如果未指定字段类型映射，则初始化为空映射
 	if a.fieldTypes == nil {
@@ -112,9 +106,6 @@ func getSQL(args *Args) (string, map[string]string, error) {
 			}
 			sqlStr, pgTypeMap := parser.ConvertToSQLByPgFields(args.DBTable, fields)
 			return sqlStr, pgTypeMap, nil
-		case parser.DBDriverSqlite:
-			sqlStr, err := parser.GetSqliteTableInfo(args.DBDsn, args.DBTable)
-			return sqlStr, nil, err
 		default:
 			return "", nil, errors.New("获取 SQL 错误，不支持的数据库驱动: " + dbDriverName)
 		}
