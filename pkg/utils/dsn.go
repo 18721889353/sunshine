@@ -54,18 +54,6 @@ func AdaptiveSqlite(dbFile string) string {
 	return dbFile
 }
 
-// AdaptiveMongodbDsn 适应 MongoDB 的 DSN
-// 如果 DSN 不以 "mongodb://" 或 "mongodb+srv://" 开头，则添加默认前缀 "mongodb://"
-// 删除 DSN 中的括号
-func AdaptiveMongodbDsn(dsn string) string {
-	if !strings.Contains(dsn, "mongodb://") &&
-		!strings.Contains(dsn, "mongodb+srv://") {
-		dsn = "mongodb://" + dsn // default scheme
-	}
-
-	return DeleteBrackets(dsn)
-}
-
 // DeleteBrackets 删除 DSN 中的括号
 // 查找并删除形如 "@(host:port)/" 的括号
 func DeleteBrackets(str string) string {

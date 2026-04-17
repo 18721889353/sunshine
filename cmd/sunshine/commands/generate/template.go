@@ -521,15 +521,6 @@ database:
     maxOpenConns: 100       # set the maximum number of open database connections
     connMaxLifetime: 30     # sets the maximum time for which the connection can be reused, in minutes`
 
-	mongodbConfigCode = `database:
-  driver: "mongodb"      # database driver
-  # mongodb settings
-  mongodb:
-    # dsn format,  [scheme://]<username>:<password>@<hostname1>:<port1>[,<hostname2>:<port2>,......]/<db>?[k=v& ......]
-    # default scheme is mongodb://, scheme can be omitted, if you want to use ssl, you can use mongodb+srv:// scheme, the scheme must be filled in 
-    # parameter k=v see https://www.mongodb.com/docs/drivers/go/current/fundamentals/connections/connection-guide/#connection-options
-    dsn: "root:123456@192.168.3.37:27017/account?connectTimeoutMS=15000&socketTimeoutMS=30000&maxPoolSize=100&minPoolSize=1&maxConnIdleTimeMS=300000"`
-
 	undeterminedDatabaseConfigCode = `# set database configuration. reference-db-config-url
 database:
   driver: "mysql"           # database driver

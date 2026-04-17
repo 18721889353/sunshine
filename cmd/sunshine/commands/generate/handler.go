@@ -287,16 +287,8 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: "github.com/18721889353/sunshine/pkg",
 		},
 		{
-			Old: "userExample_types.go.mgo",
-			New: "userExample_types.go",
-		},
-		{
 			Old: showDbNameMark,
 			New: CurrentDbDriver(g.dbDriver),
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
 		},
 		{
 			Old:             "UserExample",
@@ -352,58 +344,6 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 		{
 			Old: "userExample_http.go.exp.tpl",
 			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample.go.exp.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return replaceFiles, fields
-}
-
-func handlerMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
-	replaceFiles := map[string][]string{
-		"internal/cache": {
-			"userExample.go.mgo",
-		},
-		"internal/dao": {
-			"userExample.go.mgo.exp.tpl",
-		},
-		"internal/ecode": {
-			"systemCode_http.go", "userExample_http.go.exp.tpl",
-		},
-		"internal/handler": {
-			"userExample.go.mgo.exp.tpl",
-		},
-		"internal/routers": {
-			"routers.go", "userExample.go.exp.tpl",
-		},
-		"internal/types": {
-			"swagger_types.go", "userExample_types.go.mgo.exp.tpl",
-		},
-	}
-	if codeName == codeNameHandler {
-		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
-		replaceFiles["internal/routers"] = []string{"userExample.go.exp.tpl"}
-		replaceFiles["internal/types"] = []string{"userExample_types.go.mgo.exp.tpl"}
-	}
-
-	var fields []replacer.Field
-
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_http.go.exp.tpl",
-			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample_types.go.mgo.exp.tpl",
-			New: "userExample_types.go",
-		},
-		{
-			Old: "userExample.go.mgo.exp.tpl",
-			New: "userExample.go",
 		},
 		{
 			Old: "userExample.go.exp.tpl",

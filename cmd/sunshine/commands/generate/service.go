@@ -326,14 +326,6 @@ func (g *serviceGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: CurrentDbDriver(g.dbDriver),
 		},
 		{
-			Old: "userExample_client_test.go.mgo",
-			New: "userExample_client_test.go",
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
-		},
-		{
 			Old:             "UserExample",
 			New:             g.codes[parser.TableName],
 			IsCaseSensitive: true,
@@ -383,49 +375,6 @@ func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 		},
 		{
 			Old: "userExample_client_test.go.exp.tpl",
-			New: "userExample_client_test.go",
-		},
-	}...)
-
-	return replaceFiles, fields
-}
-
-func serviceMongoDBExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
-	replaceFiles := map[string][]string{
-		"internal/cache": {
-			"userExample.go.mgo",
-		},
-		"internal/dao": {
-			"userExample.go.mgo.exp.tpl",
-		},
-		"internal/ecode": {
-			"systemCode_rpc.go", "userExample_rpc.go.exp.tpl",
-		},
-		"internal/service": {
-			"service.go", "service_test.go", "userExample.go.mgo.exp.tpl", "userExample_client_test.go.mgo.exp.tpl",
-		},
-	}
-	if codeName == codeNameService {
-		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
-		replaceFiles["internal/service"] = []string{"userExample.go.mgo.exp.tpl", "userExample_client_test.go.mgo.exp.tpl"}
-	}
-
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+".mgo.exp.tpl", startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, ""+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_rpc.go.exp.tpl",
-			New: "userExample_rpc.go",
-		},
-		{
-			Old: "userExample.go.mgo.exp.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample_client_test.go.mgo.exp.tpl",
 			New: "userExample_client_test.go",
 		},
 	}...)

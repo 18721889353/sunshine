@@ -20,7 +20,7 @@ type Args struct {
 
 	DDLFile string // DDL 文件路径
 
-	DBDriver   string            // 数据库驱动名称，如 mysql, mongodb, postgresql, sqlite，默认为 mysql
+	DBDriver   string            // 数据库驱动名称，如 mysql, postgresql, sqlite，默认为 mysql
 	DBDsn      string            // 连接 MySQL 的 DSN，如果是 SQLite，DBDsn 是本地数据库文件路径
 	DBTable    string            // 表名
 	fieldTypes map[string]string // 字段名:类型映射
@@ -115,14 +115,6 @@ func getSQL(args *Args) (string, map[string]string, error) {
 		case parser.DBDriverSqlite:
 			sqlStr, err := parser.GetSqliteTableInfo(args.DBDsn, args.DBTable)
 			return sqlStr, nil, err
-		case parser.DBDriverMongodb:
-			dsn := utils.AdaptiveMongodbDsn(args.DBDsn)
-			fields, err := parser.GetMongodbTableInfo(dsn, args.DBTable)
-			if err != nil {
-				return "", nil, err
-			}
-			sqlStr, mongoTypeMap := parser.ConvertToSQLByMgoFields(args.DBTable, fields)
-			return sqlStr, mongoTypeMap, nil
 		default:
 			return "", nil, errors.New("获取 SQL 错误，不支持的数据库驱动: " + dbDriverName)
 		}

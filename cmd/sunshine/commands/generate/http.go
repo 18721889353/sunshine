@@ -286,27 +286,6 @@ func (g *httpGenerator) generateCode() (string, error) {
 			g.fields = append(g.fields, fields...)
 		}
 
-		if g.isExtendedAPI {
-			var fields []replacer.Field
-			replaceFiles, fields = handlerMongoDBExtendedAPI(r, codeNameHTTP)
-			g.fields = append(g.fields, fields...)
-		} else {
-			replaceFiles = map[string][]string{
-				"internal/cache": {
-					"userExample.go.mgo",
-				},
-				"internal/dao": {
-					"userExample.go.mgo",
-				},
-				"internal/handler": {
-					"userExample.go.mgo",
-				},
-				"internal/types": {
-					"swagger_types.go", "userExample_types.go.mgo",
-				},
-			}
-		}
-
 	default:
 		return "", dbDriverErr(g.dbDriver)
 	}
@@ -525,22 +504,6 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		{
 			Old: "Makefile-for-http",
 			New: "Makefile",
-		},
-		{
-			Old: "init.go.mgo",
-			New: "init.go",
-		},
-		{
-			Old: "mongodb.go.mgo",
-			New: "mongodb.go",
-		},
-		{
-			Old: "userExample_types.go.mgo",
-			New: "userExample_types.go",
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
 		},
 		{
 			Old:             "UserExample",

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,14 +13,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
 	"github.com/18721889353/sunshine/pkg/gobash"
 	"github.com/18721889353/sunshine/pkg/gofile"
 	"github.com/18721889353/sunshine/pkg/krand"
-	"github.com/18721889353/sunshine/pkg/mgo"
 	"github.com/18721889353/sunshine/pkg/sgorm"
 	"github.com/18721889353/sunshine/pkg/sgorm/mysql"
 	"github.com/18721889353/sunshine/pkg/sgorm/postgresql"
@@ -48,7 +45,6 @@ type kv struct {
 func ListDbDrivers(c *gin.Context) {
 	dbDrivers := []string{
 		sgorm.DBDriverMysql,
-		mgo.DBDriverName,
 		sgorm.DBDriverPostgresql,
 		sgorm.DBDriverTidb,
 		sgorm.DBDriverSqlite,
@@ -82,8 +78,6 @@ func ListTables(c *gin.Context) {
 		tables, err = getPostgresqlTables(form.Dsn)
 	case sgorm.DBDriverSqlite:
 		tables, err = getSqliteTables(form.Dsn)
-	case mgo.DBDriverName:
-		tables, err = getMongodbTables(form.Dsn)
 	case "":
 		response.Error(c, errcode.InvalidParams.RewriteMsg("database type cannot be empty"))
 		return
@@ -549,25 +543,4 @@ func getSqliteTables(dbFile string) ([]string, error) {
 	}
 
 	return filteredTables, nil
-}
-
-func getMongodbTables(dsn string) ([]string, error) {
-	dsn = utils.AdaptiveMongodbDsn(dsn)
-	db, err := mgo.Init(dsn)
-	if err != nil {
-		return nil, err
-	}
-	defer mgo.Close(db) //nolint
-
-	tables, err := db.ListCollectionNames(context.Background(), bson.M{})
-	if err != nil {
-		return nil, err
-	}
-
-	if len(tables) == 0 {
-		u, _ := url.Parse(dsn)
-		return nil, fmt.Errorf("mongodb db %s has no tables", strings.TrimLeft(u.Path, "/"))
-	}
-
-	return tables, nil
 }

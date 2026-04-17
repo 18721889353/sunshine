@@ -48,8 +48,6 @@ const (
 	DBDriverTidb = "tidb"
 	// DBDriverSqlite sqlite driver
 	DBDriverSqlite = "sqlite"
-	// DBDriverMongodb mongodb driver
-	DBDriverMongodb = "mongodb"
 
 	jsonTypeName = "datatypes.JSON"
 	jsonPkgPath  = "gorm.io/datatypes"
@@ -177,7 +175,7 @@ type rewriterField struct {
 }
 
 func (d tmplData) isCommonStyle(isEmbed bool) bool {
-	if d.DBDriver != DBDriverMongodb && !isEmbed && !d.CrudInfo.isIDPrimaryKey() {
+	if !isEmbed && !d.CrudInfo.isIDPrimaryKey() {
 		return true
 	}
 	return false
@@ -199,18 +197,6 @@ func (t tmplField) ConditionZero() string {
 		return `!= false /*Warning: if the value itself is false, can't be updated*/`
 	}
 
-	if t.DBDriver == DBDriverMongodb {
-		if t.GoType == goTypeOID {
-			return `!= primitive.NilObjectID`
-		}
-		if t.GoType == "*"+t.Name {
-			return `!= nil`
-		}
-		if strings.Contains(t.GoType, "[]") {
-			return `!= nil`
-		}
-	}
-
 	return `!= ` + t.GoType
 }
 
@@ -228,18 +214,6 @@ func (t tmplField) GoZero() string {
 		return `= nil` //nolint
 	case "bool": //nolint
 		return `= false`
-	}
-
-	if t.DBDriver == DBDriverMongodb {
-		if t.GoType == goTypeOID {
-			return `= primitive.NilObjectID`
-		}
-		if t.GoType == "*"+t.Name {
-			return `= nil`
-		}
-		if strings.Contains(t.GoType, "[]") {
-			return `= nil`
-		}
 	}
 
 	return `= ` + t.GoType
@@ -261,18 +235,6 @@ func (t tmplField) GoTypeZero() string {
 		return `false`
 	}
 
-	if t.DBDriver == DBDriverMongodb {
-		if t.GoType == goTypeOID {
-			return `primitive.NilObjectID`
-		}
-		if t.GoType == "*"+t.Name {
-			return `nil` //nolint
-		}
-		if strings.Contains(t.GoType, "[]") {
-			return `nil` //nolint
-		}
-	}
-
 	return t.GoType
 }
 
@@ -284,9 +246,6 @@ func (t tmplField) AddOne(i int) int {
 // AddOneWithTag counter and add id tag
 func (t tmplField) AddOneWithTag(i int) string {
 	if t.ColName == "id" {
-		if t.DBDriver == DBDriverMongodb {
-			return fmt.Sprintf(`%d [(validate.rules).string.min_len = 6, (tagger.tags) = "uri:\"id\""]`, i+1)
-		}
 		return fmt.Sprintf(`%d [(validate.rules).%s.gt = 0, (tagger.tags) = "uri:\"id\""]`, i+1, t.GoType)
 	}
 	return fmt.Sprintf("%d", i+1)
@@ -322,8 +281,21 @@ var replaceFields = map[string]string{
 }
 
 const (
+	// SubStructKey sub struct key for model
+	SubStructKey = "__sub_struct__"
+	// ProtoSubStructKey sub struct key for protobuf
+	ProtoSubStructKey = "__proto_sub_struct__"
+)
+
+const (
+	// goTypeInts go type for repeated int64
+	goTypeInts = "[]int"
+	// goTypeStrings go type for repeated string
+	goTypeStrings = "[]string"
+)
+
+const (
 	columnID         = "id"
-	_columnID        = "_id"
 	columnCreatedAt  = "created_at"
 	columnUpdatedAt  = "updated_at"
 	columnDeletedAt  = "deleted_at"
@@ -381,15 +353,6 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 
 	if opt.ForceTableName || data.RawTableName != inflection.Plural(data.RawTableName) {
 		data.NameFunc = true
-	}
-
-	switch opt.DBDriver {
-	case DBDriverMongodb:
-		if opt.JSONNamedType != 0 {
-			SetJSONTagCamelCase()
-		} else {
-			SetJSONTagSnakeCase()
-		}
 	}
 
 	// find table comment
@@ -488,21 +451,6 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 
 		field.DBDriver = opt.DBDriver
 		switch opt.DBDriver {
-		case DBDriverMongodb: // mongodb
-			tags = append(tags, "bson", gormTag.String())
-			if opt.JSONTag {
-				if strings.ToLower(jsonName) == "_id" {
-					jsonName = "id"
-				}
-				field.JSONName = jsonName
-				tags = append(tags, "json", jsonName)
-			}
-			field.Tag = makeTagStr(tags)
-			field.GoType = opt.FieldTypes[colName]
-			if field.GoType == "time.Time" {
-				importPath = append(importPath, "time")
-			}
-
 		default: // gorm
 			if !isPrimaryKey[colName] && isNotNull {
 				gormTag.WriteString(";not null")
@@ -661,32 +609,23 @@ func getModelStructCode(data tmplData, importPaths []string, isEmbed bool, jsonN
 		newImportPaths = append(newImportPaths, "github.com/18721889353/sunshine/pkg/sgorm")
 	} else {
 		for i, field := range data.Fields {
+			if strings.Contains(field.GoType, "time.Time") {
+				data.Fields[i].GoType = "*time.Time"
+				continue
+			}
+			// force conversion of ID field to uint64 type
+			if field.Name == "ID" {
+				data.Fields[i].GoType = "uint64"
+				if data.isCommonStyle(isEmbed) {
+					data.Fields[i].GoType = data.CrudInfo.GoType
+				}
+			}
 			switch field.DBDriver {
-			case DBDriverMongodb:
-				if field.Name == "ID" {
-					data.Fields[i].GoType = goTypeOID
-					importPaths = append(importPaths, "go.mongodb.org/mongo-driver/bson/primitive")
-				}
-
-			default:
-				if strings.Contains(field.GoType, "time.Time") {
-					data.Fields[i].GoType = "*time.Time"
-					continue
-				}
-				// force conversion of ID field to uint64 type
-				if field.Name == "ID" {
-					data.Fields[i].GoType = "uint64"
-					if data.isCommonStyle(isEmbed) {
-						data.Fields[i].GoType = data.CrudInfo.GoType
-					}
-				}
-				switch field.DBDriver {
-				case DBDriverMysql, DBDriverTidb, DBDriverPostgresql:
-					if field.rewriterField != nil {
-						if field.rewriterField.goType == jsonTypeName {
-							data.Fields[i].GoType = jsonTypeName
-							importPaths = append(importPaths, jsonPkgPath)
-						}
+			case DBDriverMysql, DBDriverTidb, DBDriverPostgresql:
+				if field.rewriterField != nil {
+					if field.rewriterField.goType == jsonTypeName {
+						data.Fields[i].GoType = jsonTypeName
+						importPaths = append(importPaths, jsonPkgPath)
 					}
 				}
 			}
@@ -717,12 +656,6 @@ func getModelStructCode(data tmplData, importPaths []string, isEmbed bool, jsonN
 	if data.SubStructs != "" {
 		structCode += data.SubStructs
 	}
-	if data.DBDriver == DBDriverMongodb {
-		structCode = strings.ReplaceAll(structCode, `bson:"column:`, `bson:"`)
-		structCode = strings.ReplaceAll(structCode, `;type:"`, `"`)
-		structCode = strings.ReplaceAll(structCode, `;type:;primary_key`, ``)
-		structCode = strings.ReplaceAll(structCode, `bson:"id" json:"id"`, `bson:"_id" json:"id"`)
-	}
 
 	return structCode, newImportPaths, nil
 }
@@ -749,7 +682,7 @@ func getUpdateFieldsCode(data tmplData, isEmbed bool) (string, error) {
 	var newFields = []tmplField{}
 	for _, field := range data.Fields {
 		falseColumns := []string{}
-		if isIgnoreFields(field.ColName, falseColumns...) || field.ColName == columnID || field.ColName == _columnID {
+		if isIgnoreFields(field.ColName, falseColumns...) || field.ColName == columnID {
 			continue
 		}
 		switch field.DBDriver {
@@ -775,17 +708,6 @@ func getUpdateFieldsCode(data tmplData, isEmbed bool) (string, error) {
 func getHandlerStructCodes(data tmplData, jsonNamedType int) (string, error) {
 	newFields := []tmplField{}
 	for _, field := range data.Fields {
-		if field.DBDriver == DBDriverMongodb { // mongodb
-			if field.Name == "ID" {
-				field.GoType = "string"
-			}
-			if "*"+field.Name == field.GoType {
-				field.GoType = "*model." + field.Name
-			}
-			if strings.Contains(field.GoType, "[]*") {
-				field.GoType = "[]*model." + strings.ReplaceAll(field.GoType, "[]*", "")
-			}
-		}
 		if jsonNamedType == 0 { // snake case
 			field.JSONName = customToSnake(field.ColName)
 		} else {
@@ -819,11 +741,6 @@ func tmplExecuteWithFilter(data tmplData, tmpl *template.Template, reservedColum
 	for _, field := range data.Fields {
 		if isIgnoreFields(field.ColName, reservedColumns...) {
 			continue
-		}
-		if field.DBDriver == DBDriverMongodb { // mongodb
-			if strings.ToLower(field.Name) == "id" {
-				field.GoType = "string"
-			}
 		}
 		newFields = append(newFields, field)
 	}
@@ -956,12 +873,6 @@ var webProtoMessageFieldCodes = map[string]string{
 
 func adaptedDbType(data tmplData, isWebProto bool, code string) string {
 	switch data.DBDriver {
-	case DBDriverMongodb: // mongodb
-		if isWebProto {
-			code = replaceProtoMessageFieldCode(code, webProtoMessageFieldCodes)
-		} else {
-			code = replaceProtoMessageFieldCode(code, grpcProtoMessageFieldCodes)
-		}
 	default:
 		if isWebProto {
 			code = replaceProtoMessageFieldCode(code, webDefaultProtoMessageFieldCodes)
@@ -1136,19 +1047,8 @@ func goTypeToProto(fields []tmplField, jsonNameType int, isCommonStyle bool) []t
 			field.GoType = "string"
 		}
 
-		if field.DBDriver == DBDriverMongodb && field.GoType != "" {
-			if field.GoType[0] == '*' {
-				field.GoType = field.GoType[1:]
-			} else if strings.Contains(field.GoType, "[]*") {
-				field.GoType = "repeated " + strings.ReplaceAll(field.GoType, "[]*", "")
-			}
-			if field.GoType == "[]time.Time" {
-				field.GoType = "repeated string"
-			}
-		} else {
-			if strings.ToLower(field.Name) == "id" && !isCommonStyle {
-				field.GoType = "uint64"
-			}
+		if strings.ToLower(field.Name) == "id" && !isCommonStyle {
+			field.GoType = "uint64"
 		}
 
 		if jsonNameType == 0 { // snake case

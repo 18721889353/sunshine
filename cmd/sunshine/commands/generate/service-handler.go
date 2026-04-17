@@ -332,26 +332,6 @@ func (g *serviceAndHandlerGenerator) addFields(r replacer.Replacer) []replacer.F
 			New: CurrentDbDriver(g.dbDriver),
 		},
 		{
-			Old: "userExample_client_test.go.mgo",
-			New: "userExample_client_test.go",
-		},
-		{
-			Old: "userExample_logic.go.mgo",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.service",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample_logic.go",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
-		},
-		{
 			Old:             "UserExamplePb",
 			New:             "UserExample",
 			IsCaseSensitive: true,
@@ -405,55 +385,6 @@ func serviceHandlerExtendedAPI(r replacer.Replacer) (map[string][]string, []repl
 		},
 		{
 			Old: "userExample_client_test.go.exp.tpl",
-			New: "userExample_client_test.go",
-		},
-		{
-			Old: "userExample.go.service.exp.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return replaceFiles, fields
-}
-
-func serviceHandlerMongoDBExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
-	replaceFiles := map[string][]string{
-		"internal/cache": {
-			"userExample.go.mgo",
-		},
-		"internal/dao": {
-			"userExample.go.mgo.exp.tpl",
-		},
-		"internal/ecode": {
-			"userExample_rpc.go.exp.tpl",
-		},
-		"internal/handler": {
-			"userExample.go.service.exp.tpl",
-		},
-		"internal/model": {
-			"userExample.go",
-		},
-		"internal/service": {
-			"userExample.go.mgo.exp.tpl", "userExample_client_test.go.mgo.exp.tpl",
-		},
-	}
-
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+".mgo.exp.tpl", startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, ""+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_rpc.go.exp.tpl",
-			New: "userExample_rpc.go",
-		},
-		{
-			Old: "userExample.go.mgo.exp.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample_client_test.go.mgo.exp.tpl",
 			New: "userExample_client_test.go",
 		},
 		{

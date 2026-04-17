@@ -282,25 +282,6 @@ func (g *rpcGenerator) generateCode() (string, error) {
 			g.fields = append(g.fields, fields...)
 		}
 
-		if g.isExtendedAPI {
-			var fields []replacer.Field
-			replaceFiles, fields = serviceMongoDBExtendedAPI(r, codeNameHTTP)
-			g.fields = append(g.fields, fields...)
-		} else {
-			replaceFiles = map[string][]string{
-				"internal/cache": {
-					"userExample.go.mgo",
-				},
-				"internal/dao": {
-					"userExample.go.mgo",
-				},
-				"internal/service": {
-					"service.go", "service_test.go", "userExample.go.mgo", "userExample_client_test.go.mgo",
-				},
-			}
-			g.fields = append(g.fields, deleteFieldsMark(r, serviceLogicFile, startMark, endMark)...)
-		}
-
 	default:
 		return "", dbDriverErr(g.dbDriver)
 	}
@@ -537,22 +518,6 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		{
 			Old: showDbNameMark,
 			New: CurrentDbDriver(g.dbDriver),
-		},
-		{
-			Old: "init.go.mgo",
-			New: "init.go",
-		},
-		{
-			Old: "mongodb.go.mgo",
-			New: "mongodb.go",
-		},
-		{
-			Old: "userExample_client_test.go.mgo",
-			New: "userExample_client_test.go",
-		},
-		{
-			Old: "userExample.go.mgo",
-			New: "userExample.go",
 		},
 		{
 			Old:             "UserExample",
