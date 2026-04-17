@@ -32,12 +32,12 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"google.golang.org/grpc"
 
 	//"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-	//"github.com/18721889353/sunshine/pkg/logger"
-	//"go.uber.org/zap"
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	// import api service package here
 	//"moduleNameExample/internal/cache"
@@ -91,14 +91,14 @@ func (s *{{.LowerName}}) trace(ctx context.Context, name string, fn func() error
 	duration := time.Since(startTime)
 
 	// 构建日志字段
-	fields := []zap.Field{
-		zap.String("duration", duration.String()),
-		zap.Int64("ms", duration.Milliseconds()),
+	fields := []logger.Field{
+		logger.String("duration", duration.String()),
+		logger.Int64("ms", duration.Milliseconds()),
 	}
 
 	// 根据执行结果记录不同级别的日志
 	if err != nil {
-		fields = append(fields, zap.Error(err))
+		fields = append(fields, logger.Err(err))
 		logger.WarnWithCtx(ctx, name+"(失败)", fields...)
 	} else {
 		logger.InfoWithCtx(ctx, name+"(成功)", fields...)
@@ -262,7 +262,7 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 		// 	redsync.WithExpiry(expiry),
 		// )
 		// if err != nil {
-		// 	logger.WarnWithCtx(ctx, "获取分布式锁失败", zap.Error(err))
+		// 	logger.WarnWithCtx(ctx, "获取分布式锁失败", logger.Err(err))
 		// 	return ecode.StatusResourceExhausted.Err("系统繁忙，请稍后重试")
 		// }
 		// return nil
