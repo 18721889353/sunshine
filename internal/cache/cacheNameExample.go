@@ -20,6 +20,7 @@ import (
 // delete the templates code start
 type keyTypeExample = string
 type valueTypeExample = string
+// delete the templates code end
 
 const (
 	// cache prefix key, must end with a colon
