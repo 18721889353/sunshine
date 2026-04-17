@@ -1089,8 +1089,7 @@ func ProduceDecWithSpecifiedTp(dec *MyDecimal, tp *FieldType, sc *stmtctx.Statem
 			}
 			if !dec.IsZero() && frac > decimal && dec.Compare(&old) != 0 {
 				if sc.InInsertStmt || sc.InUpdateOrDeleteStmt {
-					// fix https://github.com/knocknote/vitess-sqlparser/tidbparser/issues/3895
-					// fix https://github.com/knocknote/vitess-sqlparser/tidbparser/issues/5532
+					// fix decimal precision issues #3895, #5532
 					sc.AppendWarning(ErrTruncated)
 					err = nil
 				} else {

@@ -276,7 +276,7 @@ func (g *httpGenerator) generateCode() (string, error) {
 
 	replaceFiles := make(map[string][]string)
 	switch strings.ToLower(g.dbDriver) {
-	case DBDriverMysql, DBDriverPostgresql, DBDriverTidb:
+	case DBDriverMysql, DBDriverPostgresql:
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
 		if g.isExtendedAPI {
 			var fields []replacer.Field

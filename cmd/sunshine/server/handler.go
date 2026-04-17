@@ -45,7 +45,6 @@ func ListDbDrivers(c *gin.Context) {
 	dbDrivers := []string{
 		sgorm.DBDriverMysql,
 		sgorm.DBDriverPostgresql,
-		sgorm.DBDriverTidb,
 	}
 
 	data := []kv{}
@@ -70,7 +69,7 @@ func ListTables(c *gin.Context) {
 
 	var tables []string
 	switch strings.ToLower(form.DbDriver) {
-	case sgorm.DBDriverMysql, sgorm.DBDriverTidb:
+	case sgorm.DBDriverMysql:
 		tables, err = getMysqlTables(form.Dsn)
 	case sgorm.DBDriverPostgresql:
 		tables, err = getPostgresqlTables(form.Dsn)

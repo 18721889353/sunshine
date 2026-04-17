@@ -185,8 +185,7 @@ func checkDbDriver(files []string) string {
 			continue
 		}
 
-		if bytes.Contains(data, getContentMark(generate.DBDriverMysql)) ||
-			bytes.Contains(data, getContentMark(generate.DBDriverTidb)) {
+		if bytes.Contains(data, getContentMark(generate.DBDriverMysql)) {
 			return generate.DBDriverMysql
 		}
 

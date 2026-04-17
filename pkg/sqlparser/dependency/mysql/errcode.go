@@ -891,7 +891,7 @@ const (
 	ErrInvalidJSONData                                              = 3146
 	ErrJSONUsedAsKey                                                = 3152
 
-	// TiDB self-defined errors.
+	// Custom defined errors.
 	ErrMemExceedThreshold = 8001
 
 	// TiKV/PD errors.

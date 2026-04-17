@@ -237,7 +237,6 @@ const (
 	SystemUser   = "system_user"
 	User         = "user"
 	Version      = "version"
-	TiDBVersion  = "tidb_version"
 
 	// control functions
 	If     = "if"

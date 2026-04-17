@@ -436,10 +436,6 @@ const (
 	textType                 = 57667
 	than                     = 57668
 	then                     = 57503
-	tidb                     = 57715
-	tidbHJ                   = 57716
-	tidbINLJ                 = 57718
-	tidbSMJ                  = 57717
 	timeType                 = 57669
 	timestampAdd             = 57703
 	timestampDiff            = 57704
@@ -529,10 +525,7 @@ var (
 		57633: 31,  // quarter (798x)
 		57646: 32,  // second (798x)
 		57660: 33,  // status (798x)
-		57716: 34,  // tidbHJ (798x)
-		57718: 35,  // tidbINLJ (798x)
-		57717: 36,  // tidbSMJ (798x)
-		57682: 37,  // week (798x)
+		57682: 34,  // week (798x)
 		57578: 38,  // end (797x)
 		57597: 39,  // identified (797x)
 		57557: 40,  // columns (796x)
@@ -639,7 +632,6 @@ var (
 		57666: 141, // temptable (792x)
 		57667: 142, // textType (792x)
 		57668: 143, // than (792x)
-		57715: 144, // tidb (792x)
 		57671: 145, // transaction (792x)
 		57672: 146, // triggers (792x)
 		57674: 147, // uncommitted (792x)
@@ -772,8 +764,7 @@ var (
 		57355: 274, // pipes (338x)
 		57905: 275, // Identifier (285x)
 		57954: 276, // NotKeywordToken (285x)
-		58066: 277, // TiDBKeyword (285x)
-		58074: 278, // UnReservedKeyword (285x)
+		58074: 277, // UnReservedKeyword (285x)
 		57372: 279, // character (266x)
 		57473: 280, // packKeys (231x)
 		57478: 281, // shardRowIDBits (231x)
@@ -1077,7 +1068,6 @@ var (
 		57924: 579, // InsertValues (2x)
 		57926: 580, // IntoOpt (2x)
 		57443: 581, // kill (2x)
-		57933: 582, // KillOrKillTiDB (2x)
 		57934: 583, // KillStmt (2x)
 		57938: 584, // LimitClause (2x)
 		57449: 585, // load (2x)
@@ -1319,9 +1309,6 @@ var (
 		"quarter",
 		"second",
 		"status",
-		"tidbHJ",
-		"tidbINLJ",
-		"tidbSMJ",
 		"week",
 		"end",
 		"identified",
@@ -1429,7 +1416,6 @@ var (
 		"temptable",
 		"textType",
 		"than",
-		"tidb",
 		"transaction",
 		"triggers",
 		"uncommitted",
@@ -1562,7 +1548,6 @@ var (
 		"pipes",
 		"Identifier",
 		"NotKeywordToken",
-		"TiDBKeyword",
 		"UnReservedKeyword",
 		"character",
 		"packKeys",
@@ -1867,7 +1852,6 @@ var (
 		"InsertValues",
 		"IntoOpt",
 		"kill",
-		"KillOrKillTiDB",
 		"KillStmt",
 		"LimitClause",
 		"load",
@@ -10610,14 +10594,14 @@ yynewstate:
 		{
 			parser.yyVAL.statement = &ast.KillStmt{
 				ConnectionID:  getUint64FromNUM(yyS[yypt-0].item),
-				TiDBExtension: yyS[yypt-1].item.(bool),
+				Extension: yyS[yypt-1].item.(bool),
 			}
 		}
 	case 1238:
 		{
 			parser.yyVAL.statement = &ast.KillStmt{
 				ConnectionID:  getUint64FromNUM(yyS[yypt-0].item),
-				TiDBExtension: yyS[yypt-2].item.(bool),
+				Extension: yyS[yypt-2].item.(bool),
 			}
 		}
 	case 1239:
@@ -10625,7 +10609,7 @@ yynewstate:
 			parser.yyVAL.statement = &ast.KillStmt{
 				ConnectionID:  getUint64FromNUM(yyS[yypt-0].item),
 				Query:         true,
-				TiDBExtension: yyS[yypt-2].item.(bool),
+				Extension: yyS[yypt-2].item.(bool),
 			}
 		}
 	case 1240:

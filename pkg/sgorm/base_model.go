@@ -20,8 +20,6 @@ const (
 	DBDriverMysql = "mysql"
 	// DBDriverPostgresql postgresql driver
 	DBDriverPostgresql = "postgresql"
-	// DBDriverTidb tidb driver
-	DBDriverTidb = "tidb"
 )
 
 // Model embedded structs, add `gorm: "embedded"` when defining table structs

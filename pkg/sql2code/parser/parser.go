@@ -44,8 +44,6 @@ const (
 	DBDriverMysql = "mysql"
 	// DBDriverPostgresql postgresql driver
 	DBDriverPostgresql = "postgresql"
-	// DBDriverTidb tidb driver
-	DBDriverTidb = "tidb"
 
 	jsonTypeName = "datatypes.JSON"
 	jsonPkgPath  = "gorm.io/datatypes"
@@ -398,7 +396,7 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 		if opt.GormType {
 			gormTag.WriteString(";type:")
 			switch opt.DBDriver {
-			case DBDriverMysql, DBDriverTidb:
+			case DBDriverMysql:
 				gormTag.WriteString(col.Tp.InfoSchemaStr())
 			case DBDriverPostgresql:
 				gormTag.WriteString(opt.FieldTypes[colName])
@@ -578,7 +576,7 @@ func getModelStructCode(data tmplData, importPaths []string, isEmbed bool, jsonN
 				continue
 			}
 			switch field.DBDriver {
-			case DBDriverMysql, DBDriverTidb, DBDriverPostgresql:
+			case DBDriverMysql, DBDriverPostgresql:
 				if field.rewriterField != nil {
 					if field.rewriterField.goType == jsonTypeName {
 						field.GoType = jsonTypeName
@@ -619,7 +617,7 @@ func getModelStructCode(data tmplData, importPaths []string, isEmbed bool, jsonN
 				}
 			}
 			switch field.DBDriver {
-			case DBDriverMysql, DBDriverTidb, DBDriverPostgresql:
+			case DBDriverMysql, DBDriverPostgresql:
 				if field.rewriterField != nil {
 					if field.rewriterField.goType == jsonTypeName {
 						data.Fields[i].GoType = jsonTypeName
@@ -684,7 +682,7 @@ func getUpdateFieldsCode(data tmplData, isEmbed bool) (string, error) {
 			continue
 		}
 		switch field.DBDriver {
-		case DBDriverMysql, DBDriverTidb, DBDriverPostgresql:
+		case DBDriverMysql, DBDriverPostgresql:
 			if field.rewriterField != nil {
 				if field.rewriterField.goType == jsonTypeName {
 					field.GoType = "[]byte"

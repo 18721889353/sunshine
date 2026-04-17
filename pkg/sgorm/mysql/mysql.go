@@ -79,11 +79,6 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 	return db, nil
 }
 
-// InitTidb init tidb
-func InitTidb(dsn string, opts ...Option) (*gorm.DB, error) {
-	return Init(dsn, opts...)
-}
-
 // gorm setting
 func gormConfig(o *options) *gorm.Config {
 	config := &gorm.Config{

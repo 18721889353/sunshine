@@ -24,11 +24,11 @@ func newInvalidModeErr(s string) error {
 
 // Version information.
 var (
-	// TiDBReleaseVersion is initialized by (git describe --tags) in Makefile.
-	TiDBReleaseVersion = "None"
+	// ReleaseVersion is initialized by (git describe --tags) in Makefile.
+	ReleaseVersion = "None"
 
-	// ServerVersion is the version information of this tidb-server in MySQL's format.
-	ServerVersion = fmt.Sprintf("5.7.1-TiDB-%s", TiDBReleaseVersion)
+	// ServerVersion is the version information of this server in MySQL's format.
+	ServerVersion = fmt.Sprintf("5.7.1-%s", ReleaseVersion)
 )
 
 // Header information.
@@ -171,8 +171,6 @@ const (
 	GlobalVariablesTable = "GLOBAL_VARIABLES"
 	// GlobalStatusTable is the table contains global status variables.
 	GlobalStatusTable = "GLOBAL_STATUS"
-	// TiDBTable is the table contains tidb info.
-	TiDBTable = "tidb"
 )
 
 // PrivilegeType  privilege

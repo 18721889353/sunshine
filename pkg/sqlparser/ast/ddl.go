@@ -476,7 +476,7 @@ type RenameTableStmt struct {
 	OldTable *TableName
 	NewTable *TableName
 	// TODO: Refactor this when you are going to add full support for multiple schema changes.
-	// Currently it is only useful for syncer which depends heavily on tidb parser to do some dirty work.
+	// Currently it is only useful for syncer which depends heavily on SQL parser to do some dirty work.
 	TableToTables []*TableToTable
 }
 

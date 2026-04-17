@@ -231,7 +231,7 @@ func (job *Job) IsCancelling() bool {
 	return job.State == JobStateCancelling
 }
 
-// IsSynced returns whether the DDL modification is synced among all TiDB servers.
+// IsSynced returns whether the DDL modification is synced among all SQL servers.
 func (job *Job) IsSynced() bool {
 	return job.State == JobStateSynced
 }

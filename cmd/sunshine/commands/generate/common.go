@@ -36,8 +36,6 @@ const (
 	DBDriverMysql = "mysql"
 	// DBDriverPostgresql postgresql driver
 	DBDriverPostgresql = "postgresql"
-	// DBDriverTidb tidb driver
-	DBDriverTidb = "tidb"
 
 	undeterminedDBDriver = "undetermined" // used in services created based on protobuf.
 
@@ -467,7 +465,7 @@ func replacePackage(data []byte, moduleName string, serverName string) []byte {
 func getDBConfigCode(dbDriver string) string {
 	dbConfigCode := ""
 	switch strings.ToLower(dbDriver) {
-	case DBDriverMysql, DBDriverTidb:
+	case DBDriverMysql:
 		dbConfigCode = mysqlConfigCode
 	case DBDriverPostgresql:
 		dbConfigCode = postgresqlConfigCode
@@ -485,7 +483,7 @@ func GetDBConfigurationCode(dbDriver string) string {
 func getInitDBCode(dbDriver string) string {
 	initDBCode := ""
 	switch strings.ToLower(dbDriver) {
-	case DBDriverMysql, DBDriverTidb:
+	case DBDriverMysql:
 		initDBCode = modelInitDBFileMysqlCode
 	case DBDriverPostgresql:
 		initDBCode = modelInitDBFilePostgresqlCode
@@ -1082,7 +1080,7 @@ func replaceTemplateFileContent(r replacer.Replacer, file string, crudInfo *pars
 func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 	dbDriver = strings.ToLower(dbDriver)
 	switch dbDriver {
-	case DBDriverMysql, DBDriverTidb:
+	case DBDriverMysql:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go", "snow.go", "goRabbitmq.go", "es.go"}
 	case DBDriverPostgresql:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "postgresql.go"}

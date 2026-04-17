@@ -529,7 +529,7 @@ database:
 func InitDB() {
 	dbDriver := config.Get().Database.Driver
 	switch strings.ToLower(dbDriver) {
-	case sgorm.DBDriverMysql, sgorm.DBDriverTidb:
+	case sgorm.DBDriverMysql:
 		gdb = InitMysql()
 	default:
 		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +

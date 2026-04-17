@@ -94,7 +94,7 @@ func getSQL(args *Args) (string, map[string]string, error) {
 		}
 
 		switch dbDriverName {
-		case parser.DBDriverMysql, parser.DBDriverTidb:
+		case parser.DBDriverMysql:
 			dsn := utils.AdaptiveMysqlDsn(args.DBDsn)
 			sqlStr, err := parser.GetMysqlTableInfo(dsn, args.DBTable)
 			return sqlStr, nil, err
