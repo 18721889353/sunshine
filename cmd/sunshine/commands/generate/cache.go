@@ -171,22 +171,40 @@ func (g *stringCacheGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 	fields = append(fields, []replacer.Field{
 		{
-			Old: "github.com/18721889353/sunshine/internal/model",
-			New: g.moduleName + "/internal/model",
+			Old: "// delete the templates code start\r\ntype keyTypeExample = string\r\ntype valueTypeExample = string\r\n",
+			New: "",
 		},
 		{
-			Old:             "cacheNameExample",
-			New:             g.cacheName,
+			Old: "github.com/18721889353/sunshine/internal/database",
+			New: g.moduleName + "/internal/database",
+		},
+		{
+			Old: "cacheNameExample.go",
+			New: g.moduleName + "Cache.go",
+		},
+		{
+			Old:             "CacheNameExample",
+			New:             strings.ToUpper(g.moduleName[:1]) + g.moduleName[1:] + "Cache",
 			IsCaseSensitive: true,
 		},
 		{
-			Old:             "prefixKeyExample:",
-			New:             g.prefixKey,
-			IsCaseSensitive: false,
+			Old:             "cacheNameExample",
+			New:             strings.ToLower(g.moduleName[:1]) + g.moduleName[1:] + "Cache",
+			IsCaseSensitive: true,
+		},
+		{
+			Old:             "CacheName",
+			New:             strings.ToUpper(g.cacheName[:1]) + g.cacheName[1:],
+			IsCaseSensitive: true,
 		},
 		{
 			Old:             "keyNameExample",
 			New:             g.keyName,
+			IsCaseSensitive: false,
+		},
+		{
+			Old:             "prefixKeyExample:",
+			New:             g.prefixKey,
 			IsCaseSensitive: false,
 		},
 		{
@@ -195,13 +213,18 @@ func (g *stringCacheGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			IsCaseSensitive: false,
 		},
 		{
-			Old:             "valueNameExample",
-			New:             g.valueName,
+			Old:             "valueTypeExample",
+			New:             g.valueType,
 			IsCaseSensitive: false,
 		},
 		{
-			Old:             "valueTypeExample",
-			New:             g.valueType,
+			Old:             "var valueNameExample interface{}",
+			New:             fmt.Sprintf("var %s %s", g.valueName, g.valueType),
+			IsCaseSensitive: false,
+		},
+		{
+			Old:             "valueNameExample",
+			New:             g.valueName,
 			IsCaseSensitive: false,
 		},
 	}...)
