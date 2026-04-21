@@ -887,9 +887,25 @@ func AddLocalReplaceField(fields []replacer.Field) []replacer.Field {
 }
 
 // appendReplaceDirective appends replace directive to go.mod file after generation
+// 仅当 sunshine 从本地源码运行时才添加，通过 go install 安装时不添加
+// 编译后的二进制启动 Web UI 也不添加（用户独立项目）
 func appendReplaceDirective(outputDir string, moduleName string) error {
-	// Use SunshineDir to get the absolute path of sunshine project
-	// On Windows, use backslashes; on Linux/Mac, use forward slashes
+	// 检测是否通过编译后的二进制启动的 Web UI，如果是则不添加 replace 指令
+	if os.Getenv("SUNSHINE_COMPILED_BINARY") == "true" {
+		return nil
+	}
+
+	// 检测 sunshine 是否从本地源码运行
+	// 如果 SunshineDir 包含 cmd、pkg、internal 等目录，说明是源码目录
+	if !gofile.IsExists(filepath.Join(SunshineDir, "cmd")) ||
+		!gofile.IsExists(filepath.Join(SunshineDir, "pkg")) ||
+		!gofile.IsExists(filepath.Join(SunshineDir, "internal")) {
+		// 不是源码目录，是通过 go install 安装的，不添加 replace 指令
+		return nil
+	}
+
+	// 是源码目录，添加 replace 指令以指向本地路径
+	// Windows 使用反斜杠，Linux/Mac 使用正斜杠
 	var sunshinePath string
 	if gofile.IsWindows() {
 		sunshinePath = SunshineDir
