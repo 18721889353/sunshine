@@ -20,6 +20,7 @@ import (
 // delete the templates code start
 type keyTypeExample = string
 type valueTypeExample = string
+
 // delete the templates code end
 
 const (
@@ -151,7 +152,10 @@ func (c *cacheNameExample) WatchDogLock(ctx context.Context, key string, expiry 
 			}
 		}
 	}()
-
+	if task == nil {
+		logger.WarnWithCtx(ctx, "WatchDogLock: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
 	return task(watchdogCtx)
 }
 
@@ -203,7 +207,10 @@ func (c *cacheNameExample) WatchDogLoopLock(ctx context.Context, key string, exp
 			}
 		}
 	}()
-
+	if task == nil {
+		logger.WarnWithCtx(ctx, "WatchDogLoopLock: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
 	return task(watchdogCtx)
 }
 

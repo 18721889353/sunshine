@@ -185,6 +185,34 @@ func filterHeaders(headers map[string][]string, sensitive map[string]struct{}) m
 	return result
 }
 
+// extractCallerFuncFromURL 从 URL 路径中提取最后一段作为 caller_func
+// 例如: /api/v1/users/123 -> users
+//       /api/v1/orders/create -> create
+//       /health -> health
+func extractCallerFuncFromURL(path string) string {
+	if path == "" || path == "/" {
+		return ""
+	}
+
+	// 去除末尾的斜杠
+	path = strings.TrimRight(path, "/")
+	
+	// 按斜杠分割
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	// 返回最后一段非空部分
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] != "" {
+			return parts[i]
+		}
+	}
+
+	return ""
+}
+
 // Logging print request and response info
 func Logging(opts ...Option) gin.HandlerFunc {
 	o := defaultOptions()
@@ -209,6 +237,13 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		if _, ok := o.ignoreRoutes[c.Request.URL.Path]; ok {
 			c.Next()
 			return
+		}
+
+		// 提取 URL 最后一段作为 caller_func 并注入 context
+		callerFunc := extractCallerFuncFromURL(c.Request.URL.Path)
+		if callerFunc != "" {
+			ctx := logger.WithCallerFunc(c.Request.Context(), callerFunc)
+			c.Request = c.Request.WithContext(ctx)
 		}
 
 		// print input information before processing
@@ -242,7 +277,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 				fields = append(fields, logger.String("body", "form-data not logged"))
 			}
 		}
-		
+
 		// request_id 已由 extractContextFields 自动从 context 中提取，无需手动添加
 		fields = append(fields, logger.String("log_from", `<<<<`+o.logFrom))
 
@@ -272,7 +307,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		}
 		// request_id 已由 extractContextFields 自动从 context 中提取，无需手动添加
 		fields = append(fields, logger.String("log_from", `>>>>`+o.logFrom))
-		
+
 		logger.InfoWithCtx(c.Request.Context(), `gin middleware Logging`, fields...)
 	}
 }

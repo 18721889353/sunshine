@@ -9,6 +9,17 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// WithCallerFunc 将调用者方法名注入到 context 中
+// 使用示例：
+//   ctx = logger.WithCallerFunc(ctx, "UserService.GetUser")
+//   db.WithContext(ctx).First(&user, id)
+func WithCallerFunc(ctx context.Context, callerFunc string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, ContextKeyCallerFunc, callerFunc)
+}
+
 // Sync flushing any buffered log entries, applications should take care to call Sync before exiting.
 func Sync() error {
 	// 如果默认 logger 是输出到终端 (stdout)，则跳过 Sync，避免在关闭时产生文件 I/O

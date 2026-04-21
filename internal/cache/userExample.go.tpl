@@ -145,7 +145,10 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key stri
 			}
 		}
 	}()
-
+	if task == nil {
+		logger.WarnWithCtx(ctx, "WatchDogLock: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
 	return task(watchdogCtx)
 }
 
@@ -198,6 +201,10 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 		}
 	}()
 
+	if task == nil {
+		logger.WarnWithCtx(ctx, "WatchDogLoopLock: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
 	return task(watchdogCtx)
 }
 

@@ -343,6 +343,11 @@ func extractContextFields(ctx context.Context) []Field {
 		fields = append(fields, String(string(ContextKeyRequestID), reqID))
 	}
 
+	// 提取 caller_func (从 context value)
+	if callerFunc := getCallerFuncFromCtx(ctx); callerFunc != "" {
+		fields = append(fields, String("caller_func", callerFunc))
+	}
+
 	// 提取 trace_id (OpenTelemetry)
 	spanCtx := trace.SpanContextFromContext(ctx)
 	if spanCtx.IsValid() {
@@ -381,16 +386,40 @@ func getRequestIDFromCtx(ctx context.Context) string {
 	return ""
 }
 
+// getCallerFuncFromCtx 从 context 中获取 caller_func
+func getCallerFuncFromCtx(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+
+	if v := ctx.Value(ContextKeyCallerFunc); v != nil {
+		if callerFunc, ok := v.(string); ok && callerFunc != "" {
+			return callerFunc
+		}
+	}
+
+	return ""
+}
+
 // ContextKey context key 类型 (供外部包使用)
 type ContextKey string
 
 // ContextKeyRequestID request_id 的 context key 常量
 const ContextKeyRequestID ContextKey = "request_id"
 
+// ContextKeyCallerFunc caller_func 的 context key 常量
+const ContextKeyCallerFunc ContextKey = "caller_func"
+
 // ContextKeyForRequestID 返回用于存储 request_id 的 context key
 // 供 middleware 包在注入 request_id 时使用，确保与 logger 包一致
 func ContextKeyForRequestID() ContextKey {
 	return ContextKeyRequestID
+}
+
+// ContextKeyForCallerFunc 返回用于存储 caller_func 的 context key
+// 供各组件（GORM、Redis 等）在日志中使用，确保统一
+func ContextKeyForCallerFunc() ContextKey {
+	return ContextKeyCallerFunc
 }
 
 // getTraceIDFromCtx 从 context 中获取 trace_id

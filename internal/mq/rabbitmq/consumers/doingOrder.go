@@ -14,7 +14,8 @@ package consumers
 //
 //	"github.com/18721889353/sunshine/internal/cache"
 //	"github.com/18721889353/sunshine/internal/dao"
-//
+//   "google.golang.org/grpc/metadata"
+
 //	"github.com/18721889353/sunshine/internal/config"
 //	"github.com/18721889353/sunshine/internal/database"
 //	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
@@ -181,12 +182,12 @@ package consumers
 //// 返回:
 ////   - err: 处理错误，如果返回非 nil 错误，消息会被重新投递或进入死信队列
 //func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageId, tagID string) (err error) {
-//	// ========== 步骤 1: 初始化 Context 和 RequestID ==========
-//	// RabbitMQ 消费者场景：直接设置 RequestID，无需 WrapServerCtx（那是 gRPC 用的）
-//	// WrapServerCtx 会从 gRPC incoming metadata 提取 request_id，但 RabbitMQ 没有 metadata，会导致空值覆盖
-//	ctx = context.WithValue(ctx, logger.ContextKeyForRequestID(), messageId)
-//	logger.InfoWithCtx(ctx, s.Name()+":开始处理消息")
-//
+//// 1. 初始化 Context 和 RequestID
+//ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+//string(logger.ContextKeyRequestID): messageId,
+//}))
+//ctx = interceptor.WrapServerCtx(ctx)
+//ctx = glog.WithCallerFunc(ctx, s.Name())
 //	var orderSn string // 订单号，用于后续日志记录和分布式锁
 //
 //	// ========== 步骤 2: 统一处理收尾工作（Panic 恢复） ==========
