@@ -56,9 +56,7 @@ func TestBrowserRefresh(t *testing.T) {
 	assert.NotNil(t, resp)
 
 	req := httpcli.New()
-	req.SetURL(requestAddr + "/notfound")
-	req.SetHeader("Accept", "text/html")
-	_, err = req.GET()
+	_, err = req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
 	assert.NoError(t, err)
 }
 
@@ -76,10 +74,9 @@ func TestBrowserRefresh2(t *testing.T) {
 	time.Sleep(time.Millisecond * 200)
 
 	req := httpcli.New()
-	req.SetURL(requestAddr + "/notfound")
-	req.SetHeader("Accept", "text/html")
-	_, err := req.GET()
-	assert.NoError(t, err)
+	_, err := req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
+	// 文件不存在，应该返回 404 错误
+	assert.Error(t, err)
 }
 
 //go:embed README.md
@@ -102,9 +99,7 @@ func TestBrowserRefreshFS(t *testing.T) {
 	assert.NotNil(t, resp)
 
 	req := httpcli.New()
-	req.SetURL(requestAddr + "/notfound")
-	req.SetHeader("Accept", "text/html")
-	_, err = req.GET()
+	_, err = req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
 	assert.NoError(t, err)
 }
 
@@ -122,8 +117,7 @@ func TestBrowserRefreshFS2(t *testing.T) {
 	time.Sleep(time.Millisecond * 200)
 
 	req := httpcli.New()
-	req.SetURL(requestAddr + "/notfound")
-	req.SetHeader("Accept", "text/html")
-	_, err := req.GET()
-	assert.NoError(t, err)
+	_, err := req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
+	// 文件不存在，应该返回 404 错误
+	assert.Error(t, err)
 }
