@@ -21,6 +21,16 @@ var (
 	initCtx           = context.Background() // 初始化阶段使用的 context
 )
 
+// getContextForLog 智能选择用于日志记录的 context
+// 如果外部传递了 ctx（非 nil），则使用传入的 ctx
+// 如果没有传递 ctx（nil），则使用 initCtx
+func getContextForLog(ctx context.Context) context.Context {
+	if ctx == nil {
+		return initCtx
+	}
+	return ctx
+}
+
 // RabbitMQ 封装了 RabbitMQ 连接池及相关操作
 type RabbitMQ struct {
 	pool          *gorabbitmq.Pool
@@ -121,7 +131,7 @@ func InitRabbitmq(name string, mqCfg any) {
 		rabbitmqInstances.Store(name, instance)
 		// 4. 启动后台维护任务（自动清理过期 Producer 和打印状态）
 		go instance.startBackgroundMaintenance(poolCfg.StatsLogOpen)
-		logger.InfoWithCtx(initCtx, "RabbitMQ module initialized successfully")
+		logger.InfoWithCtx(getContextForLog(initCtx), "RabbitMQ module initialized successfully")
 
 		return nil, nil
 	})
@@ -146,7 +156,7 @@ func (r *RabbitMQ) safeCloseProducer(ctx context.Context, routingKey string, p *
 	// 核心修复：必须手动将连接归还给 Pool，否则在高并发删除 Producer 时会导致连接泄露
 	if p.Connection != nil {
 		if err := r.pool.Put(ctx, p.Connection); err != nil {
-			logger.WarnWithCtx(initCtx, "Failed to return connection to pool during cleanup", logger.Err(err))
+			logger.WarnWithCtx(getContextForLog(ctx), "Failed to return connection to pool during cleanup", logger.Err(err))
 		}
 	}
 }
@@ -273,7 +283,7 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 	})
 
 	if r.pool != nil {
-		logger.InfoWithCtx(initCtx, "Closing RabbitMQ connection pool")
+		logger.InfoWithCtx(getContextForLog(ctx), "Closing RabbitMQ connection pool")
 		return r.pool.Close(ctx) // 最后关闭物理连接池
 	}
 	return nil
@@ -286,7 +296,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 	defer func() {
 		// 记录耗时（注意：不记录完整消息内容，避免敏感信息泄露）
 		if err != nil {
-			logger.WarnWithCtx(initCtx, "SendMessage failed",
+			logger.WarnWithCtx(getContextForLog(ctx), "SendMessage failed",
 				logger.String("exchangeName", exchangeName),
 				logger.String("routingKey", routingKey),
 				logger.Int("message_size_bytes", len(message)), // 只记录消息大小
@@ -294,7 +304,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 				logger.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
 				logger.Err(err))
 		} else {
-			logger.InfoWithCtx(initCtx, "SendMessage success",
+			logger.InfoWithCtx(getContextForLog(ctx), "SendMessage success",
 				logger.String("exchangeName", exchangeName),
 				logger.String("routingKey", routingKey),
 				logger.Int("message_size_bytes", len(message)),
@@ -325,7 +335,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 		}
 		// 如果发生连接错误，清理缓存并重试
 		if isConnectionError(err) {
-			logger.WarnWithCtx(initCtx, "Connection error detected, evicting producer",
+			logger.WarnWithCtx(getContextForLog(ctx), "Connection error detected, evicting producer",
 				logger.String("routingKey", routingKey), logger.Err(err))
 			r.safeCloseProducer(ctx, routingKey, producer)
 		} else {
@@ -379,7 +389,7 @@ func (r *RabbitMQ) cleanupInvalidProducers() {
 	r.producerCache.Range(func(routingKey, value interface{}) bool {
 		p, ok := value.(*gorabbitmq.Producer)
 		if !ok || !r.isProducerValid(cleanCtx, p) {
-			logger.InfoWithCtx(initCtx, "Cleanup: Evicting invalid producer", logger.String("routingKey", cast.ToString(routingKey)))
+			logger.InfoWithCtx(getContextForLog(cleanCtx), "Cleanup: Evicting invalid producer", logger.String("routingKey", cast.ToString(routingKey)))
 			r.safeCloseProducer(cleanCtx, cast.ToString(routingKey), p)
 		}
 		return true
@@ -397,7 +407,7 @@ func (r *RabbitMQ) clearProducerCache(exchangeName, routingKey string) {
 			r.safeCloseProducer(context.Background(), cast.ToString(routingKey), value.(*gorabbitmq.Producer))
 			return true
 		})
-		logger.InfoWithCtx(initCtx, "Safely cleared all producer cache and returned connections")
+		logger.InfoWithCtx(getContextForLog(initCtx), "Safely cleared all producer cache and returned connections")
 	}
 }
 
@@ -434,7 +444,7 @@ func (r *RabbitMQ) printStats() {
 	ctx, cancel := context.WithTimeout(r.ctx, time.Second*2)
 	defer cancel()
 
-	logger.InfoWithCtx(initCtx, "RabbitMQ Pool Stats", logger.Any("stats", r.pool.Stats(ctx)))
+	logger.InfoWithCtx(getContextForLog(initCtx), "RabbitMQ Pool Stats", logger.Any("stats", r.pool.Stats(ctx)))
 }
 
 // startBackgroundMaintenance 启动统一的后台维护和监控任务
@@ -442,7 +452,7 @@ func (r *RabbitMQ) startBackgroundMaintenance(open bool) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				logger.WarnWithCtx(initCtx, "BackgroundMaintenance panic", logger.Any("err", err))
+				logger.WarnWithCtx(getContextForLog(initCtx), "BackgroundMaintenance panic", logger.Any("err", err))
 				// 指数退避重启，防止死循环导致 CPU 暴涨
 				time.Sleep(time.Second * 5)
 				r.startBackgroundMaintenance(open)
@@ -457,9 +467,9 @@ func (r *RabbitMQ) startBackgroundMaintenance(open bool) {
 		iteration := uint64(0)
 		cleanupMultiplier := uint64(4) // 假设 interval=10s，则每5分钟执行一次清理
 
-		logger.InfoWithCtx(initCtx, "RabbitMQ maintenance worker started",
+		logger.InfoWithCtx(getContextForLog(initCtx), "RabbitMQ maintenance worker started",
 			logger.String("stats_interval", interval.String()),
-			logger.String("cleanup_interval", (interval * time.Duration(cleanupMultiplier)).String()))
+			logger.String("cleanup_interval", (interval*time.Duration(cleanupMultiplier)).String()))
 		for {
 			select {
 			case <-r.ctx.Done(): // 响应优雅关闭
