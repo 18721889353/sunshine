@@ -955,7 +955,7 @@ func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExampl
 	}
 
 	// 执行数据库更新
-	err := d.updateDataByID(d.db, table)
+	err := d.updateDataByID(d.db.WithContext(ctx), table)
 	if err != nil {
 		return fmt.Errorf("UpdateByID: update database failed, id=%d: %w", table.ID, err)
 	}
@@ -1014,7 +1014,7 @@ func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *mod
 	}
 
 	// 执行数据库更新
-	err := d.updateDataByID(tx, table)
+	err := d.updateDataByID(tx.WithContext(ctx), table)
 	if err != nil {
 		return fmt.Errorf("UpdateByTx: update database failed, id=%d: %w", table.ID, err)
 	}

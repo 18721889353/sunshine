@@ -957,7 +957,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model
 	}
 
 	// 执行数据库更新
-	err := d.updateDataByID(d.db, table)
+	err := d.updateDataByID(d.db.WithContext(ctx), table)
 	if err != nil {
 		return fmt.Errorf("UpdateByID: update database failed, id=%d: %w", table.ID, err)
 	}
@@ -1016,7 +1016,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB,
 	}
 
 	// 执行数据库更新
-	err := d.updateDataByID(tx, table)
+	err := d.updateDataByID(tx.WithContext(ctx), table)
 	if err != nil {
 		return fmt.Errorf("UpdateByTx: update database failed, id=%d: %w", table.ID, err)
 	}
