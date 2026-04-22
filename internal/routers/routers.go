@@ -85,6 +85,12 @@ func NewRouter() *gin.Engine {
 	// request id middleware
 	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
 
+	// trace middleware（必须在 Logging 之前注册，这样 Logging 才能获取到 trace_id）
+	if config.Get().App.EnableTrace {
+		r.Use(middleware.Tracing(config.Get().App.Name))
+		//r.Use(otelgin.Middleware(config.Get().App.Name))
+	}
+
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
 		middleware.WithMaxLen(config.Get().Logger.MaxLen),
@@ -135,11 +141,6 @@ func NewRouter() *gin.Engine {
 		))
 	}
 
-	// trace middleware
-	if config.Get().App.EnableTrace {
-		r.Use(middleware.Tracing(config.Get().App.Name))
-		//r.Use(otelgin.Middleware(config.Get().App.Name))
-	}
 	if config.Get().App.OpenJwt {
 		//全局权限验证
 		r.Use(
