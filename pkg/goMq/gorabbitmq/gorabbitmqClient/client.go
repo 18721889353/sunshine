@@ -299,7 +299,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 			logger.WarnWithCtx(getContextForLog(ctx), "SendMessage failed",
 				logger.String("exchangeName", exchangeName),
 				logger.String("routingKey", routingKey),
-				logger.Int("message_size_bytes", len(message)), // 只记录消息大小
+				logger.String("params", message),
 				logger.String("message_id", messageId),
 				logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 				logger.Err(err))
@@ -307,7 +307,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 			logger.InfoWithCtx(getContextForLog(ctx), "SendMessage success",
 				logger.String("exchangeName", exchangeName),
 				logger.String("routingKey", routingKey),
-				logger.Int("message_size_bytes", len(message)),
+				logger.String("params", message),
 				logger.String("message_id", messageId),
 				logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 			)
