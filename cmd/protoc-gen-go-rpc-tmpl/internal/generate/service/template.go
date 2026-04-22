@@ -92,8 +92,7 @@ func (s *{{.LowerName}}) trace(ctx context.Context, name string, fn func() error
 
 	// 构建日志字段
 	fields := []logger.Field{
-		logger.String("duration", duration.String()),
-		logger.Int64("ms", duration.Milliseconds()),
+        logger.String("ms", fmt.Sprintf("%.4f", float64(duration.Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 	}
 
 	// 根据执行结果记录不同级别的日志

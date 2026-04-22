@@ -25,7 +25,6 @@ package consumers
 //	"github.com/18721889353/sunshine/pkg/httpcli"
 //	"github.com/18721889353/sunshine/pkg/logger"
 //	"github.com/spf13/cast"
-//	"go.uber.org/zap"
 //)
 //
 //// init 包初始化函数
@@ -147,14 +146,13 @@ package consumers
 //	duration := time.Since(startTime)
 //
 //	// 构建日志字段
-//	fields := []zap.Field{
-//		zap.String("duration", duration.String()),
-//		zap.Int64("ms", duration.Milliseconds()),
+//	fields := []logger.Field{
+//      logger.String("ms", fmt.Sprintf("%.4f", float64(duration.Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 //	}
 //
 //	// 根据执行结果记录不同级别的日志
 //	if err != nil {
-//		fields = append(fields, zap.Error(err))
+//		fields = append(fields, logger.Error(err))
 //		logger.WarnWithCtx(ctx, name+"(失败)", fields...)
 //	} else {
 //		logger.InfoWithCtx(ctx, name+"(成功)", fields...)
@@ -305,19 +303,19 @@ package consumers
 //		if err != nil {
 //			// 数据库操作失败，记录错误日志并返回错误触发重试
 //			logger.ErrorWithCtx(ctx, "订单处理失败",
-//				zap.String("orderSn", orderMQParam.OrderSn),
-//				zap.String("source", orderMQParam.Source),
-//				zap.String("busType", orderMQParam.BusType),
-//				zap.Error(err))
+//				logger.String("orderSn", orderMQParam.OrderSn),
+//				logger.String("source", orderMQParam.Source),
+//				logger.String("busType", orderMQParam.BusType),
+//				logger.Error(err))
 //			return s.getErrorWithLine(fmt.Errorf("订单处理失败: %w", err))
 //		}
 //
 //		// ========== 成功日志 ==========
 //		// 记录业务处理成功的日志
 //		logger.InfoWithCtx(ctx, "订单处理完成",
-//			zap.String("orderSn", orderMQParam.OrderSn),
-//			zap.String("source", orderMQParam.Source),
-//			zap.String("busType", orderMQParam.BusType))
+//			logger.String("orderSn", orderMQParam.OrderSn),
+//			logger.String("source", orderMQParam.Source),
+//			logger.String("busType", orderMQParam.BusType))
 //
 //		return nil // 成功返回
 //	})

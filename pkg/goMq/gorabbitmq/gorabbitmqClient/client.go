@@ -100,11 +100,11 @@ func InitRabbitmq(name string, mqCfg any) {
 
 		// 1. 创建底层连接池
 		poolOpts := []gorabbitmq.PoolOption{
-			gorabbitmq.WithInitialCap(poolCfg.InitialCap),                                          // 初始连接数
-			gorabbitmq.WithMaxCap(poolCfg.MaxCap),                                                  // 最大连接数
-			gorabbitmq.WithMaxIdle(time.Second*time.Duration(poolCfg.MaxIdle)),                     // 最大空闲时间
-			gorabbitmq.WithAntsPoolSize(poolCfg.AntsCap),                                           // 配置 ants 协程池大小
-			gorabbitmq.WithHealthCheckPeriod(time.Second*time.Duration(poolCfg.HealthCheckPeriod)), // 健康检查间隔秒
+			gorabbitmq.WithInitialCap(poolCfg.InitialCap),                                            // 初始连接数
+			gorabbitmq.WithMaxCap(poolCfg.MaxCap),                                                    // 最大连接数
+			gorabbitmq.WithMaxIdle(time.Second * time.Duration(poolCfg.MaxIdle)),                     // 最大空闲时间
+			gorabbitmq.WithAntsPoolSize(poolCfg.AntsCap),                                             // 配置 ants 协程池大小
+			gorabbitmq.WithHealthCheckPeriod(time.Second * time.Duration(poolCfg.HealthCheckPeriod)), // 健康检查间隔秒
 			gorabbitmq.WithConnOptions( // 连接选项
 				gorabbitmq.WithReconnectTime(time.Second*time.Duration(poolCfg.ReconnectTime)),
 				gorabbitmq.WithDialTimeout(time.Second*time.Duration(poolCfg.DialTimeout)),
@@ -301,7 +301,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 				logger.String("routingKey", routingKey),
 				logger.Int("message_size_bytes", len(message)), // 只记录消息大小
 				logger.String("message_id", messageId),
-				logger.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"),
+				logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 				logger.Err(err))
 		} else {
 			logger.InfoWithCtx(getContextForLog(ctx), "SendMessage success",
@@ -309,7 +309,8 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 				logger.String("routingKey", routingKey),
 				logger.Int("message_size_bytes", len(message)),
 				logger.String("message_id", messageId),
-				logger.String("cost", cast.ToString(time.Since(start).Milliseconds())+"ms"))
+				logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
+			)
 		}
 	}()
 	maxRetries := 3

@@ -187,8 +187,9 @@ func filterHeaders(headers map[string][]string, sensitive map[string]struct{}) m
 
 // extractCallerFuncFromURL 从 URL 路径中提取最后一段作为 caller_func
 // 例如: /api/v1/users/123 -> users
-//       /api/v1/orders/create -> create
-//       /health -> health
+//
+//	/api/v1/orders/create -> create
+//	/health -> health
 func extractCallerFuncFromURL(path string) string {
 	if path == "" || path == "/" {
 		return ""
@@ -196,7 +197,7 @@ func extractCallerFuncFromURL(path string) string {
 
 	// 去除末尾的斜杠
 	path = strings.TrimRight(path, "/")
-	
+
 	// 按斜杠分割
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 {
@@ -257,6 +258,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			logger.String("url", c.Request.URL.String()),
 			logger.String("userAgent", c.Request.UserAgent()),
 			logger.String("ip", c.ClientIP()),
+			logger.String("ms", "0"), // 请求开始时耗时为0，占位符保持字段一致性
 		}
 
 		// Add request headers to log fields if enabled
@@ -301,7 +303,7 @@ func Logging(opts ...Option) gin.HandlerFunc {
 			logger.Int("code", c.Writer.Status()),
 			logger.String("method", c.Request.Method),
 			logger.String("url", c.Request.URL.Path),
-			logger.String("ms", fmt.Sprintf("%v", float64(time.Since(start).Nanoseconds())/1e6)),
+			logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 			logger.Int("size", newWriter.body.Len()),
 			logger.String("response", string(getResponseBody(newWriter.body, o.maxLength))),
 		}
