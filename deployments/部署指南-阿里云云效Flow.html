@@ -1,0 +1,1372 @@
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fuliApiGo - 阿里云云效 Flow 部署指南</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .toc {
+            background: #f8f9fa;
+            padding: 30px 40px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .toc h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.8em;
+        }
+
+        .toc ul {
+            list-style: none;
+            columns: 2;
+            column-gap: 30px;
+        }
+
+        .toc li {
+            margin: 8px 0;
+            break-inside: avoid;
+        }
+
+        .toc a {
+            color: #667eea;
+            text-decoration: none;
+            transition: all 0.3s;
+            display: block;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+
+        .toc a:hover {
+            background: #667eea;
+            color: white;
+            transform: translateX(5px);
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 50px;
+            scroll-margin-top: 20px;
+        }
+
+        .section h2 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            display: flex;
+            align-items: center;
+        }
+
+        .section h2 .icon {
+            margin-right: 15px;
+            font-size: 1.2em;
+        }
+
+        .section h3 {
+            color: #764ba2;
+            font-size: 1.5em;
+            margin: 30px 0 15px 0;
+            padding-left: 15px;
+            border-left: 4px solid #764ba2;
+        }
+
+        .section h4 {
+            color: #555;
+            font-size: 1.2em;
+            margin: 20px 0 10px 0;
+        }
+
+        .step-box {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+            transition: all 0.3s;
+        }
+
+        .step-box:hover {
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+            transform: translateX(5px);
+        }
+
+        .step-number {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .code-block::before {
+            content: attr(data-language);
+            position: absolute;
+            top: 0;
+            right: 0;
+            background: #667eea;
+            color: white;
+            padding: 5px 15px;
+            font-size: 12px;
+            border-radius: 0 8px 0 8px;
+        }
+
+        .code-block code {
+            display: block;
+            white-space: pre;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+            color: #856404;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .warning::before {
+            content: "⚠️ 注意: ";
+            font-weight: bold;
+            color: #856404;
+        }
+
+        .tip {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .tip::before {
+            content: "💡 提示: ";
+            font-weight: bold;
+            color: #0c5460;
+        }
+
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+
+        .success::before {
+            content: "✅ ";
+            font-weight: bold;
+            color: #155724;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        th {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        tr:hover {
+            background: #f5f5f5;
+        }
+
+        .flow-diagram {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .flow-step {
+            display: inline-block;
+            background: white;
+            padding: 15px 25px;
+            margin: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            position: relative;
+        }
+
+        .flow-step::after {
+            content: "→";
+            position: absolute;
+            right: -25px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 24px;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .flow-step:last-child::after {
+            display: none;
+        }
+
+        .checklist {
+            list-style: none;
+            padding: 0;
+        }
+
+        .checklist li {
+            padding: 10px 0 10px 35px;
+            position: relative;
+        }
+
+        .checklist li::before {
+            content: "☐";
+            position: absolute;
+            left: 0;
+            font-size: 20px;
+            color: #667eea;
+        }
+
+        .checklist li.checked::before {
+            content: "☑";
+            color: #28a745;
+        }
+
+        .footer {
+            background: #2d2d2d;
+            color: white;
+            text-align: center;
+            padding: 30px;
+        }
+
+        .back-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #667eea;
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 50px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+
+        .back-to-top:hover {
+            background: #764ba2;
+            transform: translateY(-5px);
+        }
+
+        @media (max-width: 768px) {
+            .toc ul {
+                columns: 1;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .flow-step {
+                display: block;
+                margin: 10px 0;
+            }
+
+            .flow-step::after {
+                content: "↓";
+                right: 50%;
+                top: 100%;
+                transform: translateX(50%);
+            }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .badge-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .badge-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .badge-warning {
+            background: #ffc107;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚀 fuliApiGo 部署指南</h1>
+            <p>基于阿里云云效 Flow + Gitee + ECS 二进制部署完整流程</p>
+        </div>
+
+        <!-- Table of Contents -->
+        <div class="toc">
+            <h2>📋 目录导航</h2>
+            <ul>
+                <li><a href="#prerequisites">一、前置准备</a></li>
+                <li><a href="#gitee-setup">二、Gitee 代码仓库配置</a></li>
+                <li><a href="#yunxiao-account">三、阿里云账号准备</a></li>
+                <li><a href="#create-pipeline">四、创建云效流水线</a></li>
+                <li><a href="#configure-source">五、配置代码源(Gitee)</a></li>
+                <li><a href="#build-stage">六、配置构建阶段</a></li>
+                <li><a href="#deploy-stage">七、配置部署阶段(ECS)</a></li>
+                <li><a href="#trigger">八、配置触发器</a></li>
+                <li><a href="#first-run">九、首次运行测试</a></li>
+                <li><a href="#troubleshooting">十、常见问题排查</a></li>
+                <li><a href="#best-practices">十一、最佳实践</a></li>
+            </ul>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+            <!-- Section 1: Prerequisites -->
+            <div class="section" id="prerequisites">
+                <h2><span class="icon">📦</span>一、前置准备</h2>
+                
+                <div class="step-box">
+                    <h3>1.1 环境要求清单</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>项目</th>
+                                <th>要求</th>
+                                <th>说明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>代码仓库</td>
+                                <td>Gitee 账号 + 仓库</td>
+                                <td>已推送 fuliApiGo 代码</td>
+                            </tr>
+                            <tr>
+                                <td>阿里云账号</td>
+                                <td>实名认证</td>
+                                <td>访问 cloud.aliyun.com</td>
+                            </tr>
+                            <tr>
+                                <td>ECS 服务器</td>
+                                <td>Linux (CentOS/Ubuntu)</td>
+                                <td>IP: 47.94.95.162 (示例)</td>
+                            </tr>
+                            <tr>
+                                <td>Go 版本</td>
+                                <td>Go 1.25+</td>
+                                <td>项目 go.mod 指定</td>
+                            </tr>
+                            <tr>
+                                <td>Make工具</td>
+                                <td>已安装 make</td>
+                                <td>用于执行构建命令</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="step-box">
+                    <h3>1.2 检查清单</h3>
+                    <ul class="checklist">
+                        <li class="checked">代码已推送到 Gitee 仓库</li>
+                        <li class="checked">Makefile 中存在 <span class="highlight">make build</span> 命令</li>
+                        <li class="checked">ECS 服务器可以 SSH 登录</li>
+                        <li class="checked">ECS 安全组开放必要端口 (8282, 8283)</li>
+                    </ul>
+                </div>
+
+                <div class="tip">
+                    确保你的项目根目录包含 Makefile,且 <code>make build</code> 命令可以成功编译出 Linux 二进制文件。
+                </div>
+            </div>
+
+            <!-- Section 2: Gitee Setup -->
+            <div class="section" id="gitee-setup">
+                <h2><span class="icon">🔗</span>二、Gitee 代码仓库配置</h2>
+
+                <div class="step-box">
+                    <h3>2.1 确认代码已推送</h3>
+                    <div class="code-block" data-language="bash">
+<code># 在本地项目目录执行
+cd D:\go\src\fuliApiGo
+
+# 查看远程仓库
+git remote -v
+
+# 如果没有添加远程仓库,执行:
+git remote add origin https://gitee.com/your-username/fuliApiGo.git
+
+# 推送代码到 Gitee
+git push -u origin develop</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>2.2 获取 Gitee 仓库地址</h3>
+                    <p>登录 Gitee,进入你的仓库,复制 HTTPS 克隆地址:</p>
+                    <div class="code-block" data-language="text">
+<code>https://gitee.com/your-username/fuliApiGo.git</code>
+                    </div>
+                    <p class="highlight">⚠️ 记下这个地址,后续配置云效时需要使用!</p>
+                </div>
+
+                <div class="tip">
+                    建议使用 <strong>develop</strong> 分支进行开发部署,<strong>main</strong> 分支用于生产环境。
+                </div>
+            </div>
+
+            <!-- Section 3: Aliyun Account -->
+            <div class="section" id="yunxiao-account">
+                <h2><span class="icon">☁️</span>三、阿里云账号准备</h2>
+
+                <div class="step-box">
+                    <h3>3.1 开通云效服务</h3>
+                    <ol>
+                        <li>访问 <a href="https://flow.aliyun.com/" target="_blank">https://flow.aliyun.com/</a></li>
+                        <li>使用阿里云账号登录</li>
+                        <li>如果是首次使用,点击"立即开通"</li>
+                        <li>同意服务协议,完成开通</li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>3.2 创建企业(如果还没有)</h3>
+                    <ol>
+                        <li>登录后,点击右上角"创建企业"</li>
+                        <li>填写企业名称: 例如 "我的开发团队"</li>
+                        <li>选择行业类型</li>
+                        <li>点击"确定"创建</li>
+                    </ol>
+                </div>
+
+                <div class="success">
+                    开通成功后,你会看到云效的主控制台界面,左侧有"流水线"、"代码库"等菜单。
+                </div>
+            </div>
+
+            <!-- Section 4: Create Pipeline -->
+            <div class="section" id="create-pipeline">
+                <h2><span class="icon">🏗️</span>四、创建云效流水线</h2>
+
+                <div class="step-box">
+                    <h3>4.1 新建流水线</h3>
+                    <ol>
+                        <li>在云效控制台,点击左侧菜单 <strong>"流水线"</strong></li>
+                        <li>点击右上角蓝色按钮 <strong>"+ 新建流水线"</strong></li>
+                        <li>在弹出的窗口中,选择 <strong>"空白流水线"</strong> (推荐,更灵活)</li>
+                        <li>输入流水线名称: <span class="highlight">fuliApiGo-CI-CD</span></li>
+                        <li>输入描述: "从 Gitee 拉取代码,编译后部署到 ECS"</li>
+                        <li>点击 <strong>"下一步"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="flow-diagram">
+                    <div class="flow-step">📝 选择模板<br><small>空白流水线</small></div>
+                    <div class="flow-step">📛 命名<br><small>fuliApiGo-CI-CD</small></div>
+                    <div class="flow-step">➕ 添加阶段<br><small>构建 + 部署</small></div>
+                    <div class="flow-step">💾 保存<br><small>完成创建</small></div>
+                </div>
+            </div>
+
+            <!-- Section 5: Configure Source -->
+            <div class="section" id="configure-source">
+                <h2><span class="icon">🔧</span>五、配置代码源(Gitee)</h2>
+
+                <div class="step-box">
+                    <h3>5.1 添加代码源</h3>
+                    <ol>
+                        <li>在流水线编辑页面,找到 <strong>"代码源"</strong> 区域</li>
+                        <li>点击 <strong>"+ 添加代码源"</strong></li>
+                        <li>在弹出的对话框中,选择 <strong>"Gitee"</strong></li>
+                        <li>如果是首次使用 Gitee,需要授权:
+                            <ul>
+                                <li>点击"前往授权"</li>
+                                <li>跳转到 Gitee 登录页面</li>
+                                <li>输入 Gitee 账号密码</li>
+                                <li>点击"授权",允许云效访问你的仓库</li>
+                                <li>授权成功后自动返回云效</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>5.2 选择仓库和分支</h3>
+                    <ol>
+                        <li>授权后,在下拉列表中选择你的仓库: <span class="highlight">your-username/fuliApiGo</span></li>
+                        <li>选择分支: 
+                            <ul>
+                                <li>开发环境: <strong>develop</strong></li>
+                                <li>生产环境: <strong>main</strong></li>
+                            </ul>
+                        </li>
+                        <li>点击 <strong>"确定"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="warning">
+                    如果找不到你的仓库,请确认:
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li>Gitee 账号是否正确</li>
+                        <li>仓库是否存在且你有访问权限</li>
+                        <li>是否需要重新授权</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Section 6: Build Stage -->
+            <div class="section" id="build-stage">
+                <h2><span class="icon">🔨</span>六、配置构建阶段</h2>
+
+                <div class="step-box">
+                    <h3>6.1 添加 Go 构建任务</h3>
+                    <ol>
+                        <li>在流水线编辑页面,点击 <strong>"+ 添加阶段"</strong></li>
+                        <li>选择阶段类型: <strong>"构建"</strong></li>
+                        <li>在任务列表中搜索 <strong>"Go"</strong></li>
+                        <li>选择 <strong>"Go 构建"</strong> 任务</li>
+                        <li>点击 <strong>"添加"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>6.2 配置 Go 构建参数</h3>
+                    <p>添加任务后,会弹出配置窗口,按以下步骤填写:</p>
+                    
+                    <h4>基础配置:</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>配置项</th>
+                                <th>值</th>
+                                <th>说明</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>任务名称</td>
+                                <td>Go编译构建</td>
+                                <td>自定义,便于识别</td>
+                            </tr>
+                            <tr>
+                                <td>Go 版本</td>
+                                <td>1.25</td>
+                                <td>与项目 go.mod 一致</td>
+                            </tr>
+                            <tr>
+                                <td>工作目录</td>
+                                <td>./</td>
+                                <td>项目根目录</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h4>构建命令配置:</h4>
+                    <div class="code-block" data-language="bash">
+<code># 在"构建命令"输入框中填写:
+make build
+
+# 这会执行 Makefile 中的 build 目标:
+# cd cmd/fuliApiGo && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -pgo=default.pgo</code>
+                    </div>
+
+                    <h4>制品上传配置:</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>配置项</th>
+                                <th>值</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>勾选"上传构建产物"</td>
+                                <td>✅ 是</td>
+                            </tr>
+                            <tr>
+                                <td>制品路径</td>
+                                <td>cmd/fuliApiGo/fuliApiGo</td>
+                            </tr>
+                            <tr>
+                                <td>制品名称</td>
+                                <td>fuliApiGo-binary</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="step-box">
+                    <h3>6.3 (可选)添加单元测试</h3>
+                    <p>如果需要运行测试,可以再添加一个任务:</p>
+                    <ol>
+                        <li>再次点击 <strong>"+ 添加任务"</strong></li>
+                        <li>选择 <strong>"Go 构建"</strong></li>
+                        <li>配置如下:
+                            <ul>
+                                <li>任务名称: 运行单元测试</li>
+                                <li>构建命令: <code>make test</code></li>
+                                <li>不勾选"上传构建产物"</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="tip">
+                    构建成功后,二进制文件会自动上传到云效的制品库,供后续部署阶段使用。
+                </div>
+            </div>
+
+            <!-- Section 7: Deploy Stage -->
+            <div class="section" id="deploy-stage">
+                <h2><span class="icon">🚀</span>七、配置部署阶段(ECS)</h2>
+
+                <div class="step-box">
+                    <h3>7.1 添加主机部署任务</h3>
+                    <ol>
+                        <li>点击 <strong>"+ 添加阶段"</strong></li>
+                        <li>选择阶段类型: <strong>"部署"</strong></li>
+                        <li>在任务列表中搜索 <strong>"主机"</strong></li>
+                        <li>选择 <strong>"主机部署"</strong> 任务</li>
+                        <li>点击 <strong>"添加"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>7.2 配置部署主机组</h3>
+                    <h4>第一步: 创建主机组</h4>
+                    <ol>
+                        <li>在"部署分组"下拉框,点击 <strong>"新建主机组"</strong></li>
+                        <li>填写主机组信息:
+                            <ul>
+                                <li>主机组名称: <span class="highlight">fuliApiGo-Production</span></li>
+                                <li>操作系统: <strong>Linux</strong></li>
+                            </ul>
+                        </li>
+                        <li>点击 <strong>"确定"</strong></li>
+                    </ol>
+
+                    <h4>第二步: 添加 ECS 主机</h4>
+                    <ol>
+                        <li>在新建的主机组中,点击 <strong>"+ 添加主机"</strong></li>
+                        <li>填写 ECS 服务器信息:
+                            <table>
+                                <tr>
+                                    <td>主机名称</td>
+                                    <td>fuliApiGo-ECS-01</td>
+                                </tr>
+                                <tr>
+                                    <td>IP 地址</td>
+                                    <td>47.94.95.162</td>
+                                </tr>
+                                <tr>
+                                    <td>SSH 端口</td>
+                                    <td>22</td>
+                                </tr>
+                                <tr>
+                                    <td>用户名</td>
+                                    <td>root (或 ecs-user)</td>
+                                </tr>
+                                <tr>
+                                    <td>认证方式</td>
+                                    <td>密码 或 SSH密钥</td>
+                                </tr>
+                            </table>
+                        </li>
+                        <li>如果使用密码认证:
+                            <ul>
+                                <li>点击"凭据管理" → "新建凭据"</li>
+                                <li>类型: 密码</li>
+                                <li>名称: ecs-root-password</li>
+                                <li>值: 输入你的 ECS root 密码</li>
+                                <li>点击"确定"保存</li>
+                                <li>返回选择刚才创建的凭据</li>
+                            </ul>
+                        </li>
+                        <li>点击 <strong>"测试连接"</strong>,确保可以 SSH 登录</li>
+                        <li>连接成功后,点击 <strong>"确定"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>7.3 编写部署脚本</h3>
+                    <p>在"部署脚本"配置区域,选择 <strong>"在线编辑"</strong>,然后粘贴以下脚本:</p>
+                    
+                    <div class="code-block" data-language="bash">
+<code>#!/bin/bash
+set -e
+
+echo "=========================================="
+echo "  开始部署 fuliApiGo"
+echo "  时间: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "=========================================="
+
+# 1. 停止旧服务
+echo ""
+echo "[1/6] 停止旧服务..."
+if pgrep -f "fuliApiGo" > /dev/null; then
+    pkill -f "fuliApiGo"
+    sleep 3
+    echo "✅ 旧服务已停止"
+else
+    echo "ℹ️  没有运行中的服务"
+fi
+
+# 2. 备份旧版本
+echo ""
+echo "[2/6] 备份旧版本..."
+BACKUP_DIR="/opt/fuliApiGo/backup/$(date +%Y%m%d_%H%M%S)"
+mkdir -p $BACKUP_DIR
+if [ -f "/opt/fuliApiGo/fuliApiGo" ]; then
+    cp /opt/fuliApiGo/fuliApiGo $BACKUP_DIR/
+    echo "✅ 二进制文件已备份到: $BACKUP_DIR"
+fi
+if [ -d "/opt/fuliApiGo/configs" ]; then
+    cp -r /opt/fuliApiGo/configs $BACKUP_DIR/
+    echo "✅ 配置文件已备份"
+fi
+
+# 3. 创建部署目录
+echo ""
+echo "[3/6] 创建部署目录..."
+mkdir -p /opt/fuliApiGo/configs
+mkdir -p /opt/fuliApiGo/logs
+echo "✅ 目录创建完成"
+
+# 4. 部署新二进制文件
+echo ""
+echo "[4/6] 部署新版本..."
+# 云效会将制品下载到当前工作目录
+if [ -f "fuliApiGo" ]; then
+    cp fuliApiGo /opt/fuliApiGo/fuliApiGo
+    chmod +x /opt/fuliApiGo/fuliApiGo
+    echo "✅ 二进制文件部署成功"
+else
+    echo "❌ 错误: 找不到 fuliApiGo 二进制文件"
+    exit 1
+fi
+
+# 5. 检查配置文件
+echo ""
+echo "[5/6] 检查配置文件..."
+if [ ! -f "/opt/fuliApiGo/configs/fuliApiGo.yml" ]; then
+    echo "❌ 错误: 配置文件不存在!"
+    echo "请手动上传配置文件到: /opt/fuliApiGo/configs/fuliApiGo.yml"
+    echo "可以使用命令: scp configs/fuliApiGo.yml root@47.94.95.162:/opt/fuliApiGo/configs/"
+    exit 1
+else
+    echo "✅ 配置文件存在"
+fi
+
+# 6. 启动服务
+echo ""
+echo "[6/6] 启动服务..."
+cd /opt/fuliApiGo
+nohup ./fuliApiGo -c configs/fuliApiGo.yml > logs/app.log 2>&1 &
+APP_PID=$!
+echo "进程 PID: $APP_PID"
+
+# 等待服务启动
+sleep 5
+
+# 验证服务是否启动成功
+if pgrep -f "fuliApiGo" > /dev/null; then
+    echo ""
+    echo "=========================================="
+    echo "  ✅ 部署成功!"
+    echo "=========================================="
+    echo "进程ID: $(pgrep -f fuliApiGo)"
+    echo "日志文件: /opt/fuliApiGo/logs/app.log"
+    echo "查看实时日志: tail -f /opt/fuliApiGo/logs/app.log"
+    echo ""
+    echo "服务地址:"
+    echo "  - HTTP: http://47.94.95.162:8282"
+    echo "  - gRPC: 47.94.95.162:8283"
+else
+    echo ""
+    echo "=========================================="
+    echo "  ❌ 服务启动失败!"
+    echo "=========================================="
+    echo "最后 50 行日志:"
+    tail -n 50 /opt/fuliApiGo/logs/app.log
+    exit 1
+fi</code>
+                    </div>
+
+                    <h4>脚本配置说明:</h4>
+                    <table>
+                        <tr>
+                            <td>执行用户</td>
+                            <td>root</td>
+                        </tr>
+                        <tr>
+                            <td>执行目录</td>
+                            <td>/opt/fuliApiGo</td>
+                        </tr>
+                        <tr>
+                            <td>超时时间</td>
+                            <td>300 秒</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class="warning">
+                    <strong>重要:</strong> 首次部署前,需要手动上传配置文件到 ECS:
+                    <div class="code-block" data-language="bash" style="margin-top: 10px;">
+<code>scp D:\go\src\fuliApiGo\configs\fuliApiGo.yml root@47.94.95.162:/opt/fuliApiGo/configs/</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 8: Trigger -->
+            <div class="section" id="trigger">
+                <h2><span class="icon">⚡</span>八、配置触发器</h2>
+
+                <div class="step-box">
+                    <h3>8.1 添加代码提交触发器</h3>
+                    <ol>
+                        <li>在流水线编辑页面,点击左侧菜单 <strong>"触发器"</strong></li>
+                        <li>点击 <strong>"+ 添加触发器"</strong></li>
+                        <li>选择触发类型: <strong>"代码提交触发"</strong></li>
+                        <li>配置触发规则:
+                            <table>
+                                <tr>
+                                    <td>触发事件</td>
+                                    <td>Push</td>
+                                </tr>
+                                <tr>
+                                    <td>分支过滤</td>
+                                    <td>develop (或 main)</td>
+                                </tr>
+                                <tr>
+                                    <td>启用触发器</td>
+                                    <td>✅ 开启</td>
+                                </tr>
+                            </table>
+                        </li>
+                        <li>点击 <strong>"确定"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="tip">
+                    配置触发器后,每次向指定分支推送代码,都会自动触发流水线执行,实现持续集成和部署(CI/CD)。
+                </div>
+
+                <div class="step-box">
+                    <h3>8.2 (可选)添加定时触发器</h3>
+                    <p>如果需要定期部署,可以添加定时触发:</p>
+                    <ol>
+                        <li>添加触发器,选择 <strong>"定时触发"</strong></li>
+                        <li>配置 Cron 表达式,例如:
+                            <ul>
+                                <li>每天凌晨 2 点: <code>0 2 * * *</code></li>
+                                <li>每小时: <code>0 * * * *</code></li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Section 9: First Run -->
+            <div class="section" id="first-run">
+                <h2><span class="icon">▶️</span>九、首次运行测试</h2>
+
+                <div class="step-box">
+                    <h3>9.1 保存流水线</h3>
+                    <ol>
+                        <li>点击右上角 <strong>"保存"</strong> 按钮</li>
+                        <li>输入备注信息: "初始版本配置"</li>
+                        <li>点击 <strong>"确定"</strong></li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>9.2 手动触发运行</h3>
+                    <ol>
+                        <li>点击页面右上角蓝色按钮 <strong>"运行"</strong></li>
+                        <li>在弹出的窗口中:
+                            <ul>
+                                <li>选择分支: <strong>develop</strong></li>
+                                <li>可以选择"使用最新代码"或指定 commit</li>
+                            </ul>
+                        </li>
+                        <li>点击 <strong>"确定"</strong> 开始运行</li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>9.3 查看运行日志</h3>
+                    <ol>
+                        <li>运行开始后,会自动跳转到运行详情页面</li>
+                        <li>可以看到流水线的实时执行状态:
+                            <ul>
+                                <li>🟡 黄色: 正在执行</li>
+                                <li>🟢 绿色: 执行成功</li>
+                                <li>🔴 红色: 执行失败</li>
+                            </ul>
+                        </li>
+                        <li>点击每个阶段,可以查看详细日志输出</li>
+                        <li>重点关注:
+                            <ul>
+                                <li>Go 编译是否成功</li>
+                                <li>制品是否上传成功</li>
+                                <li>ECS 部署是否成功</li>
+                                <li>服务是否正常启动</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="success">
+                    如果所有阶段都显示绿色 ✅,说明部署成功!可以访问 http://47.94.95.162:8282 测试服务。
+                </div>
+
+                <div class="step-box">
+                    <h3>9.4 验证服务</h3>
+                    <div class="code-block" data-language="bash">
+<code># SSH 登录到 ECS
+ssh root@47.94.95.162
+
+# 检查进程
+ps aux | grep fuliApiGo
+
+# 查看日志
+tail -f /opt/fuliApiGo/logs/app.log
+
+# 测试 HTTP 接口
+curl http://localhost:8282/health
+
+# 查看监听端口
+netstat -tlnp | grep fuliApiGo</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 10: Troubleshooting -->
+            <div class="section" id="troubleshooting">
+                <h2><span class="icon">🔍</span>十、常见问题排查</h2>
+
+                <div class="step-box">
+                    <h3>10.1 构建失败 - 找不到依赖</h3>
+                    <p><strong>现象:</strong> 编译时报错 "package xxx not found"</p>
+                    <p><strong>原因:</strong> go.mod 或 go.sum 未提交到 Git</p>
+                    <p><strong>解决:</strong></p>
+                    <div class="code-block" data-language="bash">
+<code># 在本地执行
+git add go.mod go.sum
+git commit -m "fix: add go.mod and go.sum"
+git push origin develop</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>10.2 部署失败 - SSH 连接超时</h3>
+                    <p><strong>现象:</strong> 部署阶段报错 "Connection timeout"</p>
+                    <p><strong>原因:</strong> ECS 安全组未开放 22 端口</p>
+                    <p><strong>解决:</strong></p>
+                    <ol>
+                        <li>登录阿里云控制台 → ECS → 实例</li>
+                        <li>找到你的 ECS,点击"更多" → "网络和安全组" → "安全组配置"</li>
+                        <li>添加入方向规则:
+                            <ul>
+                                <li>端口范围: 22/22</li>
+                                <li>授权对象: 0.0.0.0/0 (或云效的 IP 段)</li>
+                                <li>优先级: 1</li>
+                            </ul>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>10.3 服务启动失败 - 端口被占用</h3>
+                    <p><strong>现象:</strong> 日志显示 "address already in use"</p>
+                    <p><strong>解决:</strong></p>
+                    <div class="code-block" data-language="bash">
+<code># 查找占用端口的进程
+lsof -i :8282
+# 或
+netstat -tlnp | grep 8282
+
+# 杀死进程
+kill -9 <PID>
+
+# 重新启动服务
+cd /opt/fuliApiGo
+nohup ./fuliApiGo -c configs/fuliApiGo.yml > logs/app.log 2>&1 &</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>10.4 配置文件不存在</h3>
+                    <p><strong>现象:</strong> 部署脚本报错 "配置文件不存在"</p>
+                    <p><strong>解决:</strong> 首次部署需要手动上传配置文件</p>
+                    <div class="code-block" data-language="bash">
+<code># 从本地上传
+scp D:\go\src\fuliApiGo\configs\fuliApiGo.yml root@47.94.95.162:/opt/fuliApiGo/configs/
+
+# 或者在 ECS 上直接创建
+ssh root@47.94.95.162
+mkdir -p /opt/fuliApiGo/configs
+vi /opt/fuliApiGo/configs/fuliApiGo.yml
+# 粘贴配置内容并保存</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>10.5 数据库连接失败</h3>
+                    <p><strong>现象:</strong> 服务启动后日志显示数据库连接错误</p>
+                    <p><strong>检查:</strong></p>
+                    <ol>
+                        <li>确认数据库中白名单已添加 ECS 的公网 IP</li>
+                        <li>检查配置文件中的数据库地址、用户名、密码是否正确</li>
+                        <li>测试数据库连接:
+                            <div class="code-block" data-language="bash">
+<code>mysql -h your-db-host -u username -p</code>
+                            </div>
+                        </li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>10.6 Gitee 授权失败</h3>
+                    <p><strong>现象:</strong> 无法选择 Gitee 仓库</p>
+                    <p><strong>解决:</strong></p>
+                    <ol>
+                        <li>检查 Gitee 账号是否正确</li>
+                        <li>尝试取消授权后重新授权</li>
+                        <li>确认仓库存在且有访问权限</li>
+                        <li>如果是私有仓库,确认已添加云效为协作者</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Section 11: Best Practices -->
+            <div class="section" id="best-practices">
+                <h2><span class="icon">⭐</span>十一、最佳实践</h2>
+
+                <div class="step-box">
+                    <h3>11.1 多环境部署策略</h3>
+                    <p>建议创建多条流水线,对应不同环境:</p>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>流水线名称</th>
+                                <th>触发分支</th>
+                                <th>部署目标</th>
+                                <th>触发方式</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>fuliApiGo-Dev</td>
+                                <td>develop</td>
+                                <td>开发环境 ECS</td>
+                                <td>自动触发</td>
+                            </tr>
+                            <tr>
+                                <td>fuliApiGo-Staging</td>
+                                <td>release/*</td>
+                                <td>测试环境 ECS</td>
+                                <td>手动触发</td>
+                            </tr>
+                            <tr>
+                                <td>fuliApiGo-Prod</td>
+                                <td>main</td>
+                                <td>生产环境 ECS</td>
+                                <td>手动触发 + 审批</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="step-box">
+                    <h3>11.2 添加人工审批节点</h3>
+                    <p>生产环境部署前,建议添加审批环节:</p>
+                    <ol>
+                        <li>在部署阶段前,添加 <strong>"人工卡点"</strong> 任务</li>
+                        <li>配置审批人: 项目负责人</li>
+                        <li>设置审批超时时间: 24 小时</li>
+                        <li>只有审批通过后,才会执行部署</li>
+                    </ol>
+                </div>
+
+                <div class="step-box">
+                    <h3>11.3 健康检查</h3>
+                    <p>在部署脚本最后添加健康检查:</p>
+                    <div class="code-block" data-language="bash">
+<code># 等待服务完全启动
+sleep 10
+
+# 健康检查
+MAX_RETRIES=5
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -f http://localhost:8282/health > /dev/null 2>&1; then
+        echo "✅ 健康检查通过"
+        break
+    else
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo "健康检查失败,第 $RETRY_COUNT 次重试..."
+        sleep 5
+    fi
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "❌ 健康检查失败,服务可能未正常启动"
+    exit 1
+fi</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>11.4 快速回滚方案</h3>
+                    <p>保留最近 5 个版本的备份,支持快速回滚:</p>
+                    <div class="code-block" data-language="bash">
+<code>#!/bin/bash
+# rollback.sh - 快速回滚脚本
+
+echo "可用的备份版本:"
+ls -lt /opt/fuliApiGo/backup/ | head -6
+
+read -p "请输入要回滚的备份目录名: " BACKUP_NAME
+
+BACKUP_PATH="/opt/fuliApiGo/backup/$BACKUP_NAME"
+
+if [ ! -d "$BACKUP_PATH" ]; then
+    echo "错误: 备份目录不存在"
+    exit 1
+fi
+
+# 停止当前服务
+pkill -f fuliApiGo
+sleep 3
+
+# 恢复备份
+cp $BACKUP_PATH/fuliApiGo /opt/fuliApiGo/fuliApiGo
+chmod +x /opt/fuliApiGo/fuliApiGo
+
+# 启动服务
+cd /opt/fuliApiGo
+nohup ./fuliApiGo -c configs/fuliApiGo.yml > logs/app.log 2>&1 &
+
+echo "✅ 回滚完成"</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>11.5 日志管理</h3>
+                    <p>配置日志轮转,避免日志文件过大:</p>
+                    <div class="code-block" data-language="bash">
+<code># 创建 logrotate 配置
+sudo vi /etc/logrotate.d/fuliApiGo
+
+# 添加以下内容:
+/opt/fuliApiGo/logs/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    postrotate
+        # 如果需要,可以发送信号让应用重新打开日志文件
+    endscript
+}</code>
+                    </div>
+                </div>
+
+                <div class="step-box">
+                    <h3>11.6 监控告警</h3>
+                    <p>建议配置以下监控:</p>
+                    <ul>
+                        <li><strong>进程监控:</strong> 使用 systemd 或 supervisor 管理进程</li>
+                        <li><strong>端口监控:</strong> 监控 8282、8283 端口是否监听</li>
+                        <li><strong>资源监控:</strong> CPU、内存、磁盘使用率</li>
+                        <li><strong>日志监控:</strong> 接入阿里云 SLS 日志服务</li>
+                        <li><strong>链路追踪:</strong> 已配置 Jaeger 链路追踪</li>
+                    </ul>
+                </div>
+
+                <div class="tip">
+                    <strong>进阶建议:</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li>使用 Docker 容器化部署,提高环境一致性</li>
+                        <li>接入 Prometheus + Grafana 监控体系</li>
+                        <li>配置自动化测试,确保代码质量</li>
+                        <li>使用蓝绿部署或滚动发布,减少停机时间</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Summary -->
+            <div class="section">
+                <h2><span class="icon">📝</span>总结</h2>
+                <div class="success">
+                    <h3 style="margin-bottom: 15px;">部署流程回顾</h3>
+                    <ol style="margin-left: 20px; line-height: 2;">
+                        <li>✅ 代码推送到 Gitee 仓库</li>
+                        <li>✅ 创建云效流水线</li>
+                        <li>✅ 配置 Gitee 代码源</li>
+                        <li>✅ 添加 Go 构建任务 (make build)</li>
+                        <li>✅ 配置 ECS 主机组和部署脚本</li>
+                        <li>✅ 设置代码提交触发器</li>
+                        <li>✅ 首次手动运行测试</li>
+                        <li>✅ 验证服务正常运行</li>
+                    </ol>
+                </div>
+
+                <div class="flow-diagram">
+                    <h3 style="margin-bottom: 20px; color: #667eea;">完整部署流程图</h3>
+                    <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">
+                        <div class="flow-step">📤 Git Push<br><small>推送到 Gitee</small></div>
+                        <div class="flow-step">⚡ 触发器<br><small>自动触发</small></div>
+                        <div class="flow-step">🔨 构建<br><small>make build</small></div>
+                        <div class="flow-step">📦 制品<br><small>上传二进制</small></div>
+                        <div class="flow-step">🚀 部署<br><small>ECS 部署</small></div>
+                        <div class="flow-step">✅ 验证<br><small>健康检查</small></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>📧 如有问题,请联系开发团队</p>
+            <p style="margin-top: 10px; opacity: 0.8;">文档生成时间: 2026-04-22 | 版本: v1.0</p>
+        </div>
+    </div>
+
+    <!-- Back to Top Button -->
+    <a href="#" class="back-to-top" title="回到顶部">↑</a>
+
+    <script>
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Show/hide back to top button
+        window.addEventListener('scroll', function() {
+            const backToTop = document.querySelector('.back-to-top');
+            if (window.pageYOffset > 300) {
+                backToTop.style.opacity = '1';
+                backToTop.style.visibility = 'visible';
+            } else {
+                backToTop.style.opacity = '0';
+                backToTop.style.visibility = 'hidden';
+            }
+        });
+
+        // Initialize back to top button state
+        document.querySelector('.back-to-top').style.opacity = '0';
+        document.querySelector('.back-to-top').style.visibility = 'hidden';
+        document.querySelector('.back-to-top').style.transition = 'all 0.3s';
+    </script>
+</body>
+</html>
