@@ -29,10 +29,17 @@ type SLSConfig struct {
 	MaxRetries int    // 最大重试次数，默认 10
 	Timeout    int    // 超时时间（秒），默认 60
 
+	// Producer 性能配置
+	TotalSizeLnBytes      int64 // 缓存总大小(字节)，默认 512MB (512 * 1024 * 1024)
+	MaxBatchCount         int   // 单个 Batch 最大日志条数，默认 4096
+	MaxBatchSize          int   // 单个 Batch 最大大小(字节)，默认 3MB (3 * 1024 * 1024)
+	LingerMs              int   // Batch 刷新间隔(毫秒)，默认 2000ms
+	DisableRuntimeMetrics bool  // 禁用运行时指标日志，默认 true
+
 	// 高级配置（大厂最佳实践）
-	EnableHealthCheck   bool          // 是否启用健康检查，默认 false（关闭），true 表示开启
-	HealthCheckInterval time.Duration // 健康检查间隔，默认 30 秒
-	SendTimeout         time.Duration // 发送超时时间，默认 5 秒
+	EnableHealthCheck   bool // 是否启用健康检查，默认 false（关闭），true 表示开启
+	HealthCheckInterval int  // 健康检查间隔(秒)，默认 30 秒
+	SendTimeout         int  // 发送超时时间(秒)，默认 5 秒
 }
 
 // SLSHook 阿里云 SLS 日志钩子
@@ -93,12 +100,27 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 		config.Source = "unknown"
 	}
 
+	// 设置 Producer 性能配置默认值
+	if config.TotalSizeLnBytes == 0 {
+		config.TotalSizeLnBytes = 512 * 1024 * 1024 // 默认 512MB
+	}
+	if config.MaxBatchCount == 0 {
+		config.MaxBatchCount = 4096 // 默认 4096 条
+	}
+	if config.MaxBatchSize == 0 {
+		config.MaxBatchSize = 3 * 1024 * 1024 // 默认 3MB
+	}
+	if config.LingerMs == 0 {
+		config.LingerMs = 2000 // 默认 2000ms
+	}
+	// DisableRuntimeMetrics 默认为 true（关闭运行时指标日志）
+
 	// 设置高级配置默认值
 	if config.HealthCheckInterval == 0 {
-		config.HealthCheckInterval = 30 * time.Second // 默认 30 秒检查一次
+		config.HealthCheckInterval = 30 // 默认 30 秒
 	}
 	if config.SendTimeout == 0 {
-		config.SendTimeout = 5 * time.Second // 默认 5 秒超时
+		config.SendTimeout = 5 // 默认 5 秒
 	}
 	// EnableHealthCheck 默认为 false（关闭），如需开启请显式设置为 true
 
@@ -110,13 +132,19 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 创建生产者配置
 	producerConfig := producer.GetDefaultProducerConfig()
 	producerConfig.Endpoint = config.Endpoint
-	producerConfig.AccessKeyID = config.AccessKeyID
-	producerConfig.AccessKeySecret = config.AccessKeySecret
-	producerConfig.TotalSizeLnBytes = 512 * 1024 * 1024 // 512MB (基于压测结果优化)
-	producerConfig.MaxBatchCount = 4096                 // 单个 Batch 最大日志条数（已优化）
-	producerConfig.MaxBatchSize = 3 * 1024 * 1024       // 3MB (减少网络请求次数)
-	producerConfig.LingerMs = 2000                      // 2秒刷新间隔（平衡实时性与吞吐量）
+	// 使用新的 CredentialsProvider API（替代已弃用的 AccessKeyID/AccessKeySecret）
+	producerConfig.CredentialsProvider = sls.NewStaticCredentialsProvider(
+		config.AccessKeyID,
+		config.AccessKeySecret,
+		"", // SecurityToken，静态 AK 不需要
+	)
+	// 从配置中读取 Producer 性能参数
+	producerConfig.TotalSizeLnBytes = config.TotalSizeLnBytes
+	producerConfig.MaxBatchCount = config.MaxBatchCount
+	producerConfig.MaxBatchSize = int64(config.MaxBatchSize)
+	producerConfig.LingerMs = int64(config.LingerMs)
 	producerConfig.Retries = config.MaxRetries
+	producerConfig.DisableRuntimeMetrics = config.DisableRuntimeMetrics
 	// 注意: TimeoutMilliseconds 字段可能不存在，使用默认值
 
 	// 创建生产者
@@ -414,11 +442,11 @@ func validateSLSConfig(config *SLSConfig) error {
 	}
 
 	// 高级配置检查
-	if config.HealthCheckInterval < 5*time.Second {
-		return fmt.Errorf("healthCheckInterval must be at least 5 seconds, got: %v", config.HealthCheckInterval)
+	if config.HealthCheckInterval < 5 {
+		return fmt.Errorf("healthCheckInterval must be at least 5 seconds, got: %d", config.HealthCheckInterval)
 	}
-	if config.SendTimeout < 1*time.Second {
-		return fmt.Errorf("sendTimeout must be at least 1 second, got: %v", config.SendTimeout)
+	if config.SendTimeout < 1 {
+		return fmt.Errorf("sendTimeout must be at least 1 second, got: %d", config.SendTimeout)
 	}
 
 	return nil
@@ -450,7 +478,8 @@ func (h *SLSHook) startHealthCheck() {
 	h.healthCheckWg.Add(1)
 	defer h.healthCheckWg.Done()
 
-	ticker := time.NewTicker(h.config.HealthCheckInterval)
+	// HealthCheckInterval 单位为秒，需要转换为 time.Duration
+	ticker := time.NewTicker(time.Duration(h.config.HealthCheckInterval) * time.Second)
 	defer ticker.Stop()
 
 	for {

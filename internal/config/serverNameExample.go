@@ -47,19 +47,24 @@ type Config struct {
 }
 
 type Sls struct {
-	AccessKeyID         string `yaml:"accessKeyId" json:"accessKeyId"`
-	AccessKeySecret     string `yaml:"accessKeySecret" json:"accessKeySecret"`
-	Enable              bool   `yaml:"enable" json:"enable"`
-	EnableHealthCheck   bool   `yaml:"enableHealthCheck" json:"enableHealthCheck"`
-	Endpoint            string `yaml:"endpoint" json:"endpoint"`
-	HealthCheckInterval int    `yaml:"healthCheckInterval" json:"healthCheckInterval"`
-	Logstore            string `yaml:"logstore" json:"logstore"`
-	Project             string `yaml:"project" json:"project"`
-	Retries             int    `yaml:"retries" json:"retries"`
-	SendTimeout         int    `yaml:"sendTimeout" json:"sendTimeout"`
-	Source              string `yaml:"source" json:"source"`
-	Timeout             int    `yaml:"timeout" json:"timeout"`
-	Topic               string `yaml:"topic" json:"topic"`
+	AccessKeyID           string `yaml:"accessKeyId" json:"accessKeyId"`
+	AccessKeySecret       string `yaml:"accessKeySecret" json:"accessKeySecret"`
+	DisableRuntimeMetrics bool   `yaml:"disableRuntimeMetrics" json:"disableRuntimeMetrics"`
+	Enable                bool   `yaml:"enable" json:"enable"`
+	EnableHealthCheck     bool   `yaml:"enableHealthCheck" json:"enableHealthCheck"`
+	Endpoint              string `yaml:"endpoint" json:"endpoint"`
+	HealthCheckInterval   int    `yaml:"healthCheckInterval" json:"healthCheckInterval"`
+	LingerMs              int    `yaml:"lingerMs" json:"lingerMs"`
+	Logstore              string `yaml:"logstore" json:"logstore"`
+	MaxBatchCount         int    `yaml:"maxBatchCount" json:"maxBatchCount"`
+	MaxBatchSize          int    `yaml:"maxBatchSize" json:"maxBatchSize"`
+	Project               string `yaml:"project" json:"project"`
+	Retries               int    `yaml:"retries" json:"retries"`
+	SendTimeout           int    `yaml:"sendTimeout" json:"sendTimeout"`
+	Source                string `yaml:"source" json:"source"`
+	Timeout               int    `yaml:"timeout" json:"timeout"`
+	Topic                 string `yaml:"topic" json:"topic"`
+	TotalSizeLnBytes      int    `yaml:"totalSizeLnBytes" json:"totalSizeLnBytes"`
 }
 
 type Elasticsearch struct {
