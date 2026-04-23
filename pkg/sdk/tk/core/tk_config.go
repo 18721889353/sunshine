@@ -146,7 +146,6 @@ func WithResponseHeaderTimeout(responseHeaderTimeout time.Duration) TkOption {
 		} else {
 			config.ResponseHeaderTimeout = responseHeaderTimeout
 		}
-
 	}
 }
 
@@ -158,7 +157,6 @@ func WithDialTimeout(dialTimeout time.Duration) TkOption {
 		} else {
 			config.DialTimeout = dialTimeout
 		}
-
 	}
 }
 
@@ -170,7 +168,6 @@ func WithDialKeepAlive(dialKeepAlive time.Duration) TkOption {
 		} else {
 			config.DialKeepAlive = dialKeepAlive
 		}
-
 	}
 }
 

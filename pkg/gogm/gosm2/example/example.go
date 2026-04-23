@@ -7,7 +7,6 @@ import (
 )
 
 func main() {
-
 	//// 创建SM2实例，去除PEM格式的头部和尾部
 	sm2Instance := gosm2.NewSM2(
 		gosm2.WithStripHeader(true),

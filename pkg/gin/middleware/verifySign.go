@@ -72,7 +72,6 @@ func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 		//验证签名规则
 		err := verifySign(ctx, o)
 		if err != nil {
-
 			response.Out(ctx, errcode.InvalidParams.WithDetails(err.Error()))
 			ctx.Abort()
 			return

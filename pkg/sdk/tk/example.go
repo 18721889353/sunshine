@@ -10,7 +10,6 @@ import (
 )
 
 func main() {
-
 	tkConfig := core.NewTkConfig(
 		core.WithAppId("zt6098eaf5b2d29"),
 		core.WithAppSecret("b81f8c41997b8910ff7bf631a74d65ee"),

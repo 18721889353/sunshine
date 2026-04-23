@@ -122,7 +122,6 @@ func gormConfig(o *options) *gorm.Config {
 }
 
 func getDb(dsn string, o *options) (*gorm.DB, error) {
-
 	sqlDB, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err

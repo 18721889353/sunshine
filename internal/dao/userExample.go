@@ -599,7 +599,6 @@ func (d *userExampleDao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, t
 //   - "condition": 删除条件查询缓存（包括 condition、columns、count、exists）
 //   - "all": 删除所有缓存（最彻底，谨慎使用）
 func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType string) error {
-
 	if d.cache == nil {
 		return nil
 	}
@@ -655,7 +654,6 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType 
 //   - ids: 批量 ID 列表（nil 表示不批量删除）
 //   - deleteType: 删除类型（"condition"=只删除条件缓存，"all"=删除所有缓存）
 func (d *userExampleDao) delayedDoubleDelete(ctx context.Context, id uint64, ids []uint64, deleteType string) {
-
 	if d.cache == nil {
 		return
 	}

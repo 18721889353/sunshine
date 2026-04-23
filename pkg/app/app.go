@@ -45,7 +45,6 @@ func New(servers []IServer, closes []Close) *App {
 
 // Run 启动所有服务，并监控信号以停止应用。
 func (a *App) Run() {
-
 	writePIDToFile(fmt.Sprintf("启动时间:%v 进程id:%v", time.Now().Format(time.DateTime), strconv.Itoa(os.Getpid())))
 	// 创建一个上下文，当任何一个 goroutine 返回错误时，该上下文将被取消。
 	eg, ctx := errgroup.WithContext(context.Background())
@@ -114,7 +113,6 @@ func (a *App) stop() error {
 
 // writePIDToFile 将启动关闭信息写入文件
 func writePIDToFile(msg string) {
-
 	filePath := "sun.txt"
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {

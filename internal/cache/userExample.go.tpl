@@ -80,8 +80,6 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	return nil // no cache
 }
 
-
-
 func (c *{{.TableNameCamelFCL}}Cache) getLockCacheKey(key string) string {
 	return fmt.Sprintf("%s%v", {{.TableNameCamel}}CachePrefixKeyLock, key)
 }
@@ -208,7 +206,6 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 	return task(watchdogCtx)
 }
 
-
 // Get{{.TableNameCamel}}CacheKey cache key
 func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey(id uint64) string {
 	return {{.TableNameCamel}}CachePrefixKey + utils.Uint64ToStr(id)
@@ -217,7 +214,6 @@ func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey(id uint64) 
 func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKeyString(key string) string {
 	return {{.TableNameCamel}}CachePrefixKey + key
 }
-
 
 // Set write to cache
 func (c *{{.TableNameCamelFCL}}Cache) Set(ctx context.Context, id uint64, data *model.{{.TableNameCamel}}, duration time.Duration) error {

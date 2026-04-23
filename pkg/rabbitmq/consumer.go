@@ -489,7 +489,6 @@ func (c *Consumer) DeadConsume(ctx context.Context, handler Handler) {
 		ticker := time.NewTicker(time.Second * 2)
 		isFirst := true
 		for {
-
 			if isFirst {
 				isFirst = false
 				ticker.Reset(time.Millisecond * 10)

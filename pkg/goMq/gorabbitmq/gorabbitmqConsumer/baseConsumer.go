@@ -87,7 +87,6 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 		}
 		// 创建指定数量的消费者
 		for i := 0; i < consumerNum; i++ {
-
 			// 构建基础选项
 			consumerOpts := bc.buildBaseOptions(queueConfig, i)
 

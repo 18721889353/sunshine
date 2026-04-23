@@ -191,7 +191,6 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 
 // getProducerFromCache 从缓存中获取或创建producer
 func (r *RabbitMQ) getProducerFromCache(ctx context.Context, exchangeName, routingKey string) (*gorabbitmq.Producer, error) {
-
 	// 1. 快速路径
 	if val, ok := r.producerCache.Load(routingKey); ok {
 		p := val.(*gorabbitmq.Producer)
