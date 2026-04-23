@@ -11,8 +11,9 @@ import (
 
 // WithCallerFunc 将调用者方法名注入到 context 中
 // 使用示例：
-//   ctx = logger.WithCallerFunc(ctx, "UserService.GetUser")
-//   db.WithContext(ctx).First(&user, id)
+//
+//	ctx = logger.WithCallerFunc(ctx, "UserService.GetUser")
+//	db.WithContext(ctx).First(&user, id)
 func WithCallerFunc(ctx context.Context, callerFunc string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -177,8 +178,9 @@ func ModuleDebugWithCtx(ctx context.Context, module string, msg string, fields .
 // ExecuteCustomHooksWithCtx 手动执行带 Context 的自定义钩子
 // 用法: 在业务代码中调用此函数来执行需要访问 context 的钩子
 // 示例:
-//   ctx := context.WithValue(context.Background(), logger.ContextKeyForRequestID(), "12345")
-//   logger.ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, "user login", logger.String("user_id", "123"))
+//
+//	ctx := context.WithValue(context.Background(), logger.ContextKeyForRequestID(), "12345")
+//	logger.ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, "user login", logger.String("user_id", "123"))
 func ExecuteCustomHooksWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...Field) error {
 	if len(customHooksWithCtx) == 0 {
 		return nil

@@ -34,6 +34,7 @@ var RequestIDKey = CtxKeyString(string(logger.ContextKeyRequestID))
 // CtxRequestIDField 从 context.Context 中获取 request_id 字段（用于日志记录）
 // 参数:
 //   - ctx: 上下文对象
+//
 // 返回:
 //   - logger.Field: 包含 request_id 的日志字段
 func CtxRequestIDField(ctx context.Context) logger.Field {
@@ -43,6 +44,7 @@ func CtxRequestIDField(ctx context.Context) logger.Field {
 // ClientCtxRequestID 从 gRPC 客户端 context.Context 中获取 request_id
 // 参数:
 //   - ctx: 上下文对象
+//
 // 返回:
 //   - string: request_id 字符串，如果不存在则返回空字符串
 func ClientCtxRequestID(ctx context.Context) string {
@@ -52,6 +54,7 @@ func ClientCtxRequestID(ctx context.Context) string {
 // ClientCtxRequestIDField 从 gRPC 客户端 context.Context 中获取 request_id 字段（用于日志记录）
 // 参数:
 //   - ctx: 上下文对象
+//
 // 返回:
 //   - logger.Field: 包含 request_id 的日志字段
 func ClientCtxRequestIDField(ctx context.Context) logger.Field {
@@ -127,10 +130,10 @@ type KV struct {
 // - 需要在多个服务调用之间保持上下文一致性的场景
 //
 // 注意：
-// - 该函数会从 incoming metadata 中提取 request_id，如果不存在则为空字符串
-// - 如果在非 gRPC 场景（如 RabbitMQ、Kafka 消费者）中使用，incoming metadata 为空
-//   会导致提取的 request_id 为空，可能覆盖之前设置的值
-// - 在非 gRPC 场景中，建议直接使用 context.WithValue 设置 request_id
+//   - 该函数会从 incoming metadata 中提取 request_id，如果不存在则为空字符串
+//   - 如果在非 gRPC 场景（如 RabbitMQ、Kafka 消费者）中使用，incoming metadata 为空
+//     会导致提取的 request_id 为空，可能覆盖之前设置的值
+//   - 在非 gRPC 场景中，建议直接使用 context.WithValue 设置 request_id
 func WrapServerCtx(ctx context.Context, kvs ...KV) context.Context {
 	// 从 gRPC incoming metadata 中提取 request_id 并设置到 context
 	// 如果 metadata 中不存在 request_id，则返回空字符串
@@ -146,6 +149,7 @@ func WrapServerCtx(ctx context.Context, kvs ...KV) context.Context {
 // ServerCtxRequestID 从 gRPC 服务端 context.Context 中获取 request_id
 // 参数:
 //   - ctx: 上下文对象
+//
 // 返回:
 //   - string: request_id 字符串，从 incoming metadata 中提取，如果不存在则返回空字符串
 func ServerCtxRequestID(ctx context.Context) string {
@@ -155,6 +159,7 @@ func ServerCtxRequestID(ctx context.Context) string {
 // ServerCtxRequestIDField 从 gRPC 服务端 context.Context 中获取 request_id 字段（用于日志记录）
 // 参数:
 //   - ctx: 上下文对象
+//
 // 返回:
 //   - logger.Field: 包含 request_id 的日志字段
 func ServerCtxRequestIDField(ctx context.Context) logger.Field {
