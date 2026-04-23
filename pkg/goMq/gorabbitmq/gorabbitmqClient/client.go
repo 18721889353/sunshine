@@ -52,7 +52,7 @@ func InitRabbitmq(name string, mqCfg any) {
 	}
 
 	// 使用 singleflight 防止重复初始化同一个 name
-	sfGroup.Do("init_"+name, func() (interface{}, error) {
+	_, _, _ = sfGroup.Do("init_"+name, func() (interface{}, error) {
 		if _, ok := rabbitmqInstances.Load(name); ok {
 			return nil, nil
 		}

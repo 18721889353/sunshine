@@ -49,7 +49,7 @@ func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...)
 	}
 
 	getLogger().Debug(msg, allFields...)
@@ -64,7 +64,7 @@ func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...)
 	}
 
 	getLogger().Info(msg, allFields...)
@@ -79,7 +79,7 @@ func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...)
 	}
 
 	getLogger().Warn(msg, allFields...)
@@ -94,7 +94,7 @@ func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...)
 	}
 
 	getLogger().Error(msg, allFields...)
@@ -109,7 +109,7 @@ func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...)
 	}
 
 	getLogger().Panic(msg, allFields...)
@@ -124,7 +124,7 @@ func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...)
 	}
 
 	getLogger().Fatal(msg, allFields...)

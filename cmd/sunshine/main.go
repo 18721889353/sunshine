@@ -22,7 +22,7 @@ func main() {
 
 	if !isGoRun {
 		// 编译后的二进制，不添加 replace 指令（用户独立项目）
-		os.Setenv("SUNSHINE_COMPILED_BINARY", "true")
+		_ = os.Setenv("SUNSHINE_COMPILED_BINARY", "true")
 	}
 	// go run 是本地调试模式，会添加 replace 指令
 

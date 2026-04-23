@@ -78,7 +78,7 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 		endSpan(err)
 		return fmt.Errorf("bulk operation error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("bulk operation failed: %s", res.String())

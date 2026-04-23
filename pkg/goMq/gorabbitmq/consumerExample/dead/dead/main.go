@@ -43,7 +43,7 @@ func main() {
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
-	defer pool.Close(ctx)
+	defer func() { _ = pool.Close(ctx) }()
 	conn, err := pool.Get(ctx)
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to get connection from pool", logger.Err(err))

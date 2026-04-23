@@ -77,7 +77,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("创建生产者失败: %v", err)
 	}
-	defer producer.Close()
+	defer func() { _ = producer.Close() }()
 
 	err = producer.PublishDirect(
 		ctx,

@@ -71,7 +71,7 @@ func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
 		endSpan(err)
 		return nil, fmt.Errorf("get role error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("get role failed: %s", res.String())
@@ -128,7 +128,7 @@ func (c *Client) CreateRole(ctx context.Context, roleName string, role Role) err
 		endSpan(err)
 		return fmt.Errorf("create role error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("create role failed: %s", res.String())
@@ -164,7 +164,7 @@ func (c *Client) DeleteRole(ctx context.Context, roleName string) error {
 		endSpan(err)
 		return fmt.Errorf("delete role error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("delete role failed: %s", res.String())
@@ -190,7 +190,7 @@ func (c *Client) GetUser(ctx context.Context, username string) (*User, error) {
 		endSpan(err)
 		return nil, fmt.Errorf("get user error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("get user failed: %s", res.String())
@@ -249,7 +249,7 @@ func (c *Client) CreateUser(ctx context.Context, username string, user User) err
 		endSpan(err)
 		return fmt.Errorf("create user error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("create user failed: %s", res.String())
@@ -285,7 +285,7 @@ func (c *Client) DeleteUser(ctx context.Context, username string) error {
 		endSpan(err)
 		return fmt.Errorf("delete user error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("delete user failed: %s", res.String())
@@ -326,7 +326,7 @@ func (c *Client) ChangeUserPassword(ctx context.Context, username string, passwo
 		endSpan(err)
 		return fmt.Errorf("change password error: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("change password failed: %s", res.String())

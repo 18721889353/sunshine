@@ -178,7 +178,7 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 验证 Producer 状态
 	if err := hook.verifyProducerState(); err != nil {
 		// 启动失败，返回错误由调用方决定如何处理
-		hook.Close() // 清理资源
+		_ = hook.Close() // 清理资源
 		return nil, fmt.Errorf("SLS producer verification failed: %w", err)
 	}
 
@@ -304,7 +304,7 @@ func (h *SLSHook) Close() error {
 	if h.producer != nil {
 		// 优雅关闭：等待所有日志发送完成，最多等待 30 秒
 		// 根据阿里云官方文档，Close 方法会阻塞直到所有缓存数据发送完毕或超时
-		h.producer.Close(30000)
+		_ = h.producer.Close(30000)
 	}
 
 	h.setState(StateStopped)

@@ -152,7 +152,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("create producer failed: %v", err)
 	}
-	defer producer.Close()
+	defer func() { _ = producer.Close() }()
 
 	// 7. 创建 Consumer
 	consumerOpts := []gorabbitmq.ConsumerOption{

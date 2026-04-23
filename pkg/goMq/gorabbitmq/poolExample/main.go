@@ -12,7 +12,7 @@ import (
 
 func main() {
 	// 创建一个 zap logger 实例
-	logger.Init()
+	_, _ = logger.Init()
 	ctx := context.Background()
 	// 创建连接池，配置 ants 协程池大小
 	pool, err := gorabbitmq.NewPool(
@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
-	defer pool.Close(ctx)
+	defer func() { _ = pool.Close(ctx) }()
 
 	// 打印连接池状态
 	printAntsExampleStats(ctx, pool)

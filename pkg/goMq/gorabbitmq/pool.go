@@ -186,7 +186,7 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 		conn, err := NewConnection(ctx, url, poolOpts.connOpts...)
 		if err != nil {
 			// 关闭已经创建的连接
-			pool.Close(ctx)
+			_ = pool.Close(ctx)
 			return nil, err
 		}
 

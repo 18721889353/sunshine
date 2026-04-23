@@ -186,7 +186,7 @@ func CreatePrivatePem(privateKey *sm2.PrivateKey, pwd []byte, path string) (err 
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	_, err = file.Write(privateKeyToPem)
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func CreatePublicPem(publicKey *sm2.PublicKey, path string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	_, err = file.Write(publicKeyToPem)
 	if err != nil {
 		return err
@@ -256,7 +256,7 @@ func ReadPrivatePem(path string, pwd []byte) (privateKey *sm2.PrivateKey, err er
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var fileInfo os.FileInfo
 	fileInfo, err = file.Stat()
 	if err != nil {
@@ -296,7 +296,7 @@ func ReadPublicPem(path string) (publicKey *sm2.PublicKey, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var fileInfo os.FileInfo
 	fileInfo, err = file.Stat()
 	if err != nil {

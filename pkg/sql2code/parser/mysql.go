@@ -14,7 +14,7 @@ func GetMysqlTableInfo(dsn, tableName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("GetMysqlTableInfo 错误, %v", err)
 	}
-	defer db.Close() // 关闭数据库连接
+	defer func() { _ = db.Close() }() // 关闭数据库连接
 
 	// 执行 SQL 查询，获取表的创建信息
 	rows, err := db.Query("SHOW CREATE TABLE `" + tableName + "`")
@@ -22,7 +22,7 @@ func GetMysqlTableInfo(dsn, tableName string) (string, error) {
 		return "", fmt.Errorf("查询 SHOW CREATE TABLE 错误, %v", err)
 	}
 
-	defer rows.Close() // 关闭查询结果集
+	defer func() { _ = rows.Close() }() // 关闭查询结果集
 
 	// 检查查询结果是否为空
 	if !rows.Next() {

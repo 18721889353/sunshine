@@ -128,7 +128,7 @@ func (c *Client) Ping(ctx context.Context) error {
 		endSpan(err)
 		return fmt.Errorf("failed to ping elasticsearch: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("elasticsearch ping returned error status: %s", res.String())
@@ -152,7 +152,7 @@ func (c *Client) Info(ctx context.Context) (map[string]interface{}, error) {
 		endSpan(err)
 		return nil, fmt.Errorf("failed to get elasticsearch info: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("elasticsearch info request returned error: %s", res.String())
@@ -182,7 +182,7 @@ func (c *Client) HealthCheck(ctx context.Context) (string, error) {
 		endSpan(err)
 		return "", fmt.Errorf("failed to check cluster health: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		err = fmt.Errorf("cluster health check returned error: %s", res.String())

@@ -124,7 +124,7 @@ func (client *TkHttpClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	}
 	defer func() {
 		if httpResp != nil && httpResp.Body != nil {
-			httpResp.Body.Close()
+			_ = httpResp.Body.Close()
 		}
 	}()
 

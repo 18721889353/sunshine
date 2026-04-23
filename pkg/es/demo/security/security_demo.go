@@ -43,7 +43,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to create logger:", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// 使用选项模式创建客户端
 	client, err := es.NewClient(
@@ -133,7 +133,7 @@ func getAllUsers(client *es.Client, ctx context.Context) {
 		log.Printf("获取用户列表失败: %v", err)
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		log.Printf("获取用户列表返回错误: %s", res.String())
@@ -284,7 +284,7 @@ func validatePermissions(client *es.Client, ctx context.Context, username, roleN
 		log.Printf("权限验证失败: %v", err)
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.IsError() {
 		fmt.Printf("用户 %s 权限不足: %s\n", username, res.String())
