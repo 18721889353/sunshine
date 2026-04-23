@@ -239,5 +239,4 @@ func (bc *BaseConsumer) Stop() error {
 	bc.wg.Wait()
 	logger.WarnWithCtx(ctx, "<<< 消费者服务已安全停止: "+bc.name)
 	return nil
-
 }

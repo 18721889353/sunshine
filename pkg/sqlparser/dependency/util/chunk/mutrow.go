@@ -59,9 +59,9 @@ func MutRowFromDatums(datums []types.Datum) MutRow {
 }
 
 // MutRowFromTypes creates a MutRow from a FieldType slice, each column is initialized to zero value.
-func MutRowFromTypes(types []*types.FieldType) MutRow {
+func MutRowFromTypes(typeRows []*types.FieldType) MutRow {
 	c := &Chunk{}
-	for _, tp := range types {
+	for _, tp := range typeRows {
 		col := makeMutRowColumn(zeroValForType(tp))
 		c.columns = append(c.columns, col)
 	}

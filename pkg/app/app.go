@@ -119,9 +119,9 @@ func writePIDToFile(msg string) {
 		logger.WarnWithCtx(initCtx, "failed to open file", logger.String("file", filePath), logger.Err(err))
 	}
 	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			logger.WarnWithCtx(initCtx, "Failed to close file", logger.String("file", filePath), logger.Err(err))
+		closeErr := file.Close()
+		if closeErr != nil {
+			logger.WarnWithCtx(initCtx, "Failed to close file", logger.String("file", filePath), logger.Err(closeErr))
 		}
 	}(file)
 

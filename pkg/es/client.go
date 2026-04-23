@@ -191,9 +191,9 @@ func (c *Client) HealthCheck(ctx context.Context) (string, error) {
 	}
 
 	var result map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
-		endSpan(err)
-		return "", fmt.Errorf("failed to decode health check result: %w", err)
+	if clientErr := json.NewDecoder(res.Body).Decode(&result); clientErr != nil {
+		endSpan(clientErr)
+		return "", fmt.Errorf("failed to decode health check result: %w", clientErr)
 	}
 
 	status, ok := result["status"].(string)

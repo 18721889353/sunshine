@@ -303,5 +303,4 @@ func GetUidByCtx(ctx context.Context) (uid uint64, err error) {
 	} else {
 		return 0, errors.New("no authorization")
 	}
-
 }

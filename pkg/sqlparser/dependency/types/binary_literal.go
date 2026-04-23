@@ -37,17 +37,17 @@ type HexLiteral BinaryLiteral
 // ZeroBinaryLiteral is a BinaryLiteral literal with zero value.
 var ZeroBinaryLiteral = BinaryLiteral{}
 
-func trimLeadingZeroBytes(bytes []byte) []byte {
-	if len(bytes) == 0 {
-		return bytes
+func trimLeadingZeroBytes(rawBytes []byte) []byte {
+	if len(rawBytes) == 0 {
+		return rawBytes
 	}
-	pos, posMax := 0, len(bytes)-1
+	pos, posMax := 0, len(rawBytes)-1
 	for ; pos < posMax; pos++ {
-		if bytes[pos] != 0 {
+		if rawBytes[pos] != 0 {
 			break
 		}
 	}
-	return bytes[pos:]
+	return rawBytes[pos:]
 }
 
 // NewBinaryLiteralFromUint creates a new BinaryLiteral instance by the given uint value in BitEndian.

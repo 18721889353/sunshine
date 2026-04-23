@@ -199,13 +199,13 @@ func connect(c *Connection) (*amqp.Connection, error) {
 		conn, err = amqp.DialConfig(url, amqp.Config{
 			Dial: func(network, addr string) (net.Conn, error) {
 				ctx := context.Background()
-				c, err := dialer.DialContext(ctx, network, addr)
-				if err != nil {
-					return nil, err
+				c, dialErr := dialer.DialContext(ctx, network, addr)
+				if dialErr != nil {
+					return nil, dialErr
 				}
-				err = c.SetDeadline(time.Now().Add(deadlineTimeout)) // 设置读写超时时间
-				if err != nil {
-					return nil, err
+				dialErr = c.SetDeadline(time.Now().Add(deadlineTimeout)) // 设置读写超时时间
+				if dialErr != nil {
+					return nil, dialErr
 				}
 				return c, nil
 			},

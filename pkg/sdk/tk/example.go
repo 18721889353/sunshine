@@ -76,5 +76,4 @@ func main() {
 	fmt.Printf("Response: %+v\n", res)
 	marshal, err := json.Marshal(res)
 	fmt.Println(err, string(marshal))
-
 }

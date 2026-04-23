@@ -95,7 +95,6 @@ func NewRegistry(etcdEndpoints []string, id string, instanceName string, instanc
 
 // IsServiceRegistered 检查给定的服务实例是否已注册。
 func (r *Registry) IsServiceRegistered(ctx context.Context, key string) (bool, error) {
-
 	resp, err := r.kv.Get(ctx, key)
 	if err != nil {
 		return false, err

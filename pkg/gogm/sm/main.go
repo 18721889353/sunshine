@@ -123,7 +123,6 @@ func main() {
 	decodeString, _ := base64.StdEncoding.DecodeString(string(ecbDec))
 	fmt.Printf("%s\n", decodeString)
 	fmt.Println("------------------------------------------------------------------------------")
-
 }
 
 func Base64encode(data []byte) string {
@@ -149,7 +148,6 @@ func CreateSM2Key() (privateKey *sm2.PrivateKey, publicKey *sm2.PublicKey, err e
 	// 进行sm2公钥断言
 	publicKey = privateKey.Public().(*sm2.PublicKey)
 	return
-
 }
 
 // CreatePrivatePem

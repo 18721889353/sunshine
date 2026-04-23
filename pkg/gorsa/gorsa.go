@@ -115,8 +115,8 @@ func Sign(data []byte, privateKeyStr string) (string, error) {
 	var privateKey *rsa.PrivateKey
 	if block.Type == "PRIVATE KEY" {
 		// PKCS#8格式私钥
-		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
+		key, decryptErr := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if decryptErr != nil {
 			return "", err
 		}
 		var ok bool
@@ -243,8 +243,8 @@ func DecryptByPrivateKey(data []byte, privateKeyStr string) ([]byte, error) {
 	var privateKey *rsa.PrivateKey
 	if block.Type == "PRIVATE KEY" {
 		// PKCS#8格式私钥
-		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
+		key, signErr := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if signErr != nil {
 			return nil, err
 		}
 		var ok bool
@@ -295,8 +295,8 @@ func EncryptByPrivateKey(data []byte, privateKeyStr string) ([]byte, error) {
 	var privateKey *rsa.PrivateKey
 	if block.Type == "PRIVATE KEY" {
 		// PKCS#8格式私钥
-		key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err != nil {
+		key, verifyErr := x509.ParsePKCS8PrivateKey(block.Bytes)
+		if verifyErr != nil {
 			return nil, err
 		}
 		var ok bool

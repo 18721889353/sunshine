@@ -76,6 +76,7 @@ func NewCFBMode() CipherMode {
 }
 
 // Cipher cfb cipher
+//
 //nolint:staticcheck // CFB mode is deprecated but kept for backward compatibility
 func (cfb *cfbCipherModel) Cipher(block cipher.Block, iv []byte) Cipher {
 	//nolint:staticcheck // cipher.NewCFBEncrypter is deprecated but required for CFB mode support
@@ -95,6 +96,7 @@ func NewOFBMode() CipherMode {
 }
 
 // Cipher ofb cipher
+//
 //nolint:staticcheck // OFB mode is deprecated but kept for backward compatibility
 func (ofb *ofbCipherModel) Cipher(block cipher.Block, iv []byte) Cipher {
 	//nolint:staticcheck // cipher.NewOFB is deprecated but required for OFB mode support

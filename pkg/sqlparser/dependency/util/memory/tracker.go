@@ -105,13 +105,13 @@ func (t *Tracker) ReplaceChild(oldChild, newChild *Tracker) {
 	}
 }
 
-// Consume is used to consume a memory usage. "bytes" can be a negative value,
+// Consume is used to consume a memory usage. "b" can be a negative value,
 // which means this is a memory release operation.
-func (t *Tracker) Consume(bytes int64) {
+func (t *Tracker) Consume(b int64) {
 	var rootExceed *Tracker
 	for tracker := t; tracker != nil; tracker = tracker.parent {
 		tracker.mutex.Lock()
-		tracker.bytesConsumed += bytes
+		tracker.bytesConsumed += b
 		if tracker.bytesLimit > 0 && tracker.bytesConsumed >= tracker.bytesLimit {
 			rootExceed = tracker
 		}

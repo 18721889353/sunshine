@@ -53,7 +53,7 @@ func (c *combinedLogger) Error(ctx context.Context, msg string, data ...interfac
 }
 
 // Trace logs trace
-func (c *combinedLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
+func (c *combinedLogger) Trace(ctx context.Context, begin time.Time, fc func() (querySQL string, rowsAffected int64), err error) {
 	// Log with normal logger
 	c.normalLogger.Trace(ctx, begin, fc, err)
 
@@ -250,16 +250,16 @@ func enhanceSpanWithQueryInfo(ctx context.Context, db *gorm.DB, operation string
 	}
 
 	// 3. 获取 SQL 语句（截断过长部分）
-	sql := db.Statement.SQL.String()
-	if len(sql) > 200 {
-		sql = sql[:200] + "..."
+	queryStr := db.Statement.SQL.String()
+	if len(queryStr) > 200 {
+		queryStr = queryStr[:200] + "..."
 	}
 
 	// 4. 设置诊断属性
 	span.SetAttributes(
 		attribute.String("db.table", tableName),
 		attribute.String("db.operation", operation),
-		attribute.String("db.statement", sql),
+		attribute.String("db.statement", queryStr),
 		attribute.Int64("db.rows_affected", db.Statement.RowsAffected),
 	)
 

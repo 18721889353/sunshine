@@ -63,5 +63,4 @@ func main() {
 		return
 	}
 	fmt.Println("Signature verified:", verified)
-
 }

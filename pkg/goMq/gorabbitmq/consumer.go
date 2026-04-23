@@ -225,7 +225,8 @@ func (c *Consumer) initialize() error {
 			}
 		}
 		// QueueDeclare 声明队列
-		dlq, err := channel.QueueDeclare(
+		var dlq amqp.Queue
+		dlq, err = channel.QueueDeclare(
 			c.customerDeadLetter.deadQueueName,               //队列名称
 			c.customerDeadLetter.deadQueueDeclare.durable,    //是否持久化
 			c.customerDeadLetter.deadQueueDeclare.autoDelete, //是否自动删除
@@ -257,7 +258,8 @@ func (c *Consumer) initialize() error {
 				"x-dead-letter-routing-key": c.customerDeadLetter.deadRoutingKey,
 			}
 		}
-		elq, err := channel.QueueDeclare(
+		var elq amqp.Queue
+		elq, err = channel.QueueDeclare(
 			c.customerDeadLetter.errQueueName,               //队列名称
 			c.customerDeadLetter.errQueueDeclare.durable,    //是否持久化
 			c.customerDeadLetter.errQueueDeclare.autoDelete, //是否自动删除
@@ -288,7 +290,8 @@ func (c *Consumer) initialize() error {
 				"x-dead-letter-routing-key": c.customerDeadLetter.deadRoutingKey,
 			}
 		}
-		lq, err := channel.QueueDeclare(
+		var lq amqp.Queue
+		lq, err = channel.QueueDeclare(
 			c.customerDeadLetter.normalQueueName,               //队列名称
 			c.customerDeadLetter.normalQueueDeclare.durable,    //是否持久化
 			c.customerDeadLetter.normalQueueDeclare.autoDelete, //是否自动删除
@@ -337,7 +340,8 @@ func (c *Consumer) initialize() error {
 				"x-message-ttl":             int32(600000), // 600秒后过期
 			}
 		}
-		dlq, err := channel.QueueDeclare(
+		var dlq amqp.Queue
+		dlq, err = channel.QueueDeclare(
 			c.deadLetter.deadQueueName,               //队列名称
 			c.deadLetter.deadQueueDeclare.durable,    //是否持久化
 			c.deadLetter.deadQueueDeclare.autoDelete, //是否自动删除
@@ -369,7 +373,8 @@ func (c *Consumer) initialize() error {
 				"x-dead-letter-routing-key": c.deadLetter.deadRoutingKey,
 			}
 		}
-		lq, err := channel.QueueDeclare(
+		var lq amqp.Queue
+		lq, err = channel.QueueDeclare(
 			c.deadLetter.normalQueueName,               //队列名称
 			c.deadLetter.normalQueueDeclare.durable,    //是否持久化
 			c.deadLetter.normalQueueDeclare.autoDelete, //是否自动删除

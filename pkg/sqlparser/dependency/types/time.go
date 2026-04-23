@@ -551,7 +551,6 @@ func ParseDateFormat(format string) []string {
 			seps = append(seps, format[start:i])
 			start = i + 1
 		}
-
 	}
 
 	seps = append(seps, format[start:])

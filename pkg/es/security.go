@@ -88,9 +88,9 @@ func (c *Client) GetRole(ctx context.Context, roleName string) (*Role, error) {
 
 	// 解析响应
 	var result map[string]Role
-	if err := json.Unmarshal(body, &result); err != nil {
-		endSpan(err)
-		return nil, fmt.Errorf("unmarshal role result error: %w", err)
+	if securityErr := json.Unmarshal(body, &result); securityErr != nil {
+		endSpan(securityErr)
+		return nil, fmt.Errorf("unmarshal role result error: %w", securityErr)
 	}
 
 	roleData, exists := result[roleName]
@@ -208,9 +208,9 @@ func (c *Client) GetUser(ctx context.Context, username string) (*User, error) {
 	// 而不是 { "username": { "user": { ...user_data... } } }
 	var result map[string]User
 
-	if err := json.Unmarshal(body, &result); err != nil {
-		endSpan(err)
-		return nil, fmt.Errorf("unmarshal user result error: %w", err)
+	if checkErr := json.Unmarshal(body, &result); checkErr != nil {
+		endSpan(checkErr)
+		return nil, fmt.Errorf("unmarshal user result error: %w", checkErr)
 	}
 
 	userData, exists := result[username]

@@ -170,14 +170,14 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	pipeline := c.client.Pipeline()
 
 	for key, value := range valueMap {
-		buf, err := encoding.Marshal(c.encoding, value)
-		if err != nil {
+		buf, cacheErr := encoding.Marshal(c.encoding, value)
+		if cacheErr != nil {
 			logger.WarnWithCtx(ctx, "encoding.Marshal error", logger.Err(err), logger.Any("value", value))
 			continue
 		}
-		cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
-		if err != nil {
-			logger.WarnWithCtx(ctx, "BuildCacheKey error", logger.Err(err), logger.String("key", key))
+		cacheKey, buildErr := BuildCacheKey(c.KeyPrefix, key)
+		if buildErr != nil {
+			logger.WarnWithCtx(ctx, "BuildCacheKey error", logger.Err(buildErr), logger.String("key", key))
 			continue
 		}
 		// 直接添加命令到pipeline
@@ -206,8 +206,8 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	}
 	cacheKeys := make([]string, len(keys))
 	for index, key := range keys {
-		cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
-		if err != nil {
+		cacheKey, getErr := BuildCacheKey(c.KeyPrefix, key)
+		if getErr != nil {
 			return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
 		}
 		cacheKeys[index] = cacheKey
@@ -269,8 +269,8 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) (err error) {
 
 	cacheKeys := make([]string, len(keys))
 	for index, key := range keys {
-		cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
-		if err != nil {
+		cacheKey, setErr := BuildCacheKey(c.KeyPrefix, key)
+		if setErr != nil {
 			continue
 		}
 		cacheKeys[index] = cacheKey

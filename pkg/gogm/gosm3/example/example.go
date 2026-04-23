@@ -27,5 +27,4 @@ func main() {
 
 	fmt.Printf("Data: %s\n", data)
 	fmt.Printf("SM3 Hash: %s\n", hashResult)
-
 }

@@ -130,8 +130,8 @@ func Init(opts ...Option) (*zap.Logger, error) {
 			IsAsync:       o.isAsync,
 		}
 
-		if err := InitRouter(defaultLogger, o.routes, defaultRouteConfig); err != nil {
-			WarnWithCtx(initCtx, "failed to init log router", Err(err))
+		if routerErr := InitRouter(defaultLogger, o.routes, defaultRouteConfig); routerErr != nil {
+			WarnWithCtx(initCtx, "failed to init log router", Err(routerErr))
 		} else {
 			InfoWithCtx(initCtx, "[log router] was initialized", Int("routes_count", len(o.routes)))
 		}

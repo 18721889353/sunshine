@@ -24,7 +24,6 @@ func main() {
 		// 注意：这里不再显式调用Close()，因为defer会处理
 	}
 	time.Sleep(time.Second * 600)
-
 }
 
 // createConnectionWithRetry 尝试创建连接，带重试机制

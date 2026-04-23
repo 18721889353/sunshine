@@ -637,15 +637,15 @@ func (d *Datum) compareMysqlJSON(sc *stmtctx.StatementContext, target json.Binar
 	return json.CompareBinary(origin, target), nil
 }
 
-func (d *Datum) compareMysqlTime(sc *stmtctx.StatementContext, time Time) (int, error) {
+func (d *Datum) compareMysqlTime(sc *stmtctx.StatementContext, t Time) (int, error) {
 	switch d.k {
 	case KindString, KindBytes:
 		dt, err := ParseDatetime(sc, d.GetString())
-		return dt.Compare(time), err
+		return dt.Compare(t), err
 	case KindMysqlTime:
-		return d.GetMysqlTime().Compare(time), nil
+		return d.GetMysqlTime().Compare(t), nil
 	default:
-		fVal, err := time.ToNumber().ToFloat64()
+		fVal, err := t.ToNumber().ToFloat64()
 		if err != nil {
 			return 0, errors.Trace(err)
 		}

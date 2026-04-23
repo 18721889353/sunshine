@@ -160,7 +160,8 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-message-ttl":             int32(600000), // 600秒后过期
 			}
 		}
-		dlq, err := channel.QueueDeclare(
+		var dlq amqp.Queue
+		dlq, err = channel.QueueDeclare(
 			o.customerDeadLetter.deadQueueName,               //队列名称
 			o.customerDeadLetter.deadQueueDeclare.durable,    //是否持久化
 			o.customerDeadLetter.deadQueueDeclare.autoDelete, //是否自动删除
@@ -192,7 +193,8 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
 			}
 		}
-		elq, err := channel.QueueDeclare(
+		var elq amqp.Queue
+		elq, err = channel.QueueDeclare(
 			o.customerDeadLetter.errQueueName,               //队列名称
 			o.customerDeadLetter.errQueueDeclare.durable,    //是否持久化
 			o.customerDeadLetter.errQueueDeclare.autoDelete, //是否自动删除
@@ -223,7 +225,8 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
 			}
 		}
-		lq, err := channel.QueueDeclare(
+		var lq amqp.Queue
+		lq, err = channel.QueueDeclare(
 			o.customerDeadLetter.normalQueueName,               //队列名称
 			o.customerDeadLetter.normalQueueDeclare.durable,    //是否持久化
 			o.customerDeadLetter.normalQueueDeclare.autoDelete, //是否自动删除
@@ -272,7 +275,8 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-message-ttl":             int32(600000), // 600秒后过期
 			}
 		}
-		dlq, err := channel.QueueDeclare(
+		var dlq amqp.Queue
+		dlq, err = channel.QueueDeclare(
 			o.deadLetter.deadQueueName,               //队列名称
 			o.deadLetter.deadQueueDeclare.durable,    //是否持久化
 			o.deadLetter.deadQueueDeclare.autoDelete, //是否自动删除
@@ -304,7 +308,8 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 				"x-dead-letter-routing-key": o.deadLetter.deadRoutingKey,
 			}
 		}
-		lq, err := channel.QueueDeclare(
+		var lq amqp.Queue
+		lq, err = channel.QueueDeclare(
 			o.deadLetter.normalQueueName,               //队列名称
 			o.deadLetter.normalQueueDeclare.durable,    //是否持久化
 			o.deadLetter.normalQueueDeclare.autoDelete, //是否自动删除

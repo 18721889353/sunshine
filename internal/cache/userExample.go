@@ -221,6 +221,7 @@ func (c *userExampleCache) Set(ctx context.Context, id uint64, data *model.UserE
 	}
 	return nil
 }
+
 // SetIDByKey set id by key (deprecated: use SetIdByKey for consistency)
 func (c *userExampleCache) SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
 	if key == "" || id == 0 {
