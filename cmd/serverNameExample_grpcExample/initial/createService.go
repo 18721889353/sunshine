@@ -72,7 +72,6 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 			panic(err)
 		}
 		logField = logger.Any("etcdAddress", cfg.Etcd.Addrs)
-
 	}
 
 	if instance != nil {

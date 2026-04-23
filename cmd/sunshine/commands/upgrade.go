@@ -117,7 +117,6 @@ func runUpgradeCommand(targetVersion string) error {
 	}
 	// 如果没有错误，返回 nil 表示成功
 	return nil
-
 }
 
 // copyToTempDir 将模板文件复制到临时目录
@@ -192,7 +191,6 @@ func executeCommand(name string, args ...string) error {
 		return fmt.Errorf("执行命令失败, %v", result.Err)
 	}
 	return nil
-
 }
 
 // adaptPathDelimiter 根据操作系统调整路径分隔符
