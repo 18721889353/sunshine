@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/otel"
+	//nolint:staticcheck // jaeger exporter is deprecated but kept for backward compatibility
 	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"

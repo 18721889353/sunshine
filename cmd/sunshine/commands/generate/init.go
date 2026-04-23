@@ -1,13 +1,11 @@
 package generate
 
 import (
-	"embed"     // 导入嵌入文件系统包
-	"fmt"       // 导入格式化输入输出包
-	"math/rand" // 导入随机数生成包
-	"os"        // 导入操作系统包
+	"embed" // 导入嵌入文件系统包
+	"fmt"   // 导入格式化输入输出包
+	"os"    // 导入操作系统包
 	"path/filepath"
 	"strings" // 导入字符串处理包
-	"time"    // 导入时间处理包
 
 	"github.com/18721889353/sunshine/pkg/gofile"   // 导入文件操作包
 	"github.com/18721889353/sunshine/pkg/replacer" // 导入替换器包
@@ -15,9 +13,9 @@ import (
 
 const warnSymbol = "⚠ " // 警告符号
 
-// 初始化函数，设置随机种子
+// 初始化函数
 func init() {
-	rand.Seed(time.Now().UnixNano()) // 使用当前时间的纳秒值作为随机数生成器的种子
+	// Go 1.20+ 不再需要手动设置随机种子
 }
 
 // Replacers 存储替换器的映射
@@ -212,14 +210,14 @@ func detectLocalSunshineSource() string {
 }
 
 // InitFS 初始化嵌入文件系统的模板
-func InitFS(name string, filepath string, fs embed.FS) {
+func InitFS(name string, filePath string, fs embed.FS) {
 	var err error
 	// 检查模板名称是否已存在
 	if _, ok := Replacers[name]; ok {
 		panic(fmt.Sprintf("template name \"%s\" already exists", name))
 	}
 	// 创建新的嵌入文件系统替换器并存储
-	Replacers[name], err = replacer.NewFS(filepath, fs)
+	Replacers[name], err = replacer.NewFS(filePath, fs)
 	if err != nil {
 		panic(err)
 	}

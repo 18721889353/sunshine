@@ -68,6 +68,9 @@ func main() {
 	}
 
 	consumer, err := gorabbitmq.NewConsumer(exchange, "normalQueueName", conn, normalOpts...)
+	if err != nil {
+		panic(err)
+	}
 	consumer.Consume(ctx, func(ctx context.Context, data []byte, msgId, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(tagID)

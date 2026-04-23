@@ -160,8 +160,8 @@ func NewRouter() *gin.Engine {
 	return r
 }
 
-func registerRouters(r *gin.Engine, groupPath string, routerFns []func(*gin.RouterGroup), middleware ...gin.HandlerFunc) {
-	group := r.Group(groupPath, middleware...)
+func registerRouters(r *gin.Engine, groupPath string, routerFns []func(*gin.RouterGroup), middlewares ...gin.HandlerFunc) {
+	group := r.Group(groupPath, middlewares...)
 	for _, fn := range routerFns {
 		fn(group)
 	}

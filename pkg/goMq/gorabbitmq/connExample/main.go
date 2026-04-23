@@ -1,11 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )

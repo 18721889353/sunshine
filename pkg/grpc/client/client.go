@@ -100,5 +100,6 @@ func Dial(ctx context.Context, endpoint string, opts ...Option) (*grpc.ClientCon
 		dialOptions = append(dialOptions, grpc.WithChainStreamInterceptor(o.streamInterceptors...))
 	}
 
+	//nolint:staticcheck // grpc.DialContext is deprecated but will be supported throughout 1.x
 	return grpc.DialContext(ctx, endpoint, dialOptions...)
 }

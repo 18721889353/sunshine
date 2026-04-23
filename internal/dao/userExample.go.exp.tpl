@@ -175,7 +175,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 	// 缓存未命中，从数据库获取
 	if errors.Is(err, database.ErrCacheNotFound) {
 		// 使用 singleflight 防止并发请求同时访问数据库
-		val, err, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
+		val, sfErr, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
 			table, dbErr := queryFunc()
 			if dbErr != nil {
 				// 设置占位符缓存防止缓存穿透
@@ -194,8 +194,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 			}
 			return table, nil
 		})
-		if err != nil {
-			return nil, err
+		if sfErr != nil {
+			return nil, sfErr
 		}
 		table, ok := val.(*model.{{.TableNameCamel}})
 		if !ok {
@@ -213,7 +213,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 	}
 
 	// 回退到数据库查询
-	val, err, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
+	val, sfErr, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
 		table, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
@@ -228,8 +228,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 		}
 		return table, nil
 	})
-	if err != nil {
-		return nil, err
+	if sfErr != nil {
+		return nil, sfErr
 	}
 	table, ok := val.(*model.{{.TableNameCamel}})
 	if !ok {
@@ -273,7 +273,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	// 缓存未命中或通过 ID 获取失败，从数据库获取
 	if errors.Is(err, database.ErrCacheNotFound) || cachedID == 0 {
 		// 使用 singleflight 防止并发请求同时访问数据库
-		val, err, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
+		val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
 			record, dbErr := queryFunc()
 			if dbErr != nil {
 				// 设置占位符缓存防止缓存穿透
@@ -299,8 +299,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 			}
 			return record, nil
 		})
-		if err != nil {
-			return nil, err
+		if sfErr != nil {
+			return nil, sfErr
 		}
 		record, ok := val.(*model.{{.TableNameCamel}})
 		if !ok {
@@ -318,7 +318,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	}
 
 	// 回退到数据库查询
-	val, err, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
+	val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
 		record, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
@@ -339,8 +339,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 		}
 		return record, nil
 	})
-	if err != nil {
-		return nil, err
+	if sfErr != nil {
+		return nil, sfErr
 	}
 	record, ok := val.(*model.{{.TableNameCamel}})
 	if !ok {
@@ -371,7 +371,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 	// 缓存未命中，从数据库获取
 	if errors.Is(err, database.ErrCacheNotFound) {
 		// 使用 singleflight 防止并发请求同时访问数据库
-		val, err, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
+		val, sfErr, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
 			result, dbErr := queryFunc()
 			if dbErr != nil {
 				// 设置占位符缓存防止缓存穿透
@@ -394,8 +394,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 			}
 			return result, nil
 		})
-		if err != nil {
-			return nil, err
+		if sfErr != nil {
+			return nil, sfErr
 		}
 		result, ok := val.([]uint64)
 		if !ok {
@@ -413,7 +413,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 	}
 
 	// 回退到数据库查询
-	val, err, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
+	val, sfErr, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
 		result, dbErr := queryFunc()
 		if dbErr != nil {
 			return nil, dbErr
@@ -432,8 +432,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 		}
 		return result, nil
 	})
-	if err != nil {
-		return nil, err
+	if sfErr != nil {
+		return nil, sfErr
 	}
 	result, ok := val.([]uint64)
 	if !ok {
@@ -1261,17 +1261,17 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 
 	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
-		val, err, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
+		val, sfErr, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
 			db := d.db.WithContext(ctx)
 			if optsConfig.forceMaster {
 				db = db.Clauses(dbresolver.Write)
 			}
 			return d.queryByColumnsWithDB(db, params, queryStr, args)
 		})
-		if err != nil {
-			return nil, 0, err
+		if sfErr != nil {
+			return nil, 0, sfErr
 		}
-		result, ok := val.(struct {
+		columnsResult, ok := val.(struct {
 			records []*model.{{.TableNameCamel}}
 			total   int64
 		})
@@ -1280,19 +1280,19 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 		}
 
 		// 大数据量警告
-		if len(result.records) > {{.TableNameCamel}}MaxCacheableRecords {
+		if len(columnsResult.records) > {{.TableNameCamel}}MaxCacheableRecords {
 			logger.WarnWithCtx(ctx, "GetByColumns: result set too large",
-				logger.Any("count", len(result.records)),
+				logger.Any("count", len(columnsResult.records)),
 				logger.String("cache_key", cacheKey))
 		}
-		return result.records, result.total, nil
+		return columnsResult.records, columnsResult.total, nil
 	}
 
 	// 使用缓存管理器优化查询（增加 singleflight 保护，避免并发穿透）
 	fullCacheKey := d.cacheManager.getColumnsCacheKey(cacheKey)
 
 	// 使用 singleflight 包裹整个查询过程，包括缓存读取和数据库查询
-	val, err, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
+	val, sfErr, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
 		// 先从缓存获取总数和 ID 列表
 		cachedTotal, cacheErr := d.cache.GetIdByKey(ctx, fullCacheKey+":total")
 		if cacheErr == nil {
@@ -1305,8 +1305,8 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 						db = db.Clauses(dbresolver.Write)
 					}
 					var records []*model.{{.TableNameCamel}}
-					err := db.Where("id IN (?)", missedIDs).Find(&records).Error
-					return records, err
+					dbErr := db.Where("id IN (?)", missedIDs).Find(&records).Error
+					return records, dbErr
 				})
 				if getErr == nil && len(recordsMap) > 0 {
 					// 按 ID 顺序返回结果
@@ -1391,11 +1391,11 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 		return result, nil
 	})
 	// 处理错误情况
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if sfErr != nil {
+		if errors.Is(sfErr, gorm.ErrRecordNotFound) {
 			return []*model.{{.TableNameCamel}}{}, 0, nil
 		}
-		return nil, 0, err
+		return nil, 0, sfErr
 	}
 
 	// 类型断言获取查询结果
@@ -1613,7 +1613,7 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 	}
 
 	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
-	val, err, _ := d.sfg.Do(countCacheKey, func() (interface{}, error) {
+	val, sfErr, _ := d.sfg.Do(countCacheKey, func() (interface{}, error) {
 		var count int64
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1631,8 +1631,8 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 		}
 		return count, nil
 	})
-	if err != nil {
-		return 0, err
+	if sfErr != nil {
+		return 0, sfErr
 	}
 	count, ok := val.(int64)
 	if !ok {
@@ -1676,7 +1676,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 	}
 
 	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
-	val, err, _ := d.sfg.Do(existsCacheKey, func() (interface{}, error) {
+	val, sfErr, _ := d.sfg.Do(existsCacheKey, func() (interface{}, error) {
 		var exists bool
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1699,8 +1699,8 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 		}
 		return exists, nil
 	})
-	if err != nil {
-		return false, err
+	if sfErr != nil {
+		return false, sfErr
 	}
 	exists, ok := val.(bool)
 	if !ok {

@@ -120,7 +120,7 @@ func main() {
 		fmt.Printf("sm4 dec error:%s\n", err.Error())
 		return
 	}
-	decodeString, err := base64.StdEncoding.DecodeString(string(ecbDec))
+	decodeString, _ := base64.StdEncoding.DecodeString(string(ecbDec))
 	fmt.Printf("%s\n", decodeString)
 	fmt.Println("------------------------------------------------------------------------------")
 

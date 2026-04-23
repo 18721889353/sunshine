@@ -382,10 +382,10 @@ func (c *Connection) GetReconnectCount(ctx context.Context) int64 {
 }
 
 // GetLastError 获取最后的错误信息
-func (c *Connection) GetLastError(ctx context.Context) (error, time.Time) {
+func (c *Connection) GetLastError(ctx context.Context) (time.Time, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	return c.lastError, c.lastErrorTime
+	return c.lastErrorTime, c.lastError
 }
 
 // GetConnectionStatus 获取连接状态信息

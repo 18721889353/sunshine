@@ -2,6 +2,7 @@
 package kafka
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -183,7 +184,7 @@ func (p *AsyncProducer) SendData(topic string, multiData ...interface{}) error {
 func (p *AsyncProducer) handleResponse(handleFn AsyncSendFailedHandlerFn) {
 	defer func() {
 		if e := recover(); e != nil {
-			logger.ErrorWithCtx(nil, "panic occurred while processing async message", logger.Any("error", e))
+			logger.ErrorWithCtx(context.TODO(), "panic occurred while processing async message", logger.Any("error", e))
 			p.handleResponse(handleFn)
 		}
 	}()
@@ -191,16 +192,16 @@ func (p *AsyncProducer) handleResponse(handleFn AsyncSendFailedHandlerFn) {
 	for {
 		select {
 		case pm := <-p.Producer.Successes():
-			logger.InfoWithCtx(nil, "async send successfully",
+			logger.InfoWithCtx(context.TODO(), "async send successfully",
 				logger.String("topic", pm.Topic),
 				logger.Int32("partition", pm.Partition),
 				logger.Int64("offset", pm.Offset))
 		case err := <-p.Producer.Errors():
-			logger.ErrorWithCtx(nil, "async send failed", logger.Err(err.Err), logger.Any("msg", err.Msg))
+			logger.ErrorWithCtx(context.TODO(), "async send failed", logger.Err(err.Err), logger.Any("msg", err.Msg))
 			if handleFn != nil {
 				e := handleFn(err.Msg)
 				if e != nil {
-					logger.ErrorWithCtx(nil, "handle failed msg failed", logger.Err(e))
+					logger.ErrorWithCtx(context.TODO(), "handle failed msg failed", logger.Err(e))
 				}
 			}
 		case <-p.exit:

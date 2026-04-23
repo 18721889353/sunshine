@@ -168,8 +168,6 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 
 	// 使用pipeline优化批量操作，减少网络往返
 	pipeline := c.client.Pipeline()
-	// 预估容量以减少重新分配
-	cmds := make([]redis.Cmder, 0, 2*len(valueMap))
 
 	for key, value := range valueMap {
 		buf, err := encoding.Marshal(c.encoding, value)
@@ -182,8 +180,8 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 			logger.WarnWithCtx(ctx, "BuildCacheKey error", logger.Err(err), logger.String("key", key))
 			continue
 		}
-		// 直接添加命令到pipeline，避免中间数组
-		cmds = append(cmds, pipeline.Set(ctx, cacheKey, buf, expireTime))
+		// 直接添加命令到pipeline
+		pipeline.Set(ctx, cacheKey, buf, expireTime)
 	}
 
 	// 执行所有命令

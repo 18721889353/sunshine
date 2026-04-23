@@ -10,7 +10,6 @@ import (
 
 	sls "github.com/aliyun/aliyun-log-go-sdk"
 	"github.com/aliyun/aliyun-log-go-sdk/producer"
-	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -534,8 +533,9 @@ func (h *SLSHook) verifyProducerState() error {
 	// 我们通过尝试发送一条测试日志来验证
 
 	// 创建一条测试日志
+	testLogTime := uint32(time.Now().Unix())
 	testLog := &sls.Log{
-		Time: proto.Uint32(uint32(time.Now().Unix())),
+		Time: &testLogTime,
 		Contents: []*sls.LogContent{
 			{
 				Key:   ptrString("__topic__"),

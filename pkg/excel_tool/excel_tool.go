@@ -66,19 +66,15 @@ func getColumnName(column, maxColumnRowNameLen int) []byte {
 		// 第一次就分配好切片的容量
 		slice := make([]byte, 0, maxColumnRowNameLen)
 		return append(slice, byte(A+column))
-	} else {
-		// 递归生成类似AA,AB,AAA,AAB这种形式的列名
-		return append(getColumnName(column/maxCharCount-1, maxColumnRowNameLen), byte(A+column%maxCharCount))
 	}
+	// 递归生成类似AA,AB,AAA,AAB这种形式的列名
+	return append(getColumnName(column/maxCharCount-1, maxColumnRowNameLen), byte(A+column%maxCharCount))
 }
 
 // getColumnRowName 生成名称框
 // Excel的名称框是用A1,A2,B1,B2来表示的，这里需要传入前一步生成的列名切片，然后直接加上行索引来生成名称框，就无需每次分配内存
 func getColumnRowName(columnName []byte, rowIndex int) (columnRowName string) {
-	l := len(columnName)
 	columnName = strconv.AppendInt(columnName, int64(rowIndex), 10)
 	columnRowName = string(columnName)
-	// 将列名恢复回去
-	columnName = columnName[:l]
 	return
 }

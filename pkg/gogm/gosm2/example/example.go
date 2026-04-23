@@ -123,6 +123,9 @@ func main() {
 	//}
 
 	toBytes, err := sm2Instance.Sign(privateKeyFromHex, plaintext).ToHex()
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(toBytes)
 	verify := sm2Instance.VerifyFromHex(publicKeyFromHex, plaintext, toBytes)
 	fmt.Println(verify)

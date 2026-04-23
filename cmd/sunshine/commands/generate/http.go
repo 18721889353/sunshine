@@ -266,9 +266,9 @@ func (g *httpGenerator) generateCode() (string, error) {
 		} else {
 			fields = commonHTTPFields(r)
 		}
-		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if err != nil {
-			return "", err
+		contentFields, replaceErr := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
+		if replaceErr != nil {
+			return "", replaceErr
 		}
 		g.fields = append(g.fields, contentFields...)
 		g.fields = append(g.fields, fields...)
@@ -303,8 +303,8 @@ func (g *httpGenerator) generateCode() (string, error) {
 	_ = r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName)
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
-	if err := r.SaveFiles(); err != nil {
-		return "", err
+	if saveErr := r.SaveFiles(); saveErr != nil {
+		return "", saveErr
 	}
 
 	// Add replace directive to go.mod for local development

@@ -755,9 +755,6 @@ type Duration struct {
 
 // Add adds d to d, returns a duration value.
 func (d Duration) Add(v Duration) (Duration, error) {
-	if &v == nil {
-		return d, nil
-	}
 	dsum, err := AddInt64(int64(d.Duration), int64(v.Duration))
 	if err != nil {
 		return Duration{}, errors.Trace(err)
@@ -770,9 +767,6 @@ func (d Duration) Add(v Duration) (Duration, error) {
 
 // Sub subtracts d to d, returns a duration value.
 func (d Duration) Sub(v Duration) (Duration, error) {
-	if &v == nil {
-		return d, nil
-	}
 	dsum, err := SubInt64(int64(d.Duration), int64(v.Duration))
 	if err != nil {
 		return Duration{}, errors.Trace(err)
@@ -2137,7 +2131,7 @@ func GetFormatType(format string) (isDuration, isDate bool) {
 	}
 
 	format = skipWhiteSpace(format)
-	for token, formatRemain, succ := getFormatToken(format); len(token) != 0; format = formatRemain {
+	for token, _, succ := getFormatToken(format); len(token) != 0; {
 		if !succ {
 			isDuration, isDate = false, false
 			break
@@ -2150,7 +2144,7 @@ func GetFormatType(format string) (isDuration, isDate bool) {
 		if isDuration && isDate {
 			break
 		}
-		token, formatRemain, succ = getFormatToken(format)
+		token, _, succ = getFormatToken(format)
 	}
 	return
 }

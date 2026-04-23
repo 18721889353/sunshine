@@ -70,8 +70,7 @@ func NewCacheNameExample(cacheType *database.CacheType) CacheNameExample {
 	cachePrefix := ""
 
 	cType := strings.ToLower(cacheType.CType)
-	switch cType {
-	case "redis":
+	if cType == "redis" {
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			var valueNameExample interface{}
 			return &valueNameExample

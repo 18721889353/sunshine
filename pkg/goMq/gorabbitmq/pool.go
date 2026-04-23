@@ -527,6 +527,7 @@ func (p *Pool) doCleanup(ctx context.Context) {
 func (p *Pool) Close(ctx context.Context) error {
 	var span trace.Span
 	if p.poolOpts.enableTrace {
+		//nolint:staticcheck // ctx is reassigned for tracing consistency, though not directly used afterward
 		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.close", trace.WithSpanKind(trace.SpanKindClient))
 		defer span.End()
 	}

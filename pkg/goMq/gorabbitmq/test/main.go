@@ -21,6 +21,11 @@ import (
 	"gorm.io/gorm"
 )
 
+// contextKey 定义 context key 类型，避免使用 string 类型
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
 // 阿里云 Tracing 配置
 const (
 	serviceName    = "rabbitmq-trace-test"
@@ -104,10 +109,10 @@ func main() {
 		semconv.HTTPRequestMethodKey.String("GET"),
 		semconv.URLPath("/api/test"),
 	))
-	rootSpan.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqID))
+	rootSpan.SetAttributes(attribute.String(string(requestIDKey), reqID))
 
 	// 将 request_id 注入 Context
-	rootCtx = context.WithValue(rootCtx, string(logger.ContextKeyForRequestID()), reqID)
+	rootCtx = context.WithValue(rootCtx, requestIDKey, reqID)
 
 	// 5. 在业务 Span 内执行 Redis 测试（验证 request_id 传递）
 	fmt.Println("\n📝 Testing Redis operations...")

@@ -69,8 +69,7 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	cachePrefix := ""
 
 	cType := strings.ToLower(cacheType.CType)
-	switch cType {
-	case "redis":
+	if cType == "redis" {
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.{{.TableNameCamel}}{}
 		})

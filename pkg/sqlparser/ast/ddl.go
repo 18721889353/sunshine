@@ -768,11 +768,10 @@ func (n *AlterTableSpec) Accept(v Visitor) (Node, bool) {
 		n.NewTable = node.(*TableName)
 	}
 	for _, col := range n.NewColumns {
-		node, ok := col.Accept(v)
+		_, ok := col.Accept(v)
 		if !ok {
 			return n, false
 		}
-		col = node.(*ColumnDef)
 	}
 	if n.OldColumnName != nil {
 		node, ok := n.OldColumnName.Accept(v)
