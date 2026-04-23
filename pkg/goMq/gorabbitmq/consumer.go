@@ -179,13 +179,13 @@ func (c *Consumer) initialize() error {
 	c.ch = channel
 	c.conn.mutex.Unlock()
 
-	if c.customerDeadLetter.exchangeName != "sunshine" && c.normalLetter.exchangeName != "sunshine" {
+	if c.customerDeadLetter.exchangeName != defaultExchangeName && c.normalLetter.exchangeName != defaultExchangeName {
 		return fmt.Errorf("cannot set both customerDeadLetter and normalLetter")
 	}
-	if c.customerDeadLetter.exchangeName != "sunshine" && c.deadLetter.exchangeName != "sunshine" {
+	if c.customerDeadLetter.exchangeName != defaultExchangeName && c.deadLetter.exchangeName != defaultExchangeName {
 		return fmt.Errorf("cannot set both customerDeadLetter and deadLetter")
 	}
-	if c.normalLetter.exchangeName != "sunshine" && c.deadLetter.exchangeName != "sunshine" {
+	if c.normalLetter.exchangeName != defaultExchangeName && c.deadLetter.exchangeName != defaultExchangeName {
 		return fmt.Errorf("cannot set both normalLetter and deadLetter")
 	}
 	// 添加 QoS 设置
@@ -201,7 +201,7 @@ func (c *Consumer) initialize() error {
 		}
 	}
 	//--------------------------------自定义死信队列队列----------------------------------------------------
-	if c.customerDeadLetter.exchangeName != "sunshine" {
+	if c.customerDeadLetter.exchangeName != defaultExchangeName {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			c.exchange.name,  //交换机名称
@@ -317,7 +317,7 @@ func (c *Consumer) initialize() error {
 		}
 	}
 	//--------------------------------死信队列队列----------------------------------------------------
-	if c.deadLetter.exchangeName != "sunshine" {
+	if c.deadLetter.exchangeName != defaultExchangeName {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			c.exchange.name,                         //交换机名称
@@ -400,7 +400,7 @@ func (c *Consumer) initialize() error {
 		}
 	}
 	//--------------------------------正常队列----------------------------------------------------
-	if c.normalLetter.exchangeName != "sunshine" {
+	if c.normalLetter.exchangeName != defaultExchangeName {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			c.exchange.name,                           //交换机名称

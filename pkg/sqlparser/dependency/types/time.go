@@ -1422,13 +1422,13 @@ func ExtractDatetimeNum(t *Time, unit string) (int64, error) {
 // ExtractDurationNum extracts duration value number from duration unit and format.
 func ExtractDurationNum(d *Duration, unit string) (int64, error) {
 	switch strings.ToUpper(unit) {
-	case "MICROSECOND":
+	case intervalMICROSECOND:
 		return int64(d.MicroSecond()), nil
-	case "SECOND":
+	case intervalSECOND:
 		return int64(d.Second()), nil
-	case "MINUTE":
+	case intervalMINUTE:
 		return int64(d.Minute()), nil
-	case "HOUR":
+	case intervalHOUR:
 		return int64(d.Hour()), nil
 	case "SECOND_MICROSECOND":
 		return int64(d.Second())*1000000 + int64(d.MicroSecond()), nil
@@ -1455,13 +1455,13 @@ func extractSingleTimeValue(unit string, format string) (int64, int64, int64, go
 
 	v := gotime.Duration(iv)
 	switch strings.ToUpper(unit) {
-	case "MICROSECOND":
+	case intervalMICROSECOND:
 		return 0, 0, 0, v * gotime.Microsecond, nil
-	case "SECOND":
+	case intervalSECOND:
 		return 0, 0, 0, v * gotime.Second, nil
-	case "MINUTE":
+	case intervalMINUTE:
 		return 0, 0, 0, v * gotime.Minute, nil
-	case "HOUR":
+	case intervalHOUR:
 		return 0, 0, 0, v * gotime.Hour, nil
 	case "DAY":
 		return 0, 0, iv, 0, nil

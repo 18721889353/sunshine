@@ -6,6 +6,9 @@ import amqp "github.com/rabbitmq/amqp091-go"
 var ErrClosed = amqp.ErrClosed
 
 const (
+	// defaultExchangeName 默认交换机名称(表示未配置自定义交换机)
+	defaultExchangeName = "sunshine"
+
 	exchangeTypeDirect         = "direct"            // exchangeTypeDirect 直连交换机类型
 	exchangeTypeTopic          = "topic"             // exchangeTypeTopic 主题交换机类型
 	exchangeTypeFanout         = "fanout"            // exchangeTypeFanout 广播交换机类型
@@ -318,7 +321,7 @@ func (o *NormalLetterOptions) apply(opts ...NormalLetterOption) {
 
 func defaultNormalLetterOptions() *NormalLetterOptions {
 	return &NormalLetterOptions{
-		exchangeName:       "sunshine",                      // 默认交换机名称
+		exchangeName:       defaultExchangeName,             // 默认交换机名称
 		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
 		normalQueueName:    "normalQueue",                   // 默认普通队列名称
 		normalRoutingKey:   "normalRouting",                 // 默认普通路由键
@@ -389,7 +392,7 @@ func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
 
 func defaultCustomerDeadLetterOptions() *CustomerDeadLetterOptions {
 	return &CustomerDeadLetterOptions{
-		exchangeName:       "sunshine",                      // 默认死信交换机名称
+		exchangeName:       defaultExchangeName,             // 默认死信交换机名称
 		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
 		deadRoutingKey:     "deadRouting",                   // 默认死信路由键
 		deadQueueName:      "deadQueue",                     // 默认死信队列名称
@@ -497,7 +500,7 @@ func (o *DeadLetterOptions) apply(opts ...DeadLetterOption) {
 
 func defaultDeadLetterOptions() *DeadLetterOptions {
 	return &DeadLetterOptions{
-		exchangeName:       "sunshine",                      // 默认死信交换机名称
+		exchangeName:       defaultExchangeName,             // 默认死信交换机名称
 		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
 		deadRoutingKey:     "deadRouting",                   // 默认死信路由键
 		deadQueueName:      "deadQueue",                     // 默认死信队列名称

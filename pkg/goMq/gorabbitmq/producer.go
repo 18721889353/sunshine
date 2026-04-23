@@ -127,17 +127,17 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	if err != nil {
 		return nil, err
 	}
-	if o.customerDeadLetter.exchangeName != "sunshine" && o.normalLetter.exchangeName != "sunshine" {
+	if o.customerDeadLetter.exchangeName != defaultExchangeName && o.normalLetter.exchangeName != defaultExchangeName {
 		return nil, fmt.Errorf("cannot set both customerDeadLetter and normalLetter")
 	}
-	if o.customerDeadLetter.exchangeName != "sunshine" && o.deadLetter.exchangeName != "sunshine" {
+	if o.customerDeadLetter.exchangeName != defaultExchangeName && o.deadLetter.exchangeName != defaultExchangeName {
 		return nil, fmt.Errorf("cannot set both customerDeadLetter and deadLetter")
 	}
-	if o.normalLetter.exchangeName != "sunshine" && o.deadLetter.exchangeName != "sunshine" {
+	if o.normalLetter.exchangeName != defaultExchangeName && o.deadLetter.exchangeName != defaultExchangeName {
 		return nil, fmt.Errorf("cannot set both normalLetter and deadLetter")
 	}
 	//--------------------------------自定义死信队列队列----------------------------------------------------
-	if o.customerDeadLetter.exchangeName != "sunshine" {
+	if o.customerDeadLetter.exchangeName != defaultExchangeName {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,  //交换机名称
@@ -252,7 +252,7 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 		}
 	}
 	//--------------------------------死信队列队列----------------------------------------------------
-	if o.deadLetter.exchangeName != "sunshine" {
+	if o.deadLetter.exchangeName != defaultExchangeName {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,                           //交换机名称
@@ -335,7 +335,7 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 		}
 	}
 	//--------------------------------正常队列----------------------------------------------------
-	if o.normalLetter.exchangeName != "sunshine" {
+	if o.normalLetter.exchangeName != defaultExchangeName {
 		// 声明交换机
 		err = channel.ExchangeDeclare(
 			exchange.name,                             //交换机名称
