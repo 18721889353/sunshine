@@ -1,7 +1,9 @@
+// Package main 演示 SM4 加密/解密示例。
 package main
 
 import (
 	"fmt"
+
 	"github.com/18721889353/sunshine/pkg/gogm/gosm4"
 )
 

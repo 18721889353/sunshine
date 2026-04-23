@@ -33,7 +33,7 @@ func CopyGOModCommand() *cobra.Command {
   sunshine patch copy-go-mod --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if moduleName == "" {
 				mn, _, _ := getNamesFromOutDir(outPath)
 				if mn == "" {

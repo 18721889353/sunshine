@@ -1,3 +1,4 @@
+// Package gorabbitmq 提供 RabbitMQ 消息队列的高性能客户端实现。
 package gorabbitmq
 
 import amqp "github.com/rabbitmq/amqp091-go"
@@ -459,7 +460,15 @@ func WithCustomerDeadLetterNormalQueueBindOptions(opts ...QueueBindOption) Custo
 }
 
 // WithCustomerDeadLetter set dead letter exchange, queue, routing key.
-func WithCustomerDeadLetter(exchangeName string, deadQueueName string, deadRoutingKey string, errQueueName string, errRoutingKey string, normalQueueName string, normalRoutingKey string) CustomerDeadLetterOption {
+func WithCustomerDeadLetter(
+	exchangeName string,
+	deadQueueName string,
+	deadRoutingKey string,
+	errQueueName string,
+	errRoutingKey string,
+	normalQueueName string,
+	normalRoutingKey string,
+) CustomerDeadLetterOption {
 	return func(o *CustomerDeadLetterOptions) {
 		o.exchangeName = exchangeName
 

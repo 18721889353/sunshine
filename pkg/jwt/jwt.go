@@ -77,7 +77,7 @@ func ParseToken(tokenString string) (*Claims, error) {
 		return nil, errInit
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(_ *jwt.Token) (interface{}, error) {
 		return opt.signingKey, nil
 	})
 	if err != nil {
@@ -208,7 +208,7 @@ func ParseCustomToken(tokenString string) (*CustomClaims, error) {
 		return nil, errInit
 	}
 
-	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &CustomClaims{}, func(_ *jwt.Token) (interface{}, error) {
 		return opt.signingKey, nil
 	})
 	if err != nil {

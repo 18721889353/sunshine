@@ -20,7 +20,7 @@ func GinHandlerCode() *cobra.Command {
   sunshine merge http-pb --dir=/path/to/server/directory`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			dir = adaptDir(dir)
 			mergeHTTPECode(dir)
 			mergeGinRouters(dir)

@@ -20,7 +20,7 @@ func GinServiceCode() *cobra.Command {
   sunshine merge rpc-gw-pb --dir=/path/to/server/directory`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			dir = adaptDir(dir)
 			mergeGRPCECode(dir)
 			mergeGinRouters(dir)

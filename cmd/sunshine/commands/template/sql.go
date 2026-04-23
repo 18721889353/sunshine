@@ -58,7 +58,7 @@ func SQLCommand() *cobra.Command {
   sunshine template sql --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --tpl-dir=yourTemplateDir --out=./yourDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if files, err := gofile.ListFiles(tplDir); err != nil {
 				return err
 			} else if len(files) == 0 {

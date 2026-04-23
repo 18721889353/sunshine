@@ -61,19 +61,19 @@ func defaultPoolOptions() *poolOptions {
 }
 
 // WithInitialCap 设置初始连接数
-func WithInitialCap(cap int) PoolOption {
+func WithInitialCap(initialCap int) PoolOption {
 	return func(o *poolOptions) {
-		if cap > 0 {
-			o.initialCap = cap
+		if initialCap > 0 {
+			o.initialCap = initialCap
 		}
 	}
 }
 
 // WithMaxCap 设置最大连接数
-func WithMaxCap(cap int) PoolOption {
+func WithMaxCap(maxCap int) PoolOption {
 	return func(o *poolOptions) {
-		if cap > 0 {
-			o.maxCap = cap
+		if maxCap > 0 {
+			o.maxCap = maxCap
 		}
 	}
 }
@@ -95,10 +95,10 @@ func WithConnOptions(connOpts ...ConnectionOption) PoolOption {
 }
 
 // WithAntsPoolSize 设置ants协程池大小
-func WithAntsPoolSize(cap int) PoolOption {
+func WithAntsPoolSize(antsCap int) PoolOption {
 	return func(o *poolOptions) {
-		if cap >= 0 {
-			o.antsCap = cap
+		if antsCap >= 0 {
+			o.antsCap = antsCap
 		}
 	}
 }
@@ -487,7 +487,7 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 }
 
 // doCleanup 实际执行清理工作的函数
-func (p *Pool) doCleanup(ctx context.Context) {
+func (p *Pool) doCleanup(_ context.Context) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 

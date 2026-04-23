@@ -43,14 +43,14 @@ func cpuproc() {
 	for range ticker.C {
 		stat := &cpu.Stat{}
 		cpu.ReadStat(stat)
-		stat.Usage = min(stat.Usage, 1000)
+		stat.Usage = minVal(stat.Usage, 1000)
 		prevCPU := atomic.LoadInt64(&gCPU)
 		curCPU := int64(float64(prevCPU)*decay + float64(stat.Usage)*(1.0-decay))
 		atomic.StoreInt64(&gCPU, curCPU)
 	}
 }
 
-func min(l, r uint64) uint64 {
+func minVal(l, r uint64) uint64 {
 	if l < r {
 		return l
 	}

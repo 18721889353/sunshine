@@ -13,12 +13,12 @@ type Group struct {
 }
 
 // NewGroup news a group container.
-func NewGroup(new func() interface{}) *Group {
-	if new == nil {
+func NewGroup(newFn func() interface{}) *Group {
+	if newFn == nil {
 		panic("container.group: can't assign a nil to the new function")
 	}
 	return &Group{
-		new:  new,
+		new:  newFn,
 		vals: make(map[string]interface{}),
 	}
 }
@@ -46,12 +46,12 @@ func (g *Group) Get(key string) interface{} {
 }
 
 // Reset resets the new function and deletes all existing objects.
-func (g *Group) Reset(new func() interface{}) {
-	if new == nil {
+func (g *Group) Reset(newFn func() interface{}) {
+	if newFn == nil {
 		panic("container.group: can't assign a nil to the new function")
 	}
 	g.Lock()
-	g.new = new
+	g.new = newFn
 	g.Unlock()
 	g.Clear()
 }

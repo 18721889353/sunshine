@@ -1,3 +1,4 @@
+// Package jsonutil 提供 JSON 处理工具函数。
 package jsonutil
 
 import (
@@ -14,7 +15,7 @@ import (
 type Config struct {
 	EscapeHTML             bool
 	SortMapKeys            bool
-	ValidateJsonRawMessage bool
+	ValidateJsonRawMessage bool // nolint: revive // 保持与 jsoniter.Config 字段名一致
 }
 
 // 默认配置

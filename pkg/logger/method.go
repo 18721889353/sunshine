@@ -24,11 +24,7 @@ func WithCallerFunc(ctx context.Context, callerFunc string) context.Context {
 // Sync flushing any buffered log entries, applications should take care to call Sync before exiting.
 func Sync() error {
 	// 如果默认 logger 是输出到终端 (stdout)，则跳过 Sync，避免在关闭时产生文件 I/O
-	if defaultLogger != nil {
-		// zap 的 stdout 路径通常包含 "stdout" 或 "/dev/stdout"
-		// 我们通过检查是否开启了 isSave 来判断，但这里无法直接获取 options
-		// 简单的做法是：如果 Sync 报错且与 stdout 有关，则忽略
-	}
+	// defaultLogger != nil check is intentional
 
 	_ = getSugaredLogger().Sync()
 	err := getDefaultLogger().Sync()
@@ -141,16 +137,6 @@ func IsInfoEnabled() bool {
 	return getDefaultLogger().Core().Enabled(zapcore.InfoLevel)
 }
 
-// ModuleLogWithCtx 按模块记录日志(带Context) - 自动提取 request_id/trace_id
-// 用法: logger.ModuleErrorWithCtx(ctx, "order", "订单创建失败", logger.Err(err))
-func ModuleLogWithCtx(ctx context.Context, module string, levelFunc func(string, ...Field), msg string, fields ...Field) {
-	// 从 context 中提取链路字段
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	levelFunc(msg, allFields...)
-}
-
 // ModuleErrorWithCtx 按模块记录错误日志(带Context)
 func ModuleErrorWithCtx(ctx context.Context, module string, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
@@ -196,7 +182,7 @@ func ExecuteCustomHooksWithCtx(ctx context.Context, level zapcore.Level, msg str
 		}
 		caller = zapcore.EntryCaller{
 			Defined: true,
-			PC:      uintptr(pc),
+			PC:      pc,
 			File:    file,
 			Line:    line,
 		}

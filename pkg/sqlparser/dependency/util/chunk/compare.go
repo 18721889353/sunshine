@@ -223,5 +223,5 @@ func (c *Chunk) LowerBound(colIdx int, ad *types.Datum) (index int, match bool) 
 		}
 		return cmp >= 0
 	})
-	return
+	return index, match
 }

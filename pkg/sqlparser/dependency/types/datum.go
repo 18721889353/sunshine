@@ -180,7 +180,7 @@ func (d *Datum) SetString(s string) {
 }
 
 // sink prevents s from being allocated on the stack.
-var sink = func(s string) {
+var sink = func(_ string) {
 }
 
 // GetBytes gets bytes value.
@@ -629,7 +629,7 @@ func (d *Datum) compareMysqlSet(sc *stmtctx.StatementContext, set Set) (int, err
 	}
 }
 
-func (d *Datum) compareMysqlJSON(sc *stmtctx.StatementContext, target json.BinaryJSON) (int, error) {
+func (d *Datum) compareMysqlJSON(_ *stmtctx.StatementContext, target json.BinaryJSON) (int, error) {
 	origin, err := d.ToMysqlJSON()
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -985,7 +985,7 @@ func (d *Datum) convertToMysqlTime(sc *stmtctx.StatementContext, target *FieldTy
 	return ret, nil
 }
 
-func (d *Datum) convertToMysqlDuration(sc *stmtctx.StatementContext, target *FieldType) (Datum, error) {
+func (d *Datum) convertToMysqlDuration(_ *stmtctx.StatementContext, target *FieldType) (Datum, error) {
 	tp := target.Tp
 	fsp := DefaultFsp
 	if target.Decimal != UnspecifiedLength {
@@ -1205,7 +1205,7 @@ func (d *Datum) convertToMysqlSet(sc *stmtctx.StatementContext, target *FieldTyp
 	return ret, nil
 }
 
-func (d *Datum) convertToMysqlJSON(sc *stmtctx.StatementContext, target *FieldType) (ret Datum, err error) {
+func (d *Datum) convertToMysqlJSON(_ *stmtctx.StatementContext, _ *FieldType) (ret Datum, err error) {
 	switch d.k {
 	case KindString, KindBytes:
 		var j json.BinaryJSON

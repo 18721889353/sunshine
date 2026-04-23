@@ -2,9 +2,8 @@ package interceptor
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/pkg/logger"
-	"sync"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -12,13 +11,9 @@ import (
 	"github.com/18721889353/sunshine/pkg/krand"
 )
 
-var (
-	once sync.Once
-)
-
 // SetContextRequestIDKey 设置上下文 request_id 的键（已废弃）
 // Deprecated: 此函数仅为向后兼容而保留，请直接使用 logger.ContextKeyRequestID
-func SetContextRequestIDKey(key string) {
+func SetContextRequestIDKey(_ string) {
 	// 此函数已废弃，不再执行任何操作
 	// 所有代码应直接使用 logger.ContextKeyRequestID
 }
@@ -180,7 +175,7 @@ func ServerCtxRequestIDField(ctx context.Context) logger.Field {
 // 返回:
 //   - grpc.UnaryServerInterceptor: 一元服务端拦截器
 func UnaryServerRequestID() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		requestID := ServerCtxRequestID(ctx)
 		if requestID == "" {
 			// 如果 request_id 不存在，生成一个 32 位随机数字符串
@@ -204,7 +199,7 @@ func UnaryServerRequestID() grpc.UnaryServerInterceptor {
 //   - grpc.StreamServerInterceptor: 流式服务端拦截器
 func StreamServerRequestID() grpc.StreamServerInterceptor {
 	// todo
-	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		//ctx := stream.Context()
 		//requestID := ServerCtxRequestID(ctx)
 		//if requestID == "" {

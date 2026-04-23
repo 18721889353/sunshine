@@ -24,7 +24,7 @@ func (o *alarmOptions) apply(opts ...AlarmOption) {
 
 // WithCPUThreshold set cpu threshold, range 0 to 1
 func WithCPUThreshold(threshold float64) AlarmOption {
-	return func(o *alarmOptions) {
+	return func(_ *alarmOptions) {
 		if threshold < 0 || threshold >= 1.0 {
 			return
 		}
@@ -34,7 +34,7 @@ func WithCPUThreshold(threshold float64) AlarmOption {
 
 // WithMemoryThreshold set memory threshold, range 0 to 1
 func WithMemoryThreshold(threshold float64) AlarmOption {
-	return func(o *alarmOptions) {
+	return func(_ *alarmOptions) {
 		if threshold < 0 || threshold >= 1.0 {
 			return
 		}

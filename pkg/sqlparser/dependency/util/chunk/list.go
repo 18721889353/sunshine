@@ -104,7 +104,6 @@ func (l *List) Add(chk *Chunk) {
 	l.consumedIdx++
 	l.chunks = append(l.chunks, chk)
 	l.length += chk.NumRows()
-	return
 }
 
 func (l *List) allocChunk() (chk *Chunk) {
@@ -114,7 +113,7 @@ func (l *List) allocChunk() (chk *Chunk) {
 		l.freelist = l.freelist[:lastIdx]
 		l.memTracker.Consume(-chk.MemoryUsage())
 		chk.Reset()
-		return
+		return chk
 	}
 	return NewChunk(l.fieldTypes)
 }

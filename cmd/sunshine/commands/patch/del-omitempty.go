@@ -29,7 +29,7 @@ func DeleteJSONOmitemptyCommand() *cobra.Command {
   sunshine patch del-omitempty --dir=./api --suffix-name=pb.go`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			err := replaceFiles(dir, suffixName)
 			if err != nil {
 				return err

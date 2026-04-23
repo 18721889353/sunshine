@@ -95,7 +95,7 @@ func RateLimit(opts ...RateLimitOption) gin.HandlerFunc {
 // Timeout request time out
 func Timeout(d time.Duration) gin.HandlerFunc {
 	if d < time.Millisecond {
-		return func(c *gin.Context) {}
+		return func(_ *gin.Context) {}
 	}
 	return func(c *gin.Context) {
 		ctx, _ := context.WithTimeout(c.Request.Context(), d) //nolint

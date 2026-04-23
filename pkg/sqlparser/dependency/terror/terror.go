@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package terror 提供 SQL 解析的错误处理工具。
 package terror
 
 import (
@@ -323,7 +324,8 @@ func ErrorNotEqual(err1, err2 error) bool {
 // MustNil fatals if err is not nil.
 func MustNil(err error) {
 	if err != nil {
-		//log.Fatalf(errors.ErrorStack(err))
+		// log.Fatalf(errors.ErrorStack(err))
+		panic(err)
 	}
 }
 
@@ -331,13 +333,15 @@ func MustNil(err error) {
 func Call(fn func() error) {
 	err := fn()
 	if err != nil {
-		//log.Error(errors.ErrorStack(err))
+		// log.Error(errors.ErrorStack(err))
+		_ = err // 忽略错误，仅用于执行函数
 	}
 }
 
 // Log logs the error if it is not nil.
 func Log(err error) {
 	if err != nil {
-		//log.Error(errors.ErrorStack(err))
+		// log.Error(errors.ErrorStack(err))
+		_ = err // 忽略错误，仅用于记录
 	}
 }

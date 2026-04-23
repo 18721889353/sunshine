@@ -32,7 +32,7 @@ func GenTypesPbCommand() *cobra.Command {
   sunshine patch gen-types-pb --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			mdName, _, _ := getNamesFromOutDir(outPath)
 			if mdName != "" {
 				moduleName = mdName

@@ -1,3 +1,4 @@
+// Package gptclient 提供与 OpenAI ChatGPT API 交互的客户端。
 package gptclient
 
 import (

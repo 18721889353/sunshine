@@ -47,8 +47,7 @@ type SLSHook struct {
 	producer *producer.Producer
 
 	// 状态管理（原子操作，线程安全）
-	state       int32 // 0:created, 1:starting, 2:running, 3:stopping, 4:stopped, 5:failed
-	startedOnce sync.Once
+	state int32 // 0:created, 1:starting, 2:running, 3:stopping, 4:stopped, 5:failed
 
 	// 监控指标
 	sendSuccessCount int64        // 发送成功计数
@@ -58,9 +57,8 @@ type SLSHook struct {
 	errorMu          sync.RWMutex // 保护错误信息
 
 	// 健康检查
-	healthCheckTicker *time.Ticker
-	healthCheckStop   chan struct{}
-	healthCheckWg     sync.WaitGroup
+	healthCheckStop chan struct{}
+	healthCheckWg   sync.WaitGroup
 }
 
 // NewSLSHook 创建阿里云 SLS 日志钩子
@@ -186,7 +184,7 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 }
 
 // Hook 实现 CustomHookWithCtx 接口
-func (h *SLSHook) Hook(ctx context.Context, entry zapcore.Entry, fields []Field) error {
+func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) error {
 	// 预分配 Contents 容量（基础字段 + 自定义字段）
 	contents := make([]*sls.LogContent, 0, len(fields)+10)
 
@@ -402,8 +400,8 @@ func (h *SLSHook) setState(state int32) {
 }
 
 // compareAndSwapState CAS 操作，防止竞态条件
-func (h *SLSHook) compareAndSwapState(old, new int32) bool {
-	return atomic.CompareAndSwapInt32(&h.state, old, new)
+func (h *SLSHook) compareAndSwapState(oldState, newState int32) bool {
+	return atomic.CompareAndSwapInt32(&h.state, oldState, newState)
 }
 
 // ==================== 配置验证 ====================

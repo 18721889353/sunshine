@@ -40,7 +40,7 @@ func FieldCommand() *cobra.Command {
   sunshine template field --tpl-dir=yourTemplateDir --fields=yourDefineFields.json --out=./yourDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if files, err := gofile.ListFiles(tplDir); err != nil {
 				return err
 			} else if len(files) == 0 {

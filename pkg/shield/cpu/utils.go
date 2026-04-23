@@ -1,3 +1,4 @@
+// Package cpu 提供 CPU 相关的工具函数。
 package cpu
 
 import (
@@ -64,18 +65,18 @@ func ParseUintList(val string) (map[int]bool, error) {
 			availableInts[v] = true
 		} else {
 			split := strings.SplitN(r, "-", 2)
-			min, err := strconv.Atoi(split[0])
+			minVal, err := strconv.Atoi(split[0])
 			if err != nil {
 				return nil, errInvalidFormat
 			}
-			max, err := strconv.Atoi(split[1])
+			maxVal, err := strconv.Atoi(split[1])
 			if err != nil {
 				return nil, errInvalidFormat
 			}
-			if max < min {
+			if maxVal < minVal {
 				return nil, errInvalidFormat
 			}
-			for i := min; i <= max; i++ {
+			for i := minVal; i <= maxVal; i++ {
 				availableInts[i] = true
 			}
 		}

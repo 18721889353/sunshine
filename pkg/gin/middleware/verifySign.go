@@ -19,13 +19,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var defaultIgnoreUrl = map[string]struct{}{}
+var defaultIgnoreURL = map[string]struct{}{}
 
 type SignOption func(*signOptions)
 
 func defaultSignOptions() *signOptions {
 	return &signOptions{
-		ignoreUrls:      defaultIgnoreUrl,
+		ignoreUrls:      defaultIgnoreURL,
 		signKey:         "",
 		signExpiredTime: time.Second * 5,
 	}
@@ -42,7 +42,7 @@ func (o *signOptions) apply(opts ...SignOption) {
 		opt(o)
 	}
 }
-func WithIgnoreUrl(urls ...string) SignOption {
+func WithIgnoreURL(urls ...string) SignOption {
 	return func(o *signOptions) {
 		for _, url := range urls {
 			o.ignoreUrls[url] = struct{}{}
@@ -116,11 +116,11 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 
 	sign := ""      //表示签名加密串，用来验证数据的完整性，防止数据篡改
 	timestamp := "" //表示时间戳，用来验证接口的时效性。
-	if value, ok := mapData["sign"].(string); ok {
-		sign = value
-	} else {
+	value, ok := mapData["sign"].(string)
+	if !ok {
 		return errors.New("sign not empty")
 	}
+	sign = value
 	// 验证签名
 	if sign == "debug" {
 		return nil
@@ -173,7 +173,7 @@ func createEncryptStr(params map[string]interface{}) string {
 	sortIn = func(obj map[string]interface{}) {
 		keys := make([]string, 0, len(obj))
 		for k, v := range obj {
-			if v != false && v != "" && v != nil {
+			if v != "" && v != nil {
 				keys = append(keys, k)
 			}
 		}

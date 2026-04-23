@@ -32,7 +32,7 @@ func GenGraphCommand() *cobra.Command {
   sunshine graph --project-dir=/path/to/project --all`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			if projectDir == "" && len(serverDir) == 0 {
 				return errors.New("no project directory or server directory specified\n\n" + cmd.Example)
 			}

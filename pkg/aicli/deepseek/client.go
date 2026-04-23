@@ -1,3 +1,4 @@
+// Package deepseek 提供与 DeepSeek API 交互的客户端。
 package deepseek
 
 import (

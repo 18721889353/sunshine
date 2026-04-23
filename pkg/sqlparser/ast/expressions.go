@@ -336,7 +336,7 @@ type SubqueryExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *SubqueryExpr) Format(w io.Writer) {
+func (n *SubqueryExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -375,7 +375,7 @@ type CompareSubqueryExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *CompareSubqueryExpr) Format(w io.Writer) {
+func (n *CompareSubqueryExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -484,7 +484,7 @@ type DefaultExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *DefaultExpr) Format(w io.Writer) {
+func (n *DefaultExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -514,7 +514,7 @@ type ExistsSubqueryExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *ExistsSubqueryExpr) Format(w io.Writer) {
+func (n *ExistsSubqueryExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -723,7 +723,7 @@ type ParamMarkerExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *ParamMarkerExpr) Format(w io.Writer) {
+func (n *ParamMarkerExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -780,7 +780,7 @@ type PositionExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *PositionExpr) Format(w io.Writer) {
+func (n *PositionExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -850,7 +850,7 @@ type RowExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *RowExpr) Format(w io.Writer) {
+func (n *RowExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -909,7 +909,7 @@ type ValuesExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *ValuesExpr) Format(w io.Writer) {
+func (n *ValuesExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 
@@ -942,7 +942,7 @@ type VariableExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *VariableExpr) Format(w io.Writer) {
+func (n *VariableExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 

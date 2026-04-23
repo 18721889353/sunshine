@@ -71,7 +71,11 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 	}
 	// register read-write separation plugin
 	if len(o.slavesDsn) > 0 {
-		err = db.Use(rwSeparationPlugin(o))
+		plugin, err := rwSeparationPlugin(o)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize read-write separation: %w", err)
+		}
+		err = db.Use(plugin)
 		if err != nil {
 			return nil, err
 		}
@@ -158,16 +162,16 @@ func getDb(dsn string, o *options) (*gorm.DB, error) {
 	return db, nil
 }
 
-func rwSeparationPlugin(o *options) gorm.Plugin {
+func rwSeparationPlugin(o *options) (gorm.Plugin, error) {
 	slaves := []gorm.Dialector{}
 	for _, dsn := range o.slavesDsn {
 		db, err := getDb(dsn, o)
 		if err != nil {
-			log.Fatalf("Failed to initialize slave database with DSN %s: %v", dsn, err)
+			return nil, fmt.Errorf("failed to initialize slave database with DSN %s: %w", dsn, err)
 		}
 		conn, err := db.DB()
 		if err != nil {
-			log.Fatalf("Failed to get underlying sql.DB for slave with DSN %s: %v", dsn, err)
+			return nil, fmt.Errorf("failed to get underlying sql.DB for slave with DSN %s: %w", dsn, err)
 		}
 		slaves = append(slaves, mysqlDriver.New(mysqlDriver.Config{
 			Conn: conn,
@@ -178,11 +182,11 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 	for _, dsn := range o.mastersDsn {
 		db, err := getDb(dsn, o)
 		if err != nil {
-			log.Fatalf("Failed to initialize master database with DSN %s: %v", dsn, err)
+			return nil, fmt.Errorf("failed to initialize master database with DSN %s: %w", dsn, err)
 		}
 		conn, err := db.DB()
 		if err != nil {
-			log.Fatalf("Failed to get underlying sql.DB for master with DSN %s: %v", dsn, err)
+			return nil, fmt.Errorf("failed to get underlying sql.DB for master with DSN %s: %w", dsn, err)
 		}
 		masters = append(masters, mysqlDriver.New(mysqlDriver.Config{
 			Conn: conn,
@@ -193,7 +197,7 @@ func rwSeparationPlugin(o *options) gorm.Plugin {
 		Sources:  masters,
 		Replicas: slaves,
 		Policy:   dbresolver.RandomPolicy{},
-	})
+	}), nil
 }
 
 // registerEnhancedTraceCallback 注册增强的 Trace Callback，优化 Span 名称和属性

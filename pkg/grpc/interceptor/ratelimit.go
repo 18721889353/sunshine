@@ -79,7 +79,7 @@ func UnaryServerRateLimit(opts ...RatelimitOption) grpc.UnaryServerInterceptor {
 		rl.WithCPUQuota(o.cpuQuota),
 	)
 
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 		done, err := limiter.Allow()
 		if err != nil {
 			return nil, errcode.StatusLimitExceed.ToRPCErr(err.Error())
@@ -102,7 +102,7 @@ func StreamServerRateLimit(opts ...RatelimitOption) grpc.StreamServerInterceptor
 		rl.WithCPUQuota(o.cpuQuota),
 	)
 
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv interface{}, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		done, err := limiter.Allow()
 		if err != nil {
 			return errcode.StatusLimitExceed.ToRPCErr(err.Error())

@@ -1,3 +1,4 @@
+// Package core 提供 TK SDK 的核心功能。
 package core
 
 import (

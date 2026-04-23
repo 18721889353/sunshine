@@ -107,7 +107,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	consumer.Consume(ctx, func(ctx context.Context, data []byte, messageId string, tagID string) error {
+	consumer.Consume(ctx, func(_ context.Context, data []byte, messageId string, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(messageId)
 		fmt.Println(tagID)
@@ -117,7 +117,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	consumer1.Consume(ctx, func(ctx context.Context, data []byte, messageId string, tagID string) error {
+	consumer1.Consume(ctx, func(_ context.Context, data []byte, messageId string, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(messageId)
 		fmt.Println(tagID)

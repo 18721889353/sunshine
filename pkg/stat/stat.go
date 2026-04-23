@@ -33,7 +33,7 @@ func (o *options) apply(opts ...Option) {
 
 // WithPrintInterval set print interval
 func WithPrintInterval(d time.Duration) Option {
-	return func(o *options) {
+	return func(_ *options) {
 		if d < time.Second {
 			return
 		}
@@ -42,8 +42,8 @@ func WithPrintInterval(d time.Duration) Option {
 }
 
 // WithPrintField set print field (保留以兼容，但不再使用)
-func WithPrintField(fields ...interface{}) Option {
-	return func(o *options) {
+func WithPrintField(_ ...interface{}) Option {
+	return func(_ *options) {
 		// 已废弃，保留仅为了兼容性
 	}
 }

@@ -59,7 +59,7 @@ func ProtobufCommand() *cobra.Command {
   sunshine template protobuf --protobuf-file=./test.proto --tpl-dir=yourTemplateDir --out=./yourDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if files, err := gofile.ListFiles(tplDir); err != nil {
 				return err
 			} else if len(files) == 0 {

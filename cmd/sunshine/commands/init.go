@@ -25,7 +25,7 @@ func InitCommand() *cobra.Command {
 		// 设置为静默使用信息输出
 		SilenceUsage: true,
 		// 定义命令执行时的操作
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			// 设置目标版本为最新版本
 			targetVersion := latestVersion
 			// 下载 sunshine 模板代码

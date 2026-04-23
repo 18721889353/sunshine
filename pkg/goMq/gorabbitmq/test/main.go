@@ -181,7 +181,7 @@ func main() {
 	msgReceived := make(chan string, 1)
 	go func() {
 		fmt.Println("🚀 Consumer started...")
-		consumer.Consume(rootCtx, func(ctx context.Context, data []byte, msgID, tagID string) error {
+		consumer.Consume(rootCtx, func(_ context.Context, data []byte, msgID, tagID string) error {
 			fmt.Printf("✅ Received message: %s, ID: %s\n", string(data), msgID)
 			// 通知主 goroutine 消息已被消费
 			select {
@@ -258,7 +258,7 @@ func testRedisOps(ctx context.Context, redisCli *goredis.Client, reqID string) {
 }
 
 // testMySQLOps 测试 MySQL 操作（验证 request_id 传递）
-func testMySQLOps(ctx context.Context, db *gorm.DB, reqID string) {
+func testMySQLOps(_ context.Context, db *gorm.DB, reqID string) {
 	// 执行一个简单的 SELECT 查询
 	selectSQL := "SELECT @@version as version, DATABASE() as current_db"
 

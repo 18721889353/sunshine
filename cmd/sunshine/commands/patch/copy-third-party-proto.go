@@ -29,7 +29,7 @@ func CopyThirdPartyProtoCommand() *cobra.Command {
   sunshine patch copy-third-party-proto --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			out := outPath + gofile.GetPathDelimiter() + "third_party"
 			if gofile.IsExists(out) {
 				if isLogExist {

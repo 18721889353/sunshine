@@ -84,7 +84,7 @@ func WithIgnoreRoutes(routes ...string) Option {
 // WithRequestIDFromContext name is field in context, default value is request_id
 // Deprecated: request_id is now automatically extracted from context, this option is no longer needed
 func WithRequestIDFromContext() Option {
-	return func(o *options) {
+	return func(_ *options) {
 		// 保留空实现以维持向后兼容
 	}
 }
@@ -92,7 +92,7 @@ func WithRequestIDFromContext() Option {
 // WithRequestIDFromHeader name is field in header, default value is X-Request-Id
 // Deprecated: request_id is now automatically extracted from context, this option is no longer needed
 func WithRequestIDFromHeader() Option {
-	return func(o *options) {
+	return func(_ *options) {
 		// 保留空实现以维持向后兼容
 	}
 }

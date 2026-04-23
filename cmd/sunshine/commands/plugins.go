@@ -76,7 +76,7 @@ func PluginsCommand() *cobra.Command {
   sunshine plugins --install --skip=go-callvis`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			// 检查已安装和缺失的插件
 			installedNames, lackNames := checkInstallPlugins()
 			// 根据 skipPluginName 过滤缺失的插件
@@ -163,7 +163,8 @@ func installPlugins(lackNames []string) {
 		wg.Add(1)
 		go func(name string) {
 			defer wg.Done()
-			ctx, _ := context.WithTimeout(context.Background(), time.Minute*3) //nolint
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3) //nolint
+			defer cancel()
 			pkgAddr, ok := installPluginCommands[name]
 			if !ok {
 				return

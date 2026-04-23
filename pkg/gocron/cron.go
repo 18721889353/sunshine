@@ -109,7 +109,7 @@ func IsRunningTask(name string) bool {
 // GetRunningTasks gets a list of running task names
 func GetRunningTasks() []string {
 	var names []string
-	nameID.Range(func(key, value interface{}) bool {
+	nameID.Range(func(key, _ interface{}) bool {
 		names = append(names, key.(string))
 		return true
 	})

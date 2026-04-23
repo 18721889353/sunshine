@@ -165,7 +165,7 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		if status >= 500 {
 			errorMsg := fmt.Sprintf("HTTP %d - %s %s", status, c.Request.Method, route)
 			span.SetStatus(codes.Error, errorMsg)
-			span.RecordError(fmt.Errorf(errorMsg),
+			span.RecordError(fmt.Errorf("%s", errorMsg),
 				oteltrace.WithAttributes(
 					attribute.Int("http.status_code", status),
 					attribute.String("error.type", "http-server-error"),

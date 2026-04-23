@@ -35,7 +35,7 @@ func OpenUICommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if sunshineAddr == "" {
 				sunshineAddr = fmt.Sprintf("http://localhost:%d", port)
 			} else {

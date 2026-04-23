@@ -38,12 +38,12 @@ type {{.TableNameCamel}}Cache interface {
 	WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error
 
 	Set(ctx context.Context, id uint64, data *model.{{.TableNameCamel}}, duration time.Duration) error
-	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
-	SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
+	SetIDByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
+	SetIDsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
 
 	Get(ctx context.Context, id uint64) (*model.{{.TableNameCamel}}, error)
-	GetIdByKey(ctx context.Context, key string) (id uint64, err error)
-	GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error)
+	GetIDByKey(ctx context.Context, key string) (id uint64, err error)
+	GetIDsByKey(ctx context.Context, key string) (ids []uint64, err error)
 
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.{{.TableNameCamel}}, error)
 	MultiSet(ctx context.Context, data []*model.{{.TableNameCamel}}, duration time.Duration) error
@@ -227,7 +227,8 @@ func (c *{{.TableNameCamelFCL}}Cache) Set(ctx context.Context, id uint64, data *
 	return nil
 }
 
-func (c *{{.TableNameCamelFCL}}Cache) SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
+// SetIDByKey set id by key
+func (c *{{.TableNameCamelFCL}}Cache) SetIDByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
 	if key == "" || id == 0 {
 		return nil
 	}
@@ -239,7 +240,7 @@ func (c *{{.TableNameCamelFCL}}Cache) SetIdByKey(ctx context.Context, key string
 	return nil
 }
 
-func (c *{{.TableNameCamelFCL}}Cache) SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error {
+func (c *{{.TableNameCamelFCL}}Cache) SetIDsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error {
 	if key == "" || ids == nil {
 		return nil
 	}
@@ -262,7 +263,7 @@ func (c *{{.TableNameCamelFCL}}Cache) Get(ctx context.Context, id uint64) (*mode
 	return data, nil
 }
 
-func (c *{{.TableNameCamelFCL}}Cache) GetIdByKey(ctx context.Context, key string) (id uint64, err error) {
+func (c *{{.TableNameCamelFCL}}Cache) GetIDByKey(ctx context.Context, key string) (id uint64, err error) {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
 	err = c.cache.Get(ctx, cacheKey, &id)
 	if err != nil {
@@ -271,7 +272,7 @@ func (c *{{.TableNameCamelFCL}}Cache) GetIdByKey(ctx context.Context, key string
 	return id, nil
 }
 
-func (c *{{.TableNameCamelFCL}}Cache) GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error) {
+func (c *{{.TableNameCamelFCL}}Cache) GetIDsByKey(ctx context.Context, key string) (ids []uint64, err error) {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
 	err = c.cache.Get(ctx, cacheKey, &ids)
 	if err != nil {

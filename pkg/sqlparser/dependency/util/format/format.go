@@ -54,7 +54,7 @@ var replace = map[rune]string{
 // Format() formats string as indent and unindent commands. The commands can
 // nest. The Formatter writes to io.Writer 'w' and inserts one 'indent'
 // string per current indent level value.
-// Behaviour of commands reaching negative indent levels is undefined.
+// Behavior of commands reaching negative indent levels is undefined.
 //
 //	IndentFormatter(os.Stdout, "\t").Format("abc%d%%e%i\nx\ny\n%uz\n", 3)
 //

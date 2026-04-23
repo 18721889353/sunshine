@@ -1,3 +1,4 @@
+// Package main 演示 jsonutil 包的使用示例。
 package main
 
 import (

@@ -22,7 +22,7 @@ type serverOptions struct {
 func defaultServerOptions() *serverOptions {
 	return &serverOptions{
 		upgrader: &websocket.Upgrader{ // default upgrader
-			CheckOrigin: func(r *http.Request) bool { // allow all origins
+			CheckOrigin: func(_ *http.Request) bool { // allow all origins
 				return true
 			},
 		},

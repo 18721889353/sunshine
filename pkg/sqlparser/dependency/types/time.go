@@ -878,7 +878,7 @@ func (d Duration) Compare(o Duration) int {
 
 // CompareString is like Compare,
 // but parses str to Duration then compares.
-func (d Duration) CompareString(sc *stmtctx.StatementContext, str string) (int, error) {
+func (d Duration) CompareString(_ *stmtctx.StatementContext, str string) (int, error) {
 	// use MaxFsp to parse the string
 	o, err := ParseDuration(str, MaxFsp)
 	if err != nil {
@@ -2168,7 +2168,7 @@ func parseDigits(input string, count int) (int, bool) {
 	return int(v), true
 }
 
-func hour24TwoDigits(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func hour24TwoDigits(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, succ := parseDigits(input, 2)
 	if !succ || v >= 24 {
 		return input, false
@@ -2177,7 +2177,7 @@ func hour24TwoDigits(t *MysqlTime, input string, ctx map[string]int) (string, bo
 	return input[2:], true
 }
 
-func secondsNumeric(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func secondsNumeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, succ := parseDigits(input, 2)
 	if !succ || v >= 60 {
 		return input, false
@@ -2186,7 +2186,7 @@ func secondsNumeric(t *MysqlTime, input string, ctx map[string]int) (string, boo
 	return input[2:], true
 }
 
-func minutesNumeric(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func minutesNumeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, succ := parseDigits(input, 2)
 	if !succ || v >= 60 {
 		return input, false
@@ -2197,7 +2197,7 @@ func minutesNumeric(t *MysqlTime, input string, ctx map[string]int) (string, boo
 
 const time12HourLen = len("hh:mm:ssAM")
 
-func time12Hour(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func time12Hour(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	// hh:mm:ss AM
 	if len(input) < time12HourLen {
 		return input, false
@@ -2234,7 +2234,7 @@ func time12Hour(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
 
 const time24HourLen = len("hh:mm:ss")
 
-func time24Hour(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func time24Hour(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	// hh:mm:ss
 	if len(input) < time24HourLen {
 		return input, false
@@ -2266,7 +2266,7 @@ const (
 	constForPM
 )
 
-func isAMOrPM(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func isAMOrPM(_ *MysqlTime, input string, ctx map[string]int) (string, bool) {
 	if strings.HasPrefix(input, "AM") {
 		ctx["%p"] = constForAM
 	} else if strings.HasPrefix(input, "PM") {
@@ -2277,7 +2277,7 @@ func isAMOrPM(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
 	return input[2:], true
 }
 
-func dayOfMonthNumericTwoDigits(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func dayOfMonthNumericTwoDigits(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, succ := parseDigits(input, 2)
 	if !succ || v >= 32 {
 		return input, false
@@ -2307,7 +2307,7 @@ func parseTwoNumeric(input string) (int, string) {
 	return int(v), input[len(str):]
 }
 
-func dayOfMonthNumeric(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func dayOfMonthNumeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, remain := parseTwoNumeric(input) // 0..31
 	if len(remain) == len(input) || v > 31 {
 		return input, false
@@ -2316,7 +2316,7 @@ func dayOfMonthNumeric(t *MysqlTime, input string, ctx map[string]int) (string, 
 	return remain, true
 }
 
-func hour24Numeric(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func hour24Numeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	// 0..23
 	v, remain := parseTwoNumeric(input)
 	if len(remain) == len(input) || v > 23 {
@@ -2326,7 +2326,7 @@ func hour24Numeric(t *MysqlTime, input string, ctx map[string]int) (string, bool
 	return remain, true
 }
 
-func hour12Numeric(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func hour12Numeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	// 1..12
 	v, remain := parseTwoNumeric(input)
 	if len(remain) == len(input) || v > 12 || v == 0 {
@@ -2336,7 +2336,7 @@ func hour12Numeric(t *MysqlTime, input string, ctx map[string]int) (string, bool
 	return remain, true
 }
 
-func microSeconds(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func microSeconds(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	if len(input) < 6 {
 		return input, false
 	}
@@ -2348,7 +2348,7 @@ func microSeconds(t *MysqlTime, input string, ctx map[string]int) (string, bool)
 	return input[6:], true
 }
 
-func yearNumericFourDigits(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func yearNumericFourDigits(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, succ := parseDigits(input, 4)
 	if !succ {
 		return input, false
@@ -2366,7 +2366,7 @@ func dayOfYearThreeDigits(t *MysqlTime, input string, ctx map[string]int) (strin
 	return input[3:], true
 }
 
-func monthNumericTwoDigits(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func monthNumericTwoDigits(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, succ := parseDigits(input, 2)
 	if !succ || v > 12 {
 		return input, false
@@ -2376,7 +2376,7 @@ func monthNumericTwoDigits(t *MysqlTime, input string, ctx map[string]int) (stri
 	return input[2:], true
 }
 
-func abbreviatedWeekday(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func abbreviatedWeekday(_ *MysqlTime, input string, _ map[string]int) (string, bool) {
 	if len(input) >= 3 {
 		dayName := input[:3]
 		if _, ok := weekdayAbbrev[dayName]; ok {
@@ -2387,7 +2387,7 @@ func abbreviatedWeekday(t *MysqlTime, input string, ctx map[string]int) (string,
 	return input, false
 }
 
-func abbreviatedMonth(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func abbreviatedMonth(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	if len(input) >= 3 {
 		monthName := input[:3]
 		if month, ok := monthAbbrev[monthName]; ok {
@@ -2398,7 +2398,7 @@ func abbreviatedMonth(t *MysqlTime, input string, ctx map[string]int) (string, b
 	return input, false
 }
 
-func fullNameMonth(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func fullNameMonth(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	for i, month := range MonthNames {
 		if strings.HasPrefix(input, month) {
 			t.month = uint8(i + 1)
@@ -2408,7 +2408,7 @@ func fullNameMonth(t *MysqlTime, input string, ctx map[string]int) (string, bool
 	return input, false
 }
 
-func monthNumeric(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func monthNumeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	v, rem := parseTwoNumeric(input)
 	if len(rem) == len(input) || v > 12 {
 		return rem, false
@@ -2418,7 +2418,7 @@ func monthNumeric(t *MysqlTime, input string, ctx map[string]int) (string, bool)
 }
 
 // dayOfMonthWithSuffix returns different suffix according t being which day. i.e. 0 return th. 1 return st.
-func dayOfMonthWithSuffix(t *MysqlTime, input string, ctx map[string]int) (string, bool) {
+func dayOfMonthWithSuffix(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	month, remain := parseOrdinalNumbers(input)
 	if month >= 0 {
 		t.month = uint8(month)

@@ -484,7 +484,7 @@ type AggregateFuncExpr struct {
 }
 
 // Format the ExprNode into a Writer.
-func (n *AggregateFuncExpr) Format(w io.Writer) {
+func (n *AggregateFuncExpr) Format(_ io.Writer) {
 	panic("Not implemented")
 }
 

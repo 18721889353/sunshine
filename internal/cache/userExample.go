@@ -38,12 +38,12 @@ type UserExampleCache interface {
 	WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error
 
 	Set(ctx context.Context, id uint64, data *model.UserExample, duration time.Duration) error
-	SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
-	SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
+	SetIDByKey(ctx context.Context, key string, id uint64, duration time.Duration) error
+	SetIDsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error
 
 	Get(ctx context.Context, id uint64) (*model.UserExample, error)
-	GetIdByKey(ctx context.Context, key string) (id uint64, err error)
-	GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error)
+	GetIDByKey(ctx context.Context, key string) (id uint64, err error)
+	GetIDsByKey(ctx context.Context, key string) (ids []uint64, err error)
 
 	MultiGet(ctx context.Context, ids []uint64) (map[uint64]*model.UserExample, error)
 	MultiSet(ctx context.Context, data []*model.UserExample, duration time.Duration) error
@@ -222,8 +222,8 @@ func (c *userExampleCache) Set(ctx context.Context, id uint64, data *model.UserE
 	return nil
 }
 
-// SetIDByKey set id by key (deprecated: use SetIdByKey for consistency)
-func (c *userExampleCache) SetIdByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
+// SetIDByKey set id by key
+func (c *userExampleCache) SetIDByKey(ctx context.Context, key string, id uint64, duration time.Duration) error {
 	if key == "" || id == 0 {
 		return nil
 	}
@@ -235,7 +235,7 @@ func (c *userExampleCache) SetIdByKey(ctx context.Context, key string, id uint64
 	return nil
 }
 
-func (c *userExampleCache) SetIdsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error {
+func (c *userExampleCache) SetIDsByKey(ctx context.Context, key string, ids []uint64, duration time.Duration) error {
 	if key == "" || ids == nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func (c *userExampleCache) Get(ctx context.Context, id uint64) (*model.UserExamp
 	}
 	return data, nil
 }
-func (c *userExampleCache) GetIdByKey(ctx context.Context, key string) (id uint64, err error) {
+func (c *userExampleCache) GetIDByKey(ctx context.Context, key string) (id uint64, err error) {
 	cacheKey := c.GetUserExampleCacheKeyString(key)
 	err = c.cache.Get(ctx, cacheKey, &id)
 	if err != nil {
@@ -266,7 +266,7 @@ func (c *userExampleCache) GetIdByKey(ctx context.Context, key string) (id uint6
 	return id, nil
 }
 
-func (c *userExampleCache) GetIdsByKey(ctx context.Context, key string) (ids []uint64, err error) {
+func (c *userExampleCache) GetIDsByKey(ctx context.Context, key string) (ids []uint64, err error) {
 	cacheKey := c.GetUserExampleCacheKeyString(key)
 	err = c.cache.Get(ctx, cacheKey, &ids)
 	if err != nil {

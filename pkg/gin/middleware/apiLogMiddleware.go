@@ -24,23 +24,23 @@ func (rw *ResponseWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
-// ApiLogRecord 表示API日志记录的接口
-type ApiLogRecord interface{}
+// APILogRecord 表示API日志记录的接口
+type APILogRecord interface{}
 
-// ApiLogFunc 定义记录API日志的函数类型
-type ApiLogFunc func(c *gin.Context, reqBody []byte, respBody []byte, startTime time.Time, endTime time.Time, spendTime int64)
+// APILogFunc 定义记录API日志的函数类型
+type APILogFunc func(c *gin.Context, reqBody []byte, respBody []byte, startTime time.Time, endTime time.Time, spendTime int64)
 
-// ApiLogOptions API日志中间件配置选项
-type ApiLogOptions struct {
-	LogFunc ApiLogFunc
+// APILogOptions API日志中间件配置选项
+type APILogOptions struct {
+	LogFunc APILogFunc
 }
 
-// ApiLogOption API日志中间件配置函数类型
-type ApiLogOption func(*ApiLogOptions)
+// APILogOption API日志中间件配置函数类型
+type APILogOption func(*APILogOptions)
 
-// WithApiLogFunc 设置自定义日志记录函数
-func WithApiLogFunc(logFunc ApiLogFunc) ApiLogOption {
-	return func(o *ApiLogOptions) {
+// WithAPILogFunc 设置自定义日志记录函数
+func WithAPILogFunc(logFunc APILogFunc) APILogOption {
+	return func(o *APILogOptions) {
 		o.LogFunc = logFunc
 	}
 }
@@ -85,8 +85,8 @@ func customLogFunc(c *gin.Context, reqBody []byte, respBody []byte, startTime ti
 	r.Use(APILogMiddleware(WithApiLogFunc(customLogFunc)))
 
 */
-func APILogMiddleware(opts ...ApiLogOption) gin.HandlerFunc {
-	options := &ApiLogOptions{}
+func APILogMiddleware(opts ...APILogOption) gin.HandlerFunc {
+	options := &APILogOptions{}
 
 	for _, opt := range opts {
 		opt(options)

@@ -421,10 +421,3 @@ func ContextKeyForRequestID() ContextKey {
 func ContextKeyForCallerFunc() ContextKey {
 	return ContextKeyCallerFunc
 }
-
-// getTraceIDFromCtx 从 context 中获取 trace_id
-func getTraceIDFromCtx(ctx context.Context) string {
-	// OpenTelemetry trace ID 通常存储在特定的 context key 中
-	// 这里可以根据实际使用的 tracing 框架调整
-	return ""
-}

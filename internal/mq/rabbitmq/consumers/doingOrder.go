@@ -1,3 +1,4 @@
+// Package consumers 提供应用程序的 RabbitMQ 消息消费者。
 package consumers
 
 //

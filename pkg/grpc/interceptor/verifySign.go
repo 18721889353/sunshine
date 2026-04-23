@@ -173,7 +173,10 @@ func createEncryptStr(params map[string]interface{}) string {
 	sortIn = func(obj map[string]interface{}) {
 		keys := make([]string, 0, len(obj))
 		for k, v := range obj {
-			if v != false && v != "" && v != nil {
+			if v != nil && v != "" {
+				if b, ok := v.(bool); ok && !b {
+					continue
+				}
 				keys = append(keys, k)
 			}
 		}

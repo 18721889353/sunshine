@@ -33,7 +33,7 @@ func ModifyProtoPackageCommand() *cobra.Command {
   sunshine patch modify-proto-package --dir=api --server-dir=server`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if serverDir != "" {
 				mdName, _, _ := getNamesFromOutDir(serverDir)
 				if mdName != "" {

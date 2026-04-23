@@ -32,13 +32,11 @@ func defaultSentinelOptions() *sentinelOptions {
 
 type sentinelOptions struct {
 	resourceExtractor func(*gin.Context) string // 资源提取器
-	threshold         float64                   // 每秒请求次数（QPS）
-	statIntervalInMs  uint32                    // 统计周期1秒
 	rules             []*flow.Rule
 }
 
 // 默认资源提取函数
-func defaultResourceExtractor(ctx *gin.Context) string {
+func defaultResourceExtractor(_ *gin.Context) string {
 	return resourceName
 }
 
@@ -90,7 +88,6 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 			//response.Output(c, http.StatusTooManyRequests, "限流了")
 			response.Out(ctx, errcode.TooManyRequests.WithDetails("限流了"))
 			ctx.Abort()
-			return
 		}),
 	)
 }

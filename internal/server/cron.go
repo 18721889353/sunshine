@@ -38,15 +38,12 @@ func (s *cronServer) Start() error {
 		go func() {
 			ticker := time.NewTicker(15 * time.Second) // 每15秒检查一次
 			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-						logger.WarnWithCtx(ctx, "s.iRegistry.Register error", logger.Err(err))
-					} else {
-						logger.InfoWithCtx(ctx, "s.iRegistry.Register")
-					}
+			for range ticker.C {
+				ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
+				if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
+					logger.WarnWithCtx(ctx, "s.iRegistry.Register error", logger.Err(err))
+				} else {
+					logger.InfoWithCtx(ctx, "s.iRegistry.Register")
 				}
 			}
 		}()

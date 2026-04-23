@@ -47,12 +47,12 @@ func NewChunk(fields []*types.FieldType) *Chunk {
 }
 
 // NewChunkWithCapacity creates a new chunk with field types and capacity.
-func NewChunkWithCapacity(fields []*types.FieldType, cap int) *Chunk {
+func NewChunkWithCapacity(fields []*types.FieldType, capVal int) *Chunk {
 	chk := new(Chunk)
 	chk.columns = make([]*column, 0, len(fields))
 	chk.numVirtualRows = 0
 	for _, f := range fields {
-		chk.addColumnByFieldType(f, cap)
+		chk.addColumnByFieldType(f, capVal)
 	}
 	return chk
 }
@@ -65,7 +65,7 @@ func (c *Chunk) MemoryUsage() (sum int64) {
 		curColMemUsage := int64(unsafe.Sizeof(*col)) + int64(cap(col.nullBitmap)) + int64(cap(col.offsets)*4) + int64(cap(col.data)) + int64(cap(col.elemBuf))
 		sum += curColMemUsage
 	}
-	return
+	return sum
 }
 
 // addFixedLenColumn adds a fixed length column with elemLen and initial data capacity.

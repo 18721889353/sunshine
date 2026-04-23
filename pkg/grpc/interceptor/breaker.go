@@ -25,7 +25,7 @@ type circuitBreakerOptions struct {
 	validCodes map[codes.Code]struct{}
 
 	// degrade handler for unary server
-	unaryServerDegradeHandler func(ctx context.Context, req interface{}) (reply interface{}, error error)
+	unaryServerDegradeHandler func(ctx context.Context, req interface{}) (reply interface{}, err error)
 }
 
 func defaultCircuitBreakerOptions() *circuitBreakerOptions {
@@ -66,7 +66,7 @@ func WithValidCode(code ...codes.Code) CircuitBreakerOption {
 }
 
 // WithUnaryServerDegradeHandler unary server degrade handler function
-func WithUnaryServerDegradeHandler(handler func(ctx context.Context, req interface{}) (reply interface{}, error error)) CircuitBreakerOption {
+func WithUnaryServerDegradeHandler(handler func(ctx context.Context, req interface{}) (reply interface{}, err error)) CircuitBreakerOption {
 	return func(o *circuitBreakerOptions) {
 		o.unaryServerDegradeHandler = handler
 	}

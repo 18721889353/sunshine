@@ -1,3 +1,4 @@
+// Package gorabbitmqConsumer 提供 RabbitMQ 消费者的基础实现。
 package gorabbitmqConsumer
 
 import (

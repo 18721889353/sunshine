@@ -44,11 +44,9 @@ type RabbitMQ struct {
 func InitRabbitmq(name string, mqCfg any) {
 	if name == "" {
 		panic("RabbitMQ 模块初始化失败: 模块名称为空")
-		return
 	}
 	if mqCfg == nil {
 		panic("RabbitMQ 初始化失败: 配置对象为 nil")
-		return
 	}
 
 	// 使用 singleflight 防止重复初始化同一个 name

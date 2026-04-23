@@ -46,7 +46,7 @@ the directory /tmp/sunshine_copy_backup_proto_files.`,
   sunshine patch copy-proto --server-dir=../grpc-server --proto-file=name1.proto,name2.proto`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if !gofile.IsExists(outPath) {
 				_ = os.MkdirAll(outPath, 0766)
 			}

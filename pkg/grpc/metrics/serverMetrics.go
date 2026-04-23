@@ -59,28 +59,28 @@ func (o *options) apply(opts ...Option) {
 
 // WithCounterMetrics add Counter type indicator
 func WithCounterMetrics(metrics ...*prometheus.CounterVec) Option {
-	return func(o *options) {
+	return func(_ *options) {
 		customizedCounterMetrics = append(customizedCounterMetrics, metrics...)
 	}
 }
 
 // WithSummaryMetrics add Summary type indicator
 func WithSummaryMetrics(metrics ...*prometheus.SummaryVec) Option {
-	return func(o *options) {
+	return func(_ *options) {
 		customizedSummaryMetrics = append(customizedSummaryMetrics, metrics...)
 	}
 }
 
 // WithGaugeMetrics add Gauge type indicator
 func WithGaugeMetrics(metrics ...*prometheus.GaugeVec) Option {
-	return func(o *options) {
+	return func(_ *options) {
 		customizedGaugeMetrics = append(customizedGaugeMetrics, metrics...)
 	}
 }
 
 // WithHistogramMetrics adding Histogram type indicators
 func WithHistogramMetrics(metrics ...*prometheus.HistogramVec) Option {
-	return func(o *options) {
+	return func(_ *options) {
 		customizedHistogramMetrics = append(customizedHistogramMetrics, metrics...)
 	}
 }

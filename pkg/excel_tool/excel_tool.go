@@ -1,3 +1,4 @@
+// Package excel_tool 提供 Excel 文件处理工具。
 package excel_tool
 
 import (
@@ -61,14 +62,14 @@ func ExportExcel(sheetName string, headers []string, rows [][]interface{}) (*exc
 // maxColumnRowNameLen 表示名称框的最大长度，假设数据是10行，1000列，则最后一个名称框是J1000(如果有表头，则是J1001),是4位
 // 这里根据 maxColumnRowNameLen 生成切片，后面生成名称框的时候可以复用这个切片，而无需扩容
 func getColumnName(column, maxColumnRowNameLen int) []byte {
-	const A = 'A'
+	const a = 'A'
 	if column < maxCharCount {
 		// 第一次就分配好切片的容量
 		slice := make([]byte, 0, maxColumnRowNameLen)
-		return append(slice, byte(A+column))
+		return append(slice, byte(a+column))
 	}
 	// 递归生成类似AA,AB,AAA,AAB这种形式的列名
-	return append(getColumnName(column/maxCharCount-1, maxColumnRowNameLen), byte(A+column%maxCharCount))
+	return append(getColumnName(column/maxCharCount-1, maxColumnRowNameLen), byte(a+column%maxCharCount))
 }
 
 // getColumnRowName 生成名称框
@@ -76,5 +77,5 @@ func getColumnName(column, maxColumnRowNameLen int) []byte {
 func getColumnRowName(columnName []byte, rowIndex int) (columnRowName string) {
 	columnName = strconv.AppendInt(columnName, int64(rowIndex), 10)
 	columnRowName = string(columnName)
-	return
+	return columnRowName
 }

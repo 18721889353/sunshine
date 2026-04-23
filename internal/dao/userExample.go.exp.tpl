@@ -247,7 +247,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先尝试从缓存获取 ID
-	cachedID, err := m.cache.GetIdByKey(ctx, cacheKey)
+	cachedID, err := m.cache.GetIDByKey(ctx, cacheKey)
 	if err == nil && cachedID != 0 {
 		// 通过 ID 获取完整信息
 		record, getErr := m.get(ctx, cachedID, func() (*model.{{.TableNameCamel}}, error) {
@@ -289,8 +289,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 			// 如果记录存在，将其 ID 缓存起来（使用随机化过期时间）
 			if record != nil {
 				expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
-				if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
-					logger.WarnWithCtx(ctx, "cache.SetIdByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
+				if cacheErr := m.cache.SetIDByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
+					logger.WarnWithCtx(ctx, "cache.SetIDByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
 				}
 				// 同时缓存完整记录（使用随机化过期时间）
 				if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
@@ -310,7 +310,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 	}
 
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
-	logger.WarnWithCtx(ctx, "cache.GetIdByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
+	logger.WarnWithCtx(ctx, "cache.GetIDByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
 
 	// 如果是占位符错误，返回记录未找到
 	if m.cache.IsPlaceholderErr(err) {
@@ -330,8 +330,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getCondition(ctx context.Context, k
 		// 如果记录存在，尝试缓存（失败仅记录日志）
 		if record != nil {
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
-			if cacheErr := m.cache.SetIdByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
-				logger.WarnWithCtx(ctx, "cache.SetIdByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
+			if cacheErr := m.cache.SetIDByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
+				logger.WarnWithCtx(ctx, "cache.SetIDByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
 			}
 			if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", record.ID))
@@ -358,7 +358,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 	cacheKey := m.getConditionCacheKey(key)
 
 	// 先从缓存获取
-	ids, err := m.cache.GetIdsByKey(ctx, cacheKey)
+	ids, err := m.cache.GetIDsByKey(ctx, cacheKey)
 	if err == nil {
 		// 检查 ID 列表大小，如果过大则不使用缓存，直接查询数据库
 		if len(ids) > {{.TableNameCamel}}MaxCacheableIDs {
@@ -389,8 +389,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 
 			// 设置缓存（使用随机化过期时间）
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
-			if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
-				logger.WarnWithCtx(ctx, "cache.SetIdsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
+			if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
+				logger.WarnWithCtx(ctx, "cache.SetIDsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 			}
 			return result, nil
 		})
@@ -405,7 +405,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 	}
 
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
-	logger.WarnWithCtx(ctx, "cache.GetIdsByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
+	logger.WarnWithCtx(ctx, "cache.GetIDsByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
 
 	// 如果是占位符错误，返回记录未找到
 	if m.cache.IsPlaceholderErr(err) {
@@ -427,8 +427,8 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 
 		// 尝试设置缓存（失败仅记录日志）
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
-		if cacheErr := m.cache.SetIdsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
-			logger.WarnWithCtx(ctx, "cache.SetIdsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
+		if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
+			logger.WarnWithCtx(ctx, "cache.SetIDsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 		}
 		return result, nil
 	})
@@ -1294,9 +1294,9 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 	// 使用 singleflight 包裹整个查询过程，包括缓存读取和数据库查询
 	val, sfErr, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
 		// 先从缓存获取总数和 ID 列表
-		cachedTotal, cacheErr := d.cache.GetIdByKey(ctx, fullCacheKey+":total")
+		cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total")
 		if cacheErr == nil {
-			ids, idsErr := d.cache.GetIdsByKey(ctx, fullCacheKey+":ids")
+			ids, idsErr := d.cache.GetIDsByKey(ctx, fullCacheKey+":ids")
 			if idsErr == nil && len(ids) > 0 {
 				// 通过 ID 批量获取记录（利用已有的缓存机制）
 				recordsMap, getErr := d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.{{.TableNameCamel}}, error) {
@@ -1360,7 +1360,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 
 			// 缓存总数（增加数据值信息）
-			if setErr := d.cache.SetIdByKey(ctx, fullCacheKey+":total", uint64(res.total), expireTime); setErr != nil {
+			if setErr := d.cache.SetIDByKey(ctx, fullCacheKey+":total", uint64(res.total), expireTime); setErr != nil {
 				logger.WarnWithCtx(ctx, "cache: failed to set total count",
 					logger.Err(setErr),
 					logger.String("key", fullCacheKey+":total"),
@@ -1372,7 +1372,7 @@ func (d *{{.TableNameCamelFCL}}Dao) GetByColumns(ctx context.Context, params *qu
 			for _, record := range res.records {
 				ids = append(ids, record.ID)
 			}
-			if setErr := d.cache.SetIdsByKey(ctx, fullCacheKey+":ids", ids, expireTime); setErr != nil {
+			if setErr := d.cache.SetIDsByKey(ctx, fullCacheKey+":ids", ids, expireTime); setErr != nil {
 				logger.WarnWithCtx(ctx, "cache: failed to set ID list",
 					logger.Err(setErr),
 					logger.String("key", fullCacheKey+":ids"),
@@ -1607,7 +1607,7 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 	}
 
 	// 尝试从缓存获取
-	cachedCount, err := d.cache.GetIdByKey(ctx, countCacheKey)
+	cachedCount, err := d.cache.GetIDByKey(ctx, countCacheKey)
 	if err == nil {
 		return int64(cachedCount), nil
 	}
@@ -1626,7 +1626,7 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 
 		// 缓存计数结果（包括 0，避免重复查询，使用随机化过期时间）
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
-		if setErr := d.cache.SetIdByKey(ctx, countCacheKey, uint64(count), expireTime); setErr != nil {
+		if setErr := d.cache.SetIDByKey(ctx, countCacheKey, uint64(count), expireTime); setErr != nil {
 			logger.WarnWithCtx(ctx, "cache: failed to set count", logger.Err(setErr), logger.String("key", countCacheKey))
 		}
 		return count, nil
@@ -1670,7 +1670,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 	}
 
 	// 尝试从缓存获取
-	cachedValue, err := d.cache.GetIdByKey(ctx, existsCacheKey)
+	cachedValue, err := d.cache.GetIDByKey(ctx, existsCacheKey)
 	if err == nil {
 		return cachedValue > 0, nil
 	}
@@ -1694,7 +1694,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 			cacheValue = 1
 		}
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
-		if setErr := d.cache.SetIdByKey(ctx, existsCacheKey, cacheValue, expireTime); setErr != nil {
+		if setErr := d.cache.SetIDByKey(ctx, existsCacheKey, cacheValue, expireTime); setErr != nil {
 			logger.WarnWithCtx(ctx, "cache: failed to set exists result", logger.Err(setErr), logger.String("key", existsCacheKey))
 		}
 		return exists, nil

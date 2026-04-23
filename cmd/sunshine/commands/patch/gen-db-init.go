@@ -37,7 +37,7 @@ func GenerateDBInitCommand() *cobra.Command {
   sunshine patch gen-db-init --db-driver=mysql --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if outPath == "./" {
 				outPath = "."
 			}

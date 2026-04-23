@@ -66,8 +66,8 @@ func WithJwtIgnoreMethods(fullMethodNames ...string) JwtOption {
 	}
 }
 
-// WithAuthUidFields 设置用户ID字段名列表，按优先级排序
-func WithAuthUidFields(fields ...string) JwtOption {
+// WithAuthUIDFields 设置用户ID字段名列表，按优先级排序
+func WithAuthUIDFields(fields ...string) JwtOption {
 	return func(o *jwtOptions) {
 		if len(fields) > 0 {
 			o.uidFields = fields

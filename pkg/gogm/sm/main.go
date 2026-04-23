@@ -83,8 +83,8 @@ func main() {
 	}
 	SM4Key, err := Decode(str, privateKey)
 	if err != nil {
-		panic(err)
 		fmt.Println("Decode Error: ", err)
+		panic(err)
 	}
 	fmt.Println("SM4密钥:", SM4Key)
 	fmt.Println("----------------sm2验签数据--------------------------")
@@ -332,8 +332,8 @@ func Encrypt(data string, publicKey *sm2.PublicKey) (cipherStr string) {
 	// 转为16进制字符串输出
 	//cipherStr = fmt.Sprintf("%x", cipherTxt)
 	return base64.StdEncoding.EncodeToString(cipherTxt)
-	cipherStr = hex.EncodeToString(cipherTxt)
-	return
+	// cipherStr = hex.EncodeToString(cipherTxt)
+	// return
 }
 
 // Decode

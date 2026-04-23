@@ -44,7 +44,7 @@ type CacheNameExample interface {
 	Set(ctx context.Context, key string, data interface{}, duration time.Duration) error
 
 	Get(ctx context.Context, key string) (interface{}, error)
-	GetIdByKey(ctx context.Context, key string) (id string, err error)
+	GetIDByKey(ctx context.Context, key string) (id string, err error)
 
 	Del(ctx context.Context, key string) error
 	DelByPrefix(ctx context.Context, prefix string) error
@@ -236,7 +236,7 @@ func (c *cacheNameExample) Get(ctx context.Context, key string) (interface{}, er
 	}
 	return data, nil
 }
-func (c *cacheNameExample) GetIdByKey(ctx context.Context, key string) (id string, err error) {
+func (c *cacheNameExample) GetIDByKey(ctx context.Context, key string) (id string, err error) {
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	err = c.cache.Get(ctx, cacheKey, &id)
 	if err != nil {

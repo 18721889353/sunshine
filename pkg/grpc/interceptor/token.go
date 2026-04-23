@@ -48,7 +48,7 @@ type CheckToken func(appID string, appKey string) error
 
 // UnaryServerToken recovery unary token
 func UnaryServerToken(f CheckToken) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		appID := metautils.ExtractIncoming(ctx).Get("app_id")
 		appKey := metautils.ExtractIncoming(ctx).Get("app_key")
 		err := f(appID, appKey)
@@ -62,7 +62,7 @@ func UnaryServerToken(f CheckToken) grpc.UnaryServerInterceptor {
 
 // StreamServerToken recovery stream token
 func StreamServerToken(f CheckToken) grpc.StreamServerInterceptor {
-	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := stream.Context()
 		appID := metautils.ExtractIncoming(ctx).Get("app_id")
 		appKey := metautils.ExtractIncoming(ctx).Get("app_key")

@@ -1,4 +1,5 @@
 // config.go
+// Package es 提供 Elasticsearch 客户端封装。
 package es
 
 import (

@@ -35,27 +35,27 @@ func GetOs(userAgent string) string {
 	for _, s := range names {
 		if len(name) == 0 {
 			name = strings.TrimSpace(s)
-		} else {
-			if strings.Contains(name, "Macintosh") && s != "" {
-				name = strings.TrimSpace(s)
-			} else if strings.Contains(name, s) {
-				name = strings.TrimSpace(s)
-			} else if !strings.Contains(s, name) {
-				if strings.Contains(name, "iPhone") || strings.Contains(name, "iPad") {
-					s = gstr.Trim(s, "Mac OS X")
-				}
+			continue
+		}
 
-				if s != "" {
-					name += " " + strings.TrimSpace(s)
-				}
+		if strings.Contains(name, "Macintosh") && s != "" {
+			name = strings.TrimSpace(s)
+		} else if strings.Contains(name, s) {
+			name = strings.TrimSpace(s)
+		} else if !strings.Contains(s, name) {
+			if strings.Contains(name, "iPhone") || strings.Contains(name, "iPad") {
+				s = gstr.Trim(s, "Mac OS X")
 			}
-			break
+
+			if s != "" {
+				name += " " + strings.TrimSpace(s)
+			}
 		}
 
 		if strings.Contains(name, "Windows NT") {
 			name = getWinOsNameWithWinNT(name)
-			break
 		}
+		break
 	}
 
 	if name != "" {

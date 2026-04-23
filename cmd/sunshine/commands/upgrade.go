@@ -38,7 +38,7 @@ func UpgradeCommand() *cobra.Command {
 		// 设置为静默使用信息输出
 		SilenceUsage: true,
 		// 定义命令执行时的操作
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if targetVersion == "" {
 				targetVersion = latestVersion
 			}
@@ -101,7 +101,8 @@ func runUpgrade(targetVersion string) (string, error) {
 
 // runUpgradeCommand 执行升级 sunshine 二进制文件的命令
 func runUpgradeCommand(targetVersion string) error {
-	ctx, _ := context.WithTimeout(context.Background(), 3*time.Minute*3) // 设置超时时间
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*3) // 设置超时时间
+	defer cancel()
 	// 使用 gobash 运行 go install 命令来安装指定版本的 sunshine 命令
 	result := gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/sunshine@"+targetVersion)
 	// 遍历 result.StdOut 通道，忽略输出内容
@@ -182,7 +183,8 @@ func copyToTempDir(targetVersion string) (string, error) {
 
 // executeCommand 执行外部命令
 func executeCommand(name string, args ...string) error {
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*30) // 设置超时时间
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*60) // 设置超时时间
+	defer cancel()
 	result := gobash.Run(ctx, name, args...)
 	for v := range result.StdOut {
 		_ = v
@@ -232,7 +234,7 @@ func getLatestVersion(s string) string {
 
 // updateSunshineInternalPlugin 更新 sunshine 内置插件
 func updateSunshineInternalPlugin(targetVersion string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*3*time.Minute) // 设置超时时间
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute*3) // 设置超时时间
 	result := gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/protoc-gen-go-gin@"+targetVersion)
 	// 遍历 result.StdOut 通道，忽略输出内容
 	// 注意：这里假设 StdOut 通道不需要处理，如果需要处理输出，可以在这里进行相应的操作
@@ -247,7 +249,7 @@ func updateSunshineInternalPlugin(targetVersion string) error {
 		return result.Err // 返回错误信息
 	}
 
-	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Minute) // 设置超时时间
+	ctx, cancel = context.WithTimeout(context.Background(), time.Minute*3) // 设置超时时间
 	result = gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/protoc-gen-go-rpc-tmpl@"+targetVersion)
 
 	// 遍历 result.StdOut 通道，忽略输出内容
@@ -265,7 +267,7 @@ func updateSunshineInternalPlugin(targetVersion string) error {
 
 	// v1.x.x 版本不支持 protoc-gen-json-field
 	if !strings.HasPrefix(targetVersion, "v1") {
-		ctx, cancel = context.WithTimeout(context.Background(), 3*time.Minute) // 设置超时时间
+		ctx, cancel = context.WithTimeout(context.Background(), time.Minute*3) // 设置超时时间
 		result = gobash.Run(ctx, "go", "install", "github.com/18721889353/sunshine/cmd/protoc-gen-json-field@"+targetVersion)
 		// 遍历 result.StdOut 通道，忽略输出内容
 		// 注意：这里假设 StdOut 通道不需要处理，如果需要处理输出，可以在这里进行相应的操作

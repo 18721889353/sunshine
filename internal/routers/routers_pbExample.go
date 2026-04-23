@@ -103,7 +103,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		r.Use(
 			middleware.VerifySignatureMiddleware(
 				middleware.WithSignKey(config.Get().Sign.SignKey),
-				middleware.WithIgnoreUrl(config.Get().Sign.IgnoreUrls.HTTP...),
+				middleware.WithIgnoreURL(config.Get().Sign.IgnoreUrls.HTTP...),
 				middleware.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
 			),
 		)

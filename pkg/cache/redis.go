@@ -34,7 +34,7 @@ type redisCache struct {
 }
 
 // NewRedisCache new a cache, client parameter can be passed in for unit testing
-func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, options ...NewRedisCacheOption) Cache {
+func NewRedisCache(client *redis.Client, keyPrefix string, encode encoding.Encoding, newObject func() interface{}, _ ...NewRedisCacheOption) Cache {
 	redisPool := goredis.NewPool(client) // 创建 Redis 连接池
 	rs := redsync.New(redisPool)         // 创建 redsync 实例
 	return &redisCache{

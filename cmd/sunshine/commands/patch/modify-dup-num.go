@@ -26,7 +26,7 @@ func ModifyDuplicateNumCommand() *cobra.Command {
   sunshine patch modify-dup-num --dir=internal/ecode`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			files, err := listErrCodeFiles(dir)
 			if err != nil {
 				return err

@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package hack 提供字符串和字节切片之间的高效转换工具。
 package hack
 
 import (

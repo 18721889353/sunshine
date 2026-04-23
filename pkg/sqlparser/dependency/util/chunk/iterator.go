@@ -66,8 +66,8 @@ func (it *iterator4Slice) Begin() Row {
 
 // Next implements the Iterator interface.
 func (it *iterator4Slice) Next() Row {
-	if len := it.Len(); it.cursor >= len {
-		it.cursor = len + 1
+	if length := it.Len(); it.cursor >= length {
+		it.cursor = length + 1
 		return it.End()
 	}
 	row := it.rows[it.cursor]
@@ -246,8 +246,8 @@ func (it *iterator4RowPtr) Begin() Row {
 
 // Next implements the Iterator interface.
 func (it *iterator4RowPtr) Next() Row {
-	if len := it.Len(); it.cursor >= len {
-		it.cursor = len + 1
+	if length := it.Len(); it.cursor >= length {
+		it.cursor = length + 1
 		return it.End()
 	}
 	row := it.li.GetRow(it.ptrs[it.cursor])

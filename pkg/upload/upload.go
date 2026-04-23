@@ -1,3 +1,4 @@
+// Package upload 提供文件上传功能。
 package upload
 
 import (
@@ -165,7 +166,7 @@ func (c *cosUploader) UploadCosPrepareData(fileName string) (*CosInfo, error) {
 	}
 	credentials := c.cosCredentials()
 	return &CosInfo{
-		PrefixUrl:      c.cosPrefixURL(),
+		PrefixURL:      c.cosPrefixURL(),
 		SavePath:       savePath,
 		QSignAlgorithm: credentials["q-sign-algorithm"],
 		QAk:            credentials["q-ak"],
@@ -177,7 +178,7 @@ func (c *cosUploader) UploadCosPrepareData(fileName string) (*CosInfo, error) {
 
 // CosInfo 返回的 COS 上传信息结构
 type CosInfo struct {
-	PrefixUrl      string
+	PrefixURL      string
 	SavePath       string
 	QSignAlgorithm string
 	QAk            string

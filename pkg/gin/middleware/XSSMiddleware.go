@@ -16,9 +16,9 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-type XssOptions func(*xssOptions)
+type XSSOptions func(*xssOptions)
 
-func defaultXssOptions() *xssOptions {
+func defaultXSSOptions() *xssOptions {
 	return &xssOptions{
 		ignoreUrls: map[string]struct{}{},
 	}
@@ -28,13 +28,13 @@ type xssOptions struct {
 	ignoreUrls map[string]struct{}
 }
 
-func (o *xssOptions) apply(opts ...XssOptions) {
+func (o *xssOptions) apply(opts ...XSSOptions) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
-func WithIgnoreXssUrl(urls ...string) XssOptions {
+func WithIgnoreXSSURL(urls ...string) XSSOptions {
 	return func(o *xssOptions) {
 		for _, url := range urls {
 			o.ignoreUrls[url] = struct{}{}
@@ -42,8 +42,8 @@ func WithIgnoreXssUrl(urls ...string) XssOptions {
 	}
 }
 
-func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
-	o := defaultXssOptions()
+func XSSCrossMiddleware(opts ...XSSOptions) gin.HandlerFunc {
+	o := defaultXSSOptions()
 	o.apply(opts...)
 	return func(ctx *gin.Context) {
 		if _, ok := o.ignoreUrls[ctx.Request.URL.Path]; ok {
@@ -60,7 +60,7 @@ func XSSCrossMiddleware(opts ...XssOptions) gin.HandlerFunc {
 	}
 }
 
-func xssCross(ctx *gin.Context, o *xssOptions) error {
+func xssCross(ctx *gin.Context, _ *xssOptions) error {
 	body, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
 		logger.WarnWithCtx(ctx.Request.Context(), "io.ReadAll error", logger.Err(err))

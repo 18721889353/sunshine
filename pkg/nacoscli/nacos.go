@@ -1,3 +1,4 @@
+// Package nacoscli 提供 Nacos 配置中心客户端。
 package nacoscli
 
 import (

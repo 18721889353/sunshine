@@ -18,8 +18,6 @@ import (
 // DefaultURL 默认的 RabbitMQ 连接 URL
 const DefaultURL = "amqp://guest:guest@localhost:5672/"
 
-var defaultLogger = logger.Get()
-
 // ConnectionOption 连接配置选项函数类型
 type ConnectionOption func(*connectionOptions)
 
@@ -240,14 +238,14 @@ func maskURL(url string) string {
 }
 
 // CheckConnected 检查连接是否正常
-func (c *Connection) CheckConnected(ctx context.Context) bool {
+func (c *Connection) CheckConnected(_ context.Context) bool {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	return c.isConnected && c.conn != nil && !c.conn.IsClosed()
 }
 
 // monitor 监控连接状态
-func (c *Connection) monitor(ctx context.Context) {
+func (c *Connection) monitor(_ context.Context) {
 	reconnectTip := fmt.Sprintf("[rabbitmq connection] lost connection, attempting reconnect in %s", c.reconnectTime)
 
 	for {
@@ -377,19 +375,19 @@ func (c *Connection) closeConn() error {
 }
 
 // GetReconnectCount 获取重连次数
-func (c *Connection) GetReconnectCount(ctx context.Context) int64 {
+func (c *Connection) GetReconnectCount(_ context.Context) int64 {
 	return atomic.LoadInt64(&c.reconnectCount)
 }
 
 // GetLastError 获取最后的错误信息
-func (c *Connection) GetLastError(ctx context.Context) (time.Time, error) {
+func (c *Connection) GetLastError(_ context.Context) (time.Time, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	return c.lastErrorTime, c.lastError
 }
 
 // GetConnectionStatus 获取连接状态信息
-func (c *Connection) GetConnectionStatus(ctx context.Context) map[string]interface{} {
+func (c *Connection) GetConnectionStatus(_ context.Context) map[string]interface{} {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -409,7 +407,7 @@ func (c *Connection) GetConnectionStatus(ctx context.Context) map[string]interfa
 }
 
 // GetConn 获取 AMQP 连接
-func (c *Connection) GetConn(ctx context.Context) *amqp.Connection {
+func (c *Connection) GetConn(_ context.Context) *amqp.Connection {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 

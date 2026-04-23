@@ -38,7 +38,7 @@ type TkHTTPResponse struct {
 func (client *TkHTTPClient) Post(httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
 	u, err := url.Parse(httpRequest.URL)
 	if err != nil {
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
 	}
 	if len(httpRequest.Params) > 0 {
 		query := u.Query()
@@ -60,15 +60,15 @@ func (client *TkHTTPClient) Post(httpRequest *TkHTTPRequest) (*TkHTTPResponse, e
 	}
 	httpResp, err := client.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, fmt.Sprintf("http code = %d", httpResp.StatusCode))
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, fmt.Sprintf("http code = %d", httpResp.StatusCode))
 	}
 	bs, err := io.ReadAll(httpResp.Body)
 	if err != nil {
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
 	}
 
 	return &TkHTTPResponse{Body: string(bs)}, nil
@@ -91,7 +91,7 @@ func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
 	}
 	if len(httpRequest.Params) > 0 {
 		query := u.Query()
@@ -121,7 +121,7 @@ func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
 	}
 	defer func() {
 		if httpResp != nil && httpResp.Body != nil {
@@ -135,14 +135,14 @@ func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	if httpResp.StatusCode != http.StatusOK {
 		errMsg := fmt.Sprintf("http code = %d", httpResp.StatusCode)
 		span.SetStatus(codes.Error, errMsg)
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, errMsg)
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, errMsg)
 	}
 
 	bs, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
+		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
 	}
 
 	span.SetAttributes(attribute.Int("http.response.size", len(bs)))

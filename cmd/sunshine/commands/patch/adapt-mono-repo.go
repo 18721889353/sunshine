@@ -31,7 +31,7 @@ func AdaptMonoRepoCommand() *cobra.Command {
   sunshine patch adapt-mono-repo --dir=/path/to/server/directory`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			mdName, srvName, _ := getNamesFromOutDir(dir)
 			if mdName != "" {
 				moduleName = mdName

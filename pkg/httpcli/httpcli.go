@@ -291,8 +291,8 @@ func (r *Response) String() string {
 	return r.resp.String()
 }
 
-// UnmarshalJSON 解析JSON响应体
-func (r *Response) UnmarshalJSON(v interface{}) error {
+// JSON 将响应体解析为JSON到指定对象
+func (r *Response) JSON(v interface{}) error {
 	return json.Unmarshal(r.resp.Body(), v)
 }
 

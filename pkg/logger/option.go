@@ -22,16 +22,6 @@ var (
 	defaultNoPrint       = false          //禁止终端/文件输出（default false for dev environment visibility）
 )
 
-// customHookWrapper wraps CustomHook to implement zap's Hook interface
-type customHookWrapper struct {
-	hook CustomHook
-}
-
-// Execute executes the custom hook with level, message and fields
-func (w customHookWrapper) Execute(entry zapcore.Entry, fields []Field) error {
-	return w.hook(entry, fields)
-}
-
 type options struct {
 	level    string
 	encoding string

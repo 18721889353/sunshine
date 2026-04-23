@@ -11,6 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package opcode 定义 SQL 解析器的操作码。
 package opcode
 
 import (
@@ -134,5 +135,5 @@ var opsLiteral = map[Op]string{
 
 // Format the ExprNode into a Writer.
 func (o Op) Format(w io.Writer) {
-	fmt.Fprintf(w, opsLiteral[o])
+	fmt.Fprint(w, opsLiteral[o])
 }

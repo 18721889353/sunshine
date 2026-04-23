@@ -1,3 +1,4 @@
+// Package gosm3 提供国密 SM3 哈希算法实现。
 package gosm3
 
 import (

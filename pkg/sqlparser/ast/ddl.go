@@ -548,7 +548,7 @@ type CreateViewStmt struct {
 }
 
 // Accept implements Node Accept interface.
-func (n *CreateViewStmt) Accept(v Visitor) (Node, bool) {
+func (n *CreateViewStmt) Accept(_ Visitor) (Node, bool) {
 	// TODO: implement the details.
 	return n, true
 }

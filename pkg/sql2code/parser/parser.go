@@ -854,8 +854,7 @@ var webProtoMessageFieldCodes = map[string]string{
 }
 
 func adaptedDbType(data tmplData, isWebProto bool, code string) string {
-	switch data.DBDriver {
-	default:
+	if data.DBDriver == "" {
 		if isWebProto {
 			code = replaceProtoMessageFieldCode(code, webDefaultProtoMessageFieldCodes)
 		} else {
