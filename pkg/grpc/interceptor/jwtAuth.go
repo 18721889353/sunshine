@@ -290,7 +290,8 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 	}
 }
 
-func GetUidByCtx(ctx context.Context) (uid uint64, err error) {
+// GetUIDByCtx 从 Context 中获取用户ID
+func GetUIDByCtx(ctx context.Context) (uid uint64, err error) {
 	var claims *jwt.Claims
 	authorization := metautils.ExtractIncoming(ctx).Get("Authorization")
 	if len(authorization) > 6 {
@@ -300,7 +301,6 @@ func GetUidByCtx(ctx context.Context) (uid uint64, err error) {
 			return uid, err
 		}
 		return utils.StrToUint64(claims.UID), err
-	} else {
-		return 0, errors.New("no authorization")
 	}
+	return 0, errors.New("no authorization")
 }

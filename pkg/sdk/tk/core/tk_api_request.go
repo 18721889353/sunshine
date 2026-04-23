@@ -1,29 +1,29 @@
 package core
 
-type TkApiRequest interface {
+type TkAPIRequest interface {
 	GetConfig() *TkConfig
 	SetConfig(config *TkConfig)
 	GetParamObject() interface{}
-	GetUrlPath() string
+	GetURLPath() string
 }
 
-type BaseTkApiRequest struct {
+type BaseTkAPIRequest struct {
 	config *TkConfig
-	client *TkApiClient
+	client *TkAPIClient
 }
 
-func (r *BaseTkApiRequest) GetConfig() *TkConfig {
+func (r *BaseTkAPIRequest) GetConfig() *TkConfig {
 	return r.config
 }
 
-func (r *BaseTkApiRequest) SetConfig(config *TkConfig) {
+func (r *BaseTkAPIRequest) SetConfig(config *TkConfig) {
 	r.config = config
 }
 
-func (r *BaseTkApiRequest) GetClient() *TkApiClient {
+func (r *BaseTkAPIRequest) GetClient() *TkAPIClient {
 	return r.client
 }
 
-func (r *BaseTkApiRequest) SetClient(client *TkApiClient) {
+func (r *BaseTkAPIRequest) SetClient(client *TkAPIClient) {
 	r.client = client
 }

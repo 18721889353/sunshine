@@ -12,7 +12,7 @@ import (
 )
 
 // MessageHandler 定义消息处理函数类型
-type MessageHandler func(ctx context.Context, data []byte, messageId string, tagID string) error
+type MessageHandler func(ctx context.Context, data []byte, messageID string, tagID string) error
 
 // BaseConsumer 提供RabbitMQ消费者的基础实现（通用包版）
 type BaseConsumer struct {
@@ -44,10 +44,10 @@ func (bc *BaseConsumer) Name() string {
 }
 
 // handleMessage 内部消息处理函数，适配gorabbitmq的Handler类型
-func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageId string, tagID string) error {
+func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageID string, tagID string) error {
 	bc.wg.Add(1)
 	defer bc.wg.Done()
-	return bc.handler(ctx, data, messageId, tagID)
+	return bc.handler(ctx, data, messageID, tagID)
 }
 
 // Start 启动消费者

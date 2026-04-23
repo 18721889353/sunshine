@@ -10,14 +10,12 @@ import (
 )
 
 // GenerateFiles generate handler logic, router, error code files.
-func GenerateFiles(file *protogen.File, isMixType bool, moduleName string) ([]byte, []byte, []byte) {
+func GenerateFiles(file *protogen.File, isMixType bool, moduleName string) (logicContent []byte, routerFileContent []byte, errCodeFileContent []byte) {
 	if len(file.Services) == 0 {
 		return nil, nil, nil
 	}
 
 	pss := parse.GetServices(file, moduleName)
-
-	var logicContent, routerFileContent, errCodeFileContent []byte
 
 	if !isMixType {
 		logicContent = genHandlerLogicFile(pss)

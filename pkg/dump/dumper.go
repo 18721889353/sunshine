@@ -82,25 +82,25 @@ func (d *Dumper) ResetOptions() {
 }
 
 // Dump vars
-func (d *Dumper) Dump(vs ...any) { d.dump(vs...) }
+func (d *Dumper) Dump(vs ...any) { d.dumpVars(vs...) }
 
 // Print vars. alias of Dump()
-func (d *Dumper) Print(vs ...any) { d.dump(vs...) }
+func (d *Dumper) Print(vs ...any) { d.dumpVars(vs...) }
 
 // Println vars. alias of Dump()
-func (d *Dumper) Println(vs ...any) { d.dump(vs...) }
+func (d *Dumper) Println(vs ...any) { d.dumpVars(vs...) }
 
 // Fprint print vars to io.Writer
 func (d *Dumper) Fprint(w io.Writer, vs ...any) {
 	backup := d.Output // backup
 
 	d.Output = w
-	d.dump(vs...)
+	d.dumpVars(vs...)
 	d.Output = backup // restore
 }
 
-// dump go vars
-func (d *Dumper) dump(vs ...any) {
+// dumpVars go vars
+func (d *Dumper) dumpVars(vs ...any) {
 	// reset some settings.
 	d.curDepth = 0
 	d.visited = make(map[visit]int)
@@ -164,7 +164,7 @@ func (d *Dumper) printCaller(pc uintptr, file string, line int) {
 	}
 
 	text := strings.Join(nodes, "")
-	d.print(d.ColorTheme.caller(text), "\n")
+	d.writeOutput(d.ColorTheme.caller(text), "\n")
 }
 
 func (d *Dumper) advance(step int) {
@@ -411,7 +411,7 @@ func (d *Dumper) rvStringer(rt reflect.Type, rv reflect.Value) string {
 	return ""
 }
 
-func (d *Dumper) print(v ...any) {
+func (d *Dumper) writeOutput(v ...any) {
 	if d.NoColor {
 		_, _ = fmt.Fprint(d.Output, v...)
 	} else {

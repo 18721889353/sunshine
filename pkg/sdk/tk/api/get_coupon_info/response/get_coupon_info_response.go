@@ -7,7 +7,7 @@ import (
 )
 
 type GetCouponInfoResponse struct {
-	core.BaseTkApiResponse
+	core.BaseTkAPIResponse
 	Data *GetCouponInfoData `json:"data"`
 }
 

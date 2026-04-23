@@ -19,7 +19,6 @@ func (r *customResponse) response(c *gin.Context, code int, customCode, msg stri
 		"msg":  msg,
 		"data": data,
 	})
-	return
 }
 
 func (r *customResponse) Success(c *gin.Context, data interface{}) {

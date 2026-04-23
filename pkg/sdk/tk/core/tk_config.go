@@ -12,10 +12,10 @@ var (
 )
 
 type TkConfig struct {
-	AppId           string
+	AppID           string
 	AppSecret       string
-	HttpReadTimeout int64
-	OpenRequestUrl  string
+	HTTPReadTimeout int64
+	OpenRequestURL  string
 
 	Headers map[string]string
 	// 添加HTTP客户端配置字段
@@ -34,8 +34,8 @@ type TkOption func(*TkConfig)
 
 func NewTkConfig(opts ...TkOption) *TkConfig {
 	config := &TkConfig{
-		HttpReadTimeout: 10000, //默认10s超时
-		OpenRequestUrl:  "https://new-test.tongkask.com",
+		HTTPReadTimeout: 10000, //默认10s超时
+		OpenRequestURL:  "https://new-test.tongkask.com",
 	}
 	// 应用选项
 	for _, opt := range opts {
@@ -52,10 +52,10 @@ func NewTkConfig(opts ...TkOption) *TkConfig {
 	return config
 }
 
-// WithAppId 设置AppId
-func WithAppId(appId string) TkOption {
+// WithAppID 设置AppID
+func WithAppID(appID string) TkOption {
 	return func(config *TkConfig) {
-		config.AppId = appId
+		config.AppID = appID
 	}
 }
 
@@ -66,21 +66,21 @@ func WithAppSecret(appSecret string) TkOption {
 	}
 }
 
-// WithHttpReadTimeout 设置HTTP读取超时时间
-func WithHttpReadTimeout(timeout int64) TkOption {
+// WithHTTPReadTimeout 设置HTTP读取超时时间
+func WithHTTPReadTimeout(timeout int64) TkOption {
 	return func(config *TkConfig) {
 		if timeout <= 0 {
-			config.HttpReadTimeout = 10000 //默认10s超时
+			config.HTTPReadTimeout = 10000 //默认10s超时
 		} else {
-			config.HttpReadTimeout = timeout
+			config.HTTPReadTimeout = timeout
 		}
 	}
 }
 
-// WithOpenRequestUrl 设置请求URL
-func WithOpenRequestUrl(url string) TkOption {
+// WithOpenRequestURL 设置请求URL
+func WithOpenRequestURL(url string) TkOption {
 	return func(config *TkConfig) {
-		config.OpenRequestUrl = url
+		config.OpenRequestURL = url
 	}
 }
 

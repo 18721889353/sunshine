@@ -74,7 +74,7 @@ func watchConfig(obj interface{}, reloads ...func()) {
 
 	// 当配置文件发生变化时调用回调函数
 	// 注意：在 Windows 上 OnConfigChange 可能会被调用两次
-	viper.OnConfigChange(func(e fsnotify.Event) {
+	viper.OnConfigChange(func(_ fsnotify.Event) {
 		// 将配置文件内容解析到结构体
 		err := viper.Unmarshal(obj)
 		if err != nil {

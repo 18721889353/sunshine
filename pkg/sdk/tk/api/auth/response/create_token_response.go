@@ -3,7 +3,7 @@ package create_token_response
 import "github.com/18721889353/sunshine/pkg/sdk/tk/core"
 
 type CreateTokenResponse struct {
-	core.BaseTkApiResponse
+	core.BaseTkAPIResponse
 	Data CreateTokenData `json:"data"`
 }
 

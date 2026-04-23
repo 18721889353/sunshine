@@ -1952,10 +1952,7 @@ func (t *Time) StrToDate(sc *stmtctx.StatementContext, date, format string) bool
 
 	t.Time = tm
 	t.Type = mysql.TypeDatetime
-	if t.check(sc) != nil {
-		return false
-	}
-	return true
+	return t.check(sc) == nil
 }
 
 // mysqlTimeFix fixes the MysqlTime use the values in the context.

@@ -11,15 +11,15 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-type TkApiClient struct{}
+type TkAPIClient struct{}
 
-func NewTkApiClient() *TkApiClient {
-	return &TkApiClient{}
+func NewTkAPIClient() *TkAPIClient {
+	return &TkAPIClient{}
 }
 
-var DefaultTkApiClient *TkApiClient = NewTkApiClient()
+var DefaultTkAPIClient = NewTkAPIClient()
 
-func (client *TkApiClient) Request(request TkApiRequest, accessToken string) (string, error) {
+func (client *TkAPIClient) Request(request TkAPIRequest, accessToken string) (string, error) {
 	if request.GetConfig() == nil {
 		return "", errors.NewTkError(errors.ConfigIsNull)
 	}
@@ -28,12 +28,12 @@ func (client *TkApiClient) Request(request TkApiRequest, accessToken string) (st
 	if len(appSecret) == 0 {
 		return "", errors.NewTkErrorWithMessage(errors.ParamError, "appSecret为空")
 	}
-	paramJson := request.GetParamObject()
-	urlPath := request.GetUrlPath()
+	paramJSON := request.GetParamObject()
+	urlPath := request.GetURLPath()
 	if GetTkConfig().SignFunc == nil {
 		GetTkConfig().SignFunc = utils.Sign
 	}
-	paramJsonString := utils.Marshal(paramJson, appSecret, GetTkConfig().SignFunc)
+	paramJSONString := utils.Marshal(paramJSON, appSecret, GetTkConfig().SignFunc)
 	httpHeaderMap := map[string]string{
 		"from":     "sdk",
 		"sdk-type": "golang",
@@ -47,13 +47,13 @@ func (client *TkApiClient) Request(request TkApiRequest, accessToken string) (st
 		}
 	}
 
-	httpRequest := &TkHttpRequest{
-		Url:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestUrl, urlPath),
+	httpRequest := &TkHTTPRequest{
+		URL:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestURL, urlPath),
 		Headers: httpHeaderMap,
-		Body:    paramJsonString,
+		Body:    paramJSONString,
 	}
 
-	httpResponse, err := GetHttpClient().Post(httpRequest)
+	httpResponse, err := GetHTTPClient().Post(httpRequest)
 
 	if err != nil {
 		return "", err
@@ -61,10 +61,10 @@ func (client *TkApiClient) Request(request TkApiRequest, accessToken string) (st
 	return httpResponse.Body, nil
 }
 
-func (client *TkApiClient) RequestWithContext(ctx context.Context, request TkApiRequest, accessToken string) (string, error) {
+func (client *TkAPIClient) RequestWithContext(ctx context.Context, request TkAPIRequest, accessToken string) (string, error) {
 	// 创建链路追踪 span
 	// 使用请求的 URL 路径作为 span 名称，便于区分不同接口
-	spanName := fmt.Sprintf("APIRequest:%s", request.GetUrlPath())
+	spanName := fmt.Sprintf("APIRequest:%s", request.GetURLPath())
 	ctx, span := otel.Tracer("tk-api-client").Start(ctx, spanName)
 	defer span.End()
 
@@ -85,18 +85,18 @@ func (client *TkApiClient) RequestWithContext(ctx context.Context, request TkApi
 
 	// 添加请求信息到 span
 	span.SetAttributes(
-		attribute.String("api.url_path", request.GetUrlPath()),
+		attribute.String("api.url_path", request.GetURLPath()),
 	)
 
-	paramJson := request.GetParamObject()
-	urlPath := request.GetUrlPath()
+	paramJSON := request.GetParamObject()
+	urlPath := request.GetURLPath()
 	if GetTkConfig().SignFunc == nil {
 		GetTkConfig().SignFunc = utils.Sign
 	}
-	paramJsonString := utils.Marshal(paramJson, appSecret, GetTkConfig().SignFunc)
+	paramJSONString := utils.Marshal(paramJSON, appSecret, GetTkConfig().SignFunc)
 	// 记录请求参数到 span 中
 	span.SetAttributes(
-		attribute.String("request.body", paramJsonString),
+		attribute.String("request.body", paramJSONString),
 	)
 
 	httpHeaderMap := map[string]string{
@@ -112,19 +112,19 @@ func (client *TkApiClient) RequestWithContext(ctx context.Context, request TkApi
 		}
 	}
 
-	httpRequest := &TkHttpRequest{
-		Url:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestUrl, urlPath),
+	httpRequest := &TkHTTPRequest{
+		URL:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestURL, urlPath),
 		Headers: httpHeaderMap,
-		Body:    paramJsonString,
+		Body:    paramJSONString,
 	}
 
 	// 更新 span 中的 URL 信息
 	span.SetAttributes(
-		attribute.String("http.url", httpRequest.Url),
+		attribute.String("http.url", httpRequest.URL),
 		attribute.String("http.method", "POST"),
 	)
 
-	httpResponse, err := GetHttpClient().PostWithContext(ctx, httpRequest)
+	httpResponse, err := GetHTTPClient().PostWithContext(ctx, httpRequest)
 
 	if err != nil {
 		span.RecordError(err)

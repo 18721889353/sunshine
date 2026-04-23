@@ -14,11 +14,11 @@ import (
 )
 
 type CreateOrderRequest struct {
-	core.BaseTkApiRequest
+	core.BaseTkAPIRequest
 	Param *CreateOrderParam
 }
 
-func (c *CreateOrderRequest) GetUrlPath() string {
+func (c *CreateOrderRequest) GetURLPath() string {
 	return "/Api/Order/Order/create"
 }
 
@@ -27,7 +27,7 @@ func New() *CreateOrderRequest {
 		Param: &CreateOrderParam{},
 	}
 	request.SetConfig(core.GetTkConfig())
-	request.SetClient(core.DefaultTkApiClient)
+	request.SetClient(core.DefaultTkAPIClient)
 	return request
 
 }

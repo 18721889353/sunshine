@@ -11,12 +11,12 @@ import (
 
 func main() {
 	tkConfig := core.NewTkConfig(
-		core.WithAppId("zt6098eaf5b2d29"),
+		core.WithAppID("zt6098eaf5b2d29"),
 		core.WithAppSecret("b81f8c41997b8910ff7bf631a74d65ee"),
 		//core.WithSignFunc(func(params map[string]any, appSecret string) string {
 		//	return ""
 		//}),
-		core.WithOpenRequestUrl("https://new-test.tongkask.com"),
+		core.WithOpenRequestURL("https://new-test.tongkask.com"),
 		//core.WithHttpReadTimeout(10000),
 	)
 	//accessToken, err := core.GetAccessToken(&core.GetAccessTokenParam{
@@ -26,7 +26,7 @@ func main() {
 	//})
 	accessToken, err := create_token_request.GetAccessTokenWithContext(context.Background(), &create_token_request.GetAccessTokenParam{
 		Config:    tkConfig,
-		AppId:     tkConfig.AppId,
+		AppId:     tkConfig.AppID,
 		AppSecret: tkConfig.AppSecret,
 	})
 	fmt.Println(accessToken)

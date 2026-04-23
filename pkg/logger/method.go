@@ -31,7 +31,7 @@ func Sync() error {
 	}
 
 	_ = getSugaredLogger().Sync()
-	err := getLogger().Sync()
+	err := getDefaultLogger().Sync()
 	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") && !strings.Contains(err.Error(), "stdout") {
 		return err
 	}
@@ -52,7 +52,7 @@ func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
 		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...)
 	}
 
-	getLogger().Debug(msg, allFields...)
+	getDefaultLogger().Debug(msg, allFields...)
 }
 
 // InfoWithCtx 信息级别日志（必须提供 context）
@@ -67,7 +67,7 @@ func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
 		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...)
 	}
 
-	getLogger().Info(msg, allFields...)
+	getDefaultLogger().Info(msg, allFields...)
 }
 
 // WarnWithCtx 警告级别日志（必须提供 context）
@@ -82,7 +82,7 @@ func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
 		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...)
 	}
 
-	getLogger().Warn(msg, allFields...)
+	getDefaultLogger().Warn(msg, allFields...)
 }
 
 // ErrorWithCtx 错误级别日志（必须提供 context）
@@ -97,7 +97,7 @@ func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
 		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...)
 	}
 
-	getLogger().Error(msg, allFields...)
+	getDefaultLogger().Error(msg, allFields...)
 }
 
 // PanicWithCtx panic 级别日志（必须提供 context）
@@ -112,7 +112,7 @@ func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
 		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...)
 	}
 
-	getLogger().Panic(msg, allFields...)
+	getDefaultLogger().Panic(msg, allFields...)
 }
 
 // FatalWithCtx fatal 级别日志（必须提供 context）
@@ -127,18 +127,18 @@ func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
 		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...)
 	}
 
-	getLogger().Fatal(msg, allFields...)
+	getDefaultLogger().Fatal(msg, allFields...)
 }
 
 // IsDebugEnabled 检查是否启用了 DEBUG 级别日志
 // 用于性能敏感场景，避免不必要的字符串拼接或对象创建
 func IsDebugEnabled() bool {
-	return getLogger().Core().Enabled(zapcore.DebugLevel)
+	return getDefaultLogger().Core().Enabled(zapcore.DebugLevel)
 }
 
 // IsInfoEnabled 检查是否启用了 INFO 级别日志
 func IsInfoEnabled() bool {
-	return getLogger().Core().Enabled(zapcore.InfoLevel)
+	return getDefaultLogger().Core().Enabled(zapcore.InfoLevel)
 }
 
 // ModuleLogWithCtx 按模块记录日志(带Context) - 自动提取 request_id/trace_id

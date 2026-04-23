@@ -10,17 +10,17 @@ import (
 )
 
 // GenerateFiles generate service logic, router, error code files.
-func GenerateFiles(file *protogen.File, moduleName string) ([]byte, []byte, []byte) {
+func GenerateFiles(file *protogen.File, moduleName string) (logicContent []byte, routerContent []byte, errCodeContent []byte) {
 	if len(file.Services) == 0 {
 		return nil, nil, nil
 	}
 
 	pss := parse.GetServices(file, moduleName)
-	logicContent := genServiceLogicFile(pss)
-	routerFileContent := genRouterFile(pss)
-	errCodeFileContent := genErrCodeFile(pss)
+	logicContent = genServiceLogicFile(pss)
+	routerContent = genRouterFile(pss)
+	errCodeContent = genErrCodeFile(pss)
 
-	return logicContent, routerFileContent, errCodeFileContent
+	return logicContent, routerContent, errCodeContent
 }
 
 func genServiceLogicFile(fields []*parse.PbService) []byte {

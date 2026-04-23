@@ -97,7 +97,7 @@ func GetLogger(module string) *zap.Logger {
 		return Get()
 	}
 
-	logger := globalRouter.getLoggerByModule(module)
+	logger := globalRouter.lookupModule(module)
 	if logger != nil {
 		return logger
 	}
@@ -111,7 +111,7 @@ func GetLoggerByLevel(level string) *zap.Logger {
 		return Get()
 	}
 
-	logger := globalRouter.getLoggerByLevel(level)
+	logger := globalRouter.lookupLevel(level)
 	if logger != nil {
 		return logger
 	}
@@ -119,8 +119,8 @@ func GetLoggerByLevel(level string) *zap.Logger {
 	return Get()
 }
 
-// getLoggerByModule 内部方法:根据模块获取 logger
-func (r *LogRouter) getLoggerByModule(module string) *zap.Logger {
+// lookupModule 内部方法:根据模块获取 logger
+func (r *LogRouter) lookupModule(module string) *zap.Logger {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -137,8 +137,8 @@ func (r *LogRouter) getLoggerByModule(module string) *zap.Logger {
 	return nil
 }
 
-// getLoggerByLevel 内部方法:根据级别获取 logger
-func (r *LogRouter) getLoggerByLevel(level string) *zap.Logger {
+// lookupLevel 内部方法:根据级别获取 logger
+func (r *LogRouter) lookupLevel(level string) *zap.Logger {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

@@ -3,7 +3,7 @@ package place_order_response
 import "github.com/18721889353/sunshine/pkg/sdk/tk/core"
 
 type PlaceOrderResponse struct {
-	core.BaseTkApiResponse
+	core.BaseTkAPIResponse
 	Data *PlaceOrderData `json:"data"`
 }
 

@@ -20,22 +20,23 @@ import (
 
 var clientMap sync.Map
 
-type TkHttpClient struct {
+type TkHTTPClient struct {
 	httpClient *http.Client
 }
-type TkHttpRequest struct {
-	Url     string
+
+type TkHTTPRequest struct {
+	URL     string
 	Params  map[string]string
 	Headers map[string]string
 	Body    string
 }
 
-type TkHttpResponse struct {
+type TkHTTPResponse struct {
 	Body string
 }
 
-func (client *TkHttpClient) Post(httpRequest *TkHttpRequest) (*TkHttpResponse, error) {
-	u, err := url.Parse(httpRequest.Url)
+func (client *TkHTTPClient) Post(httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
+	u, err := url.Parse(httpRequest.URL)
 	if err != nil {
 		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
 	}
@@ -70,23 +71,23 @@ func (client *TkHttpClient) Post(httpRequest *TkHttpRequest) (*TkHttpResponse, e
 		return nil, errors.NewTkErrorWithMessage(errors.HttpError, err.Error())
 	}
 
-	return &TkHttpResponse{Body: string(bs)}, nil
+	return &TkHTTPResponse{Body: string(bs)}, nil
 }
 
-func (client *TkHttpClient) PostWithContext(ctx context.Context, httpRequest *TkHttpRequest) (*TkHttpResponse, error) {
+func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
 	// 创建链路追踪 span
-	spanName := fmt.Sprintf("HttpPost:%s", httpRequest.Url)
+	spanName := fmt.Sprintf("HttpPost:%s", httpRequest.URL)
 	ctx, span := otel.Tracer("tk-http-client").Start(ctx, spanName)
 	defer span.End()
 
 	// 添加请求信息到 span
 	span.SetAttributes(
-		attribute.String("http.url", httpRequest.Url),
+		attribute.String("http.url", httpRequest.URL),
 		attribute.String("http.method", "POST"),
 		attribute.String("http.request.body", httpRequest.Body),
 	)
 
-	u, err := url.Parse(httpRequest.Url)
+	u, err := url.Parse(httpRequest.URL)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -146,16 +147,16 @@ func (client *TkHttpClient) PostWithContext(ctx context.Context, httpRequest *Tk
 
 	span.SetAttributes(attribute.Int("http.response.size", len(bs)))
 
-	return &TkHttpResponse{Body: string(bs)}, nil
+	return &TkHTTPResponse{Body: string(bs)}, nil
 }
 
-func GetHttpClient() *TkHttpClient {
+func GetHTTPClient() *TkHTTPClient {
 	// 使用 LoadOrStore 确保并发安全初始化
-	client, loaded := clientMap.LoadOrStore(GetTkConfig().HttpReadTimeout, nil)
+	client, loaded := clientMap.LoadOrStore(GetTkConfig().HTTPReadTimeout, nil)
 	if !loaded || client == nil {
 		// 获取配置
 		config := GetTkConfig()
-		newClient := &TkHttpClient{
+		newClient := &TkHTTPClient{
 			httpClient: &http.Client{
 				Transport: &http.Transport{
 					TLSClientConfig: &tls.Config{
@@ -174,11 +175,11 @@ func GetHttpClient() *TkHttpClient {
 						KeepAlive: config.DialKeepAlive,
 					}).DialContext,
 				},
-				Timeout: time.Duration(config.HttpReadTimeout) * time.Millisecond,
+				Timeout: time.Duration(config.HTTPReadTimeout) * time.Millisecond,
 			},
 		}
-		clientMap.Store(GetTkConfig().HttpReadTimeout, newClient)
+		clientMap.Store(GetTkConfig().HTTPReadTimeout, newClient)
 		return newClient
 	}
-	return client.(*TkHttpClient)
+	return client.(*TkHTTPClient)
 }

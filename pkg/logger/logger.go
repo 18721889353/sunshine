@@ -36,7 +36,7 @@ var defaultSugaredLogger *zap.SugaredLogger
 var customHooks []CustomHook
 var customHooksWithCtx []CustomHookWithCtx
 
-func getLogger() *zap.Logger {
+func getDefaultLogger() *zap.Logger {
 	checkNil()
 	return defaultLogger.WithOptions(zap.AddCallerSkip(1))
 }

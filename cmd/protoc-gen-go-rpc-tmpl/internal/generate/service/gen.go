@@ -10,17 +10,17 @@ import (
 )
 
 // GenerateFiles generate service template code and error codes
-func GenerateFiles(file *protogen.File, moduleName string) ([]byte, []byte, []byte) {
+func GenerateFiles(file *protogen.File, moduleName string) (serviceContent []byte, testContent []byte, errCodeContent []byte) {
 	if len(file.Services) == 0 {
 		return nil, nil, nil
 	}
 
 	pss := parse.GetServices(file, moduleName)
-	serviceTmplContent := genServiceTmplFile(pss)
-	serviceTestTmplContent := genServiceTestTmplFile(pss)
-	errCodeFileContent := genErrCodeFile(pss)
+	serviceContent = genServiceTmplFile(pss)
+	testContent = genServiceTestTmplFile(pss)
+	errCodeContent = genErrCodeFile(pss)
 
-	return serviceTmplContent, serviceTestTmplContent, errCodeFileContent
+	return serviceContent, testContent, errCodeContent
 }
 
 func genServiceTmplFile(fields []*parse.PbService) []byte {

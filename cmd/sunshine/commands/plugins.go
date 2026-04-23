@@ -99,7 +99,7 @@ func PluginsCommand() *cobra.Command {
 }
 
 // checkInstallPlugins 检查哪些插件已安装，哪些缺失
-func checkInstallPlugins() ([]string, []string) {
+func checkInstallPlugins() (installed []string, lack []string) {
 	var installedNames []string
 	var lackNames []string
 	for _, name := range pluginNames {

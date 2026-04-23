@@ -287,7 +287,7 @@ func (h *SLSHook) Close() error {
 	if !h.compareAndSwapState(StateRunning, StateStopping) &&
 		!h.compareAndSwapState(StateStarting, StateStopping) {
 		// 已经处于停止中或已停止状态
-		currentState := h.getState()
+		currentState := h.getCurrentState()
 		if currentState == StateStopped || currentState == StateStopping {
 			return nil // 幂等性：多次关闭不报错
 		}
@@ -318,7 +318,7 @@ func (h *SLSHook) Close() error {
 
 // GetState 获取当前状态（用于监控）
 func (h *SLSHook) GetState() int32 {
-	return h.getState()
+	return h.getCurrentState()
 }
 
 // GetMetrics 获取监控指标（用于 Prometheus 等监控系统）
@@ -327,7 +327,7 @@ func (h *SLSHook) GetMetrics() map[string]interface{} {
 	defer h.errorMu.RUnlock()
 
 	stateStr := "UNKNOWN"
-	switch h.getState() {
+	switch h.getCurrentState() {
 	case StateCreated:
 		stateStr = "CREATED"
 	case StateStarting:
@@ -356,7 +356,7 @@ func (h *SLSHook) GetMetrics() map[string]interface{} {
 
 // IsHealthy 检查 SLS Hook 是否健康
 func (h *SLSHook) IsHealthy() bool {
-	state := h.getState()
+	state := h.getCurrentState()
 	return state == StateRunning
 }
 
@@ -391,8 +391,8 @@ const (
 	StateFailed   = 5
 )
 
-// getState 获取当前状态
-func (h *SLSHook) getState() int32 {
+// getCurrentState 获取当前状态
+func (h *SLSHook) getCurrentState() int32 {
 	return atomic.LoadInt32(&h.state)
 }
 
@@ -493,7 +493,7 @@ func (h *SLSHook) startHealthCheck() {
 
 // performHealthCheck 执行单次健康检查
 func (h *SLSHook) performHealthCheck() {
-	currentState := h.getState()
+	currentState := h.getCurrentState()
 
 	// 如果已经处于停止状态，不需要检查
 	if currentState == StateStopped || currentState == StateStopping {

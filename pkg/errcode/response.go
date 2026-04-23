@@ -154,7 +154,7 @@ func (resp *defaultResponse) unwrapData(data any) any {
 
 // analyzeAndUnwrap 分析结构体并决定是否拆包
 func (resp *defaultResponse) analyzeAndUnwrap(v reflect.Value, typ reflect.Type) any {
-	var firstSliceIdx int = -1
+	var firstSliceIdx = -1
 	var sliceCount int
 
 	numField := typ.NumField()
@@ -228,10 +228,8 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	}
 
 	// 4. 检查用户自定义的 RPC 错误映射
-	if resp.rpcStatus != nil {
-		if resp.isUserDefinedRPCErrorCode(c, int(st.Code())) {
-			return true
-		}
+	if resp.rpcStatus != nil && resp.isUserDefinedRPCErrorCode(c, int(st.Code())) {
+		return true
 	}
 
 	// 5. 默认行为：响应 200 OK，Body 中包含错误码
@@ -261,10 +259,8 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	}
 
 	// 3. 检查用户自定义的 HTTP 错误映射
-	if resp.httpErrors != nil {
-		if resp.isUserDefinedHTTPErrorCode(c, e.Code()) {
-			return true
-		}
+	if resp.httpErrors != nil && resp.isUserDefinedHTTPErrorCode(c, e.Code()) {
+		return true
 	}
 
 	// 4. 默认行为

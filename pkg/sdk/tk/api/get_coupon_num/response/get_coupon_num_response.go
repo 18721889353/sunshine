@@ -3,7 +3,7 @@ package get_coupon_num_response
 import "github.com/18721889353/sunshine/pkg/sdk/tk/core"
 
 type GetCouponNumResponse struct {
-	core.BaseTkApiResponse
+	core.BaseTkAPIResponse
 	Data *GetCouponNumData `json:"data"`
 }
 

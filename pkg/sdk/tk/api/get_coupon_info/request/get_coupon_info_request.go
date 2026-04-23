@@ -14,11 +14,11 @@ import (
 )
 
 type GetCouponInfoRequest struct {
-	core.BaseTkApiRequest
+	core.BaseTkAPIRequest
 	Param *GetCouponInfoParam
 }
 
-func (c *GetCouponInfoRequest) GetUrlPath() string {
+func (c *GetCouponInfoRequest) GetURLPath() string {
 	return "/Api/Coupon/Coupon/detail"
 }
 
@@ -27,7 +27,7 @@ func New() *GetCouponInfoRequest {
 		Param: &GetCouponInfoParam{},
 	}
 	request.SetConfig(core.GetTkConfig())
-	request.SetClient(core.DefaultTkApiClient)
+	request.SetClient(core.DefaultTkAPIClient)
 	return request
 
 }

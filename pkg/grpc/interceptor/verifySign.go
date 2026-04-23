@@ -90,7 +90,7 @@ func VerifySignatureInterceptor(opts ...SignOption) grpc.UnaryServerInterceptor 
 func verifySign(ctx context.Context, req interface{}, o *signOption) (context.Context, error) {
 	sign := metautils.ExtractIncoming(ctx).Get("sign")
 	timestamp := metautils.ExtractIncoming(ctx).Get("timestamp")
-	nonce_str := metautils.ExtractIncoming(ctx).Get("nonce_str")
+	nonceStr := metautils.ExtractIncoming(ctx).Get("nonce_str")
 
 	// 将请求数据转换为 JSON 格式
 	jsonBody, err := json.Marshal(req)
@@ -111,8 +111,8 @@ func verifySign(ctx context.Context, req interface{}, o *signOption) (context.Co
 		}
 	}
 
-	if nonce_str != "" && mapData["nonce_str"] == nil {
-		mapData["nonce_str"] = nonce_str
+	if nonceStr != "" && mapData["nonce_str"] == nil {
+		mapData["nonce_str"] = nonceStr
 	}
 	if timestamp != "" && mapData["timestamp"] == nil {
 		mapData["timestamp"] = timestamp

@@ -179,7 +179,7 @@ func getOldFile(file string) string {
 	return dir + strings.TrimSuffix(name, path.Ext(name))
 }
 
-func compareCode(oldCode []code, newCode []code) ([]byte, []byte) {
+func compareCode(oldCode []code, newCode []code) (addData []byte, positionData []byte) {
 	var addCode []string
 	var position string
 
@@ -201,12 +201,12 @@ func compareCode(oldCode []code, newCode []code) ([]byte, []byte) {
 		position = oldCode[l-1].value // last position
 	}
 
-	addData := checkAndAdjustErrorCode(addCode, position, l)
+	addData = checkAndAdjustErrorCode(addCode, position, l)
 
 	return addData, []byte(position)
 }
 
-func compareCode2(oldCode []code, newCode []code, data []byte) ([]byte, []byte) {
+func compareCode2(oldCode []code, newCode []code, data []byte) (addResult []byte, positionResult []byte) {
 	var addCode []byte
 	var position []byte
 

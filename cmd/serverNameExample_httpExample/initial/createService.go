@@ -61,8 +61,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 		logField logger.Field
 	)
 
-	switch cfg.App.RegistryDiscoveryType {
-	case "etcd":
+	if cfg.App.RegistryDiscoveryType == "etcd" {
 		iRegistry, instance, err = etcd.NewRegistry(
 			cfg.Etcd.Addrs,
 			id,

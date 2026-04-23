@@ -70,11 +70,8 @@ func main() {
 	wg.Wait()
 
 	// 等待一段时间以便观察ants协程池的状态
-	for {
-		select {
-		case <-time.After(time.Second * 1):
-			printAntsExampleStats(ctx, pool)
-		}
+	for range time.NewTicker(time.Second).C {
+		printAntsExampleStats(ctx, pool)
 	}
 }
 

@@ -14,11 +14,11 @@ import (
 )
 
 type PlaceOrderRequest struct {
-	core.BaseTkApiRequest
+	core.BaseTkAPIRequest
 	Param *PlaceOrderParam
 }
 
-func (c *PlaceOrderRequest) GetUrlPath() string {
+func (c *PlaceOrderRequest) GetURLPath() string {
 	return "/Api/Order/Order/placeOrder"
 }
 
@@ -27,7 +27,7 @@ func New() *PlaceOrderRequest {
 		Param: &PlaceOrderParam{},
 	}
 	request.SetConfig(core.GetTkConfig())
-	request.SetClient(core.DefaultTkApiClient)
+	request.SetClient(core.DefaultTkAPIClient)
 	return request
 
 }

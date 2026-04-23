@@ -33,7 +33,7 @@ func InitMysql() *sgorm.DB {
 	}
 
 	// setting mysql slave and master dsn addresses
-	if mysqlCfg.SlavesDsn != nil && len(mysqlCfg.SlavesDsn) > 0 && mysqlCfg.MastersDsn != nil && len(mysqlCfg.MastersDsn) > 0 {
+	if len(mysqlCfg.SlavesDsn) > 0 && len(mysqlCfg.MastersDsn) > 0 {
 		opts = append(opts, mysql.WithRWSeparation(
 			mysqlCfg.SlavesDsn,
 			mysqlCfg.MastersDsn...,

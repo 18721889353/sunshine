@@ -52,7 +52,7 @@ func Run(ctx context.Context, name string, args ...string) *Result {
 func handleExec(ctx context.Context, cmd *exec.Cmd, result *Result) {
 	result.StdOut <- strings.Join(cmd.Args, " ") + "\n"
 
-	stdout, stderr, err := getCmdReader(cmd)
+	stdout, stderr, err := createCmdReader(cmd)
 	if err != nil {
 		result.Err = err
 		return
@@ -95,13 +95,13 @@ func handleExec(ctx context.Context, cmd *exec.Cmd, result *Result) {
 	}
 }
 
-func getCmdReader(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
-	stdout, err := cmd.StdoutPipe()
+func createCmdReader(cmd *exec.Cmd) (stdout io.ReadCloser, stderr io.ReadCloser, err error) {
+	stdout, err = cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	stderr, err := cmd.StderrPipe()
+	stderr, err = cmd.StderrPipe()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,7 +115,7 @@ func getCmdReader(cmd *exec.Cmd) (io.ReadCloser, io.ReadCloser, error) {
 }
 
 func getResult(cmd *exec.Cmd) ([]byte, error) {
-	stdout, stderr, err := getCmdReader(cmd)
+	stdout, stderr, err := createCmdReader(cmd)
 	if err != nil {
 		return nil, err
 	}

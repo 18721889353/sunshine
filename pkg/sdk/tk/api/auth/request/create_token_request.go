@@ -10,7 +10,7 @@ import (
 )
 
 type CreateTokenRequest struct {
-	core.BaseTkApiRequest
+	core.BaseTkAPIRequest
 	param *CreateTokenParam
 }
 
@@ -49,7 +49,7 @@ func (r *CreateTokenRequest) ExecuteWithContext(ctx context.Context, accessToken
 
 }
 
-func (r *CreateTokenRequest) GetUrlPath() string {
+func (r *CreateTokenRequest) GetURLPath() string {
 	return "/Api/Common/Auth/getToken"
 }
 
@@ -58,7 +58,7 @@ func NewCreateTokenRequest() *CreateTokenRequest {
 		param: &CreateTokenParam{},
 	}
 	request.SetConfig(core.GetTkConfig())
-	request.SetClient(core.DefaultTkApiClient)
+	request.SetClient(core.DefaultTkAPIClient)
 	return request
 }
 

@@ -9,7 +9,7 @@ import (
 // Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
 type GetAccessTokenParam struct {
 	Config    *TkConfig
-	AppId     string
+	AppID     string
 	AppSecret string
 }
 
@@ -17,7 +17,7 @@ type GetAccessTokenParam struct {
 // Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
 func GetAccessToken(param *GetAccessTokenParam) (string, error) {
 	request := NewCreateTokenRequest()
-	request.GetParams().AppId = param.AppId
+	request.GetParams().AppID = param.AppID
 	request.GetParams().AppSecret = param.AppSecret
 
 	if param.Config != nil {
@@ -31,7 +31,6 @@ func GetAccessToken(param *GetAccessTokenParam) (string, error) {
 
 	if response.Code == 0 && response.Data.Token != "" {
 		return response.Data.Token, nil
-	} else {
-		return "", errors.NewTkErrorWithMessage(errors.GetTokenError, utils.MarshalNoErr(response))
 	}
+	return "", errors.NewTkErrorWithMessage(errors.GetTokenError, utils.MarshalNoErr(response))
 }

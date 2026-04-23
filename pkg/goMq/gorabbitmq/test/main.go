@@ -101,7 +101,7 @@ func main() {
 	logger.InfoWithCtx(ctx, "[redis] connection warmed up")
 
 	// 6. 创建业务 Root Span（此时基础设施已就绪，只追踪业务操作）
-	reqID := database.GetSnowId().String()
+	reqID := database.GetSnowID().String()
 	fmt.Printf("\n🔗 Starting trace with RequestID: %s\n", reqID)
 
 	tracer := otel.Tracer(serviceName)

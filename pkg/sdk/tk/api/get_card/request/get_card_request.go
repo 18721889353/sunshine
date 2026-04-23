@@ -14,11 +14,11 @@ import (
 )
 
 type GetCardRequest struct {
-	core.BaseTkApiRequest
+	core.BaseTkAPIRequest
 	Param *GetCardParam
 }
 
-func (c *GetCardRequest) GetUrlPath() string {
+func (c *GetCardRequest) GetURLPath() string {
 	return "/Api/Order/Order/getCard"
 }
 
@@ -27,7 +27,7 @@ func New() *GetCardRequest {
 		Param: &GetCardParam{},
 	}
 	request.SetConfig(core.GetTkConfig())
-	request.SetClient(core.DefaultTkApiClient)
+	request.SetClient(core.DefaultTkAPIClient)
 	return request
 
 }

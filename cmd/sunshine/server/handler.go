@@ -66,8 +66,7 @@ func ListTables(c *gin.Context) {
 	}
 
 	var tables []string
-	switch strings.ToLower(form.DbDriver) {
-	case sgorm.DBDriverMysql:
+	if strings.ToLower(form.DbDriver) == sgorm.DBDriverMysql {
 		tables, err = getMysqlTables(form.Dsn)
 	}
 	if err != nil {

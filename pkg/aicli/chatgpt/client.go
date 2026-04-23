@@ -48,12 +48,12 @@ func (c *Client) apply(opts ...ClientOption) {
 }
 
 // WithMaxTokens sets the maximum number of tokens
-func WithMaxTokens(max int) ClientOption {
+func WithMaxTokens(maxTokens int) ClientOption {
 	return func(c *Client) {
-		if max < 256 {
+		if maxTokens < 256 {
 			c.maxTokens = defaultMaxTokens
 		}
-		c.maxTokens = max
+		c.maxTokens = maxTokens
 	}
 }
 

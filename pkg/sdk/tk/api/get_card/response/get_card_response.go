@@ -3,7 +3,7 @@ package get_card_response
 import "github.com/18721889353/sunshine/pkg/sdk/tk/core"
 
 type GetCardResponse struct {
-	core.BaseTkApiResponse
+	core.BaseTkAPIResponse
 	Data []GetCardData `json:"data"`
 }
 

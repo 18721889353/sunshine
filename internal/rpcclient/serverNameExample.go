@@ -64,8 +64,7 @@ func NewServerNameExampleRPCConn() {
 			discoveryEndpoint string
 			discoverOption    grpccli.Option
 		)
-		switch grpcClientCfg.RegistryDiscoveryType {
-		case "etcd":
+		if grpcClientCfg.RegistryDiscoveryType == "etcd" {
 			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName
 			cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*5))
 			if err != nil {

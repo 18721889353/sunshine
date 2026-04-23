@@ -22,7 +22,6 @@ func (r *customResponse2) response(c *gin.Context, code int, result, returnInfo 
 		"result":     result,
 		"returnInfo": returnInfo,
 	})
-	return
 }
 
 type dataInfo struct {
@@ -33,13 +32,13 @@ type dataInfo struct {
 type Result struct {
 	Code            string `json:"code"`
 	Message         string `json:"message"`
-	TransactionId   string `json:"transactionId"`
+	TransactionID   string `json:"transactionId"`
 	TransactionTime string `json:"transactionTime"`
 }
 type ReturnInfo struct {
-	OrderId    string `json:"orderId"`
+	OrderID    string `json:"orderId"`
 	Msisdn     string `json:"msisdn"`
-	SkuId      string `json:"skuId"`
+	SkuID      string `json:"skuId"`
 	SkuName    string `json:"skuName"`
 	OpenStatus int    `json:"openStatus"`
 	OpenDesc   string `json:"openDesc"`
@@ -55,10 +54,9 @@ func (r *customResponse2) Success(c *gin.Context, data interface{}) {
 	}
 	if len(result.ReturnInfo) > 0 {
 		r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
-		return
+	} else {
+		r.response(c, http.StatusOK, result.Result, nil)
 	}
-	r.response(c, http.StatusOK, result.Result, nil)
-	return
 }
 func (r *customResponse2) Success2(c *gin.Context, code, msg string, data interface{}) {
 }
