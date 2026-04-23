@@ -1,3 +1,5 @@
+// Package main 是 RabbitMQ 死信队列生产者示例程序。
+// 该程序演示如何创建和配置死信队列生产者，并发送测试消息。
 package main
 
 import (

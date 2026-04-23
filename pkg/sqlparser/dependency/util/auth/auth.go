@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package auth 提供 MySQL 认证相关功能。
+// 该包包含用户认证、密码验证等安全相关的工具函数。
 package auth
 
 import (

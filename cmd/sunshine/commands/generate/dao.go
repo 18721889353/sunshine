@@ -51,7 +51,7 @@ func DaoCommand(parentName string) *cobra.Command {
 			parentName, parentName, parentName, parentName)),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			mdName, srvName, smr := getNamesFromOutDir(outPath)
 			if mdName != "" {
 				moduleName = mdName

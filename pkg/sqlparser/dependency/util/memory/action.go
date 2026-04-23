@@ -11,13 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package memory 提供内存管理和监控功能。
+// 该包包含内存分配跟踪、阈值监控和行动触发机制。
 package memory
 
 import (
 	"sync"
-
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/terror"
+	// 以下导入用于errMemExceedThreshold(暂未使用,保留供将来扩展)
+	// "github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
+	// "github.com/18721889353/sunshine/pkg/sqlparser/dependency/terror"
 )
 
 // ActionOnExceed is the action taken when memory usage exceeds memory quota.
@@ -35,7 +37,8 @@ type LogOnExceed struct {
 }
 
 // Action logs a warning only once when memory usage exceeds memory quota.
-func (a *LogOnExceed) Action(t *Tracker) {
+// Action 在超过阈值时执行日志记录
+func (a *LogOnExceed) Action(_ *Tracker) {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 	if !a.acted {
@@ -63,11 +66,13 @@ func (a *PanicOnExceed) Action(t *Tracker) {
 }
 
 var (
-	errMemExceedThreshold = terror.ClassExecutor.New(codeMemExceedThreshold, mysql.MySQLErrName[mysql.ErrMemExceedThreshold])
+// errMemExceedThreshold 内存超出阈值错误(暂未使用,保留供将来扩展)
+// errMemExceedThreshold = terror.ClassExecutor.New(codeMemExceedThreshold, mysql.MySQLErrName[mysql.ErrMemExceedThreshold])
 )
 
 const (
-	codeMemExceedThreshold terror.ErrCode = 8001
+	// codeMemExceedThreshold 内存超出阈值错误码(暂未使用,保留供将来扩展)
+	// codeMemExceedThreshold terror.ErrCode = 8001
 
 	// PanicMemoryExceed represents the panic message when out of memory quota.
 	PanicMemoryExceed string = "Out Of Memory Quota!"

@@ -5,12 +5,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/logger"
 	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -217,25 +218,22 @@ func connect(c *Connection) (*amqp.Connection, error) {
 	return conn, nil
 }
 
-// maskURL 脱敏 URL，移除用户名和密码
-func maskURL(url string) string {
-	if url == "" {
-		return url
-	}
-	// 查找 :// 之后的部分
-	prefix := ""
-	rest := url
-	if idx := strings.Index(url, "://"); idx != -1 {
-		prefix = url[:idx+3] // 包含 ://
-		rest = url[idx+3:]
-	}
-
-	// 查找 @ 符号
-	if idx := strings.Index(rest, "@"); idx != -1 {
-		return prefix + "***:***@" + rest[idx+1:]
-	}
-	return url
-}
+// maskURL 脱敏 URL，移除用户名和密码(暂未使用,保留供将来扩展)
+// func maskURL(url string) string {
+// 	if url == "" {
+// 		return url
+// 	}
+// 	prefix := ""
+// 	rest := url
+// 	if idx := strings.Index(url, "://"); idx != -1 {
+// 		prefix = url[:idx+3]
+// 		rest = url[idx+3:]
+// 	}
+// 	if idx := strings.Index(rest, "@"); idx != -1 {
+// 		return prefix + "***:***@" + rest[idx+1:]
+// 	}
+// 	return url
+// }
 
 // CheckConnected 检查连接是否正常
 func (c *Connection) CheckConnected(_ context.Context) bool {

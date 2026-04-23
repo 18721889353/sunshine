@@ -23,10 +23,11 @@ import (
 	gotime "time"
 	"unicode"
 
+	"github.com/juju/errors"
+
 	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
 	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/sessionctx/stmtctx"
 	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/terror"
-	"github.com/juju/errors"
 )
 
 // Portable analogs of some common call errors.
@@ -566,7 +567,7 @@ func splitDateTime(format string) (seps []string, fracStr string) {
 	}
 
 	seps = ParseDateFormat(format)
-	return
+	return seps, fracStr
 }
 
 // See https://dev.mysql.com/doc/refman/5.7/en/date-and-time-literals.html.
@@ -2039,15 +2040,16 @@ func skipWhiteSpace(input string) string {
 	return ""
 }
 
-var weekdayAbbrev = map[string]gotime.Weekday{
-	"Sun": gotime.Sunday,
-	"Mon": gotime.Monday,
-	"Tue": gotime.Tuesday,
-	"Wed": gotime.Wednesday,
-	"Thu": gotime.Tuesday,
-	"Fri": gotime.Friday,
-	"Sat": gotime.Saturday,
-}
+// weekdayAbbrev 星期缩写映射表(暂未使用,保留供将来扩展)
+// var weekdayAbbrev = map[string]gotime.Weekday{
+// 	"Sun": gotime.Sunday,
+// 	"Mon": gotime.Monday,
+// 	"Tue": gotime.Tuesday,
+// 	"Wed": gotime.Wednesday,
+// 	"Thu": gotime.Tuesday,
+// 	"Fri": gotime.Friday,
+// 	"Sat": gotime.Saturday,
+// }
 
 var monthAbbrev = map[string]gotime.Month{
 	"Jan": gotime.January,
@@ -2376,16 +2378,17 @@ func monthNumericTwoDigits(t *MysqlTime, input string, _ map[string]int) (string
 	return input[2:], true
 }
 
-func abbreviatedWeekday(_ *MysqlTime, input string, _ map[string]int) (string, bool) {
-	if len(input) >= 3 {
-		dayName := input[:3]
-		if _, ok := weekdayAbbrev[dayName]; ok {
-			// TODO: We need refact mysql time to support this.
-			return input, false
-		}
-	}
-	return input, false
-}
+// abbreviatedWeekday 解析缩写星期(暂未使用,保留供将来扩展)
+// func abbreviatedWeekday(_ *MysqlTime, input string, _ map[string]int) (string, bool) {
+// 	if len(input) >= 3 {
+// 		dayName := input[:3]
+// 		if _, ok := weekdayAbbrev[dayName]; ok {
+// 			// TODO: We need refact mysql time to support this.
+// 			return input, false
+// 		}
+// 	}
+// 	return input, false
+// }
 
 func abbreviatedMonth(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	if len(input) >= 3 {
@@ -2417,44 +2420,45 @@ func monthNumeric(t *MysqlTime, input string, _ map[string]int) (string, bool) {
 	return rem, false
 }
 
-// dayOfMonthWithSuffix returns different suffix according t being which day. i.e. 0 return th. 1 return st.
-func dayOfMonthWithSuffix(t *MysqlTime, input string, _ map[string]int) (string, bool) {
-	month, remain := parseOrdinalNumbers(input)
-	if month >= 0 {
-		t.month = uint8(month)
-		return remain, true
-	}
-	return input, false
-}
+// dayOfMonthWithSuffix 返回带后缀的日期(暂未使用,保留供将来扩展)
+// func dayOfMonthWithSuffix(t *MysqlTime, input string, _ map[string]int) (string, bool) {
+// 	month, remain := parseOrdinalNumbers(input)
+// 	if month >= 0 {
+// 		t.month = uint8(month)
+// 		return remain, true
+// 	}
+// 	return input, false
+// }
 
-func parseOrdinalNumbers(input string) (value int, remain string) {
-	for i, c := range input {
-		if !unicode.IsDigit(c) {
-			v, err := strconv.ParseUint(input[:i], 10, 64)
-			if err != nil {
-				return -1, input
-			}
-			value = int(v)
-			break
-		}
-	}
-	switch {
-	case strings.HasPrefix(remain, "st"):
-		if value == 1 {
-			remain = remain[2:]
-			return
-		}
-	case strings.HasPrefix(remain, "nd"):
-		if value == 2 {
-			remain = remain[2:]
-			return
-		}
-	case strings.HasPrefix(remain, "th"):
-		remain = remain[2:]
-		return
-	}
-	return -1, input
-}
+// parseOrdinalNumbers 解析序数(暂未使用,保留供将来扩展)
+// func parseOrdinalNumbers(input string) (value int, remain string) {
+// 	for i, c := range input {
+// 		if !unicode.IsDigit(c) {
+// 			v, err := strconv.ParseUint(input[:i], 10, 64)
+// 			if err != nil {
+// 				return -1, input
+// 			}
+// 			value = int(v)
+// 			break
+// 		}
+// 	}
+// 	switch {
+// 	case strings.HasPrefix(remain, "st"):
+// 		if value == 1 {
+// 			remain = remain[2:]
+// 			return
+// 		}
+// 	case strings.HasPrefix(remain, "nd"):
+// 		if value == 2 {
+// 			remain = remain[2:]
+// 			return
+// 		}
+// 	case strings.HasPrefix(remain, "th"):
+// 		remain = remain[2:]
+// 		return
+// 	}
+// 	return -1, input
+// }
 
 // DateFSP gets fsp from date string.
 func DateFSP(date string) (fsp int) {
@@ -2462,5 +2466,5 @@ func DateFSP(date string) (fsp int) {
 	if i != -1 {
 		fsp = len(date) - i - 1
 	}
-	return
+	return fsp
 }

@@ -1614,7 +1614,7 @@ func CoerceDatum(sc *stmtctx.StatementContext, a, b Datum) (x, y Datum, err erro
 		}
 		y.SetMysqlDecimal(dec)
 	}
-	return
+	return x, y, err
 }
 
 // NewDatum creates a new Datum from an interface{}.

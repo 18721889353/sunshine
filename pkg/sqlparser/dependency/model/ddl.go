@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package model 提供数据定义语言（DDL）相关的数据结构。
+// 该包包含表、索引、列等数据库对象的定义和操作。
 package model
 
 import (
@@ -19,8 +21,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/terror"
 	"github.com/juju/errors"
+
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/terror"
 )
 
 // ActionType is the type for DDL action.
@@ -211,14 +214,14 @@ func (job *Job) String() string {
 }
 
 // IsFinished returns whether job is finished or not.
-// If the job state is Done or Cancelled, it is finished.
+// If the job state is Done or Canceled, it is finished.
 func (job *Job) IsFinished() bool {
-	return job.State == JobStateDone || job.State == JobStateRollbackDone || job.State == JobStateCancelled
+	return job.State == JobStateDone || job.State == JobStateRollbackDone || job.State == JobStateCanceled
 }
 
-// IsCancelled returns whether the job is cancelled or not.
-func (job *Job) IsCancelled() bool {
-	return job.State == JobStateCancelled || job.State == JobStateRollbackDone
+// IsCanceled returns whether the job is canceled or not.
+func (job *Job) IsCanceled() bool {
+	return job.State == JobStateCanceled || job.State == JobStateRollbackDone
 }
 
 // IsRollingback returns whether the job is rolling back or not.
@@ -226,9 +229,9 @@ func (job *Job) IsRollingback() bool {
 	return job.State == JobStateRollingback
 }
 
-// IsCancelling returns whether the job is cancelling or not.
-func (job *Job) IsCancelling() bool {
-	return job.State == JobStateCancelling
+// IsCanceling returns whether the job is canceling or not.
+func (job *Job) IsCanceling() bool {
+	return job.State == JobStateCanceling
 }
 
 // IsSynced returns whether the DDL modification is synced among all SQL servers.
@@ -259,12 +262,12 @@ const (
 	JobStateRollingback  JobState = 2
 	JobStateRollbackDone JobState = 3
 	JobStateDone         JobState = 4
-	JobStateCancelled    JobState = 5
+	JobStateCanceled     JobState = 5
 	// JobStateSynced is used to mark the information about the completion of this job
 	// has been synchronized to all servers.
 	JobStateSynced JobState = 6
-	// JobStateCancelling is used to mark the DDL job is cancelled by the client, but the DDL work hasn't handle it.
-	JobStateCancelling JobState = 7
+	// JobStateCanceling is used to mark the DDL job is canceled by the client, but the DDL work hasn't handle it.
+	JobStateCanceling JobState = 7
 )
 
 // String implements fmt.Stringer interface.
@@ -278,10 +281,10 @@ func (s JobState) String() string {
 		return "rollback done"
 	case JobStateDone:
 		return "done"
-	case JobStateCancelled:
-		return "cancelled"
-	case JobStateCancelling:
-		return "cancelling"
+	case JobStateCanceled:
+		return "canceled"
+	case JobStateCanceling:
+		return "canceling"
 	case JobStateSynced:
 		return "synced"
 	default:

@@ -1,3 +1,5 @@
+// Package assistant 提供代码生成助手功能。
+// 该包包含各种代码生成命令的实现，辅助开发者快速构建项目结构。
 package assistant
 
 import (

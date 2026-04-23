@@ -533,13 +533,13 @@ var btFuncTokenMap = map[string]int{
 	"VAR_SAMP":     builtinVarSamp,
 }
 
-// aliases are strings directly map to another string and use the same token.
-var aliases = map[string]string{
-	"SCHEMA":  "DATABASE",
-	"SCHEMAS": "DATABASES",
-	"DEC":     "DECIMAL",
-	"SUBSTR":  "SUBSTRING",
-}
+// aliases 是字符串别名映射表(暂未使用,保留供将来扩展)
+// var aliases = map[string]string{
+// 	"SCHEMA":  "DATABASE",
+// 	"SCHEMAS": "DATABASES",
+// 	"DEC":     "DECIMAL",
+// 	"SUBSTR":  "SUBSTRING",
+// }
 
 func (s *Scanner) isTokenIdentifier(lit string, offset int) int {
 	// An identifier before or after '.' means it is part of a qualified identifier.

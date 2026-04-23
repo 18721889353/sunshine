@@ -55,9 +55,11 @@ var (
 // Theme color code/tag map for dump
 type Theme map[string]string
 
-func (ct Theme) caller(s string) string  { return ct.wrap("caller", s) }
-func (ct Theme) field(s string) string   { return ct.wrap("field", s) }
-func (ct Theme) value(s string) string   { return ct.wrap("value", s) }
+func (ct Theme) caller(s string) string { return ct.wrap("caller", s) }
+func (ct Theme) field(s string) string  { return ct.wrap("field", s) }
+
+// value 值样式(暂未使用,保留供将来扩展)
+// func (ct Theme) value(s string) string   { return ct.wrap("value", s) }
 func (ct Theme) msType(s string) string  { return ct.wrap("msType", s) }
 func (ct Theme) valTip(s string) string  { return ct.wrap("valTip", s) }
 func (ct Theme) string(s string) string  { return ct.wrap("string", s) }

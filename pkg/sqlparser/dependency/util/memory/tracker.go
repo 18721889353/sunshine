@@ -151,19 +151,19 @@ func (t *Tracker) toString(indent string, buffer *bytes.Buffer) {
 }
 
 func (t *Tracker) bytesToString(numBytes int64) string {
-	GB := float64(numBytes) / float64(1<<30)
-	if GB > 1 {
-		return fmt.Sprintf("%v GB", GB)
+	gb := float64(numBytes) / float64(1<<30)
+	if gb > 1 {
+		return fmt.Sprintf("%v GB", gb)
 	}
 
-	MB := float64(numBytes) / float64(1<<20)
-	if MB > 1 {
-		return fmt.Sprintf("%v MB", MB)
+	mb := float64(numBytes) / float64(1<<20)
+	if mb > 1 {
+		return fmt.Sprintf("%v MB", mb)
 	}
 
-	KB := float64(numBytes) / float64(1<<10)
-	if KB > 1 {
-		return fmt.Sprintf("%v KB", KB)
+	kb := float64(numBytes) / float64(1<<10)
+	if kb > 1 {
+		return fmt.Sprintf("%v KB", kb)
 	}
 
 	return fmt.Sprintf("%v Bytes", numBytes)

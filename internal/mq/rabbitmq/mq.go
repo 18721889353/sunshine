@@ -1,3 +1,5 @@
+// Package mq 提供 RabbitMQ 消息队列的通用消费者接口和注册管理功能。
+// 该包定义了消费者接口，并提供了消费者的注册和获取机制。
 package mq
 
 import "context"

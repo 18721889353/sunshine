@@ -3,9 +3,10 @@ package mysql
 import (
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"gorm.io/gorm"
 	glogger "gorm.io/gorm/logger"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Option set the mysql options.

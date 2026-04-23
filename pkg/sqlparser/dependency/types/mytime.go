@@ -48,7 +48,7 @@ func (t MysqlTime) Day() int {
 
 // Hour returns the hour value.
 func (t MysqlTime) Hour() int {
-	return int(t.hour)
+	return t.hour
 }
 
 // Minute returns the minute value.
@@ -154,7 +154,7 @@ func calcTimeDiff(t1, t2 MysqlTime, sign int) (seconds, microseconds int, neg bo
 	}
 	seconds = int(tmp / 1e6)
 	microseconds = int(tmp % 1e6)
-	return
+	return seconds, microseconds, neg
 }
 
 // datetimeToUint64 converts time value to integer in YYYYMMDDHHMMSS format.
@@ -257,7 +257,7 @@ func calcWeek(t *MysqlTime, wb weekBehaviour) (year int, week int) {
 		if !weekYear &&
 			((firstWeekday && weekday != 0) || (!firstWeekday && weekday >= 4)) {
 			week = 0
-			return
+			return year, week
 		}
 		weekYear = true
 		year--
@@ -320,7 +320,7 @@ var daysInMonth = []int{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
 // daynr 0 is returned as date 00.00.00
 func getDateFromDaynr(daynr uint) (year uint, month uint, day uint) {
 	if daynr <= 365 || daynr >= 3652500 {
-		return
+		return year, month, day
 	}
 
 	year = daynr * 100 / 36525

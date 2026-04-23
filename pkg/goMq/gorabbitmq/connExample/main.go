@@ -1,3 +1,5 @@
+// Package main 是 RabbitMQ 连接示例程序。
+// 该程序演示如何创建和管理 RabbitMQ 连接，包括重连机制和连接池。
 package main
 
 import (

@@ -63,7 +63,7 @@ func ParseFrac(s string, fsp int) (v int, overflow bool, err error) {
 			return 0, false, errors.Trace(e)
 		}
 		v = int(float64(tmp) * math.Pow10(MaxFsp-len(s)))
-		return
+		return v, overflow, err
 	}
 
 	// Round when fsp < string length.
@@ -83,7 +83,7 @@ func ParseFrac(s string, fsp int) (v int, overflow bool, err error) {
 	//  0312 round 2 -> 3 -> 30000
 	//  999 round 2 -> 100 -> overflow
 	v = int(float64(tmp) * math.Pow10(MaxFsp-fsp))
-	return
+	return v, overflow, err
 }
 
 // alignFrac is used to generate alignment frac, like `100` -> `100000`

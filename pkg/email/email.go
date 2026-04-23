@@ -1,3 +1,4 @@
+// Package email 提供邮件发送功能
 package email
 
 import (

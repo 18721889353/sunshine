@@ -1,5 +1,5 @@
-// Package excel_tool 提供 Excel 文件处理工具。
-package excel_tool
+// Package exceltool 提供 Excel 文件处理工具。
+package exceltool
 
 import (
 	"strconv"

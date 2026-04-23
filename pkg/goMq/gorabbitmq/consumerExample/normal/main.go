@@ -1,3 +1,5 @@
+// Package main 是 RabbitMQ 普通队列消费者示例程序。
+// 该程序演示如何创建消费者并处理队列消息。
 package main
 
 import (
@@ -71,7 +73,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	consumer.Consume(ctx, func(ctx context.Context, data []byte, msgId, tagID string) error {
+	consumer.Consume(ctx, func(_ context.Context, data []byte, _, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(tagID)
 		return errors.New("fuck")

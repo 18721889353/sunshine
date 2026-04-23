@@ -15,10 +15,9 @@ func formatENUS(number string, precision string) (string, error) {
 		for i, v := range precision {
 			if unicode.IsDigit(v) {
 				continue
-			} else {
-				precision = precision[:i]
-				break
 			}
+			precision = precision[:i]
+			break
 		}
 	} else {
 		precision = "0"
@@ -38,7 +37,8 @@ func formatENUS(number string, precision string) (string, error) {
 			buffer.WriteString(strings.Repeat("0", int(position)))
 		}
 		return buffer.String(), nil
-	} else if number[:1] == "-" {
+	}
+	if number[:1] == "-" {
 		buffer.Write([]byte{'-'})
 		number = number[1:]
 	}
@@ -46,14 +46,15 @@ func formatENUS(number string, precision string) (string, error) {
 	for i, v := range number {
 		if unicode.IsDigit(v) {
 			continue
-		} else if i == 1 && number[1] == '.' {
-			continue
-		} else if v == '.' && number[1] != '.' {
-			continue
-		} else {
-			number = number[:i]
-			break
 		}
+		if i == 1 && number[1] == '.' {
+			continue
+		}
+		if v == '.' && number[1] != '.' {
+			continue
+		}
+		number = number[:i]
+		break
 	}
 
 	comma := []byte{','}

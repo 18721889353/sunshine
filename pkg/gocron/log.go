@@ -3,8 +3,9 @@ package gocron
 import (
 	"context"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/robfig/cron/v3"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (

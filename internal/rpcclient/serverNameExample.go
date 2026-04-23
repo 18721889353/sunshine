@@ -3,13 +3,14 @@ package rpcclient
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/etcdcli"
-	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/etcdcli"
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
 
 	"google.golang.org/grpc"
 

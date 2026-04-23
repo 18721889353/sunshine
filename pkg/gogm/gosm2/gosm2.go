@@ -1,3 +1,5 @@
+// Package gosm2 提供国密 SM2 非对称加密算法的封装。
+// 该包支持密钥生成、加解密、签名和验签等功能。
 package gosm2
 
 import (

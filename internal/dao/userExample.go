@@ -9,21 +9,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"google.golang.org/grpc/metadata"
+
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 
 	"github.com/18721889353/sunshine/internal/cache"
 
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/model"
 
+	"golang.org/x/sync/singleflight"
+	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
+
 	"github.com/18721889353/sunshine/pkg/gocrypto"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
-	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
-	"gorm.io/plugin/dbresolver"
 )
 
 // 缓存和数据量阈值常量（避免硬编码）
@@ -236,6 +238,75 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 	return table, nil
 }
 
+// handleConditionCacheHit 处理条件查询缓存命中的情况
+// 从缓存中获取 ID，然后通过 ID 获取完整记录
+func (m *userExampleCacheManager) handleConditionCacheHit(ctx context.Context, cacheKey string, cachedID uint64) (*model.UserExample, bool, error) {
+	// 通过 ID 获取完整信息
+	record, getErr := m.get(ctx, cachedID, func() (*model.UserExample, error) {
+		// 直接从数据库获取完整记录
+		table := &model.UserExample{}
+		err := database.GetDB().WithContext(ctx).Where("id = ?", cachedID).First(table).Error
+		if err != nil {
+			return nil, err
+		}
+		return table, nil
+	})
+	if getErr == nil && record != nil && record.ID == cachedID {
+		return record, true, nil // 缓存命中
+	}
+	// 如果通过 ID 获取失败（可能是记录已删除），清除条件缓存中的 ID
+	if getErr != nil {
+		_ = m.cache.DelByKey(ctx, cacheKey)
+	}
+	return nil, false, nil // 缓存未命中或失效
+}
+
+// cacheConditionResult 缓存条件查询结果
+// 包括 ID 和完整记录
+func (m *userExampleCacheManager) cacheConditionResult(ctx context.Context, cacheKey string, record *model.UserExample) {
+	if record == nil {
+		return
+	}
+	expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+	// 缓存 ID
+	if cacheErr := m.cache.SetIDByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
+		logger.WarnWithCtx(ctx, "cache.SetIDByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
+	}
+	// 缓存完整记录
+	if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
+		logger.WarnWithCtx(ctx, "cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
+	}
+}
+
+// executeConditionQueryWithSingleflight 使用 singleflight 执行条件查询并缓存结果
+func (m *userExampleCacheManager) executeConditionQueryWithSingleflight(ctx context.Context, key string, cacheKey string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
+	val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
+		record, dbErr := queryFunc()
+		if dbErr != nil {
+			// 设置占位符缓存防止缓存穿透
+			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
+					logger.WarnWithCtx(ctx, "cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
+				}
+				return nil, database.ErrRecordNotFound
+			}
+			return nil, dbErr
+		}
+
+		// 如果记录存在，缓存结果
+		m.cacheConditionResult(ctx, cacheKey, record)
+		return record, nil
+	})
+	if sfErr != nil {
+		return nil, sfErr
+	}
+	record, ok := val.(*model.UserExample)
+	if !ok {
+		return nil, database.ErrRecordNotFound
+	}
+	return record, nil
+}
+
 // getCondition 通过条件获取单条记录
 // 错误处理原则：
 //   - 缓存读取错误：仅记录日志，回退到数据库查询
@@ -247,64 +318,16 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 	// 先尝试从缓存获取 ID
 	cachedID, err := m.cache.GetIDByKey(ctx, cacheKey)
 	if err == nil && cachedID != 0 {
-		// 通过 ID 获取完整信息
-		record, getErr := m.get(ctx, cachedID, func() (*model.UserExample, error) {
-			// 直接从数据库获取完整记录
-			table := &model.UserExample{}
-			err = database.GetDB().WithContext(ctx).Where("id = ?", cachedID).First(table).Error
-			if err != nil {
-				return nil, err
-			}
-			return table, nil
-		})
-		if getErr == nil && record != nil && record.ID == cachedID {
-			return record, nil
-		}
-		// 如果通过 ID 获取失败（可能是记录已删除），清除条件缓存中的 ID，避免无效查询
-		if getErr != nil {
-			// 忽略删除错误的日志，避免噪音
-			_ = m.cache.DelByKey(ctx, cacheKey)
+		// 尝试从缓存命中获取结果
+		if record, hit, hitErr := m.handleConditionCacheHit(ctx, cacheKey, cachedID); hit {
+			return record, hitErr
 		}
 		// 回退到直接查询
 	}
 
 	// 缓存未命中或通过 ID 获取失败，从数据库获取
 	if errors.Is(err, database.ErrCacheNotFound) || cachedID == 0 {
-		// 使用 singleflight 防止并发请求同时访问数据库
-		val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
-			record, dbErr := queryFunc()
-			if dbErr != nil {
-				// 设置占位符缓存防止缓存穿透
-				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-					if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
-						logger.WarnWithCtx(ctx, "cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
-					}
-					return nil, database.ErrRecordNotFound
-				}
-				return nil, dbErr
-			}
-
-			// 如果记录存在，将其 ID 缓存起来（使用随机化过期时间）
-			if record != nil {
-				expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
-				if cacheErr := m.cache.SetIDByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
-					logger.WarnWithCtx(ctx, "cache.SetIDByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
-				}
-				// 同时缓存完整记录（使用随机化过期时间）
-				if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
-					logger.WarnWithCtx(ctx, "cache.Set error", logger.Err(cacheErr), logger.Any("id", record.ID))
-				}
-			}
-			return record, nil
-		})
-		if sfErr != nil {
-			return nil, sfErr
-		}
-		record, ok := val.(*model.UserExample)
-		if !ok {
-			return nil, database.ErrRecordNotFound
-		}
-		return record, nil
+		return m.executeConditionQueryWithSingleflight(ctx, key, cacheKey, queryFunc)
 	}
 
 	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
@@ -316,35 +339,7 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 	}
 
 	// 回退到数据库查询
-	val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
-		record, dbErr := queryFunc()
-		if dbErr != nil {
-			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				return nil, database.ErrRecordNotFound
-			}
-			return nil, dbErr
-		}
-
-		// 如果记录存在，尝试缓存（失败仅记录日志）
-		if record != nil {
-			expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
-			if cacheErr := m.cache.SetIDByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
-				logger.WarnWithCtx(ctx, "cache.SetIDByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
-			}
-			if cacheErr := m.cache.Set(ctx, record.ID, record, expireTime); cacheErr != nil {
-				logger.WarnWithCtx(ctx, "cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", record.ID))
-			}
-		}
-		return record, nil
-	})
-	if sfErr != nil {
-		return nil, sfErr
-	}
-	record, ok := val.(*model.UserExample)
-	if !ok {
-		return nil, database.ErrRecordNotFound
-	}
-	return record, nil
+	return m.executeConditionQueryWithSingleflight(ctx, key, cacheKey, queryFunc)
 }
 
 // getByCondition 通过条件获取 ID 列表
@@ -1237,6 +1232,84 @@ func (d *userExampleDao) queryByColumnsWithDB(db *gorm.DB, params *query.Params,
 //			Value: "male",
 //		},
 //	}
+
+// handleColumnsCacheHit 处理分页查询缓存命中的情况
+// 从缓存中获取总数和 ID 列表，然后通过 ID 批量获取完整记录
+func (d *userExampleDao) handleColumnsCacheHit(ctx context.Context, fullCacheKey string, optsConfig *queryOptions, cachedTotal uint64) (interface{}, bool, error) {
+	ids, idsErr := d.cache.GetIDsByKey(ctx, fullCacheKey+":ids")
+	if idsErr != nil || len(ids) == 0 {
+		return nil, false, nil // 缓存未完全命中
+	}
+
+	// 通过 ID 批量获取记录（利用已有的缓存机制）
+	recordsMap, getErr := d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.UserExample, error) {
+		db := d.db.WithContext(ctx)
+		if optsConfig.forceMaster {
+			db = db.Clauses(dbresolver.Write)
+		}
+		var records []*model.UserExample
+		dbErr := db.Where("id IN (?)", missedIDs).Find(&records).Error
+		return records, dbErr
+	})
+	if getErr != nil || len(recordsMap) == 0 {
+		return nil, false, nil // 获取失败，回退到数据库查询
+	}
+
+	// 按 ID 顺序返回结果
+	records := make([]*model.UserExample, 0, len(ids))
+	for _, id := range ids {
+		if record, ok := recordsMap[id]; ok {
+			records = append(records, record)
+		}
+	}
+	return struct {
+		records []*model.UserExample
+		total   int64
+	}{records: records, total: int64(cachedTotal)}, true, nil
+}
+
+// cacheColumnsResult 缓存分页查询结果
+// 包括总数、ID 列表和单条记录
+func (d *userExampleDao) cacheColumnsResult(ctx context.Context, fullCacheKey string, res struct {
+	records []*model.UserExample
+	total   int64
+}, _ string) {
+	if len(res.records) > MaxCacheableRecords || res.total <= 0 {
+		return // 数据量过大或无数据，不缓存
+	}
+
+	// 生成随机化过期时间
+	expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+
+	// 缓存总数
+	if setErr := d.cache.SetIDByKey(ctx, fullCacheKey+":total", uint64(res.total), expireTime); setErr != nil {
+		logger.WarnWithCtx(ctx, "cache: failed to set total count",
+			logger.Err(setErr),
+			logger.String("key", fullCacheKey+":total"),
+			logger.Uint64("total", uint64(res.total)))
+	}
+
+	// 提取并缓存 ID 列表
+	ids := make([]uint64, 0, len(res.records))
+	for _, record := range res.records {
+		ids = append(ids, record.ID)
+	}
+	if setErr := d.cache.SetIDsByKey(ctx, fullCacheKey+":ids", ids, expireTime); setErr != nil {
+		logger.WarnWithCtx(ctx, "cache: failed to set ID list",
+			logger.Err(setErr),
+			logger.String("key", fullCacheKey+":ids"),
+			logger.Int("id_count", len(ids)))
+	}
+
+	// 同时缓存单条记录
+	if setErr := d.cache.MultiSet(ctx, res.records, expireTime); setErr != nil {
+		logger.WarnWithCtx(ctx, "cache: failed to multi-set records",
+			logger.Err(setErr),
+			logger.Any("count", len(res.records)),
+			logger.Int("total_records", len(res.records)))
+	}
+}
+
 func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, opts ...QueryOption) ([]*model.UserExample, int64, error) {
 	optsConfig := applyOptions(opts...)
 
@@ -1292,31 +1365,9 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		// 先从缓存获取总数和 ID 列表
 		cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total")
 		if cacheErr == nil {
-			ids, idsErr := d.cache.GetIDsByKey(ctx, fullCacheKey+":ids")
-			if idsErr == nil && len(ids) > 0 {
-				// 通过 ID 批量获取记录（利用已有的缓存机制）
-				recordsMap, getErr := d.cacheManager.getByIDs(ctx, ids, func(missedIDs []uint64) ([]*model.UserExample, error) {
-					db := d.db.WithContext(ctx)
-					if optsConfig.forceMaster {
-						db = db.Clauses(dbresolver.Write)
-					}
-					var records []*model.UserExample
-					dbErr := db.Where("id IN (?)", missedIDs).Find(&records).Error
-					return records, dbErr
-				})
-				if getErr == nil && len(recordsMap) > 0 {
-					// 按 ID 顺序返回结果
-					records := make([]*model.UserExample, 0, len(ids))
-					for _, id := range ids {
-						if record, ok := recordsMap[id]; ok {
-							records = append(records, record)
-						}
-					}
-					return struct {
-						records []*model.UserExample
-						total   int64
-					}{records: records, total: int64(cachedTotal)}, nil
-				}
+			// 尝试从缓存命中获取结果
+			if result, hit, hitErr := d.handleColumnsCacheHit(ctx, fullCacheKey, optsConfig, cachedTotal); hit {
+				return result, hitErr
 			}
 		}
 
@@ -1350,39 +1401,8 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 				logger.String("cache_key", cacheKey))
 		}
 
-		// 缓存结果（控制缓存数据量，使用随机化过期时间）
-		if len(res.records) <= MaxCacheableRecords && res.total > 0 {
-			// 生成随机化过期时间
-			expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
-
-			// 缓存总数（增加数据值信息）
-			if setErr := d.cache.SetIDByKey(ctx, fullCacheKey+":total", uint64(res.total), expireTime); setErr != nil {
-				logger.WarnWithCtx(ctx, "cache: failed to set total count",
-					logger.Err(setErr),
-					logger.String("key", fullCacheKey+":total"),
-					logger.Uint64("total", uint64(res.total)))
-			}
-
-			// 提取并缓存 ID 列表（增加数量信息）
-			ids := make([]uint64, 0, len(res.records))
-			for _, record := range res.records {
-				ids = append(ids, record.ID)
-			}
-			if setErr := d.cache.SetIDsByKey(ctx, fullCacheKey+":ids", ids, expireTime); setErr != nil {
-				logger.WarnWithCtx(ctx, "cache: failed to set ID list",
-					logger.Err(setErr),
-					logger.String("key", fullCacheKey+":ids"),
-					logger.Int("id_count", len(ids)))
-			}
-
-			// 同时缓存单条记录（增加记录数信息）
-			if setErr := d.cache.MultiSet(ctx, res.records, expireTime); setErr != nil {
-				logger.WarnWithCtx(ctx, "cache: failed to multi-set records",
-					logger.Err(setErr),
-					logger.Any("count", len(res.records)),
-					logger.Int("total_records", len(res.records)))
-			}
-		}
+		// 缓存结果
+		d.cacheColumnsResult(ctx, fullCacheKey, res, cacheKey)
 
 		return result, nil
 	})

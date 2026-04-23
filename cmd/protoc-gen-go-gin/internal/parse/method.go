@@ -1,3 +1,5 @@
+// Package parse 提供 Protobuf 方法解析和 HTTP 规则构建功能。
+// 该包用于从 Protobuf 定义中提取 RPC 方法信息并转换为 HTTP 路由规则。
 package parse
 
 import (

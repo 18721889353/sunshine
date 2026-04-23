@@ -60,37 +60,16 @@ func getSunshineDir() string {
 	exePath, err := os.Executable()
 	if err == nil {
 		dir := filepath.Dir(exePath)
-		// 最多向上查找 10 层
-		for i := 0; i < 10; i++ {
-			// 检查是否包含关键目录来判断是否为项目根目录
-			if gofile.IsExists(filepath.Join(dir, "cmd")) &&
-				gofile.IsExists(filepath.Join(dir, "pkg")) &&
-				gofile.IsExists(filepath.Join(dir, "internal")) {
-				return dir
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir { // 已经到达文件系统根目录
-				break
-			}
-			dir = parent
+		if found := searchUpward(dir, 10, "cmd", "pkg", "internal"); found != "" {
+			return found
 		}
 	}
 
 	// 4. 尝试从当前工作目录查找
 	workDir, err := os.Getwd()
 	if err == nil {
-		dir := workDir
-		for i := 0; i < 10; i++ {
-			if gofile.IsExists(filepath.Join(dir, "cmd")) &&
-				gofile.IsExists(filepath.Join(dir, "pkg")) &&
-				gofile.IsExists(filepath.Join(dir, "internal")) {
-				return dir
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
+		if found := searchUpward(workDir, 10, "cmd", "pkg", "internal"); found != "" {
+			return found
 		}
 	}
 
@@ -100,6 +79,29 @@ func getSunshineDir() string {
 		return filepath.Join(homeDir, ".sunshine")
 	}
 
+	return ""
+}
+
+// searchUpward 向上查找包含指定目录的路径
+func searchUpward(startDir string, maxDepth int, checkDirs ...string) string {
+	dir := startDir
+	for i := 0; i < maxDepth; i++ {
+		allExist := true
+		for _, d := range checkDirs {
+			if !gofile.IsExists(filepath.Join(dir, d)) {
+				allExist = false
+				break
+			}
+		}
+		if allExist {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
 	return ""
 }
 
@@ -146,66 +148,64 @@ func Init() error {
 // detectLocalSunshineSource 检测是否在 sunshine 源码目录运行
 func detectLocalSunshineSource() string {
 	// 1. 从当前工作目录向上查找
-	wd, err := os.Getwd()
-	if err == nil {
-		searchDir := wd
-		for i := 0; i < 5; i++ {
-			if gofile.IsExists(filepath.Join(searchDir, "cmd")) &&
-				gofile.IsExists(filepath.Join(searchDir, "pkg")) &&
-				gofile.IsExists(filepath.Join(searchDir, "internal")) {
-				if gofile.IsExists(filepath.Join(searchDir, "go.mod")) {
-					return filepath.ToSlash(searchDir)
-				}
-			}
-			parent := filepath.Dir(searchDir)
-			if parent == searchDir {
-				break
-			}
-			searchDir = parent
+	if wd, err := os.Getwd(); err == nil {
+		if found := searchUpwardWithGoMod(wd, 5); found != "" {
+			return found
 		}
 	}
 
 	// 2. 从可执行文件路径向上查找(适用于 make proto 调用的情况)
-	exePath, err := os.Executable()
-	if err == nil {
-		dir := filepath.Dir(exePath)
-		for i := 0; i < 10; i++ {
-			if gofile.IsExists(filepath.Join(dir, "cmd")) &&
-				gofile.IsExists(filepath.Join(dir, "pkg")) &&
-				gofile.IsExists(filepath.Join(dir, "internal")) {
-				if gofile.IsExists(filepath.Join(dir, "go.mod")) {
-					return filepath.ToSlash(dir)
-				}
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
+	if exePath, err := os.Executable(); err == nil {
+		if found := searchUpwardWithGoMod(filepath.Dir(exePath), 10); found != "" {
+			return found
 		}
 	}
 
 	// 3. 从当前目录的 go.mod 中读取 replace 指令(适用于在生成的项目中调用)
-	if gofile.IsExists("go.mod") {
-		data, err := os.ReadFile("go.mod")
-		if err == nil {
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				if strings.Contains(line, "replace github.com/18721889353/sunshine =>") {
-					parts := strings.Split(line, "=>")
-					if len(parts) == 2 {
-						path := strings.TrimSpace(parts[1])
-						// Convert Windows path to Unix path
-						path = filepath.ToSlash(path)
-						if gofile.IsExists(path) {
-							return path
-						}
-					}
+	return findFromGoModReplace()
+}
+
+// searchUpwardWithGoMod 向上查找包含指定目录且有go.mod的路径
+func searchUpwardWithGoMod(startDir string, maxDepth int) string {
+	dir := startDir
+	for i := 0; i < maxDepth; i++ {
+		if gofile.IsExists(filepath.Join(dir, "cmd")) &&
+			gofile.IsExists(filepath.Join(dir, "pkg")) &&
+			gofile.IsExists(filepath.Join(dir, "internal")) &&
+			gofile.IsExists(filepath.Join(dir, "go.mod")) {
+			return filepath.ToSlash(dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+// findFromGoModReplace 从go.mod的replace指令中查找路径
+func findFromGoModReplace() string {
+	if !gofile.IsExists("go.mod") {
+		return ""
+	}
+	data, err := os.ReadFile("go.mod")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "replace github.com/18721889353/sunshine =>") {
+			parts := strings.Split(line, "=>")
+			if len(parts) == 2 {
+				path := strings.TrimSpace(parts[1])
+				path = filepath.ToSlash(path)
+				if gofile.IsExists(path) {
+					return path
 				}
 			}
 		}
 	}
-
 	return ""
 }
 
@@ -247,13 +247,13 @@ func isShowCommand() bool {
 	return false
 }
 
-// getHomeDir 获取用户的主目录
-func getHomeDir() string {
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Println("can't get home directory'")
-		return ""
-	}
-
-	return dir
-}
+// getHomeDir 获取用户的主目录(暂未使用,保留供将来扩展)
+// func getHomeDir() string {
+// 	dir, err := os.UserHomeDir()
+// 	if err != nil {
+// 		fmt.Println("can't get home directory'")
+// 		return ""
+// 	}
+//
+// 	return dir
+// }

@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
 	"sync"
 	"time"
+
+	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
 
 	"github.com/18721889353/sunshine/pkg/app"
 	"github.com/18721889353/sunshine/pkg/logger"

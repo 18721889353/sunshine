@@ -1,18 +1,21 @@
-package gorabbitmqClient
+// Package gorabbitmqclient 提供 RabbitMQ 客户端封装。
+package gorabbitmqclient
 
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
-	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/jinzhu/copier"
-	"github.com/spf13/cast"
-	"golang.org/x/sync/singleflight"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jinzhu/copier"
+	"github.com/spf13/cast"
+	"golang.org/x/sync/singleflight"
+
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (
@@ -50,7 +53,7 @@ func InitRabbitmq(name string, mqCfg any) {
 	}
 
 	// 使用 singleflight 防止重复初始化同一个 name
-	_, _, _ = sfGroup.Do("init_"+name, func() (interface{}, error) {
+	val, err, shared := sfGroup.Do("init_"+name, func() (interface{}, error) {
 		if _, ok := rabbitmqInstances.Load(name); ok {
 			return nil, nil
 		}
@@ -133,6 +136,9 @@ func InitRabbitmq(name string, mqCfg any) {
 
 		return nil, nil
 	})
+	_ = err
+	_ = shared
+	_ = val
 }
 
 // GetRabbitMQ 获取 RabbitMQ 实例
@@ -287,7 +293,7 @@ func (r *RabbitMQ) Close(ctx context.Context) error {
 }
 
 // SendMessage 发送消息到指定的交换机和路由键
-func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey string, message string, messageId string) error {
+func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey string, message string, messageID string) error {
 	start := time.Now()
 	var err error
 	defer func() {
@@ -297,7 +303,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 				logger.String("exchangeName", exchangeName),
 				logger.String("routingKey", routingKey),
 				logger.String("params", message),
-				logger.String("message_id", messageId),
+				logger.String("message_id", messageID),
 				logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 				logger.Err(err))
 		} else {
@@ -305,7 +311,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 				logger.String("exchangeName", exchangeName),
 				logger.String("routingKey", routingKey),
 				logger.String("params", message),
-				logger.String("message_id", messageId),
+				logger.String("message_id", messageID),
 				logger.String("ms", fmt.Sprintf("%.4f", float64(time.Since(start).Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 			)
 		}
@@ -327,7 +333,7 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 		}
 
 		// 发送消息
-		err = producer.PublishDirect(ctx, routingKey, []byte(message), messageId)
+		err = producer.PublishDirect(ctx, routingKey, []byte(message), messageID)
 		if err == nil {
 			return nil
 		}
@@ -336,19 +342,18 @@ func (r *RabbitMQ) SendMessage(ctx context.Context, exchangeName, routingKey str
 			logger.WarnWithCtx(getContextForLog(ctx), "Connection error detected, evicting producer",
 				logger.String("routingKey", routingKey), logger.Err(err))
 			r.safeCloseProducer(ctx, routingKey, producer)
-		} else {
-			// 业务逻辑错误（如 AccessRefused）重试通常无用
-			return fmt.Errorf("rabbitmq_business_error: %w", err)
+			r.handleRetry(ctx, attempt, maxRetries)
+			continue
 		}
-
-		r.handleRetry(ctx, attempt, maxRetries)
+		// 业务逻辑错误（如 AccessRefused）重试通常无用
+		return fmt.Errorf("rabbitmq_business_error: %w", err)
 	}
 	return err
 }
 
 // handleRetry 封装退避逻辑
-func (r *RabbitMQ) handleRetry(ctx context.Context, attempt, max int) {
-	if attempt >= max {
+func (r *RabbitMQ) handleRetry(ctx context.Context, attempt, maxRetries int) {
+	if attempt >= maxRetries {
 		return
 	}
 	timer := time.NewTimer(time.Duration(attempt*attempt*100) * time.Millisecond)
@@ -394,48 +399,46 @@ func (r *RabbitMQ) cleanupInvalidProducers() {
 	})
 }
 
-// clearProducerCache 清理指定或全部的producer缓存
-func (r *RabbitMQ) clearProducerCache(exchangeName, routingKey string) {
-	if exchangeName != "" && routingKey != "" {
-		if val, ok := r.producerCache.Load(routingKey); ok {
-			r.safeCloseProducer(context.Background(), routingKey, val.(*gorabbitmq.Producer))
-		}
-	} else {
-		r.producerCache.Range(func(routingKey, value interface{}) bool {
-			r.safeCloseProducer(context.Background(), cast.ToString(routingKey), value.(*gorabbitmq.Producer))
-			return true
-		})
-		logger.InfoWithCtx(getContextForLog(initCtx), "Safely cleared all producer cache and returned connections")
-	}
-}
+// clearProducerCache 清理指定或全部的producer缓存(暂未使用,保留供将来扩展)
+// func (r *RabbitMQ) clearProducerCache(exchangeName, routingKey string) {
+// 	if exchangeName != "" && routingKey != "" {
+// 		if val, ok := r.producerCache.Load(routingKey); ok {
+// 			r.safeCloseProducer(context.Background(), routingKey, val.(*gorabbitmq.Producer))
+// 		}
+// 	} else {
+// 		r.producerCache.Range(func(routingKey, value interface{}) bool {
+// 			r.safeCloseProducer(context.Background(), cast.ToString(routingKey), value.(*gorabbitmq.Producer))
+// 			return true
+// 		})
+// 		logger.InfoWithCtx(getContextForLog(initCtx), "Safely cleared all producer cache and returned connections")
+// 	}
+// }
 
-// getPoolStats 获取连接池统计信息
-func (r *RabbitMQ) getPoolStats(ctx context.Context) map[string]interface{} {
-	if r.pool == nil {
-		return nil
-	}
-	return r.pool.Stats(ctx)
-}
+// getPoolStats 获取连接池统计信息(暂未使用,保留供将来扩展)
+// func (r *RabbitMQ) getPoolStats(ctx context.Context) map[string]interface{} {
+// 	if r.pool == nil {
+// 		return nil
+// 	}
+// 	return r.pool.Stats(ctx)
+// }
 
-// getCacheStats 获取缓存统计信息
-func (r *RabbitMQ) getCacheStats() map[string]int {
-	exchangeCount := 0
-	r.exchangeCache.Range(func(_, _ interface{}) bool {
-		exchangeCount++
-		return true
-	})
-
-	producerCount := 0
-	r.producerCache.Range(func(_, _ interface{}) bool {
-		producerCount++
-		return true
-	})
-
-	return map[string]int{
-		"exchange_cache_size": exchangeCount,
-		"producer_cache_size": producerCount,
-	}
-}
+// getCacheStats 获取缓存统计信息(暂未使用,保留供将来扩展)
+// func (r *RabbitMQ) getCacheStats() map[string]int {
+// 	exchangeCount := 0
+// 	r.exchangeCache.Range(func(_, _ interface{}) bool {
+// 		exchangeCount++
+// 		return true
+// 	})
+// 	producerCount := 0
+// 	r.producerCache.Range(func(_, _ interface{}) bool {
+// 		producerCount++
+// 		return true
+// 	})
+// 	return map[string]int{
+// 		"exchange_cache_size": exchangeCount,
+// 		"producer_cache_size": producerCount,
+// 	}
+// }
 
 // printStats 启动定时状态监控日志
 func (r *RabbitMQ) printStats() {

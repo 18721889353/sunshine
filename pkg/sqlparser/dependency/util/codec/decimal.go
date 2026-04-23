@@ -16,8 +16,9 @@ package codec
 import (
 	"fmt"
 
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/types"
 	"github.com/juju/errors"
+
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/types"
 )
 
 // EncodeDecimal encodes a decimal into a byte slice which can be sorted lexicographically later.

@@ -60,7 +60,8 @@ const (
 // Join represents table join.
 type Join struct {
 	node
-	resultSetNode
+	// resultSetNode 结果集节点(暂未使用,保留供将来扩展)
+	// resultSetNode
 
 	// Left table can be TableSource or JoinNode.
 	Left ResultSetNode
@@ -108,7 +109,8 @@ func (n *Join) Accept(v Visitor) (Node, bool) {
 // TableName represents a table name.
 type TableName struct {
 	node
-	resultSetNode
+	// resultSetNode 结果集节点(暂未使用,保留供将来扩展)
+	// resultSetNode
 
 	Schema model.CIStr
 	Name   model.CIStr
@@ -450,7 +452,8 @@ func (n *OrderByClause) Accept(v Visitor) (Node, bool) {
 // See https://dev.mysql.com/doc/refman/5.7/en/select.html
 type SelectStmt struct {
 	dmlNode
-	resultSetNode
+	// resultSetNode 结果集节点(暂未使用,保留供将来扩展)
+	// resultSetNode
 
 	// SelectStmtOpts wraps around select hints and switches.
 	*SelectStmtOpts
@@ -484,7 +487,7 @@ func (n *SelectStmt) Accept(v Visitor) (Node, bool) {
 	}
 
 	n = newNode.(*SelectStmt)
-	if n.TableHints != nil && len(n.TableHints) != 0 {
+	if len(n.TableHints) != 0 {
 		newHints := make([]*TableOptimizerHint, len(n.TableHints))
 		for i, hint := range n.TableHints {
 			node, ok := hint.Accept(v)
@@ -583,7 +586,8 @@ func (n *UnionSelectList) Accept(v Visitor) (Node, bool) {
 // See https://dev.mysql.com/doc/refman/5.7/en/union.html
 type UnionStmt struct {
 	dmlNode
-	resultSetNode
+	// resultSetNode 结果集节点(暂未使用,保留供将来扩展)
+	// resultSetNode
 
 	Distinct   bool
 	SelectList *UnionSelectList
@@ -962,7 +966,8 @@ const (
 // See https://dev.mysql.com/doc/refman/5.7/en/show.html
 type ShowStmt struct {
 	dmlNode
-	resultSetNode
+	// resultSetNode 结果集节点(暂未使用,保留供将来扩展)
+	// resultSetNode
 
 	Tp     ShowStmtType // Databases/Tables/Columns/....
 	DBName string

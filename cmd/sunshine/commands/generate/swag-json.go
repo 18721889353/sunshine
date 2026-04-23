@@ -35,7 +35,7 @@ func ConvertSwagJSONCommand(parentName string) *cobra.Command {
   sunshine %s swagger --is-sort`, parentName, parentName, parentName)),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 			if isSort {
 				err = handlerJSONFormatTypeWithSortKey(jsonFile)

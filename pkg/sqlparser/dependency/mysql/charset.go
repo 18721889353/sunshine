@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package mysql 提供 MySQL 字符集和排序规则的支持。
+// 该包包含字符集定义、转换和相关工具函数。
 package mysql
 
 import "unicode"

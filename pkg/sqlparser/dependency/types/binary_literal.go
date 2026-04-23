@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package types 提供 MySQL 数据类型的支持。
+// 该包包含二进制字面量、数字、字符串等类型的实现。
 package types
 
 import (

@@ -4,9 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
-	"go.opentelemetry.io/otel/codes"
 )
 
 // withSpan 创建一个带有追踪信息的 span

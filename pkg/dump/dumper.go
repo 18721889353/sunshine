@@ -231,156 +231,35 @@ func (d *Dumper) printRValue(t reflect.Type, v reflect.Value) {
 
 	switch t.Kind() {
 	case reflect.Bool:
-		d.printf("%s(%v),\n", t.String(), v.Bool())
+		d.printBoolValue(t, v)
 	case reflect.Float32, reflect.Float64:
-		d.printf("%s(%v),\n", t.String(), v.Float())
+		d.printFloatValue(t, v)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		intStr := strconv.FormatInt(v.Int(), 10)
-		intStr = d.ColorTheme.integer(intStr)
-		d.printf("%s(%s),%s\n", t.String(), intStr, d.rvStringer(t, v))
+		d.printIntValue(t, v)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		intStr := strconv.FormatUint(v.Uint(), 10)
-		intStr = d.ColorTheme.integer(intStr)
-		d.printf("%s(%s),%s\n", t.String(), intStr, d.rvStringer(t, v))
+		d.printUintValue(t, v)
 	case reflect.String:
-		strVal := d.ColorTheme.string(v.String())
-		lenTip := d.ColorTheme.valTip("#len=" + strconv.Itoa(v.Len()))
-		d.printf("%s(\"%s\"), %s\n", t.String(), strVal, lenTip)
+		d.printStringValue(t, v)
 	case reflect.Complex64, reflect.Complex128:
-		d.printf("%#v\n", v.Complex())
+		d.printComplexValue(t, v)
 	case reflect.Slice, reflect.Array:
-		if v.CanAddr() && !d.checkCyclicRef(t, v) {
-			break // don't print v again
-		}
-
-		eleNum := v.Len()
-		lenTip := d.ColorTheme.valTip("#len=" + strconv.Itoa(eleNum) + ",cap=" + strconv.Itoa(v.Cap()))
-
-		d.write(!isPtr, t.String(), " [ ", lenTip, "\n")
-		d.msValue = false
-
-		for i := 0; i < eleNum; i++ {
-			sv := v.Index(i)
-			d.advance(1)
-
-			// d.msValue = true
-			d.printRValue(sv.Type(), sv)
-			// d.msValue = false
-
-			// d.printf("%v,\n", v.Index(i).Interface())
-			d.advance(-1)
-		}
-
-		d.indentPrint("],\n")
+		d.printSliceOrArrayValue(t, v, isPtr)
 	case reflect.Struct:
-		if v.CanAddr() && !d.checkCyclicRef(t, v) {
-			break // don't print v again
-		}
-
-		// up: special handel time.Time struct
-		if t == timeType {
-			timeStr := v.Interface().(time.Time).Format(time.RFC3339)
-			d.printf("time.Time(%s),\n", d.ColorTheme.string(timeStr))
-			break
-		}
-
-		d.write(!isPtr, d.ColorTheme.msType(t.String()), " {\n")
-		d.msValue = false
-
-		fldNum := v.NumField()
-		for i := 0; i < fldNum; i++ {
-			fName := t.Field(i).Name
-			if d.SkipPrivate && isUnexported(fName) {
-				continue
-			}
-
-			fv := v.Field(i)
-			if d.SkipNilField && isNilOrInvalid(fv) {
-				continue
-			}
-
-			d.advance(1)
-
-			// print field name
-			d.indentPrint(d.ColorTheme.field(fName), ": ")
-
-			d.msValue = true
-			d.printRValue(fv.Type(), fv)
-			d.msValue = false
-
-			d.advance(-1)
-		}
-
-		d.indentPrint("},\n")
+		d.printStructValue(t, v, isPtr)
 	case reflect.Map:
-		lenTip := d.ColorTheme.valTip("#len=" + strconv.Itoa(v.Len()))
-
-		d.write(!isPtr, d.ColorTheme.msType(t.String()), " { ", lenTip, "\n")
-		d.msValue = false
-
-		for _, key := range v.MapKeys() {
-			mv := v.MapIndex(key)
-			if d.SkipNilField && isNilOrInvalid(mv) {
-				continue
-			}
-
-			d.advance(1)
-
-			// print key name
-			if !key.CanInterface() {
-				// d.printf("<cyan>%s</>: ", key.String())
-				d.printf("%s: ", key.String())
-			} else {
-				d.printf("%#v: ", key.Interface())
-			}
-
-			if mv.CanAddr() && !d.checkCyclicRef(mv.Type(), mv) {
-				d.advance(-1)
-				continue // don't print mv again
-			}
-
-			// print field value
-			d.msValue = true
-			d.printRValue(mv.Type(), mv)
-			d.msValue = false
-
-			d.advance(-1)
-		}
-
-		d.indentPrint("},\n")
+		d.printMapValue(t, v, isPtr)
 	case reflect.Interface:
-		if v.CanAddr() && !d.checkCyclicRef(t, v) {
-			break // don't print v again
-		}
-
-		switch e := v.Elem(); {
-		case e.Kind() == reflect.Invalid:
-			d.indentPrint("nil,\n")
-		case e.IsValid():
-			// d.advance(1)
-			d.printRValue(e.Type(), e)
-		default:
-			d.indentPrint(t.String(), "(nil),\n")
-		}
-	// case reflect.Ptr:
+		d.printInterfaceValue(t, v)
 	case reflect.Chan:
-		d.printf("(%s)(%#v),\n", t.String(), v.Pointer())
+		d.printChanValue(t, v)
 	case reflect.Func:
-		d.printf("(%s) {...},\n", t.String())
+		d.printFuncValue(t, v)
 	case reflect.UnsafePointer:
-		d.printf("(%#v),\n", v.Pointer())
+		d.printUnsafePointerValue(t, v)
 	case reflect.Invalid:
-		d.indentPrint(t.String(), "(nil),\n")
+		d.printInvalidValue(t, v)
 	default:
-		if v.CanAddr() && !d.checkCyclicRef(t, v) {
-			break // don't print v again
-		}
-
-		if v.CanInterface() {
-			d.printf("%s(%#v),\n", t.String(), v.Interface())
-		} else {
-			d.printf("%s(%v),\n", t.String(), v.String())
-		}
+		d.printDefaultValue(t, v)
 	}
 }
 
@@ -445,4 +324,192 @@ func (d *Dumper) write(indent bool, v ...any) {
 
 func (d *Dumper) indentPrint(v ...any) {
 	d.write(true, v...)
+}
+
+// printBoolValue 打印布尔值
+func (d *Dumper) printBoolValue(t reflect.Type, v reflect.Value) {
+	d.printf("%s(%v),\n", t.String(), v.Bool())
+}
+
+// printFloatValue 打印浮点数
+func (d *Dumper) printFloatValue(t reflect.Type, v reflect.Value) {
+	d.printf("%s(%v),\n", t.String(), v.Float())
+}
+
+// printIntValue 打印整数
+func (d *Dumper) printIntValue(t reflect.Type, v reflect.Value) {
+	intStr := strconv.FormatInt(v.Int(), 10)
+	intStr = d.ColorTheme.integer(intStr)
+	d.printf("%s(%s),%s\n", t.String(), intStr, d.rvStringer(t, v))
+}
+
+// printUintValue 打印无符号整数
+func (d *Dumper) printUintValue(t reflect.Type, v reflect.Value) {
+	intStr := strconv.FormatUint(v.Uint(), 10)
+	intStr = d.ColorTheme.integer(intStr)
+	d.printf("%s(%s),%s\n", t.String(), intStr, d.rvStringer(t, v))
+}
+
+// printStringValue 打印字符串
+func (d *Dumper) printStringValue(t reflect.Type, v reflect.Value) {
+	strVal := d.ColorTheme.string(v.String())
+	lenTip := d.ColorTheme.valTip("#len=" + strconv.Itoa(v.Len()))
+	d.printf("%s(\"%s\"), %s\n", t.String(), strVal, lenTip)
+}
+
+// printComplexValue 打印复数
+func (d *Dumper) printComplexValue(_ reflect.Type, v reflect.Value) {
+	d.printf("%#v\n", v.Complex())
+}
+
+// printSliceOrArrayValue 打印切片或数组
+func (d *Dumper) printSliceOrArrayValue(t reflect.Type, v reflect.Value, isPtr bool) {
+	if v.CanAddr() && !d.checkCyclicRef(t, v) {
+		return // don't print v again
+	}
+
+	eleNum := v.Len()
+	lenTip := d.ColorTheme.valTip("#len=" + strconv.Itoa(eleNum) + ",cap=" + strconv.Itoa(v.Cap()))
+
+	d.write(!isPtr, t.String(), " [ ", lenTip, "\n")
+	d.msValue = false
+
+	for i := 0; i < eleNum; i++ {
+		sv := v.Index(i)
+		d.advance(1)
+		d.printRValue(sv.Type(), sv)
+		d.advance(-1)
+	}
+
+	d.indentPrint("],\n")
+}
+
+// printStructValue 打印结构体
+func (d *Dumper) printStructValue(t reflect.Type, v reflect.Value, isPtr bool) {
+	if v.CanAddr() && !d.checkCyclicRef(t, v) {
+		return // don't print v again
+	}
+
+	// special handle time.Time struct
+	if t == timeType {
+		timeStr := v.Interface().(time.Time).Format(time.RFC3339)
+		d.printf("time.Time(%s),\n", d.ColorTheme.string(timeStr))
+		return
+	}
+
+	d.write(!isPtr, d.ColorTheme.msType(t.String()), " {\n")
+	d.msValue = false
+
+	fldNum := v.NumField()
+	for i := 0; i < fldNum; i++ {
+		fName := t.Field(i).Name
+		if d.SkipPrivate && isUnexported(fName) {
+			continue
+		}
+
+		fv := v.Field(i)
+		if d.SkipNilField && isNilOrInvalid(fv) {
+			continue
+		}
+
+		d.advance(1)
+
+		// print field name
+		d.indentPrint(d.ColorTheme.field(fName), ": ")
+
+		d.msValue = true
+		d.printRValue(fv.Type(), fv)
+		d.msValue = false
+
+		d.advance(-1)
+	}
+
+	d.indentPrint("},\n")
+}
+
+// printMapValue 打印 Map
+func (d *Dumper) printMapValue(t reflect.Type, v reflect.Value, isPtr bool) {
+	lenTip := d.ColorTheme.valTip("#len=" + strconv.Itoa(v.Len()))
+
+	d.write(!isPtr, d.ColorTheme.msType(t.String()), " { ", lenTip, "\n")
+	d.msValue = false
+
+	for _, key := range v.MapKeys() {
+		mv := v.MapIndex(key)
+		if d.SkipNilField && isNilOrInvalid(mv) {
+			continue
+		}
+
+		d.advance(1)
+
+		// print key name
+		if !key.CanInterface() {
+			d.printf("%s: ", key.String())
+		} else {
+			d.printf("%#v: ", key.Interface())
+		}
+
+		if mv.CanAddr() && !d.checkCyclicRef(mv.Type(), mv) {
+			d.advance(-1)
+			continue // don't print mv again
+		}
+
+		// print field value
+		d.msValue = true
+		d.printRValue(mv.Type(), mv)
+		d.msValue = false
+
+		d.advance(-1)
+	}
+
+	d.indentPrint("},\n")
+}
+
+// printInterfaceValue 打印接口
+func (d *Dumper) printInterfaceValue(t reflect.Type, v reflect.Value) {
+	if v.CanAddr() && !d.checkCyclicRef(t, v) {
+		return // don't print v again
+	}
+
+	switch e := v.Elem(); {
+	case e.Kind() == reflect.Invalid:
+		d.indentPrint("nil,\n")
+	case e.IsValid():
+		d.printRValue(e.Type(), e)
+	default:
+		d.indentPrint(t.String(), "(nil),\n")
+	}
+}
+
+// printChanValue 打印通道
+func (d *Dumper) printChanValue(t reflect.Type, v reflect.Value) {
+	d.printf("(%s)(%#v),\n", t.String(), v.Pointer())
+}
+
+// printFuncValue 打印函数
+func (d *Dumper) printFuncValue(t reflect.Type, _ reflect.Value) {
+	d.printf("(%s) {...},\n", t.String())
+}
+
+// printUnsafePointerValue 打印不安全指针
+func (d *Dumper) printUnsafePointerValue(_ reflect.Type, v reflect.Value) {
+	d.printf("(%#v),\n", v.Pointer())
+}
+
+// printInvalidValue 打印无效值
+func (d *Dumper) printInvalidValue(_ reflect.Type, v reflect.Value) {
+	d.indentPrint(v.Type().String(), "(nil),\n")
+}
+
+// printDefaultValue 打印默认值（其他类型）
+func (d *Dumper) printDefaultValue(t reflect.Type, v reflect.Value) {
+	if v.CanAddr() && !d.checkCyclicRef(t, v) {
+		return // don't print v again
+	}
+
+	if v.CanInterface() {
+		d.printf("%s(%#v),\n", t.String(), v.Interface())
+	} else {
+		d.printf("%s(%v),\n", t.String(), v.String())
+	}
 }

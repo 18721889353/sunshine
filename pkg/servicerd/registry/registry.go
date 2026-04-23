@@ -3,6 +3,7 @@ package registry
 
 import (
 	"context"
+
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

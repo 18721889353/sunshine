@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package format 提供格式化输出功能。
+// 该包支持缩进格式化和 SQL 语句格式化等。
 package format
 
 import (

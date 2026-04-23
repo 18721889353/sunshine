@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package chunk 提供数据块管理功能。
+// 该包用于高效存储和处理批量数据行。
 package chunk
 
 import (

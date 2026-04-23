@@ -169,10 +169,10 @@ func (resp *defaultResponse) analyzeAndUnwrap(v reflect.Value, typ reflect.Type)
 			sliceCount++
 			if sliceCount == 1 {
 				firstSliceIdx = i
-			} else {
-				// 发现超过一个切片，不符合拆包条件，直接停止
-				break
+				continue
 			}
+			// 发现超过一个切片，不符合拆包条件，直接停止
+			break
 		}
 	}
 

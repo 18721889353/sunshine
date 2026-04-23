@@ -1,11 +1,14 @@
+// Package main 是 RabbitMQ 连接池使用示例程序。
+// 该程序演示如何使用连接池管理 RabbitMQ 连接，提高资源利用率。
 package main
 
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/logger"
 	"sync"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )

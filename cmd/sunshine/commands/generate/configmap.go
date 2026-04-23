@@ -31,7 +31,7 @@ func ConfigmapCommand() *cobra.Command {
   sunshine config cm --server-name=yourServerName --project-name=yourProjectName --config-file=yourConfigFile.yml --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			content, err := convertYamlConfig(configFile)
 			if err != nil {
 				return err

@@ -12,11 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
 	"github.com/18721889353/sunshine/pkg/gocrypto"
 	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/gin-gonic/gin"
 )
 
 var defaultIgnoreURL = map[string]struct{}{}
@@ -159,7 +160,7 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 //	return strings.ToUpper(gocrypto.Md5([]byte(strings.Trim(createEncryptStr(params), "&") + "&key=" + signKey)))
 //}
 
-func createSign(ctx context.Context, o *signOptions, params map[string]interface{}, signKey string) string {
+func createSign(ctx context.Context, _ *signOptions, params map[string]interface{}, signKey string) string {
 	key := strings.Trim(createEncryptStr(params), "&")
 	logger.InfoWithCtx(ctx, "gin中间件拼接的key",
 		logger.String("key", key))

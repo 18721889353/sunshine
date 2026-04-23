@@ -295,7 +295,11 @@ var Col2PrivType = map[string]PrivilegeType{
 }
 
 // AllGlobalPrivs is all the privileges in global scope.
-var AllGlobalPrivs = []PrivilegeType{SelectPriv, InsertPriv, UpdatePriv, DeletePriv, CreatePriv, DropPriv, ProcessPriv, GrantPriv, ReferencesPriv, AlterPriv, ShowDBPriv, SuperPriv, ExecutePriv, IndexPriv, CreateUserPriv, TriggerPriv}
+var AllGlobalPrivs = []PrivilegeType{
+	SelectPriv, InsertPriv, UpdatePriv, DeletePriv, CreatePriv,
+	DropPriv, ProcessPriv, GrantPriv, ReferencesPriv, AlterPriv,
+	ShowDBPriv, SuperPriv, ExecutePriv, IndexPriv, CreateUserPriv, TriggerPriv,
+}
 
 // Priv2Str is the map for privilege to string.
 var Priv2Str = map[PrivilegeType]string{

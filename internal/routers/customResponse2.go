@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/gin/middleware"
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/copier"
 	"google.golang.org/grpc/status"
+
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 type customResponse2 struct{}
@@ -58,10 +59,10 @@ func (r *customResponse2) Success(c *gin.Context, data interface{}) {
 		r.response(c, http.StatusOK, result.Result, nil)
 	}
 }
-func (r *customResponse2) Success2(c *gin.Context, code, msg string, data interface{}) {
+func (r *customResponse2) Success2(_ *gin.Context, _, _ string, _ interface{}) {
 }
 
-func (r *customResponse2) ParamError(c *gin.Context, err error) {
+func (r *customResponse2) ParamError(c *gin.Context, _ error) {
 	r.response(c, http.StatusOK, nil, nil)
 }
 

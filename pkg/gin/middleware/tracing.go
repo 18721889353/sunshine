@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"fmt"
-	"github.com/spf13/cast"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/spf13/cast"
+
 	"github.com/gin-gonic/gin"
 	otelcontrib "go.opentelemetry.io/contrib"
 	"go.opentelemetry.io/otel"
@@ -14,6 +14,8 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 const (

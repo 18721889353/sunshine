@@ -1,5 +1,5 @@
-// config.go
-// Package es 提供 Elasticsearch 客户端封装。
+// Package es 提供 Elasticsearch 客户端配置和连接管理功能。
+// 该包封装了 ES 集群的连接、配置和健康检查等操作。
 package es
 
 import (

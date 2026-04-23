@@ -12,12 +12,13 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/huandu/xstrings"
+	"github.com/jinzhu/inflection"
+
 	"github.com/18721889353/sunshine/pkg/sqlparser/ast"
 	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
 	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/types"
 	"github.com/18721889353/sunshine/pkg/sqlparser/parser"
-	"github.com/huandu/xstrings"
-	"github.com/jinzhu/inflection"
 )
 
 const (
@@ -823,7 +824,7 @@ var grpcDefaultProtoMessageFieldCodes = map[string]string{
 	deleteTableByIDsRequestFieldCodeMark:  "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
 	getTableByIDRequestFieldCodeMark:      "uint64 id = 1 [(validate.rules).uint64.gt = 0];",
 	getTableByIDsRequestFieldCodeMark:     "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
-	listTableByLastIDRequestFieldCodeMark: "uint64 lastID = 1; // last id",
+	listTableByLastIDRequestFieldCodeMark: `uint64 lastID = 1 [(tagger.tags) = "form:\"lastID\""]; // last id`,
 }
 
 var webDefaultProtoMessageFieldCodes = map[string]string{
@@ -833,24 +834,6 @@ var webDefaultProtoMessageFieldCodes = map[string]string{
 	getTableByIDRequestFieldCodeMark:      `uint64 id =1 [(validate.rules).uint64.gt = 0, (tagger.tags) = "uri:\"id\"" ];`,
 	getTableByIDsRequestFieldCodeMark:     "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
 	listTableByLastIDRequestFieldCodeMark: `uint64 lastID = 1 [(tagger.tags) = "form:\"lastID\""]; // last id`,
-}
-
-var grpcProtoMessageFieldCodes = map[string]string{
-	createTableReplyFieldCodeMark:         "string id = 1;",
-	deleteTableByIDRequestFieldCodeMark:   "string id = 1 [(validate.rules).string.min_len = 6];",
-	deleteTableByIDsRequestFieldCodeMark:  "repeated string ids = 1 [(validate.rules).repeated.min_items = 1];",
-	getTableByIDRequestFieldCodeMark:      "string id = 1 [(validate.rules).string.min_len = 6];",
-	getTableByIDsRequestFieldCodeMark:     "repeated string ids = 1 [(validate.rules).repeated.min_items = 1];",
-	listTableByLastIDRequestFieldCodeMark: "string lastID = 1; // last id",
-}
-
-var webProtoMessageFieldCodes = map[string]string{
-	createTableReplyFieldCodeMark:         "string id = 1;",
-	deleteTableByIDRequestFieldCodeMark:   `string id =1 [(validate.rules).string.min_len = 6, (tagger.tags) = "uri:\"id\""];`,
-	deleteTableByIDsRequestFieldCodeMark:  "repeated string ids = 1 [(validate.rules).repeated.min_items = 1];",
-	getTableByIDRequestFieldCodeMark:      `string id =1 [(validate.rules).string.min_len = 6, (tagger.tags) = "uri:\"id\"" ];`,
-	getTableByIDsRequestFieldCodeMark:     "repeated string ids = 1 [(validate.rules).repeated.min_items = 1];",
-	listTableByLastIDRequestFieldCodeMark: `string lastID = 1 [(tagger.tags) = "form:\"lastID\""]; // last id`,
 }
 
 func adaptedDbType(data tmplData, isWebProto bool, code string) string {

@@ -1,15 +1,17 @@
-// Package gorabbitmqConsumer 提供 RabbitMQ 消费者的基础实现。
-package gorabbitmqConsumer
+// Package gorabbitmqconsumer 提供 RabbitMQ 消费者的基础实现。
+package gorabbitmqconsumer
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/pkg/logger"
 	"strconv"
 	"sync"
 
-	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/pkg/logger"
+
 	"github.com/jinzhu/copier"
+
+	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )
 
 // MessageHandler 定义消息处理函数类型
@@ -115,11 +117,9 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 			logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
 		}
 
-		//监听信号，无论是内部 Stop 还是外部 Context 取消
-		select {
-		case <-ctx.Done():
-			logger.WarnWithCtx(ctx, bc.name+" 收到全局 Context 取消信号")
-		}
+		// 监听信号，无论是内部 Stop 还是外部 Context 取消
+		<-ctx.Done()
+		logger.WarnWithCtx(ctx, bc.name+" 收到全局 Context 取消信号")
 
 		logger.WarnWithCtx(ctx, bc.name+" 收到 Context 取消信号，主循环退出")
 	}()
@@ -157,7 +157,11 @@ func (bc *BaseConsumer) buildBaseOptions(cfg config.DoingOrder, index int) []gor
 }
 
 // buildDeadLetterOptions 封装死信队列选项
-func (bc *BaseConsumer) buildDeadLetterOptions(exchange *gorabbitmq.Exchange, cfg config.DoingOrder, deadQueueName, deadRoutingKey, normalQueueName, normalRoutineKey string) []gorabbitmq.ConsumerOption {
+func (bc *BaseConsumer) buildDeadLetterOptions(
+	exchange *gorabbitmq.Exchange,
+	cfg config.DoingOrder,
+	deadQueueName, deadRoutingKey, normalQueueName, normalRoutineKey string,
+) []gorabbitmq.ConsumerOption {
 	return []gorabbitmq.ConsumerOption{
 		gorabbitmq.WithConsumerDeadLetterOptions(
 			gorabbitmq.WithDeadLetter(exchange.Name(), deadQueueName, deadRoutingKey, normalQueueName, exchange.RoutingKey()),

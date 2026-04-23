@@ -124,21 +124,18 @@ func ParseJSONPathExpr(pathExpr string) (pe PathExpression, err error) {
 	// pathExpr[0: dollarIndex), return an ErrInvalidJSONPath error.
 	dollarIndex := strings.Index(pathExpr, "$")
 	if dollarIndex < 0 {
-		err = ErrInvalidJSONPath.GenByArgs(pathExpr)
-		return
+		return pe, ErrInvalidJSONPath.GenByArgs(pathExpr)
 	}
 	for i := 0; i < dollarIndex; i++ {
 		if !isBlank(rune(pathExpr[i])) {
-			err = ErrInvalidJSONPath.GenByArgs(pathExpr)
-			return
+			return pe, ErrInvalidJSONPath.GenByArgs(pathExpr)
 		}
 	}
 
 	pathExprSuffix := strings.TrimFunc(pathExpr[dollarIndex+1:], isBlank)
 	indices := jsonPathExprLegRe.FindAllStringIndex(pathExprSuffix, -1)
 	if len(indices) == 0 && len(pathExprSuffix) != 0 {
-		err = ErrInvalidJSONPath.GenByArgs(pathExpr)
-		return
+		return pe, ErrInvalidJSONPath.GenByArgs(pathExpr)
 	}
 
 	pe.legs = make([]pathLeg, 0, len(indices))
@@ -148,11 +145,10 @@ func ParseJSONPathExpr(pathExpr string) (pe PathExpression, err error) {
 	for _, indice := range indices {
 		start, end := indice[0], indice[1]
 
-		// Check all characters between two legs are blank.
+		// 检查两个片段之间的所有字符都是空白字符
 		for i := lastEnd; i < start; i++ {
 			if !isBlank(rune(pathExprSuffix[i])) {
-				err = ErrInvalidJSONPath.GenByArgs(pathExpr)
-				return
+				return pe, ErrInvalidJSONPath.GenByArgs(pathExpr)
 			}
 		}
 		lastEnd = end
@@ -167,8 +163,7 @@ func ParseJSONPathExpr(pathExpr string) (pe PathExpression, err error) {
 				index = arrayIndexAsterisk
 			} else {
 				if index, err = strconv.Atoi(indexStr); err != nil {
-					err = errors.Trace(err)
-					return
+					return pe, errors.Trace(err)
 				}
 			}
 			pe.legs = append(pe.legs, pathLeg{typ: pathLegIndex, arrayIndex: index})
@@ -178,10 +173,9 @@ func ParseJSONPathExpr(pathExpr string) (pe PathExpression, err error) {
 			if len(key) == 1 && key[0] == '*' {
 				pe.flags |= pathExpressionContainsAsterisk
 			} else if key[0] == '"' {
-				// We need unquote the origin string.
+				// 需要取消原始字符串的引号
 				if key, err = unquoteString(key[1 : len(key)-1]); err != nil {
-					err = ErrInvalidJSONPath.GenByArgs(pathExpr)
-					return
+					return pe, ErrInvalidJSONPath.GenByArgs(pathExpr)
 				}
 			}
 			pe.legs = append(pe.legs, pathLeg{typ: pathLegKey, dotKey: key})
@@ -192,13 +186,12 @@ func ParseJSONPathExpr(pathExpr string) (pe PathExpression, err error) {
 		}
 	}
 	if len(pe.legs) > 0 {
-		// The last leg of a path expression cannot be '**'.
+		// 路径表达式的最后一个片段不能是 '**'
 		if pe.legs[len(pe.legs)-1].typ == pathLegDoubleAsterisk {
-			err = ErrInvalidJSONPath.GenByArgs(pathExpr)
-			return
+			return pe, ErrInvalidJSONPath.GenByArgs(pathExpr)
 		}
 	}
-	return
+	return pe, nil
 }
 
 func isBlank(c rune) bool {

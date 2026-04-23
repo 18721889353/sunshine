@@ -185,7 +185,7 @@ func convertProjectAndServerName(projectName, serverName string) (pn string, sn 
 	return pn, sn, err
 }
 
-func adjustmentOfIDType(handlerCodes string, dbDriver string, isCommonStyle bool) string {
+func adjustmentOfIDType(handlerCodes string, _ string, isCommonStyle bool) string {
 	if isCommonStyle {
 		return handlerCodes
 	}
@@ -216,17 +216,18 @@ func idTypeToUint64(handlerCodes string) string {
 	return handlerCodes
 }
 
-func idTypeToStr(handlerCodes string) string {
-	subStart := "ObjDetail struct {"
-	subEnd := "`" + `json:"id"` + "`"
-	if subBytes := gofile.FindSubBytesNotIn([]byte(handlerCodes), []byte(subStart), []byte(subEnd)); len(subBytes) > 0 {
-		old := subStart + string(subBytes) + subEnd
-		newStr := subStart + "\n\tID string " + subEnd + " // convert to string id\n"
-		handlerCodes = strings.ReplaceAll(handlerCodes, old, newStr)
-	}
-
-	return handlerCodes
-}
+// idTypeToStr 将ID类型转换为string(暂未使用,保留供将来扩展)
+// func idTypeToStr(handlerCodes string) string {
+// 	subStart := "ObjDetail struct {"
+// 	subEnd := "`" + `json:"id"` + "`"
+// 	if subBytes := gofile.FindSubBytesNotIn([]byte(handlerCodes), []byte(subStart), []byte(subEnd)); len(subBytes) > 0 {
+// 		old := subStart + string(subBytes) + subEnd
+// 		newStr := subStart + "\n\tID string " + subEnd + " // convert to string id\n"
+// 		handlerCodes = strings.ReplaceAll(handlerCodes, old, newStr)
+// 	}
+//
+// 	return handlerCodes
+// }
 
 func deleteFieldsMark(r replacer.Replacer, filename string, startMark []byte, endMark []byte) []replacer.Field {
 	var fields []replacer.Field
@@ -889,7 +890,7 @@ func AddLocalReplaceField(fields []replacer.Field) []replacer.Field {
 // appendReplaceDirective appends replace directive to go.mod file after generation
 // 仅当 sunshine 从本地源码运行时才添加，通过 go install 安装时不添加
 // 编译后的二进制启动 Web UI 也不添加（用户独立项目）
-func appendReplaceDirective(outputDir string, moduleName string) error {
+func appendReplaceDirective(outputDir string, _ string) error {
 	// 检测是否通过编译后的二进制启动的 Web UI，如果是则不添加 replace 指令
 	if os.Getenv("SUNSHINE_COMPILED_BINARY") == "true" {
 		return nil
@@ -930,58 +931,59 @@ func appendReplaceDirective(outputDir string, moduleName string) error {
 // getSunshineCmdForScript returns the sunshine command path for generated scripts
 // If running from local source code, return the absolute path with forward slashes (for bash scripts)
 // If installed via go install, return "sunshine" (use system PATH)
-func getSunshineCmdForScript() string {
-	// First, check if SUNSHINE_SRC_DIR environment variable is set
-	if envDir := os.Getenv("SUNSHINE_SRC_DIR"); envDir != "" {
-		exePath, err := os.Executable()
-		if err == nil {
-			return filepath.ToSlash(exePath)
-		}
-	}
+// 暂未使用,保留供将来扩展
+// func getSunshineCmdForScript() string {
+// First, check if SUNSHINE_SRC_DIR environment variable is set
+// if envDir := os.Getenv("SUNSHINE_SRC_DIR"); envDir != "" {
+// 	exePath, err := os.Executable()
+// 	if err == nil {
+// 		return filepath.ToSlash(exePath)
+// 	}
+// }
 
-	// Check current working directory
-	if wd, err := os.Getwd(); err == nil {
-		// Check if we're in sunshine source directory
-		if gofile.IsExists(filepath.Join(wd, "cmd")) &&
-			gofile.IsExists(filepath.Join(wd, "pkg")) &&
-			gofile.IsExists(filepath.Join(wd, "internal")) {
-			exePath, err := os.Executable()
-			if err == nil {
-				return filepath.ToSlash(exePath)
-			}
-		}
-	}
+// Check current working directory
+// if wd, err := os.Getwd(); err == nil {
+// 	// Check if we're in sunshine source directory
+// 	if gofile.IsExists(filepath.Join(wd, "cmd")) &&
+// 		gofile.IsExists(filepath.Join(wd, "pkg")) &&
+// 		gofile.IsExists(filepath.Join(wd, "internal")) {
+// 		exePath, err := os.Executable()
+// 		if err == nil {
+// 			return filepath.ToSlash(exePath)
+// 		}
+// 	}
+// }
 
-	// Check executable path
-	exePath, err := os.Executable()
-	if err != nil {
-		return "sunshine"
-	}
+// Check executable path
+// exePath, err := os.Executable()
+// if err != nil {
+// 	return "sunshine"
+// }
 
-	// Check if sunshine is running from source code directory
-	// (contains cmd, pkg, internal directories)
-	exeDir := filepath.Dir(exePath)
-	for i := 0; i < 10; i++ {
-		if gofile.IsExists(filepath.Join(exeDir, "cmd")) &&
-			gofile.IsExists(filepath.Join(exeDir, "pkg")) &&
-			gofile.IsExists(filepath.Join(exeDir, "internal")) {
-			// Found source directory, always use forward slashes for bash scripts
-			return filepath.ToSlash(exePath)
-		}
-		parent := filepath.Dir(exeDir)
-		if parent == exeDir {
-			break
-		}
-		exeDir = parent
-	}
+// Check if sunshine is running from source code directory
+// (contains cmd, pkg, internal directories)
+// exeDir := filepath.Dir(exePath)
+// for i := 0; i < 10; i++ {
+// 	if gofile.IsExists(filepath.Join(exeDir, "cmd")) &&
+// 		gofile.IsExists(filepath.Join(exeDir, "pkg")) &&
+// 		gofile.IsExists(filepath.Join(exeDir, "internal")) {
+// 		// Found source directory, always use forward slashes for bash scripts
+// 		return filepath.ToSlash(exePath)
+// 	}
+// 	parent := filepath.Dir(exeDir)
+// 	if parent == exeDir {
+// 		break
+// 	}
+// 	exeDir = parent
+// }
 
-	// Not running from source directory, assume installed via go install
-	return "sunshine"
-}
+// Not running from source directory, assume installed via go install
+// return "sunshine"
+// }
 
 // updateSunshineCmdInScript updates the sunshine command in protoc.sh script
 // Note: This function is now deprecated. The sunshine command path is automatically detected from go.mod replace directive.
-func updateSunshineCmdInScript(outputDir string) error {
+func updateSunshineCmdInScript(_ string) error {
 	// No longer needed - sunshine path is auto-detected from go.mod
 	return nil
 }

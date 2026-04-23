@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package json 提供 MySQL 二进制 JSON 格式的编码和解码功能。
+// 该包实现了 MySQL 5.7 的二进制 JSON 格式，支持无需反序列化的随机访问。
 package json
 
 import (
@@ -347,22 +349,23 @@ func marshalStringTo(buf, s []byte) []byte {
 	return buf
 }
 
-func (bj BinaryJSON) marshalValueEntryTo(buf []byte, entryOff int) ([]byte, error) {
-	tpCode := bj.Value[entryOff]
-	switch tpCode {
-	case TypeCodeLiteral:
-		buf = marshalLiteralTo(buf, bj.Value[entryOff+1])
-	default:
-		offset := endian.Uint32(bj.Value[entryOff+1:])
-		tmp := BinaryJSON{TypeCode: tpCode, Value: bj.Value[offset:]}
-		var err error
-		buf, err = tmp.marshalTo(buf)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-	}
-	return buf, nil
-}
+// marshalValueEntryTo 将值条目编组到缓冲区(暂未使用,保留供将来扩展)
+// func (bj BinaryJSON) marshalValueEntryTo(buf []byte, entryOff int) ([]byte, error) {
+// 	tpCode := bj.Value[entryOff]
+// 	switch tpCode {
+// 	case TypeCodeLiteral:
+// 		buf = marshalLiteralTo(buf, bj.Value[entryOff+1])
+// 	default:
+// 		offset := endian.Uint32(bj.Value[entryOff+1:])
+// 		tmp := BinaryJSON{TypeCode: tpCode, Value: bj.Value[offset:]}
+// 		var err error
+// 		buf, err = tmp.marshalTo(buf)
+// 		if err != nil {
+// 			return nil, errors.Trace(err)
+// 		}
+// 	}
+// 	return buf, nil
+// }
 
 func marshalLiteralTo(b []byte, litType byte) []byte {
 	switch litType {
@@ -380,12 +383,12 @@ func marshalLiteralTo(b []byte, litType byte) []byte {
 func ParseBinaryFromString(s string) (bj BinaryJSON, err error) {
 	if len(s) == 0 {
 		err = ErrInvalidJSONText.GenByArgs("The document is empty")
-		return
+		return bj, err
 	}
 	if err = bj.UnmarshalJSON(hack.Slice(s)); err != nil {
 		err = ErrInvalidJSONText.GenByArgs(err)
 	}
-	return
+	return bj, err
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.

@@ -38,7 +38,7 @@ func ConfigCommand() *cobra.Command {
   sunshine config --yaml-file=yourConfig.yml`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if ysArgs.InputFile != "" {
 				return convertToGoFile(ysArgs, outPath)
 			}

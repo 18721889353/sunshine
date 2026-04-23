@@ -1,3 +1,5 @@
+// Package gosm4 提供国密 SM4 对称加密算法的封装。
+// 该包支持 ECB 和 CBC 两种加密模式，并提供多种数据格式的加解密接口。
 package gosm4
 
 import (
@@ -5,12 +7,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+
+	"github.com/tjfoc/gmsm/sm4"
 )
 
 // 添加gmsm/sm4导入以支持SM4加密
-import (
-	"github.com/tjfoc/gmsm/sm4"
-)
 
 // SM4Option 是用于配置SM4的函数类型
 type SM4Option func(*sm4Options)
@@ -134,7 +135,7 @@ func (s *SM4) DecryptCBC(ciphertextByte, keyByte, ivByte []byte) *DecryptResult 
 	if err != nil {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 CBC: %w", err)}}
 	}
-	if plaintextByte == nil || len(plaintextByte) == 0 {
+	if len(plaintextByte) == 0 {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 CBC: %w", err)}}
 	}
 	return &DecryptResult{&Result{plaintextByte, nil}}
@@ -185,30 +186,28 @@ type Result struct {
 	err  error
 }
 
-// pkcs7Padding 使用PKCS7填充数据
-func pkcs7Padding(data []byte, blockSize int) []byte {
-	padding := blockSize - len(data)%blockSize
-	padtext := make([]byte, padding)
-	for i := range padtext {
-		padtext[i] = byte(padding)
-	}
-	return append(data, padtext...)
-}
+// pkcs7Padding 使用PKCS7填充数据(暂未使用,保留供将来扩展)
+// func pkcs7Padding(data []byte, blockSize int) []byte {
+// 	padding := blockSize - len(data)%blockSize
+// 	padtext := make([]byte, padding)
+// 	for i := range padtext {
+// 		padtext[i] = byte(padding)
+// 	}
+// 	return append(data, padtext...)
+// }
 
-// pkcs7Unpadding 去除PKCS7填充
-func pkcs7Unpadding(data []byte) ([]byte, error) {
-	length := len(data)
-	if length == 0 {
-		return nil, fmt.Errorf("invalid padding size")
-	}
-
-	padding := int(data[length-1])
-	if padding > length {
-		return nil, fmt.Errorf("invalid padding size")
-	}
-
-	return data[:(length - padding)], nil
-}
+// pkcs7Unpadding 去除PKCS7填充(暂未使用,保留供将来扩展)
+// func pkcs7Unpadding(data []byte) ([]byte, error) {
+// 	length := len(data)
+// 	if length == 0 {
+// 		return nil, fmt.Errorf("invalid padding size")
+// 	}
+// 	padding := int(data[length-1])
+// 	if padding > length {
+// 		return nil, fmt.Errorf("invalid padding size")
+// 	}
+// 	return data[:(length - padding)], nil
+// }
 
 // ToBytes 返回原始字节数据
 func (r *Result) ToBytes() ([]byte, error) {

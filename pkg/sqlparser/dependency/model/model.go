@@ -351,5 +351,5 @@ func (cis CIStr) String() string {
 func NewCIStr(s string) (cs CIStr) {
 	cs.O = s
 	cs.L = strings.ToLower(s)
-	return
+	return cs
 }

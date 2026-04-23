@@ -3,14 +3,17 @@ package initial
 import (
 	"strconv"
 
-	"github.com/18721889353/sunshine/internal/cron"
+	// 导入定时任务包以执行init函数
 	_ "github.com/18721889353/sunshine/internal/cron/tasks"
+
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
+	// 导入RabbitMQ消费者包以执行init函数
 	_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
-	"github.com/18721889353/sunshine/pkg/app"
 
 	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/cron"
 	"github.com/18721889353/sunshine/internal/server"
+	"github.com/18721889353/sunshine/pkg/app"
 )
 
 // CreateServices create grpc service

@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package util 提供通用工具函数。
+// 该包包含各种辅助函数和实用工具。
 package util
 
 import (

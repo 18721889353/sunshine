@@ -1,9 +1,12 @@
+// Package main 是国密 SM2 算法示例程序。
+// 该程序演示如何使用 SM2 进行加密、解密、签名和验签操作。
 package main
 
 import (
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/gogm/gosm2"
 	"log"
+
+	"github.com/18721889353/sunshine/pkg/gogm/gosm2"
 )
 
 func main() {

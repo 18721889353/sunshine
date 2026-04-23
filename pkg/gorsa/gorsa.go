@@ -1,3 +1,5 @@
+// Package gorsa 提供 RSA 非对称加密算法的封装。
+// 该包支持密钥生成、加解密、签名和验签等功能。
 package gorsa
 
 import (

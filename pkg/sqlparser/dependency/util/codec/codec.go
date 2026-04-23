@@ -424,7 +424,7 @@ func peek(b []byte) (length int, err error) {
 		return 0, errors.Trace(err)
 	}
 	length += l
-	return
+	return length, err
 }
 
 func peekBytes(b []byte, reverse bool) (int, error) {

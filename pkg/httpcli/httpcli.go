@@ -1,3 +1,5 @@
+// Package httpcli 提供 HTTP 客户端封装。
+// 该包简化了 HTTP 请求的发送和响应处理，支持多种请求方式和配置选项。
 package httpcli
 
 import (
@@ -7,10 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-resty/resty/v2"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 // Client 封装了resty客户端

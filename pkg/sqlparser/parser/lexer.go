@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package parser 提供 SQL 词法分析器。
+// 该包负责将 SQL 字符串分解为词法单元（tokens）。
 package parser
 
 import (
@@ -257,11 +259,11 @@ func startWithXx(s *Scanner) (tok int, pos Pos, lit string) {
 		} else {
 			tok = unicode.ReplacementChar
 		}
-		return
+		return tok, pos, lit
 	}
 	s.r.incAsLongAs(isIdentChar)
 	tok, lit = identifier, s.r.data(&pos)
-	return
+	return tok, pos, lit
 }
 
 func startWithNn(s *Scanner) (tok int, pos Pos, lit string) {
@@ -275,7 +277,7 @@ func startWithNn(s *Scanner) (tok int, pos Pos, lit string) {
 			lit = "utf8"
 		}
 	}
-	return
+	return tok, pos, lit
 }
 
 func startWithBb(s *Scanner) (tok int, pos Pos, lit string) {
@@ -290,11 +292,11 @@ func startWithBb(s *Scanner) (tok int, pos Pos, lit string) {
 		} else {
 			tok = unicode.ReplacementChar
 		}
-		return
+		return tok, pos, lit
 	}
 	s.r.incAsLongAs(isIdentChar)
 	tok, lit = identifier, s.r.data(&pos)
-	return
+	return tok, pos, lit
 }
 
 func startWithSharp(s *Scanner) (tok int, pos Pos, lit string) {
@@ -316,7 +318,7 @@ func startWithDash(s *Scanner) (tok int, pos Pos, lit string) {
 	if strings.HasPrefix(s.r.s[pos.Offset:], "->>") {
 		tok = juss
 		s.r.incN(3)
-		return
+		return tok, pos, lit
 	}
 	if strings.HasPrefix(s.r.s[pos.Offset:], "->") {
 		tok = jss
@@ -339,7 +341,7 @@ func startWithSlash(s *Scanner) (tok int, pos Pos, lit string) {
 			if ch0 == unicode.ReplacementChar && s.r.eof() {
 				// unclosed comment
 				s.errs = append(s.errs, ParseErrorWith(s.r.data(&pos), s.r.p.Line))
-				return
+				return tok, pos, lit
 			}
 			if ch0 == '*' && s.r.readByte() == '/' {
 				break
@@ -450,13 +452,13 @@ func scanQuotedIdent(s *Scanner) (tok int, pos Pos, lit string) {
 		ch := s.r.readByte()
 		if ch == unicode.ReplacementChar && s.r.eof() {
 			tok = unicode.ReplacementChar
-			return
+			return tok, pos, lit
 		}
 		if ch == '`' {
 			if s.r.peek() != '`' {
 				// don't return identifier in case that it's interpreted as keyword token later.
 				tok, lit = quotedIdentifier, s.buf.String()
-				return
+				return tok, pos, lit
 			}
 			s.r.inc()
 		}
@@ -588,7 +590,7 @@ func startWithNumber(s *Scanner) (tok int, pos Pos, lit string) {
 			return s.scanFloat(&pos)
 		case ch1 == 'B':
 			tok = unicode.ReplacementChar
-			return
+			return tok, pos, lit
 		}
 	}
 
@@ -614,13 +616,13 @@ func startWithDot(s *Scanner) (tok int, pos Pos, lit string) {
 	if isDigit(s.r.peek()) {
 		tok, _, lit = s.scanFloat(&pos)
 		if s.r.eof() || !isIdentChar(s.r.peek()) {
-			return
+			return tok, pos, lit
 		}
 		// Fail to parse a float, reset to dot.
 		s.r.p = save
 	}
 	tok, lit = int('.'), "."
-	return
+	return tok, pos, lit
 }
 
 func (s *Scanner) scanOct() {
@@ -680,7 +682,8 @@ type reader struct {
 	w int
 }
 
-var eof = Pos{-1, -1, -1}
+// eof 表示文件结束位置(暂未使用,保留供将来扩展)
+// var eof = Pos{-1, -1, -1}
 
 func (r *reader) eof() bool {
 	return r.p.Offset >= len(r.s)

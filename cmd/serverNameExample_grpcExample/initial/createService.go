@@ -7,6 +7,7 @@ import (
 	// Import cron tasks for initialization
 	_ "github.com/18721889353/sunshine/internal/cron/tasks"
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
+
 	// Import rabbitmq consumers for initialization
 	_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
 	"github.com/18721889353/sunshine/internal/server"

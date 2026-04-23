@@ -47,7 +47,7 @@ func CacheCommand(parentName string) *cobra.Command {
   # 如果希望生成的代码适配单体仓库结构，需要设置参数 --suited-mono-repo=true --server-name=yourServerName`,
 			parentName, parentName)),
 		// 命令执行逻辑
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			// 从输出目录中读取之前保存的模块名和服务器名（如果存在）
 			mdName, srvName, smr := getNamesFromOutDir(outPath)
 			if mdName != "" {

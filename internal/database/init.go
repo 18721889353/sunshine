@@ -2,9 +2,10 @@
 package database
 
 import (
-	"github.com/18721889353/sunshine/internal/config"
 	"strings"
 	"sync"
+
+	"github.com/18721889353/sunshine/internal/config"
 
 	"github.com/18721889353/sunshine/pkg/sgorm"
 )

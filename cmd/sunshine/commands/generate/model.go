@@ -42,7 +42,7 @@ func ModelCommand(parentName string) *cobra.Command {
 			parentName, parentName, parentName)),
 		SilenceErrors: true, // 设置为静默错误输出，不显示错误信息
 		SilenceUsage:  true, // 设置为静默使用信息输出，不显示使用信息
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			tableNames := strings.Split(dbTables, ",") // 将表名字符串按逗号分隔成数组
 			for _, tableName := range tableNames {
 				if tableName == "" {

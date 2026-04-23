@@ -104,6 +104,7 @@ type funcNode struct {
 // functionExpression implements FunctionNode interface.
 func (fn *funcNode) functionExpression() {}
 
-type resultSetNode struct {
-	resultFields []*ResultField
-}
+// resultSetNode 结果集节点(暂未使用,保留供将来扩展)
+// type resultSetNode struct {
+// 	resultFields []*ResultField
+// }

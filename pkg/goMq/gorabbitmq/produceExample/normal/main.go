@@ -1,3 +1,5 @@
+// Package main 是 RabbitMQ 普通队列生产者示例程序。
+// 该程序演示如何创建生产者并发送消息到普通队列。
 package main
 
 import (

@@ -1,3 +1,5 @@
+// Package main 是 RabbitMQ 死信队列消费者示例程序。
+// 该程序演示如何消费和处理死信消息。
 package main
 
 import (
@@ -113,7 +115,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	consumer.Consume(ctx, func(ctx context.Context, data []byte, messageId string, tagID string) error {
+	consumer.Consume(ctx, func(_ context.Context, data []byte, messageId string, tagID string) error {
 		fmt.Println(string(data))
 		fmt.Println(tagID)
 		fmt.Println(messageId)

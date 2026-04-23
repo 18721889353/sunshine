@@ -1,8 +1,9 @@
 package database
 
 import (
-	"github.com/18721889353/sunshine/pkg/logger"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/pkg/sgorm"
 	"github.com/18721889353/sunshine/pkg/sgorm/mysql"

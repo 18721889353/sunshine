@@ -6,8 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/IBM/sarama"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ProducerMessage is sarama ProducerMessage

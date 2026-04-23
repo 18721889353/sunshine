@@ -2,9 +2,10 @@ package middleware
 
 import (
 	"bytes"
-	"github.com/gin-gonic/gin"
 	"io"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 // ResponseWriter 自定义响应writer，用于捕获响应体

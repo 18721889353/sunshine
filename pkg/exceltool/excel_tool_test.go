@@ -1,4 +1,4 @@
-package excel_tool
+package exceltool
 
 import (
 	"github.com/18721889353/sunshine/pkg/dump"

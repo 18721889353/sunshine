@@ -295,8 +295,8 @@ func ListGRPCErrCodes(w http.ResponseWriter, _ *http.Request) {
 // @Accept  json
 // @Produce  json
 // @Router /config [get]
-func ShowConfig(jsonData []byte) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
+func ShowConfig(jsonData []byte) func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		//w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, err := w.Write(jsonData)

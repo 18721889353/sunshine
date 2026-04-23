@@ -1,10 +1,11 @@
 package middleware
 
 import (
+	"github.com/gin-gonic/gin"
+
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
 	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/gin-gonic/gin"
 )
 
 var defaultWhiteList = map[string]struct{}{}

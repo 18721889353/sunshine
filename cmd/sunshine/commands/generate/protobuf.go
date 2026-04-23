@@ -47,7 +47,7 @@ func ProtobufCommand() *cobra.Command {
   sunshine micro protobuf --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			mdName, srvName, _ := getNamesFromOutDir(outPath)
 			if mdName != "" {
 				moduleName = mdName

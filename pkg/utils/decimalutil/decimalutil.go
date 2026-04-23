@@ -1,7 +1,9 @@
+// Package decimalutil provides utility functions for decimal arithmetic operations.
 package decimalutil
 
 import (
 	"fmt"
+
 	"github.com/shopspring/decimal"
 )
 

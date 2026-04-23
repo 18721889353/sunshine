@@ -3,6 +3,7 @@ package gosm3
 
 import (
 	"encoding/hex"
+
 	"github.com/tjfoc/gmsm/sm3"
 )
 

@@ -12,7 +12,7 @@
 // limitations under the License.
 
 // Package ast is the abstract syntax tree parsed from a SQL statement by parser.
-// It can be analysed and transformed by optimizer.
+// It can be analyzed and transformed by optimizer.
 package ast
 
 import (

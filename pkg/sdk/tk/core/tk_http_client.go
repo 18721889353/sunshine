@@ -12,10 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
 )
 
 var clientMap sync.Map

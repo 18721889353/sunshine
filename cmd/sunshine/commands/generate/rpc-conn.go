@@ -38,7 +38,7 @@ func GRPCConnectionCommand() *cobra.Command {
   # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true --server-name=yourServerName`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			mdName, srvName, smr := getNamesFromOutDir(outPath)
 			if mdName != "" {
 				moduleName = mdName

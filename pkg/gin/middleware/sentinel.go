@@ -1,13 +1,14 @@
 package middleware
 
 import (
-	"github.com/18721889353/sunshine/pkg/errcode"
-	"github.com/18721889353/sunshine/pkg/gin/response"
 	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/alibaba/sentinel-golang/core/flow"
 	SentinelGin "github.com/alibaba/sentinel-golang/pkg/adapters/gin"
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/copier"
+
+	"github.com/18721889353/sunshine/pkg/errcode"
+	"github.com/18721889353/sunshine/pkg/gin/response"
 )
 
 var resourceName = "default"

@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -18,6 +17,8 @@ import (
 	gormLogger "gorm.io/gorm/logger"
 	"gorm.io/gorm/schema"
 	"gorm.io/plugin/dbresolver"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/pkg/sgorm/dbclose"
 	"github.com/18721889353/sunshine/pkg/sgorm/glog"

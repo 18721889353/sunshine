@@ -75,16 +75,16 @@ func NewCFBMode() CipherMode {
 	return &ofbCipherModel{}
 }
 
-// Cipher cfb cipher
+// Cipher cfb cipher(暂未使用,保留供将来扩展)
 //
 //nolint:staticcheck // CFB mode is deprecated but kept for backward compatibility
-func (cfb *cfbCipherModel) Cipher(block cipher.Block, iv []byte) Cipher {
-	//nolint:staticcheck // cipher.NewCFBEncrypter is deprecated but required for CFB mode support
-	encrypter := cipher.NewCFBEncrypter(block, iv)
-	//nolint:staticcheck // cipher.NewCFBDecrypter is deprecated but required for CFB mode support
-	decrypter := cipher.NewCFBDecrypter(block, iv)
-	return NewStreamCipher(encrypter, decrypter)
-}
+// func (cfb *cfbCipherModel) Cipher(block cipher.Block, iv []byte) Cipher {
+// 	//nolint:staticcheck // cipher.NewCFBEncrypter is deprecated but required for CFB mode support
+// 	encrypter := cipher.NewCFBEncrypter(block, iv)
+// 	//nolint:staticcheck // cipher.NewCFBDecrypter is deprecated but required for CFB mode support
+// 	decrypter := cipher.NewCFBDecrypter(block, iv)
+// 	return NewStreamCipher(encrypter, decrypter)
+// }
 
 type ofbCipherModel struct {
 	cipherMode

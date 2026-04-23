@@ -4,13 +4,14 @@ package app
 import (
 	"context"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"os"
 	"os/signal"
 	"os/user"
 	"strconv"
 	"syscall"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/prof"

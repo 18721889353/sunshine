@@ -2,9 +2,10 @@ package database
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/internal/config"
 	"sync"
 	"time"
+
+	"github.com/18721889353/sunshine/internal/config"
 
 	"github.com/18721889353/sunshine/pkg/es"
 	"github.com/18721889353/sunshine/pkg/logger"

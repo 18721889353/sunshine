@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package charset 提供字符集相关的工具函数。
+// 该包包含字符集检测、转换和验证等功能。
 package charset
 
 import (
@@ -109,11 +111,7 @@ func ValidCharsetAndCollation(cs string, co string) bool {
 		return true
 	}
 	_, ok = c.Collations[co]
-	if !ok {
-		return false
-	}
-
-	return true
+	return ok
 }
 
 // GetDefaultCollation returns the default collation for charset.

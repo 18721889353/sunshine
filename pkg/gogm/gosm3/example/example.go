@@ -1,9 +1,12 @@
+// Package main 是国密 SM3 哈希算法的示例程序。
+// 该程序演示如何使用 SM3 算法对数据进行哈希计算。
 package main
 
 import (
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/gogm/gosm3"
 	"log"
+
+	"github.com/18721889353/sunshine/pkg/gogm/gosm3"
 )
 
 func main() {

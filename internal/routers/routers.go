@@ -3,11 +3,15 @@
 package routers
 
 import (
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
 	"net/http"
 	"strconv"
 	"time"
+
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/pkg/errcode"
@@ -16,8 +20,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/middleware/metrics"
 	"github.com/18721889353/sunshine/pkg/gin/prof"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 
 	"github.com/18721889353/sunshine/docs"
 	"github.com/18721889353/sunshine/internal/config"

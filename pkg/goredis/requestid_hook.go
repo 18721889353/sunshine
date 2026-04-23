@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // requestIDHook 自定义 Redis Hook，用于从 Context 提取 request_id 并设置到 Span 属性

@@ -1,12 +1,15 @@
+// Package main 是 RabbitMQ 功能测试程序。
+// 该程序包含各种 RabbitMQ 功能的集成测试和示例。
 package main
 
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/internal/database"
 	"log"
 	"time"
+
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/database"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -14,11 +17,12 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"gorm.io/gorm"
+
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/18721889353/sunshine/pkg/goredis"
 	"github.com/18721889353/sunshine/pkg/logger"
 	pkgtracer "github.com/18721889353/sunshine/pkg/tracer"
-	"gorm.io/gorm"
 )
 
 // contextKey 定义 context key 类型，避免使用 string 类型
@@ -181,7 +185,7 @@ func main() {
 	msgReceived := make(chan string, 1)
 	go func() {
 		fmt.Println("🚀 Consumer started...")
-		consumer.Consume(rootCtx, func(_ context.Context, data []byte, msgID, tagID string) error {
+		consumer.Consume(rootCtx, func(_ context.Context, data []byte, msgID, _ string) error {
 			fmt.Printf("✅ Received message: %s, ID: %s\n", string(data), msgID)
 			// 通知主 goroutine 消息已被消费
 			select {
@@ -258,7 +262,7 @@ func testRedisOps(ctx context.Context, redisCli *goredis.Client, reqID string) {
 }
 
 // testMySQLOps 测试 MySQL 操作（验证 request_id 传递）
-func testMySQLOps(_ context.Context, db *gorm.DB, reqID string) {
+func testMySQLOps(_ context.Context, db *gorm.DB, _ string) {
 	// 执行一个简单的 SELECT 查询
 	selectSQL := "SELECT @@version as version, DATABASE() as current_db"
 

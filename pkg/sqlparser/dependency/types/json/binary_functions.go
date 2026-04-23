@@ -219,7 +219,7 @@ func (bj BinaryJSON) objectSearchKey(key []byte) (BinaryJSON, bool) {
 	idx := sort.Search(elemCount, func(i int) bool {
 		return bytes.Compare(bj.objectGetKey(i), key) >= 0
 	})
-	if idx < elemCount && bytes.Compare(bj.objectGetKey(idx), key) == 0 {
+	if idx < elemCount && bytes.Equal(bj.objectGetKey(idx), key) {
 		return bj.objectGetVal(idx), true
 	}
 	return BinaryJSON{}, false
@@ -669,9 +669,9 @@ func mergeBinaryObject(objects []BinaryJSON) BinaryJSON {
 func PeekBytesAsJSON(b []byte) (n int, err error) {
 	if len(b) <= 0 {
 		err = errors.New("Cant peek from empty bytes")
-		return
+		return n, err
 	}
-	switch c := TypeCode(b[0]); c {
+	switch c := b[0]; c {
 	case TypeCodeObject, TypeCodeArray:
 		if len(b) >= valTypeSize+headerSize {
 			size := endian.Uint32(b[valTypeSize+dataSizeOff:])

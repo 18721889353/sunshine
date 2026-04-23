@@ -3,8 +3,9 @@ package kafka
 import (
 	"context"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/IBM/sarama"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ---------------------------------- consume group---------------------------------------

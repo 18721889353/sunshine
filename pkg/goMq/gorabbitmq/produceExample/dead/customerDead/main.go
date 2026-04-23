@@ -1,3 +1,5 @@
+// Package main 是 RabbitMQ 死信队列消费者示例程序。
+// 该程序演示如何消费死信队列中的消息。
 package main
 
 import (

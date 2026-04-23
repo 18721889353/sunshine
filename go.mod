@@ -25,7 +25,6 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/gogf/gf/v2 v2.9.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/golang/protobuf v1.5.4
 	github.com/golang/snappy v1.0.0
 	github.com/google/uuid v1.6.0
 	github.com/gookit/color v1.5.4
@@ -77,7 +76,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.49.0
-	golang.org/x/net v0.52.0
 	golang.org/x/sync v0.20.0
 	golang.org/x/text v0.35.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9
@@ -88,6 +86,11 @@ require (
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.30.2
 	gorm.io/plugin/dbresolver v1.6.2
+)
+
+require (
+	github.com/golang/protobuf v1.5.4 // indirect
+	golang.org/x/net v0.52.0 // indirect
 )
 
 require (

@@ -20,8 +20,9 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
 	"github.com/juju/errors"
+
+	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
 )
 
 // Global error instances.

@@ -11,6 +11,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package codec 提供数据编码和解码功能。
+// 该包包含字节序列、键值对等的编解码实现。
 package codec
 
 import (
@@ -28,8 +30,9 @@ const (
 )
 
 var (
-	pads    = make([]byte, encGroupSize)
-	encPads = []byte{encPad}
+	pads = make([]byte, encGroupSize)
+	// encPads 编码填充字节(暂未使用,保留供将来扩展)
+	// encPads = []byte{encPad}
 )
 
 // EncodeBytes guarantees the encoded value is in ascending order for comparison,

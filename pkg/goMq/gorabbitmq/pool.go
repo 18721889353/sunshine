@@ -8,12 +8,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/panjf2000/ants/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // --- 优化点 1: 定义常量和错误类型 ---
@@ -210,6 +211,112 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 	return pool, nil
 }
 
+// tryGetFromPool 尝试从连接池获取一个可用连接
+// 返回连接、是否成功、是否需要继续循环
+func (p *Pool) tryGetFromPool(ctx context.Context, startTime time.Time, span trace.Span) (conn *Connection, success bool, shouldContinue bool) {
+	if len(p.conns) == 0 {
+		return nil, false, true // 池为空，继续循环
+	}
+
+	lastIdx := len(p.conns) - 1
+	pc := p.conns[lastIdx]
+	p.conns = p.conns[:lastIdx]
+	p.mutex.Unlock()
+
+	// 检查连接健康度
+	isFresh := time.Since(pc.lastUsed) < fastVerifyThreshold
+	if pc.conn.CheckConnected(ctx) {
+		if isFresh {
+			if span != nil {
+				span.SetAttributes(
+					attribute.Bool("rabbitmq.pool.connection_reused", true),
+					attribute.Bool("rabbitmq.pool.connection_verified_fast", true),
+					attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
+				)
+				span.AddEvent("connection acquired from pool (fast path)")
+			}
+			return pc.conn, true, false // 成功获取
+		}
+		// 深度检查
+		if verified, _ := p.verifyConnection(pc.conn); verified {
+			if span != nil {
+				span.SetAttributes(
+					attribute.Bool("rabbitmq.pool.connection_reused", true),
+					attribute.Bool("rabbitmq.pool.connection_verified_full", true),
+					attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
+				)
+				span.AddEvent("connection acquired from pool (full verification)")
+			}
+			return pc.conn, true, false // 成功获取
+		}
+	}
+
+	// 连接失效，销毁并减少计数
+	pc.conn.Close()
+	atomic.AddInt64(&p.totalConns, -1)
+	if span != nil {
+		span.AddEvent("stale connection removed from pool")
+	}
+	return nil, false, true // 连接失效，继续循环
+}
+
+// tryCreateNewConnection 尝试创建新连接（当池为空且未达到最大容量时）
+func (p *Pool) tryCreateNewConnection(ctx context.Context, startTime time.Time, span trace.Span) (*Connection, bool, error) {
+	if int(atomic.LoadInt64(&p.totalConns)) >= p.poolOpts.maxCap {
+		return nil, false, nil // 已达到最大容量，需要等待
+	}
+
+	atomic.AddInt64(&p.totalConns, 1)
+	p.mutex.Unlock()
+
+	if span != nil {
+		span.AddEvent("creating new connection")
+	}
+	conn, err := NewConnection(ctx, p.url, p.poolOpts.connOpts...)
+	if err != nil {
+		atomic.AddInt64(&p.totalConns, -1)
+		if span != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		return nil, true, err
+	}
+	if span != nil {
+		span.SetAttributes(
+			attribute.Bool("rabbitmq.pool.connection_reused", false),
+			attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
+		)
+		span.AddEvent("new connection created")
+	}
+	return conn, true, nil
+}
+
+// waitForAvailableConnection 等待可用连接（使用 goroutine + channel 实现可取消的 Wait）
+func (p *Pool) waitForAvailableConnection(ctx context.Context, span trace.Span) error {
+	if span != nil {
+		span.AddEvent("waiting for available connection")
+	}
+	waitChan := make(chan struct{}, 1)
+	go func() {
+		p.mutex.Lock()
+		p.cond.Wait()
+		p.mutex.Unlock()
+		waitChan <- struct{}{}
+	}()
+
+	select {
+	case <-ctx.Done():
+		if span != nil {
+			span.RecordError(ctx.Err())
+			span.SetStatus(codes.Error, ctx.Err().Error())
+		}
+		return ctx.Err()
+	case <-waitChan:
+		// 被 Signal 唤醒，进入下一轮循环获取连接
+		return nil
+	}
+}
+
 // Get 从连接池获取一个连接
 func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 	var span trace.Span
@@ -231,99 +338,22 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 		}
 
 		// 阶段 1: 尝试从池中取连接
-		if len(p.conns) > 0 {
-			lastIdx := len(p.conns) - 1
-			pc := p.conns[lastIdx]
-			p.conns = p.conns[:lastIdx]
-			p.mutex.Unlock()
-
-			// 优化：检查连接健康度
-			isFresh := time.Since(pc.lastUsed) < fastVerifyThreshold
-			if pc.conn.CheckConnected(ctx) {
-				if isFresh {
-					if span != nil {
-						span.SetAttributes(
-							attribute.Bool("rabbitmq.pool.connection_reused", true),
-							attribute.Bool("rabbitmq.pool.connection_verified_fast", true),
-							attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
-						)
-						span.AddEvent("connection acquired from pool (fast path)")
-					}
-					return pc.conn, nil
-				}
-				// 深度检查
-				if verified, _ := p.verifyConnection(pc.conn); verified {
-					if span != nil {
-						span.SetAttributes(
-							attribute.Bool("rabbitmq.pool.connection_reused", true),
-							attribute.Bool("rabbitmq.pool.connection_verified_full", true),
-							attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
-						)
-						span.AddEvent("connection acquired from pool (full verification)")
-					}
-					return pc.conn, nil
-				}
-			}
-
-			// 连接失效，销毁并减少计数
-			pc.conn.Close()
-			atomic.AddInt64(&p.totalConns, -1)
-			if span != nil {
-				span.AddEvent("stale connection removed from pool")
-			}
-			continue // 继续循环尝试获取
+		if conn, success, shouldContinue := p.tryGetFromPool(ctx, startTime, span); success {
+			return conn, nil
+		} else if !shouldContinue {
+			continue
 		}
 
 		// 阶段 2: 池空，尝试新建
-		if int(atomic.LoadInt64(&p.totalConns)) < p.poolOpts.maxCap {
-			atomic.AddInt64(&p.totalConns, 1)
-			p.mutex.Unlock()
-
-			if span != nil {
-				span.AddEvent("creating new connection")
-			}
-			conn, err := NewConnection(ctx, p.url, p.poolOpts.connOpts...)
-			if err != nil {
-				atomic.AddInt64(&p.totalConns, -1)
-				if span != nil {
-					span.RecordError(err)
-					span.SetStatus(codes.Error, err.Error())
-				}
-				return nil, err
-			}
-			if span != nil {
-				span.SetAttributes(
-					attribute.Bool("rabbitmq.pool.connection_reused", false),
-					attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
-				)
-				span.AddEvent("new connection created")
-			}
-			return conn, nil
+		if conn, created, err := p.tryCreateNewConnection(ctx, startTime, span); created {
+			return conn, err
 		}
 
-		// --- 优化点 3: 解决 sync.Cond.Wait() 无法被 Context 取消的问题 ---
-		if span != nil {
-			span.AddEvent("waiting for available connection")
+		// 阶段 3: 等待可用连接
+		if waitErr := p.waitForAvailableConnection(ctx, span); waitErr != nil {
+			return nil, waitErr
 		}
-		waitChan := make(chan struct{}, 1)
-		go func() {
-			p.mutex.Lock()
-			p.cond.Wait()
-			p.mutex.Unlock()
-			waitChan <- struct{}{}
-		}()
-
-		select {
-		case <-ctx.Done():
-			if span != nil {
-				span.RecordError(ctx.Err())
-				span.SetStatus(codes.Error, ctx.Err().Error())
-			}
-			return nil, ctx.Err()
-		case <-waitChan:
-			// 被 Signal 唤醒，进入下一轮循环获取连接
-			continue
-		}
+		// 被唤醒后继续循环
 	}
 }
 
