@@ -431,4 +431,3 @@ func getMysqlTables(dsn string) ([]string, error) {
 
 	return tables, nil
 }
-

@@ -77,7 +77,7 @@ func RPCCommand() *cobra.Command {
 			if suitedMonoRepo {
 				outPath = changeOutPath(outPath, serverName)
 			}
-			
+
 			sqlArgs.DBTable = firstTable
 			codes, err := sql2code.Generate(&sqlArgs)
 			if err != nil {
@@ -301,7 +301,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}
-	
+
 	// Add replace directive to go.mod for local development
 	if !g.suitedMonoRepo {
 		if err = appendReplaceDirective(r.GetOutputDir(), g.moduleName); err != nil {

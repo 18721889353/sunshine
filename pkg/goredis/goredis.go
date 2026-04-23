@@ -73,18 +73,18 @@ func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Cl
 
 	// 创建 Redis 连接选项
 	opt := &redis.Options{
-		Addr:         addr,         // Redis 地址
-		Password:     password,     // Redis 密码
-		DB:           db,           // 数据库编号
-		DialTimeout:  o.dialTimeout,  // 连接超时时间
-		ReadTimeout:  o.readTimeout,  // 读取超时时间
-		WriteTimeout: o.writeTimeout, // 写入超时时间
-		TLSConfig:    o.tlsConfig,    // TLS 配置
-		PoolSize:          o.poolSize,        // 连接池大小
-		MinIdleConns:      o.minIdleConns,    // 最小空闲连接数
-		PoolTimeout:       o.poolTimeout,     // 连接池获取连接超时时间
-		ConnMaxLifetime:   o.maxConnAge,      // 连接最大存活时间
-		ConnMaxIdleTime:   o.idleTimeout,     // 连接最大空闲时间
+		Addr:            addr,           // Redis 地址
+		Password:        password,       // Redis 密码
+		DB:              db,             // 数据库编号
+		DialTimeout:     o.dialTimeout,  // 连接超时时间
+		ReadTimeout:     o.readTimeout,  // 读取超时时间
+		WriteTimeout:    o.writeTimeout, // 写入超时时间
+		TLSConfig:       o.tlsConfig,    // TLS 配置
+		PoolSize:        o.poolSize,     // 连接池大小
+		MinIdleConns:    o.minIdleConns, // 最小空闲连接数
+		PoolTimeout:     o.poolTimeout,  // 连接池获取连接超时时间
+		ConnMaxLifetime: o.maxConnAge,   // 连接最大存活时间
+		ConnMaxIdleTime: o.idleTimeout,  // 连接最大空闲时间
 	}
 
 	// 如果未设置连接池大小，则使用默认值
@@ -126,19 +126,19 @@ func InitSentinel(masterName string, addrs []string, username string, password s
 
 	// 创建 Redis 哨兵连接选项
 	opt := &redis.FailoverOptions{
-		MasterName:    masterName,     // 主节点名称
-		SentinelAddrs: addrs,          // 哨兵地址列表
-		Username:      username,       // 用户名
-		Password:      password,       // 密码
-		DialTimeout:   o.dialTimeout,  // 连接超时时间
-		ReadTimeout:   o.readTimeout,  // 读取超时时间
-		WriteTimeout:  o.writeTimeout, // 写入超时时间
-		TLSConfig:     o.tlsConfig,    // TLS 配置
-		PoolSize:          o.poolSize,        // 连接池大小
-		MinIdleConns:      o.minIdleConns,    // 最小空闲连接数
-		PoolTimeout:       o.poolTimeout,     // 连接池获取连接超时时间
-		ConnMaxLifetime:   o.maxConnAge,      // 连接最大存活时间
-		ConnMaxIdleTime:   o.idleTimeout,     // 连接最大空闲时间
+		MasterName:      masterName,     // 主节点名称
+		SentinelAddrs:   addrs,          // 哨兵地址列表
+		Username:        username,       // 用户名
+		Password:        password,       // 密码
+		DialTimeout:     o.dialTimeout,  // 连接超时时间
+		ReadTimeout:     o.readTimeout,  // 读取超时时间
+		WriteTimeout:    o.writeTimeout, // 写入超时时间
+		TLSConfig:       o.tlsConfig,    // TLS 配置
+		PoolSize:        o.poolSize,     // 连接池大小
+		MinIdleConns:    o.minIdleConns, // 最小空闲连接数
+		PoolTimeout:     o.poolTimeout,  // 连接池获取连接超时时间
+		ConnMaxLifetime: o.maxConnAge,   // 连接最大存活时间
+		ConnMaxIdleTime: o.idleTimeout,  // 连接最大空闲时间
 	}
 
 	// 如果未设置连接池大小，则使用默认值
@@ -180,18 +180,18 @@ func InitCluster(addrs []string, username string, password string, opts ...Optio
 
 	// 创建 Redis 集群连接选项
 	opt := &redis.ClusterOptions{
-		Addrs:        addrs,          // 集群节点地址列表
-		Username:     username,       // 用户名
-		Password:     password,       // 密码
-		DialTimeout:  o.dialTimeout,  // 连接超时时间
-		ReadTimeout:  o.readTimeout,  // 读取超时时间
-		WriteTimeout: o.writeTimeout, // 写入超时时间
-		TLSConfig:    o.tlsConfig,    // TLS 配置
-		PoolSize:          o.poolSize,        // 连接池大小
-		MinIdleConns:      o.minIdleConns,    // 最小空闲连接数
-		PoolTimeout:       o.poolTimeout,     // 连接池获取连接超时时间
-		ConnMaxLifetime:   o.maxConnAge,      // 连接最大存活时间
-		ConnMaxIdleTime:   o.idleTimeout,     // 连接最大空闲时间
+		Addrs:           addrs,          // 集群节点地址列表
+		Username:        username,       // 用户名
+		Password:        password,       // 密码
+		DialTimeout:     o.dialTimeout,  // 连接超时时间
+		ReadTimeout:     o.readTimeout,  // 读取超时时间
+		WriteTimeout:    o.writeTimeout, // 写入超时时间
+		TLSConfig:       o.tlsConfig,    // TLS 配置
+		PoolSize:        o.poolSize,     // 连接池大小
+		MinIdleConns:    o.minIdleConns, // 最小空闲连接数
+		PoolTimeout:     o.poolTimeout,  // 连接池获取连接超时时间
+		ConnMaxLifetime: o.maxConnAge,   // 连接最大存活时间
+		ConnMaxIdleTime: o.idleTimeout,  // 连接最大空闲时间
 	}
 
 	// 如果未设置连接池大小，则使用默认值
@@ -231,7 +231,7 @@ func InitCluster(addrs []string, username string, password string, opts ...Optio
 func getRedisOpt(dsn string, opts *options) (*redis.Options, error) {
 	// 清理 DSN 字符串中的空格
 	dsn = strings.ReplaceAll(dsn, " ", "")
-	
+
 	// 如果 DSN 长度大于 8 且末尾不包含 "/"，则默认使用数据库 0
 	if len(dsn) > 8 {
 		if !strings.Contains(dsn[len(dsn)-3:], "/") {
@@ -290,7 +290,7 @@ func Close(rdb *redis.Client) error {
 
 	// 关闭连接
 	err := rdb.Close()
-	
+
 	// 如果错误是连接已关闭，则返回错误
 	if err != nil && errors.Is(err, redis.ErrClosed) {
 		return err
@@ -308,7 +308,7 @@ func CloseCluster(clusterRdb *redis.ClusterClient) error {
 
 	// 关闭连接
 	err := clusterRdb.Close()
-	
+
 	// 如果错误是连接已关闭，则返回错误
 	if err != nil && errors.Is(err, redis.ErrClosed) {
 		return err

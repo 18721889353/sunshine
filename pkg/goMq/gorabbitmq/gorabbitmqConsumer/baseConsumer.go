@@ -118,10 +118,10 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 		//监听信号，无论是内部 Stop 还是外部 Context 取消
 		select {
 		case <-ctx.Done():
-			logger.WarnWithCtx(ctx, bc.name + " 收到全局 Context 取消信号")
+			logger.WarnWithCtx(ctx, bc.name+" 收到全局 Context 取消信号")
 		}
 
-		logger.WarnWithCtx(ctx, bc.name + " 收到 Context 取消信号，主循环退出")
+		logger.WarnWithCtx(ctx, bc.name+" 收到 Context 取消信号，主循环退出")
 	}()
 
 	return nil

@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/18721889353/sunshine/pkg/logger"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // ProducerOption producer option.

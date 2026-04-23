@@ -15,6 +15,7 @@ import (
 // 该命令用于根据用户指定的参数生成 Redis 缓存相关的 Go 代码
 // 参数说明：
 //   - parentName: 父命令名称（如 "web"、"micro" 等），用于构建完整的命令路径
+//
 // 返回值：配置好的 cobra.Command 指针
 func CacheCommand(parentName string) *cobra.Command {
 	// 定义命令行标志变量
@@ -58,7 +59,7 @@ func CacheCommand(parentName string) *cobra.Command {
 				// 否则必须通过命令行参数指定模块名
 				return errors.New(`required flag(s) "module-name" not set, use "sunshine micro cache -h" for help`)
 			}
-			
+
 			// 如果是单体仓库模式，需要验证服务器名称并调整输出路径
 			if suitedMonoRepo {
 				if serverName == "" {
@@ -69,7 +70,7 @@ func CacheCommand(parentName string) *cobra.Command {
 				// 调整输出路径以适配单体仓库结构
 				outPath = changeOutPath(outPath, serverName)
 			}
-			
+
 			// 移除缓存名称中的冒号（避免文件名问题）
 			cacheName = strings.ReplaceAll(cacheName, ":", "")
 
@@ -96,7 +97,7 @@ func CacheCommand(parentName string) *cobra.Command {
 				serverName:     serverName,
 				suitedMonoRepo: suitedMonoRepo,
 			}
-			
+
 			// 执行代码生成
 			outPath, err = g.generateCode()
 			if err != nil {
@@ -192,7 +193,7 @@ func (g *stringCacheGenerator) generateCode() (string, error) {
 // 该函数负责将模板中的占位符替换为实际的模块名、缓存名、键值类型等信息
 func (g *stringCacheGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
-	
+
 	// 删除模板文件中标记的代码块（用于让 sunshine 项目本身能够编译通过的占位代码）
 	fields = append(fields, deleteFieldsMark(r, cacheFile, startMark, endMark)...)
 

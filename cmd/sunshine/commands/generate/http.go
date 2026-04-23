@@ -72,7 +72,7 @@ func HTTPCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			
+
 			if suitedMonoRepo {
 				outPath = changeOutPath(outPath, serverName)
 			}
@@ -306,7 +306,7 @@ func (g *httpGenerator) generateCode() (string, error) {
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}
-	
+
 	// Add replace directive to go.mod for local development
 	if !g.suitedMonoRepo {
 		if err = appendReplaceDirective(r.GetOutputDir(), g.moduleName); err != nil {

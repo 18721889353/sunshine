@@ -273,7 +273,7 @@ func (d *Document) CreateIndex(ctx context.Context, index string, mapping interf
 		// 使用缓冲池优化内存分配
 		buf := d.client.getBuffer()
 		defer d.client.putBuffer(buf)
-		
+
 		if err := json.NewEncoder(buf).Encode(mapping); err != nil {
 			endSpan(err)
 			return fmt.Errorf("marshal mapping error: %w", err)

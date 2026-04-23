@@ -162,7 +162,7 @@ func TestSLSIntegration(t *testing.T) {
 	_, err = Init(
 		WithLevel("debug"),
 		WithFormat("json"),
-		WithAsync(true),  // 启用异步写入，提升高并发性能
+		WithAsync(true), // 启用异步写入，提升高并发性能
 		WithSave(true,
 			WithFileName("test-sls.log"),
 			WithFileMaxSize(10),   // 10MB

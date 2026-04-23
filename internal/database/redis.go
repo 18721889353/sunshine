@@ -55,17 +55,17 @@ func GetCacheType() *CacheType {
 func InitRedis() {
 	redisCfg := config.Get().Redis
 	opts := []goredis.Option{
-		goredis.WithDialTimeout(time.Duration(redisCfg.DialTimeout) * time.Second),  // 设置连接超时时间
-		goredis.WithReadTimeout(time.Duration(redisCfg.ReadTimeout) * time.Second),  // 设置读取超时时间
+		goredis.WithDialTimeout(time.Duration(redisCfg.DialTimeout) * time.Second),   // 设置连接超时时间
+		goredis.WithReadTimeout(time.Duration(redisCfg.ReadTimeout) * time.Second),   // 设置读取超时时间
 		goredis.WithWriteTimeout(time.Duration(redisCfg.WriteTimeout) * time.Second), // 设置写入超时时间
-		goredis.WithPoolSize(redisCfg.PoolSize),                                     // 设置连接池大小
-		goredis.WithMinIdleConns(redisCfg.MinIdleConns),                             // 设置最小空闲连接数
-		goredis.WithMaxConnAge(time.Duration(redisCfg.MaxConnAge) * time.Second),    // 设置连接最大存活时间
-		goredis.WithPoolTimeout(time.Duration(redisCfg.PoolTimeout) * time.Second),  // 设置连接池超时时间
-		goredis.WithIdleTimeout(time.Duration(redisCfg.IdleTimeout) * time.Second),  // 设置连接最大空闲时间
+		goredis.WithPoolSize(redisCfg.PoolSize),                                      // 设置连接池大小
+		goredis.WithMinIdleConns(redisCfg.MinIdleConns),                              // 设置最小空闲连接数
+		goredis.WithMaxConnAge(time.Duration(redisCfg.MaxConnAge) * time.Second),     // 设置连接最大存活时间
+		goredis.WithPoolTimeout(time.Duration(redisCfg.PoolTimeout) * time.Second),   // 设置连接池超时时间
+		goredis.WithIdleTimeout(time.Duration(redisCfg.IdleTimeout) * time.Second),   // 设置连接最大空闲时间
 	}
 	if config.Get().App.EnableTrace {
-		opts = append(opts, goredis.WithTracing(tracer.GetProvider()))               // 启用追踪
+		opts = append(opts, goredis.WithTracing(tracer.GetProvider())) // 启用追踪
 	}
 
 	var err error

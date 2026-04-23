@@ -61,7 +61,7 @@ func ProtobufCommand() *cobra.Command {
 			}
 
 			serverName = convertServerName(serverName)
-			
+
 			tableNames := strings.Split(dbTables, ",")
 			for _, tableName := range tableNames {
 				if tableName == "" {

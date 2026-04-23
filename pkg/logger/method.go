@@ -28,7 +28,7 @@ func Sync() error {
 		// 我们通过检查是否开启了 isSave 来判断，但这里无法直接获取 options
 		// 简单的做法是：如果 Sync 报错且与 stdout 有关，则忽略
 	}
-	
+
 	_ = getSugaredLogger().Sync()
 	err := getLogger().Sync()
 	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") && !strings.Contains(err.Error(), "stdout") {
@@ -45,12 +45,12 @@ func Sync() error {
 func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	
+
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
 		ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...)
 	}
-	
+
 	getLogger().Debug(msg, allFields...)
 }
 
@@ -60,12 +60,12 @@ func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
 func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	
+
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
 		ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...)
 	}
-	
+
 	getLogger().Info(msg, allFields...)
 }
 
@@ -75,12 +75,12 @@ func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
 func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	
+
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
 		ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...)
 	}
-	
+
 	getLogger().Warn(msg, allFields...)
 }
 
@@ -90,12 +90,12 @@ func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
 func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	
+
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
 		ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...)
 	}
-	
+
 	getLogger().Error(msg, allFields...)
 }
 
@@ -105,12 +105,12 @@ func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
 func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	
+
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
 		ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...)
 	}
-	
+
 	getLogger().Panic(msg, allFields...)
 }
 
@@ -120,12 +120,12 @@ func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
 func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	
+
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
 		ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...)
 	}
-	
+
 	getLogger().Fatal(msg, allFields...)
 }
 

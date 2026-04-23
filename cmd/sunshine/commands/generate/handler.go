@@ -66,7 +66,7 @@ func HandlerCommand() *cobra.Command {
 				serverName = convertServerName(serverName)
 				outPath = changeOutPath(outPath, serverName)
 			}
-			
+
 			tableNames := strings.Split(dbTables, ",")
 			for _, tableName := range tableNames {
 				if tableName == "" {

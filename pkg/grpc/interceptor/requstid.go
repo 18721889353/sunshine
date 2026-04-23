@@ -135,7 +135,7 @@ func WrapServerCtx(ctx context.Context, kvs ...KV) context.Context {
 	// 从 gRPC incoming metadata 中提取 request_id 并设置到 context
 	// 如果 metadata 中不存在 request_id，则返回空字符串
 	ctx = context.WithValue(ctx, logger.ContextKeyRequestID, metautils.ExtractIncoming(ctx).Get(string(logger.ContextKeyRequestID))) //nolint
-	
+
 	// 遍历并添加所有自定义的键值对到 context
 	for _, kv := range kvs {
 		ctx = context.WithValue(ctx, kv.Key, kv.Val) //nolint

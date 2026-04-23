@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/18721889353/sunshine/pkg/logger"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // ConsumerOption consumer option.
@@ -232,8 +232,8 @@ type Consumer struct {
 	qosOption             *qosOptions
 	consumeOption         *consumeOptions
 
-	isPersistent bool // persistent or not
-	isAutoAck    bool // auto ack or not
+	isPersistent bool  // persistent or not
+	isAutoAck    bool  // auto ack or not
 	count        int64 // consumer success message number
 	mu           sync.Mutex
 }

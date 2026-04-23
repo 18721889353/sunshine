@@ -70,7 +70,7 @@ func HandlerPbCommand() *cobra.Command {
 			if suitedMonoRepo {
 				outPath = changeOutPath(outPath, serverName)
 			}
-			
+
 			tableNames := strings.Split(dbTables, ",")
 			for _, tableName := range tableNames {
 				if tableName == "" {

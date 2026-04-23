@@ -518,7 +518,6 @@ database:
     #mastersDsn:            # sets masters mysql dsn, array type, non-required field, if there is only one master, there is no need to set the mastersDsn field, the default dsn field is mysql master.
     #  - "your master dsn`
 
-
 	modelInitDBFileMysqlCode = `// InitDB connect database
 func InitDB() {
 	dbDriver := config.Get().Database.Driver

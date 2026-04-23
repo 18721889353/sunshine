@@ -48,7 +48,7 @@ func ModelCommand(parentName string) *cobra.Command {
 				if tableName == "" {
 					continue // 跳过空表名
 				}
-			
+
 				sqlArgs.DBTable = tableName               // 设置当前处理的表名
 				codes, err := sql2code.Generate(&sqlArgs) // 生成模型代码
 				if err != nil {
@@ -77,7 +77,7 @@ func ModelCommand(parentName string) *cobra.Command {
 
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动，支持 mysql")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，例如 user:password@(host:port)/database") //nolint
-	_ = cmd.MarkFlagRequired("db-dsn")                                                                                                                                                              // 标记 db-dsn 参数为必填
+	_ = cmd.MarkFlagRequired("db-dsn")                                                                         // 标记 db-dsn 参数为必填
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "表名，多个表名用逗号分隔")
 	_ = cmd.MarkFlagRequired("db-table") // 标记 db-table 参数为必填
 	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "是否嵌入 gorm.Model 结构体")

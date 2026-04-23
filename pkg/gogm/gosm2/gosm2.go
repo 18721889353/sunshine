@@ -189,12 +189,12 @@ func (s *SM2) SaveKeyPairRaw(privateKeyPem, publicKeyPem, privateFile, pubFile s
 func saveToFile(filename string, data []byte, perm os.FileMode) error {
 	// 获取文件路径中的目录部分
 	dir := filepath.Dir(filename)
-	
+
 	// 如果目录不存在，则创建目录（包括必要的父目录）
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create directory %s: %v", dir, err)
 	}
-	
+
 	// 写入文件
 	return os.WriteFile(filename, data, perm)
 }

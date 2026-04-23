@@ -10593,23 +10593,23 @@ yynewstate:
 	case 1237:
 		{
 			parser.yyVAL.statement = &ast.KillStmt{
-				ConnectionID:  getUint64FromNUM(yyS[yypt-0].item),
-				Extension: yyS[yypt-1].item.(bool),
+				ConnectionID: getUint64FromNUM(yyS[yypt-0].item),
+				Extension:    yyS[yypt-1].item.(bool),
 			}
 		}
 	case 1238:
 		{
 			parser.yyVAL.statement = &ast.KillStmt{
-				ConnectionID:  getUint64FromNUM(yyS[yypt-0].item),
-				Extension: yyS[yypt-2].item.(bool),
+				ConnectionID: getUint64FromNUM(yyS[yypt-0].item),
+				Extension:    yyS[yypt-2].item.(bool),
 			}
 		}
 	case 1239:
 		{
 			parser.yyVAL.statement = &ast.KillStmt{
-				ConnectionID:  getUint64FromNUM(yyS[yypt-0].item),
-				Query:         true,
-				Extension: yyS[yypt-2].item.(bool),
+				ConnectionID: getUint64FromNUM(yyS[yypt-0].item),
+				Query:        true,
+				Extension:    yyS[yypt-2].item.(bool),
 			}
 		}
 	case 1240:

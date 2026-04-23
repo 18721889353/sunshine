@@ -46,23 +46,23 @@ func InitApp() {
 			source = cfg.App.Name
 		}
 		slsConfig := &logger.SLSConfig{
-			Endpoint:            cfg.Sls.Endpoint,
-			AccessKeyID:         cfg.Sls.AccessKeyID,
-			AccessKeySecret:     cfg.Sls.AccessKeySecret,
-			ProjectName:         cfg.Sls.Project,
-			LogStoreName:        cfg.Sls.Logstore,
-			Topic:               cfg.Sls.Topic,
-			Source:              source,
-			MaxRetries:          cfg.Sls.Retries,
-			Timeout:             cfg.Sls.Timeout,           // 从配置文件读取超时时间
-			TotalSizeLnBytes:    int64(cfg.Sls.TotalSizeLnBytes), // 缓存总大小(字节)
-			MaxBatchCount:       cfg.Sls.MaxBatchCount,     // 单个 Batch 最大日志条数
-			MaxBatchSize:        cfg.Sls.MaxBatchSize,      // 单个 Batch 最大大小(字节)
-			LingerMs:            cfg.Sls.LingerMs,          // Batch 刷新间隔(毫秒)
-			DisableRuntimeMetrics: cfg.Sls.DisableRuntimeMetrics, // 禁用运行时指标日志
-			EnableHealthCheck:   cfg.Sls.EnableHealthCheck, // 从配置文件读取是否启用健康检查
-			HealthCheckInterval: cfg.Sls.HealthCheckInterval, // 健康检查间隔(秒)
-			SendTimeout:         cfg.Sls.SendTimeout,         // 发送超时时间(秒)
+			Endpoint:              cfg.Sls.Endpoint,
+			AccessKeyID:           cfg.Sls.AccessKeyID,
+			AccessKeySecret:       cfg.Sls.AccessKeySecret,
+			ProjectName:           cfg.Sls.Project,
+			LogStoreName:          cfg.Sls.Logstore,
+			Topic:                 cfg.Sls.Topic,
+			Source:                source,
+			MaxRetries:            cfg.Sls.Retries,
+			Timeout:               cfg.Sls.Timeout,                 // 从配置文件读取超时时间
+			TotalSizeLnBytes:      int64(cfg.Sls.TotalSizeLnBytes), // 缓存总大小(字节)
+			MaxBatchCount:         cfg.Sls.MaxBatchCount,           // 单个 Batch 最大日志条数
+			MaxBatchSize:          cfg.Sls.MaxBatchSize,            // 单个 Batch 最大大小(字节)
+			LingerMs:              cfg.Sls.LingerMs,                // Batch 刷新间隔(毫秒)
+			DisableRuntimeMetrics: cfg.Sls.DisableRuntimeMetrics,   // 禁用运行时指标日志
+			EnableHealthCheck:     cfg.Sls.EnableHealthCheck,       // 从配置文件读取是否启用健康检查
+			HealthCheckInterval:   cfg.Sls.HealthCheckInterval,     // 健康检查间隔(秒)
+			SendTimeout:           cfg.Sls.SendTimeout,             // 发送超时时间(秒)
 		}
 
 		var err error

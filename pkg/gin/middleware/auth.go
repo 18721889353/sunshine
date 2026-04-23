@@ -36,7 +36,7 @@ func defaultJwtOptions() *jwtOptions {
 	return &jwtOptions{
 		isSwitchHTTPCode: false,
 		verify:           nil,
-		ignoreMethods:    make(map[string]struct{}), // 忽略的方法
+		ignoreMethods:    make(map[string]struct{}),                  // 忽略的方法
 		uidFields:        []string{"id", "uid", "userId", "user_id"}, // 默认的用户ID字段名列表
 	}
 }
@@ -107,7 +107,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			
+
 			token := authorization[7:] // remove Bearer prefix
 			claims, err := jwt.ParseToken(token)
 			if err != nil {
@@ -121,7 +121,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			
+
 			if o.verify != nil {
 				tokenTail10 := token[len(token)-10:]
 				if err = o.verify(claims, tokenTail10, c); err != nil {

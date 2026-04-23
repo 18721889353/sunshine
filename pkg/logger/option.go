@@ -8,9 +8,9 @@ import (
 )
 
 var (
-	defaultLevel    = "info"  // output log levels debug, info, warn, error, default is info (production recommended)
+	defaultLevel    = "info"     // output log levels debug, info, warn, error, default is info (production recommended)
 	defaultEncoding = formatJSON // default is json for structured parsing
-	defaultIsSave   = true    // false:output to terminal, true:output to file, default is true (production required)
+	defaultIsSave   = true       // false:output to terminal, true:output to file, default is true (production required)
 
 	defaultFilename      = "logs/app.log" // file name (support relative path)
 	defaultMaxSize       = 100            // maximum file size (MB), avoid frequent rotation
@@ -39,8 +39,8 @@ type options struct {
 	isAsync  bool // 是否启用异步日志
 
 	// 异步日志相关配置
-	asyncBufferSize      int           // 异步缓冲区大小（字节）
-	asyncFlushInterval   time.Duration // 异步刷新间隔
+	asyncBufferSize    int           // 异步缓冲区大小（字节）
+	asyncFlushInterval time.Duration // 异步刷新间隔
 
 	fileConfig *fileOptions
 
@@ -58,10 +58,10 @@ type options struct {
 
 func defaultOptions() *options {
 	return &options{
-		level:    defaultLevel,
-		encoding: defaultEncoding,
-		isSave:   defaultIsSave,
-		isAsync:  true,               // 默认启用异步日志（性能提升155%）
+		level:              defaultLevel,
+		encoding:           defaultEncoding,
+		isSave:             defaultIsSave,
+		isAsync:            true,            // 默认启用异步日志（性能提升155%）
 		asyncBufferSize:    8 * 1024 * 1024, // 8MB 默认缓冲区大小（平衡内存与性能）
 		asyncFlushInterval: 5 * time.Second, // 5秒默认刷新间隔（降低延迟）
 	}

@@ -127,7 +127,7 @@ func Init() error {
 	if _, ok := Replacers[TplNameSunshine]; ok {
 		panic(fmt.Sprintf("template name \"%s\" already exists", TplNameSunshine))
 	}
-	
+
 	// 如果当前工作目录是 sunshine 源码目录，优先使用本地源码
 	localSrcDir := detectLocalSunshineSource()
 	if localSrcDir != "" {
@@ -137,7 +137,7 @@ func Init() error {
 		// 否则使用 ~/.sunshine 或检测到的目录
 		Replacers[TplNameSunshine], err = replacer.New(SunshineDir)
 	}
-	
+
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func detectLocalSunshineSource() string {
 			searchDir = parent
 		}
 	}
-	
+
 	// 2. 从可执行文件路径向上查找(适用于 make proto 调用的情况)
 	exePath, err := os.Executable()
 	if err == nil {
@@ -186,7 +186,7 @@ func detectLocalSunshineSource() string {
 			dir = parent
 		}
 	}
-	
+
 	// 3. 从当前目录的 go.mod 中读取 replace 指令(适用于在生成的项目中调用)
 	if gofile.IsExists("go.mod") {
 		data, err := os.ReadFile("go.mod")
@@ -207,7 +207,7 @@ func detectLocalSunshineSource() string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 

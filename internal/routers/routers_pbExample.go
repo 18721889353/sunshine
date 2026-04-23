@@ -226,7 +226,7 @@ func MyCtx(c *gin.Context) context.Context {
 		"clientIP": clientIP,
 		// set metadata to be passed from http to rpc
 		string(logger.ContextKeyRequestID): middleware.GCtxRequestID(c),                    // request_id
-		middleware.HeaderAuthorizationKey: c.GetHeader(middleware.HeaderAuthorizationKey), // authorization
+		middleware.HeaderAuthorizationKey:  c.GetHeader(middleware.HeaderAuthorizationKey), // authorization
 	})
 	return metadata.NewOutgoingContext(ctx, md)
 	//ctx = metadata.NewIncomingContext(ctx, md)
