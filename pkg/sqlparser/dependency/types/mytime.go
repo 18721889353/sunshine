@@ -279,11 +279,11 @@ func calcWeek(t *MysqlTime, wb weekBehaviour) (year int, week int) {
 			(firstWeekday && weekday == 0) {
 			year++
 			week = 1
-			return
+			return year, week
 		}
 	}
 	week = days/7 + 1
-	return
+	return year, week
 }
 
 // mixDateAndTime mixes a date value and a time value.
@@ -355,7 +355,7 @@ func getDateFromDaynr(daynr uint) (year uint, month uint, day uint) {
 	}
 
 	day = dayOfYear + leapDay
-	return
+	return year, month, day
 }
 
 const (

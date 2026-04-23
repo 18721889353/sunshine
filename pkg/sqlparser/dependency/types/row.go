@@ -142,7 +142,7 @@ func (dr DatumRow) GetJSON(colIdx int) json.BinaryJSON {
 }
 
 // GetDatum implements Row interface.
-func (dr DatumRow) GetDatum(colIdx int, tp *FieldType) Datum {
+func (dr DatumRow) GetDatum(colIdx int, _ *FieldType) Datum {
 	return dr[colIdx]
 }
 

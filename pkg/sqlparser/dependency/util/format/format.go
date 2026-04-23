@@ -83,73 +83,93 @@ func IndentFormatter(w io.Writer, indent string) Formatter {
 	return &indentFormatter{w, []byte(indent), 0, stBOL}
 }
 
-func (f *indentFormatter) format(flat bool, format string, args ...interface{}) (n int, errno error) {
+// handleState0 处理 st0 状态
+func (f *indentFormatter) handleState0(c byte, flat bool, buf *[]byte) {
+	switch c {
+	case '\n':
+		cc := c
+		if flat && f.indentLevel != 0 {
+			cc = ' '
+		}
+		*buf = append(*buf, cc)
+		f.state = stBOL
+	case '%':
+		f.state = stPERC
+	default:
+		*buf = append(*buf, c)
+	}
+}
+
+// handleStateBOL 处理 stBOL 状态
+func (f *indentFormatter) handleStateBOL(c byte, flat bool, buf *[]byte) {
+	switch c {
+	case '\n':
+		cc := c
+		if flat && f.indentLevel != 0 {
+			cc = ' '
+		}
+		*buf = append(*buf, cc)
+	case '%':
+		f.state = stBOLPERC
+	default:
+		if !flat {
+			for i := 0; i < f.indentLevel; i++ {
+				*buf = append(*buf, f.indent...)
+			}
+		}
+		*buf = append(*buf, c)
+		f.state = st0
+	}
+}
+
+// handleStateBOLPERC 处理 stBOLPERC 状态
+func (f *indentFormatter) handleStateBOLPERC(c byte, flat bool, buf *[]byte) {
+	switch c {
+	case 'i':
+		f.indentLevel++
+		f.state = stBOL
+	case 'u':
+		f.indentLevel--
+		f.state = stBOL
+	default:
+		if !flat {
+			for i := 0; i < f.indentLevel; i++ {
+				*buf = append(*buf, f.indent...)
+			}
+		}
+		*buf = append(*buf, '%', c)
+		f.state = st0
+	}
+}
+
+// handleStatePERC 处理 stPERC 状态
+func (f *indentFormatter) handleStatePERC(c byte, buf *[]byte) {
+	switch c {
+	case 'i':
+		f.indentLevel++
+		f.state = st0
+	case 'u':
+		f.indentLevel--
+		f.state = st0
+	default:
+		*buf = append(*buf, '%', c)
+		f.state = st0
+	}
+}
+
+func (f *indentFormatter) doFormat(flat bool, format string, args ...interface{}) (n int, errno error) {
 	var buf = make([]byte, 0)
 	for i := 0; i < len(format); i++ {
 		c := format[i]
 		switch f.state {
 		case st0:
-			switch c {
-			case '\n':
-				cc := c
-				if flat && f.indentLevel != 0 {
-					cc = ' '
-				}
-				buf = append(buf, cc)
-				f.state = stBOL
-			case '%':
-				f.state = stPERC
-			default:
-				buf = append(buf, c)
-			}
+			f.handleState0(c, flat, &buf)
 		case stBOL:
-			switch c {
-			case '\n':
-				cc := c
-				if flat && f.indentLevel != 0 {
-					cc = ' '
-				}
-				buf = append(buf, cc)
-			case '%':
-				f.state = stBOLPERC
-			default:
-				if !flat {
-					for i := 0; i < f.indentLevel; i++ {
-						buf = append(buf, f.indent...)
-					}
-				}
-				buf = append(buf, c)
-				f.state = st0
-			}
+			f.handleStateBOL(c, flat, &buf)
 		case stBOLPERC:
-			switch c {
-			case 'i':
-				f.indentLevel++
-				f.state = stBOL
-			case 'u':
-				f.indentLevel--
-				f.state = stBOL
-			default:
-				if !flat {
-					for i := 0; i < f.indentLevel; i++ {
-						buf = append(buf, f.indent...)
-					}
-				}
-				buf = append(buf, '%', c)
-				f.state = st0
-			}
+			f.handleStateBOLPERC(c, flat, &buf)
 		case stPERC:
-			switch c {
-			case 'i':
-				f.indentLevel++
-				f.state = st0
-			case 'u':
-				f.indentLevel--
-				f.state = st0
-			default:
-				buf = append(buf, '%', c)
-				f.state = st0
-			}
+			f.handleStatePERC(c, &buf)
 		default:
 			panic("unexpected state")
 		}
@@ -163,7 +183,7 @@ func (f *indentFormatter) format(flat bool, format string, args ...interface{}) 
 
 // Format implements Format interface.
 func (f *indentFormatter) Format(format string, args ...interface{}) (n int, errno error) {
-	return f.format(false, format, args...)
+	return f.doFormat(false, format, args...)
 }
 
 type flatFormatter indentFormatter
@@ -189,7 +209,7 @@ func FlatFormatter(w io.Writer) Formatter {
 
 // Format implements Format interface.
 func (f *flatFormatter) Format(format string, args ...interface{}) (n int, errno error) {
-	return (*indentFormatter)(f).format(true, format, args...)
+	return (*indentFormatter)(f).doFormat(true, format, args...)
 }
 
 // OutputFormat output escape character with backslash.

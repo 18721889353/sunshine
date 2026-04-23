@@ -62,7 +62,7 @@ func (s *mysqlSpecificCodeScanner) scan() (tok int, pos Pos, lit string) {
 	pos.Line += s.Pos.Line
 	pos.Col += s.Pos.Col
 	pos.Offset += s.Pos.Offset
-	return
+	return tok, pos, lit
 }
 
 type optimizerHintScanner struct {
@@ -82,7 +82,7 @@ func (s *optimizerHintScanner) scan() (tok int, pos Pos, lit string) {
 			s.end = true
 		}
 	}
-	return
+	return tok, pos, lit
 }
 
 // Errors returns the errors during a scan.
@@ -208,7 +208,7 @@ func (s *Scanner) scan() (tok int, pos Pos, lit string) {
 		tok, pos, lit = specialComment.scan()
 		if tok != 0 {
 			// return the specialComment scan result as the result
-			return
+			return tok, pos, lit
 		}
 		// leave specialComment scan mode after all stream consumed.
 		s.specialComment = nil
@@ -244,7 +244,7 @@ func (s *Scanner) scan() (tok int, pos Pos, lit string) {
 	}
 
 	tok, lit = node.token, s.r.data(&pos)
-	return
+	return tok, pos, lit
 }
 
 func startWithXx(s *Scanner) (tok int, pos Pos, lit string) {
@@ -323,11 +323,11 @@ func startWithDash(s *Scanner) (tok int, pos Pos, lit string) {
 	if strings.HasPrefix(s.r.s[pos.Offset:], "->") {
 		tok = jss
 		s.r.incN(2)
-		return
+		return tok, pos, lit
 	}
 	tok = int('-')
 	s.r.inc()
-	return
+	return tok, pos, lit
 }
 
 func startWithSlash(s *Scanner) (tok int, pos Pos, lit string) {
@@ -365,7 +365,7 @@ func startWithSlash(s *Scanner) (tok int, pos Pos, lit string) {
 			}
 
 			tok = hintBegin
-			return
+			return tok, pos, lit
 		}
 
 		// See http://dev.mysql.com/doc/refman/5.7/en/comments.html
@@ -385,7 +385,7 @@ func startWithSlash(s *Scanner) (tok int, pos Pos, lit string) {
 		return s.scan()
 	}
 	tok = int('/')
-	return
+	return tok, pos, lit
 }
 
 func sqlOffsetInComment(comment string) int {
@@ -430,7 +430,7 @@ func startWithAt(s *Scanner) (tok int, pos Pos, lit string) {
 	} else {
 		tok = int('@')
 	}
-	return
+	return tok, pos, lit
 }
 
 func scanIdentifier(s *Scanner) (int, Pos, string) {
@@ -520,7 +520,7 @@ func (s *Scanner) scanString() (tok int, pos Pos, lit string) {
 			s.r.inc()
 			if s.r.peek() != ending {
 				lit = mb.data()
-				return
+				return tok, pos, lit
 			}
 			str := mb.r.data(&pos)
 			mb.setUseBuf(str[1 : len(str)-1])
@@ -536,7 +536,7 @@ func (s *Scanner) scanString() (tok int, pos Pos, lit string) {
 	}
 
 	tok = unicode.ReplacementChar
-	return
+	return tok, pos, lit
 }
 
 // handleEscape handles the case in scanString when previous char is '\'.
@@ -606,7 +606,7 @@ func startWithNumber(s *Scanner) (tok int, pos Pos, lit string) {
 		return identifier, pos, s.r.data(&pos)
 	}
 	lit = s.r.data(&pos)
-	return
+	return tok, pos, lit
 }
 
 func startWithDot(s *Scanner) (tok int, pos Pos, lit string) {
@@ -667,7 +667,7 @@ func (s *Scanner) scanFloat(beg *Pos) (tok int, pos Pos, lit string) {
 		tok = decLit
 	}
 	pos, lit = *beg, s.r.data(beg)
-	return
+	return tok, pos, lit
 }
 
 func (s *Scanner) scanDigits() string {
@@ -731,10 +731,10 @@ func (r *reader) incN(n int) {
 func (r *reader) readByte() (ch rune) {
 	ch = r.peek()
 	if ch == unicode.ReplacementChar && r.eof() {
-		return
+		return ch
 	}
 	r.inc()
-	return
+	return ch
 }
 
 func (r *reader) pos() Pos {

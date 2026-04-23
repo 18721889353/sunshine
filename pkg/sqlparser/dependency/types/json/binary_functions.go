@@ -139,7 +139,7 @@ func decodeEscapedUnicode(s []byte) (char [4]byte, size int, err error) {
 	}
 	size = utf8.RuneLen(rune(unicode))
 	utf8.EncodeRune(char[0:size], rune(unicode))
-	return
+	return char, size, err
 }
 
 // Extract receives several path expressions as arguments, matches them in bj, and returns:
@@ -162,7 +162,7 @@ func (bj BinaryJSON) Extract(pathExprList []PathExpression) (ret BinaryJSON, fou
 		found = true
 		ret = buildBinaryArray(buf)
 	}
-	return
+	return ret, found
 }
 
 func (bj BinaryJSON) extractTo(buf []BinaryJSON, pathExpr PathExpression) []BinaryJSON {
@@ -676,18 +676,18 @@ func PeekBytesAsJSON(b []byte) (n int, err error) {
 		if len(b) >= valTypeSize+headerSize {
 			size := endian.Uint32(b[valTypeSize+dataSizeOff:])
 			n = valTypeSize + int(size)
-			return
+			return n, err
 		}
 	case TypeCodeString:
 		strLen, lenLen := binary.Uvarint(b[valTypeSize:])
 		return valTypeSize + int(strLen) + lenLen, nil
 	case TypeCodeInt64, TypeCodeUint64, TypeCodeFloat64:
 		n = valTypeSize + 8
-		return
+		return n, err
 	case TypeCodeLiteral:
 		n = valTypeSize + 1
-		return
+		return n, err
 	}
 	err = errors.New("Invalid JSON bytes")
-	return
+	return n, err
 }

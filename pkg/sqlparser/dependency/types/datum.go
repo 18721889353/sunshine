@@ -1504,7 +1504,7 @@ func (d *Datum) ToMysqlJSON() (j json.BinaryJSON, err error) {
 	switch d.Kind() {
 	case KindMysqlJSON:
 		j = d.GetMysqlJSON()
-		return
+		return j, err
 	case KindInt64:
 		in = d.GetInt64()
 	case KindUint64:
@@ -1523,15 +1523,15 @@ func (d *Datum) ToMysqlJSON() (j json.BinaryJSON, err error) {
 		in, err = d.ToString()
 		if err != nil {
 			err = errors.Trace(err)
-			return
+			return j, err
 		}
 	}
 	j = json.CreateBinary(in)
-	return
+	return j, err
 }
 
 func invalidConv(d *Datum, tp byte) (Datum, error) {
-	return Datum{}, errors.Errorf("cannot convert datum from %s to type %s.", TypeStr(d.Kind()), TypeStr(tp))
+	return Datum{}, errors.Errorf("cannot convert datum from %s to type %s", TypeStr(d.Kind()), TypeStr(tp))
 }
 
 func (d *Datum) convergeType(hasUint, hasDecimal, hasFloat *bool) (x Datum) {

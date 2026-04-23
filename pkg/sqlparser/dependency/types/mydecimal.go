@@ -214,7 +214,7 @@ func (d *MyDecimal) removeLeadingZeros() (wordIdx int, digitsInt int) {
 	} else {
 		digitsInt = 0
 	}
-	return
+	return wordIdx, digitsInt
 }
 
 // ToString converts decimal to its printable string representation without rounding.
@@ -297,7 +297,7 @@ func (d *MyDecimal) ToString() (str []byte) {
 	} else {
 		str[strIdx] = '0'
 	}
-	return
+	return str
 }
 
 // FromString parses decimal from string.
@@ -751,12 +751,12 @@ func (d *MyDecimal) Round(to *MyDecimal, frac int, roundMode RoundMode) (err err
 		}
 		to.digitsFrac = int8(frac)
 		to.resultFrac = to.digitsFrac
-		return
+		return err
 	}
 	if frac >= int(d.digitsFrac) {
 		to.digitsFrac = int8(frac)
 		to.resultFrac = to.digitsFrac
-		return
+		return err
 	}
 
 	// Do increment.
@@ -887,7 +887,7 @@ func (d *MyDecimal) Round(to *MyDecimal, frac int, roundMode RoundMode) (err err
 	}
 	to.digitsFrac = int8(frac)
 	to.resultFrac = to.digitsFrac
-	return
+	return err
 }
 
 // FromInt sets the decimal value from int64.
@@ -1198,7 +1198,7 @@ func (d *MyDecimal) PrecisionAndFrac() (precision, frac int) {
 	if precision == 0 {
 		precision = 1
 	}
-	return
+	return precision, frac
 }
 
 // IsZero checks whether it's a zero decimal.

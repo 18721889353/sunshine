@@ -495,8 +495,8 @@ func (t *Time) Sub(sc *stmtctx.StatementContext, t1 *Time) Duration {
 
 // Add adds d to t, returns the result time value.
 func (t *Time) Add(d Duration) (Time, error) {
-	sign, hh, mm, ss, micro := splitDuration(d.Duration)
-	seconds, microseconds, _ := calcTimeDiff(t.Time, FromDate(0, 0, 0, hh, mm, ss, micro), -sign)
+	comp := splitDuration(d.Duration)
+	seconds, microseconds, _ := calcTimeDiff(t.Time, FromDate(0, 0, 0, comp.hours, comp.minutes, comp.seconds, comp.frac), -comp.sign)
 	days := seconds / secondsIn24Hour
 	year, month, day := getDateFromDaynr(uint(days))
 	var tm MysqlTime
@@ -781,7 +781,8 @@ func (d Duration) Sub(v Duration) (Duration, error) {
 func (d Duration) String() string {
 	var buf bytes.Buffer
 
-	sign, hours, minutes, seconds, fraction := splitDuration(d.Duration)
+	comp := splitDuration(d.Duration)
+	sign, hours, minutes, seconds, fraction := comp.sign, comp.hours, comp.minutes, comp.seconds, comp.frac
 	if sign < 0 {
 		buf.WriteByte('-')
 	}
@@ -806,7 +807,8 @@ func (d Duration) formatFrac(frac int) string {
 // e.g,
 // 10:10:10 -> 101010
 func (d Duration) ToNumber() *MyDecimal {
-	sign, hours, minutes, seconds, fraction := splitDuration(d.Duration)
+	comp := splitDuration(d.Duration)
+	sign, hours, minutes, seconds, fraction := comp.sign, comp.hours, comp.minutes, comp.seconds, comp.frac
 	var (
 		s       string
 		signStr string
@@ -833,7 +835,8 @@ func (d Duration) ToNumber() *MyDecimal {
 // Tp is TypeDatetime, TypeTimestamp and TypeDate.
 func (d Duration) ConvertToTime(sc *stmtctx.StatementContext, tp uint8) (Time, error) {
 	year, month, day := gotime.Now().In(sc.TimeZone).Date()
-	sign, hour, minute, second, frac := splitDuration(d.Duration)
+	comp := splitDuration(d.Duration)
+	sign, hour, minute, second, frac := comp.sign, comp.hours, comp.minutes, comp.seconds, comp.frac
 	datePart := FromDate(year, int(month), day, 0, 0, 0, 0)
 	timePart := FromDate(0, 0, 0, hour, minute, second, frac)
 	mixDateAndTime(&datePart, &timePart, sign < 0)
@@ -892,29 +895,29 @@ func (d Duration) CompareString(_ *stmtctx.StatementContext, str string) (int, e
 // Hour returns current hour.
 // e.g, hour("11:11:11") -> 11
 func (d Duration) Hour() int {
-	_, hour, _, _, _ := splitDuration(d.Duration)
-	return hour
+	comp := splitDuration(d.Duration)
+	return comp.hours
 }
 
 // Minute returns current minute.
 // e.g, hour("11:11:11") -> 11
 func (d Duration) Minute() int {
-	_, _, minute, _, _ := splitDuration(d.Duration)
-	return minute
+	comp := splitDuration(d.Duration)
+	return comp.minutes
 }
 
 // Second returns current second.
 // e.g, hour("11:11:11") -> 11
 func (d Duration) Second() int {
-	_, _, _, second, _ := splitDuration(d.Duration)
-	return second
+	comp := splitDuration(d.Duration)
+	return comp.seconds
 }
 
 // MicroSecond returns current microsecond.
 // e.g, hour("11:11:11.11") -> 110000
 func (d Duration) MicroSecond() int {
-	_, _, _, _, frac := splitDuration(d.Duration)
-	return frac
+	comp := splitDuration(d.Duration)
+	return comp.frac
 }
 
 // ParseDuration parses the time form a formatted string with a fractional seconds part,
@@ -1052,7 +1055,16 @@ func TruncateOverflowMySQLTime(d gotime.Duration) (gotime.Duration, error) {
 	return d, nil
 }
 
-func splitDuration(t gotime.Duration) (int, int, int, int, int) {
+// durationComponents 表示持续时间的各个组成部分
+type durationComponents struct {
+	sign    int
+	hours   int
+	minutes int
+	seconds int
+	frac    int
+}
+
+func splitDuration(t gotime.Duration) durationComponents {
 	sign := 1
 	if t < 0 {
 		t = -t
@@ -1067,7 +1079,13 @@ func splitDuration(t gotime.Duration) (int, int, int, int, int) {
 	t -= seconds * gotime.Second
 	fraction := t / gotime.Microsecond
 
-	return sign, int(hours), int(minutes), int(seconds), int(fraction)
+	return durationComponents{
+		sign:    sign,
+		hours:   int(hours),
+		minutes: int(minutes),
+		seconds: int(seconds),
+		frac:    int(fraction),
+	}
 }
 
 var maxDaysInMonth = []int{31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
@@ -1511,9 +1529,10 @@ func extractMinuteMicrosecond(format string) (int64, int64, int64, gotime.Durati
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
 
-	_, _, _, value, err := extractSecondMicrosecond(fields[1])
+	_, _, second, value, err := extractSecondMicrosecond(fields[1])
+	_ = second // 忽略秒数，只使用微秒值
 	if err != nil {
-		return 0, 0, 0, 0, errors.Trace(err)
+		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
 
 	return 0, 0, 0, gotime.Duration(minutes)*gotime.Minute + value, nil
@@ -1556,7 +1575,8 @@ func extractHourMicrosecond(format string) (int64, int64, int64, gotime.Duration
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
 
-	_, _, _, value, err := extractSecondMicrosecond(fields[2])
+	_, _, second, value, err := extractSecondMicrosecond(fields[2])
+	_ = second // 忽略秒数，只使用微秒值
 	if err != nil {
 		return 0, 0, 0, 0, errors.Trace(err)
 	}
@@ -1621,7 +1641,8 @@ func extractDayMicrosecond(format string) (int64, int64, int64, gotime.Duration,
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
 
-	_, _, _, value, err := extractHourMicrosecond(fields[1])
+	_, _, hour, value, err := extractHourMicrosecond(fields[1])
+	_ = hour // 忽略小时数，只使用时间值
 	if err != nil {
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
@@ -1641,7 +1662,8 @@ func extractDaySecond(format string) (int64, int64, int64, gotime.Duration, erro
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
 
-	_, _, _, value, err := extractHourSecond(fields[1])
+	_, _, hour, value, err := extractHourSecond(fields[1])
+	_ = hour // 忽略小时数，只使用时间值
 	if err != nil {
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
@@ -1661,7 +1683,8 @@ func extractDayMinute(format string) (int64, int64, int64, gotime.Duration, erro
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
 
-	_, _, _, value, err := extractHourMinute(fields[1])
+	_, _, hour, value, err := extractHourMinute(fields[1])
+	_ = hour // 忽略小时数，只使用时间值
 	if err != nil {
 		return 0, 0, 0, 0, ErrIncorrectDatetimeValue.GenByArgs(format)
 	}
@@ -2144,7 +2167,7 @@ func GetFormatType(format string) (isDuration, isDate bool) {
 		}
 		token, _, succ = getFormatToken(format)
 	}
-	return
+	return isDuration, isDate
 }
 
 func matchDateWithToken(t *MysqlTime, date string, token string, ctx map[string]int) (remain string, succ bool) {
