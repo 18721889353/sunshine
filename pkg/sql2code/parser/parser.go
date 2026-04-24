@@ -15,10 +15,13 @@ import (
 	"github.com/huandu/xstrings"
 	"github.com/jinzhu/inflection"
 
-	"github.com/18721889353/sunshine/pkg/sqlparser/ast"
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/mysql"
-	"github.com/18721889353/sunshine/pkg/sqlparser/dependency/types"
-	"github.com/18721889353/sunshine/pkg/sqlparser/parser"
+	// Import MySQL parser driver
+	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
+	"github.com/pingcap/tidb/pkg/parser/types"
 )
 
 const (
@@ -69,10 +72,12 @@ func ParseSQL(sql string, options ...Option) (map[string]string, error) {
 	initCommonTemplate()
 	opt := parseOption(options)
 
-	stmts, err := parser.New().Parse(sql, opt.Charset, opt.Collation)
+	stmts, warns, err := parser.New().Parse(sql, opt.Charset, opt.Collation)
 	if err != nil {
 		return nil, err
 	}
+	// 处理警告信息（如果有）
+	_ = warns
 	modelStructCodes := make([]string, 0, len(stmts))
 	updateFieldsCodes := make([]string, 0, len(stmts))
 	handlerStructCodes := make([]string, 0, len(stmts))
@@ -419,15 +424,9 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 				gormTag.WriteString(";AUTO_INCREMENT")
 			case ast.ColumnOptionDefaultValue:
 				// 处理默认值，包括NULL默认值
-				if value := getDefaultValue(o.Expr); value != "" {
+				if value := getDefaultValue(o.Expr, col.Tp); value != "" {
 					gormTag.WriteString(";default:")
 					gormTag.WriteString(value)
-				} else if o.Expr.GetDatum().Kind() == types.KindNull {
-					// 明确处理NULL默认值
-					gormTag.WriteString(";default:null")
-				} else if o.Expr.GetDatum().Kind() == types.KindString {
-					// 处理空字符串默认值
-					gormTag.WriteString(";default:''")
 				}
 			case ast.ColumnOptionUniqKey:
 				gormTag.WriteString(";unique")
@@ -437,7 +436,12 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			case ast.ColumnOptionOnUpdate: // For Timestamp and Datetime only.
 			case ast.ColumnOptionFulltext:
 			case ast.ColumnOptionComment:
-				field.Comment = o.Expr.GetDatum().GetString()
+				// 处理注释
+				if valueExpr, ok := o.Expr.(ast.ValueExpr); ok {
+					if val := valueExpr.GetValue(); val != nil {
+						field.Comment = fmt.Sprintf("%v", val)
+					}
+				}
 			default:
 				//return "", nil, errors.Errorf(" unsupport option %d\n", o.Tp)
 			}
@@ -923,7 +927,7 @@ func addCommaToJSON(modelJSONCode string) string {
 func mysqlToGoType(colTp *types.FieldType, style NullStyle) (name string, path string, rrField *rewriterField) {
 	if style == NullInSql {
 		path = "database/sql"
-		switch colTp.Tp {
+		switch colTp.GetType() {
 		case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong:
 			name = "sql.NullInt32"
 		case mysql.TypeLonglong:
@@ -935,7 +939,7 @@ func mysqlToGoType(colTp *types.FieldType, style NullStyle) (name string, path s
 			name = "sql.NullString"
 		case mysql.TypeTimestamp, mysql.TypeDatetime, mysql.TypeDate:
 			name = "sql.NullTime"
-		case mysql.TypeDecimal, mysql.TypeNewDecimal:
+		case mysql.TypeNewDecimal:
 			name = "sql.NullString"
 		case mysql.TypeJSON, mysql.TypeEnum:
 			name = "sql.NullString"
@@ -943,15 +947,15 @@ func mysqlToGoType(colTp *types.FieldType, style NullStyle) (name string, path s
 			return "UnSupport", "", nil
 		}
 	} else {
-		switch colTp.Tp {
+		switch colTp.GetType() {
 		case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong:
-			if mysql.HasUnsignedFlag(colTp.Flag) {
+			if mysql.HasUnsignedFlag(colTp.GetFlag()) {
 				name = "uint"
 			} else {
 				name = "int"
 			}
 		case mysql.TypeLonglong:
-			if mysql.HasUnsignedFlag(colTp.Flag) {
+			if mysql.HasUnsignedFlag(colTp.GetFlag()) {
 				name = "uint64"
 			} else {
 				name = "int64"
@@ -964,7 +968,7 @@ func mysqlToGoType(colTp *types.FieldType, style NullStyle) (name string, path s
 		case mysql.TypeTimestamp, mysql.TypeDatetime, mysql.TypeDate:
 			path = "time" //nolint
 			name = "time.Time"
-		case mysql.TypeDecimal, mysql.TypeNewDecimal:
+		case mysql.TypeNewDecimal:
 			name = "string"
 		case mysql.TypeEnum:
 			name = "string"
@@ -1040,16 +1044,45 @@ func makeTagStr(tags []string) string {
 	return builder.String()
 }
 
-func getDefaultValue(expr ast.ExprNode) (value string) {
-	if expr.GetDatum().Kind() != types.KindNull {
-		value = fmt.Sprintf("%v", expr.GetDatum().GetValue())
-	} else if expr.GetFlag() != ast.FlagConstant {
-		if expr.GetFlag() == ast.FlagHasFunc {
-			if funcExpr, ok := expr.(*ast.FuncCallExpr); ok {
-				value = funcExpr.FnName.O
+func getDefaultValue(expr ast.ExprNode, colTp *types.FieldType) (value string) {
+	if expr == nil {
+		return ""
+	}
+
+	// 尝试获取常量值
+	if valueExpr, ok := expr.(ast.ValueExpr); ok {
+		val := valueExpr.GetValue()
+		if val != nil {
+			// 根据数据库字段类型判断是否需要加引号
+			// 字符串、时间、JSON等类型需要加引号，数字类型不需要
+			needQuote := false
+			switch colTp.GetType() {
+			case mysql.TypeString, mysql.TypeVarchar, mysql.TypeVarString,
+				mysql.TypeBlob, mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeLongBlob,
+				mysql.TypeTimestamp, mysql.TypeDatetime, mysql.TypeDate, mysql.TypeNewDate,
+				mysql.TypeJSON, mysql.TypeEnum, mysql.TypeSet:
+				needQuote = true
+			}
+
+			switch v := val.(type) {
+			case string:
+				if needQuote {
+					// GORM 字符串默认值使用单引号
+					value = fmt.Sprintf(`'%s'`, v)
+				} else {
+					// 如果字段是数字类型但值是字符串（如 "0"），则不加引号
+					value = v
+				}
+			default:
+				// 数字、布尔等类型不加引号
+				value = fmt.Sprintf("%v", v)
 			}
 		}
+	} else if funcExpr, ok := expr.(*ast.FuncCallExpr); ok {
+		// 处理函数调用，如 CURRENT_TIMESTAMP
+		value = funcExpr.FnName.O
 	}
+
 	return value
 }
 
