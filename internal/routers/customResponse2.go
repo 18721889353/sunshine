@@ -13,13 +13,14 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-type customResponse2 struct{}
+// CustomResponse2 represents a custom response handler version 2
+type CustomResponse2 struct{}
 
-// NewcustomResponse2 创建自定义响应处理器2
-func NewcustomResponse2() *customResponse2 {
-	return &customResponse2{}
+// NewCustomResponse2 创建自定义响应处理器2
+func NewCustomResponse2() *CustomResponse2 {
+	return &CustomResponse2{}
 }
-func (r *customResponse2) response(c *gin.Context, code int, result, returnInfo interface{}) {
+func (r *CustomResponse2) response(c *gin.Context, code int, result, returnInfo interface{}) {
 	c.JSON(code, gin.H{
 		"result":     result,
 		"returnInfo": returnInfo,
@@ -50,7 +51,8 @@ type ReturnInfo struct {
 	OpenTime   string `json:"openTime"`
 }
 
-func (r *customResponse2) Success(c *gin.Context, data interface{}) {
+// Success handles successful response
+func (r *CustomResponse2) Success(c *gin.Context, data interface{}) {
 	var result = dataInfo{}
 	err := copier.Copy(&result, data)
 	if err != nil {
@@ -63,14 +65,17 @@ func (r *customResponse2) Success(c *gin.Context, data interface{}) {
 		r.response(c, http.StatusOK, result.Result, nil)
 	}
 }
-func (r *customResponse2) Success2(_ *gin.Context, _, _ string, _ interface{}) {
+
+// Success2 handles successful response version 2
+func (r *CustomResponse2) Success2(_ *gin.Context, _, _ string, _ interface{}) {
 }
 
-func (r *customResponse2) ParamError(c *gin.Context, _ error) {
+// ParamError handles parameter error response
+func (r *CustomResponse2) ParamError(c *gin.Context, _ error) {
 	r.response(c, http.StatusOK, nil, nil)
 }
 
-func (r *customResponse2) Error(c *gin.Context, err error) bool {
+func (r *CustomResponse2) Error(c *gin.Context, err error) bool {
 	st, _ := status.FromError(err)
 	result := map[string]string{
 		"code":            fmt.Sprintf("%d", st.Code()),

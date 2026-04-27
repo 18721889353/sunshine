@@ -51,7 +51,7 @@ func main() {
 }
 
 func saveJSONFiles(f *protogen.File) error {
-	content, err := generate.GenerateFiles(f)
+	content, err := generate.Files(f)
 	if err != nil {
 		return err
 	}

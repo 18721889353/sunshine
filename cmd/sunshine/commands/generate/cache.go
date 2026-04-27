@@ -244,17 +244,17 @@ func (g *stringCacheGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 		{
 			// 替换接口名称（大写开头，公开可导出）
-			// 例如：CacheNameExample -> AdminServiceCache
+			// 例如：NameExample -> AdminServiceCache
 			// 使用大小写敏感匹配，避免与结构体名称冲突
-			Old:             "CacheNameExample",
+			Old:             "NameExample",
 			New:             strings.ToUpper(g.moduleName[:1]) + g.moduleName[1:] + "Cache",
 			IsCaseSensitive: true,
 		},
 		{
 			// 替换结构体名称（小写开头，包内私有）
-			// 例如：cacheNameExample -> adminServiceCache
+			// 例如：nameExample -> adminServiceCache
 			// 使用大小写敏感匹配，避免与接口名称冲突
-			Old:             "cacheNameExample",
+			Old:             "nameExample",
 			New:             strings.ToLower(g.moduleName[:1]) + g.moduleName[1:] + "Cache",
 			IsCaseSensitive: true,
 		},

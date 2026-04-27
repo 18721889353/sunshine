@@ -9,13 +9,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type customResponse struct{}
+// CustomResponse represents a custom response handler
+type CustomResponse struct{}
 
 // NewCustomResponse 创建自定义响应处理器
-func NewCustomResponse() *customResponse {
-	return &customResponse{}
+func NewCustomResponse() *CustomResponse {
+	return &CustomResponse{}
 }
-func (r *customResponse) response(c *gin.Context, code int, customCode, msg string, data interface{}) {
+func (r *CustomResponse) response(c *gin.Context, code int, customCode, msg string, data interface{}) {
 	c.JSON(code, gin.H{
 		"code": customCode,
 		"msg":  msg,
@@ -91,7 +92,8 @@ func processMapData(v reflect.Value) (interface{}, string, bool) {
 	return newMap.Interface(), customCode, true
 }
 
-func (r *customResponse) Success(c *gin.Context, data interface{}) {
+// Success handles successful response
+func (r *CustomResponse) Success(c *gin.Context, data interface{}) {
 	customCode := "0000"
 	processedData := data
 
@@ -125,14 +127,17 @@ func (r *customResponse) Success(c *gin.Context, data interface{}) {
 	}
 	r.response(c, http.StatusOK, customCode, msg, processedData)
 }
-func (r *customResponse) Success2(_ *gin.Context, _, _ string, _ interface{}) {
+
+// Success2 handles successful response version 2
+func (r *CustomResponse) Success2(_ *gin.Context, _, _ string, _ interface{}) {
 }
 
-func (r *customResponse) ParamError(c *gin.Context, _ error) {
+// ParamError handles parameter error response
+func (r *CustomResponse) ParamError(c *gin.Context, _ error) {
 	r.response(c, http.StatusOK, "1002", http.StatusText(http.StatusBadRequest), struct{}{})
 }
 
-func (r *customResponse) Error(c *gin.Context, err error) bool {
+func (r *CustomResponse) Error(c *gin.Context, err error) bool {
 	//r.response(c, http.StatusOK, "1001", "处理中", struct{}{})
 	////e := errcode.ParseError(err)
 	st, _ := status.FromError(err)

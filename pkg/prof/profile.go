@@ -49,7 +49,8 @@ var (
 //	}
 //}
 
-type profile struct {
+// Profile represents a profiling session
+type Profile struct {
 	files    []string
 	closeFns []func()
 
@@ -58,15 +59,15 @@ type profile struct {
 }
 
 // NewProfile create a new profile
-func NewProfile() *profile {
-	p := new(profile)
+func NewProfile() *Profile {
+	p := new(Profile)
 	p.stopCh = make(chan struct{})
 	return p
 }
 
 // StartOrStop start and stop sampling profile, the first call to start sampling data, the default maximum is 60 seconds,
 // in less than 60s, if the second execution will actively stop sampling profile
-func (p *profile) StartOrStop() {
+func (p *Profile) StartOrStop() {
 	if isStart() {
 		p.startProfile()
 	} else if isStop() {
@@ -74,7 +75,7 @@ func (p *profile) StartOrStop() {
 	}
 }
 
-func (p *profile) startProfile() {
+func (p *Profile) startProfile() {
 	fmt.Printf("[profile] start sampling profile, status=%d\n", status)
 
 	defer func() {
@@ -123,7 +124,7 @@ func (p *profile) startProfile() {
 	go p.checkTimeout()
 }
 
-func (p *profile) stopProfile() {
+func (p *Profile) stopProfile() {
 	fmt.Printf("[profile] stop sampling profile, status=%d\n", status)
 
 	defer func() {
@@ -149,7 +150,7 @@ func (p *profile) stopProfile() {
 	p = NewProfile() //nolint
 }
 
-func (p *profile) checkTimeout() {
+func (p *Profile) checkTimeout() {
 	if p == nil {
 		return
 	}
@@ -167,7 +168,7 @@ func (p *profile) checkTimeout() {
 	}
 }
 
-func (p *profile) cpu() error {
+func (p *Profile) cpu() error {
 	profileName := "cpu"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)
@@ -189,7 +190,7 @@ func (p *profile) cpu() error {
 	return nil
 }
 
-func (p *profile) mem() error {
+func (p *Profile) mem() error {
 	profileName := "mem"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)
@@ -212,7 +213,7 @@ func (p *profile) mem() error {
 	return nil
 }
 
-func (p *profile) goroutine() error {
+func (p *Profile) goroutine() error {
 	profileName := "goroutine"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)
@@ -231,7 +232,7 @@ func (p *profile) goroutine() error {
 	return nil
 }
 
-func (p *profile) block() error {
+func (p *Profile) block() error {
 	profileName := "block"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)
@@ -253,7 +254,7 @@ func (p *profile) block() error {
 	return nil
 }
 
-func (p *profile) mutex() error {
+func (p *Profile) mutex() error {
 	profileName := "mutex"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)
@@ -277,7 +278,7 @@ func (p *profile) mutex() error {
 	return nil
 }
 
-func (p *profile) threadCreate() error {
+func (p *Profile) threadCreate() error {
 	profileName := "threadcreate"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)
@@ -298,7 +299,7 @@ func (p *profile) threadCreate() error {
 	return nil
 }
 
-func (p *profile) tracing() error {
+func (p *Profile) tracing() error {
 	profileName := "trace"
 	file := getFilePath(profileName)
 	f, err := os.Create(file)

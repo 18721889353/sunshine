@@ -17,7 +17,7 @@ func GenerateFiles(file *protogen.File) []byte {
 	}
 
 	// 解析 HTTP 服务定义
-	pss := parse.ParseHTTPPbServices(file)
+	pss := parse.Services(file)
 	// 生成 Gin 路由文件内容
 	return genGinRouterFile(pss, string(file.GoPackageName))
 }

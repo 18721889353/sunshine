@@ -102,7 +102,7 @@ func printUsageInfo() *statData {
 	cProc := cpu.GetProcess()
 
 	var cors int32
-	for _, ci := range cSys.CPUInfo {
+	for _, ci := range cSys.Info {
 		cors += ci.Cores
 	}
 

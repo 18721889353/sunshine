@@ -78,8 +78,8 @@ type Field struct {
 	ImportPkgPath  string // import path e.g. google.golang.org/protobuf/types/known/anypb
 }
 
-// GenerateFiles generate service logic, router, error code files.
-func GenerateFiles(file *protogen.File) ([]byte, error) {
+// Files generate service logic, router, error code files.
+func Files(file *protogen.File) ([]byte, error) {
 	pss := parser.GetServices(file)
 	goPackage := file.GoDescriptorIdent.GoImportPath.String()
 	goPkgName := parser.GetProtoPkgName(goPackage)

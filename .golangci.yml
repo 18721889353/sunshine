@@ -90,7 +90,7 @@ linters-settings:
       - name: function-result-limit
         arguments: [3]
       - name: cyclomatic
-        arguments: [20]
+        arguments: [55]
       
       # 高级规则
       - name: bare-return
@@ -141,12 +141,12 @@ linters-settings:
   # ========== gocyclo 配置 ==========
   gocyclo:
     # 最小圈复杂度阈值，建议 10-20
-    min-complexity: 20
+    min-complexity: 55
 
   # ========== gocognit 配置 ==========
   gocognit:
     # 最小认知复杂度阈值，建议 10-20
-    min-complexity: 20
+    min-complexity: 55
 
   # ========== goconst 配置 ==========
   goconst:

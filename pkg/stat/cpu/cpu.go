@@ -12,12 +12,12 @@ import (
 
 // System cpu information
 type System struct {
-	UsagePercent float64   `json:"usage_percent"` // cpu usage, unit(%), current logical CPU usage, total usage is cores*UsagePercent
-	CPUInfo      []CPUInfo `json:"cpu_info"`
+	UsagePercent float64 `json:"usage_percent"` // cpu usage, unit(%), current logical CPU usage, total usage is cores*UsagePercent
+	Info         []Info  `json:"cpu_info"`
 }
 
-// CPUInfo cpu information
-type CPUInfo struct {
+// Info cpu information
+type Info struct {
 	ModelName string  `json:"modelName"`
 	Cores     int32   `json:"cores"`
 	Frequency float64 `json:"frequency"` // cpu frequency, unit(Mhz)
@@ -42,13 +42,13 @@ func GetSystemCPU() *System {
 		sysUsagePercent = vs[0] * 10
 	}
 
-	var cpuInfos []CPUInfo
+	var cpuInfos []Info
 	cpus, err := cpu.Info()
 	if err != nil {
 		fmt.Printf("cpu.Info error, %v\n", err)
 	} else {
 		for _, v := range cpus {
-			cpuInfos = append(cpuInfos, CPUInfo{
+			cpuInfos = append(cpuInfos, Info{
 				ModelName: v.ModelName,
 				Cores:     v.Cores,
 				Frequency: v.Mhz,
@@ -58,7 +58,7 @@ func GetSystemCPU() *System {
 
 	return &System{
 		UsagePercent: floatRound(sysUsagePercent, 1),
-		CPUInfo:      cpuInfos,
+		Info:         cpuInfos,
 	}
 }
 

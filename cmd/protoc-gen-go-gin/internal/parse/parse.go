@@ -450,13 +450,13 @@ type HTTPPbService struct {
 // HTTPPbServices HTTP协议缓冲区服务列表
 type HTTPPbServices []*HTTPPbService
 
-// ParseHTTPPbServices 解析所有 HTTP 服务
+// Services 解析所有 HTTP 服务
 // 参数:
 //   - file: *protogen.File, 即当前解析的 proto 文件
 //
 // 返回值:
 //   - []*HTTPPbService, 解析后的所有 HTTP 服务对象
-func ParseHTTPPbServices(file *protogen.File) []*HTTPPbService {
+func Services(file *protogen.File) []*HTTPPbService {
 	// 获取文件的 Go 导入路径
 	goImportPath := file.GoImportPath.String()
 	// 初始化一个 HTTPPbService 列表

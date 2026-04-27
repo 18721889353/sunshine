@@ -68,8 +68,8 @@ func WithPrefixURL(prefixURL string) CosUploaderOption {
 	}
 }
 
-// cosUploader 改造后支持动态配置
-type cosUploader struct {
+// CosUploader 改造后支持动态配置
+type CosUploader struct {
 	Bucket    string
 	Region    string
 	SecretID  string
@@ -79,12 +79,12 @@ type cosUploader struct {
 }
 
 // NewCosUploader 支持传入选项参数
-func NewCosUploader(cosUploaderInfo *CosUploaderInfo, opts ...CosUploaderOption) *cosUploader {
+func NewCosUploader(cosUploaderInfo *CosUploaderInfo, opts ...CosUploaderOption) *CosUploader {
 	options := defaultCosUploaderOptions()
 	for _, opt := range opts {
 		opt(options)
 	}
-	return &cosUploader{
+	return &CosUploader{
 		Bucket:    cosUploaderInfo.Bucket,
 		Region:    cosUploaderInfo.Region,
 		SecretID:  cosUploaderInfo.SecretID,
@@ -95,7 +95,7 @@ func NewCosUploader(cosUploaderInfo *CosUploaderInfo, opts ...CosUploaderOption)
 }
 
 // CosPrefixUrl 返回 COS 域名前缀
-func (c *cosUploader) cosPrefixURL() string {
+func (c *CosUploader) cosPrefixURL() string {
 	if c.opts.prefixURL != "" {
 		return c.opts.prefixURL
 	}
@@ -103,7 +103,7 @@ func (c *cosUploader) cosPrefixURL() string {
 }
 
 // GetFileUploadRecPath 获取文件上传路径
-func (c *cosUploader) getFileUploadRecPath(fileName string) (string, error) {
+func (c *CosUploader) getFileUploadRecPath(fileName string) (string, error) {
 	fileExt := path.Ext(fileName)
 	if fileExt == "" {
 		return "", fmt.Errorf("文件扩展名不能为空")
@@ -115,7 +115,7 @@ func (c *cosUploader) getFileUploadRecPath(fileName string) (string, error) {
 }
 
 // CosCredentials 生成 COS 凭证
-func (c *cosUploader) cosCredentials() map[string]string {
+func (c *CosUploader) cosCredentials() map[string]string {
 	secretKey := []byte(c.SecretKey)
 	startTime := time.Now().Unix()
 	endTime := startTime + c.opts.expireTime // 使用配置的过期时间
@@ -162,7 +162,7 @@ func (c *cosUploader) cosCredentials() map[string]string {
 }
 
 // UploadCosPrepareData 生成上传所需的预签名信息
-func (c *cosUploader) UploadCosPrepareData(fileName string) (*CosInfo, error) {
+func (c *CosUploader) UploadCosPrepareData(fileName string) (*CosInfo, error) {
 	savePath, err := c.getFileUploadRecPath(fileName)
 	if err != nil {
 		return nil, err

@@ -136,7 +136,7 @@ database:
   # mysql设置
   mysql:
     # dsn格式,  <用户名>:<密码>@(<主机名>:<端口>)/<数据库>?[k=v& ......]
-    dsn: "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
+    dsn: "root:jianguo123@(127.0.0.1:3306)/hello?parseTime=true&loc=UTC&charset=utf8mb4"
     enableLog: false               # 是否开启打印所有日志
     slowQueryThresholdMs: 300     # 慢查询阈值，单位毫秒
     maxIdleConns: 10              # 设置空闲连接池中最大连接数 通常设置为小于 maxOpenConns
@@ -145,10 +145,10 @@ database:
     maxIdleTime: 5                # 设置连接的最大空闲时间(分) 必须远小于数据库的 wait_timeout
     # 设置从库mysql dsn, 数组类型
     slavesDsn:
-      - "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
+      - "root:jianguo123@(127.0.0.1:3306)/hello?parseTime=true&loc=UTC&charset=utf8mb4"
     # 设置主库mysql dsn, 数组类型, 非必填字段, 如果只有一个主库, 无需设置mastersDsn字段, 默认dsn字段即为mysql主库
     mastersDsn:
-      - "root:jianguo123@(127.0.0.1:3306)/fzj?parseTime=true&loc=UTC&charset=utf8mb4"
+      - "root:jianguo123@(127.0.0.1:3306)/hello?parseTime=true&loc=UTC&charset=utf8mb4"
 # 删除模板代码结束
 
 # redis设置
@@ -221,7 +221,7 @@ rabbitmq:
     heartbeat: 20                 # 设置心跳间隔选项(秒)
     statsLogOpen: true            # 统计日志打印 true开false关
   DoingOrder: # 订单处理配置
-    enable: true                  # 是否启用
+    enable: false                  # 是否启用
     queueType: "dead"             # 队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
     exchangeName: "DoingOrderExchange"     # 交换机名称
     normalQueueName: "DoingOrderQueue"     # 正常队列名称

@@ -32,10 +32,10 @@ const (
 	CacheNameExampleExpireTime = 30 * time.Minute
 )
 
-var _ CacheNameExample = (*cacheNameExample)(nil)
+var _ NameExample = (*nameExample)(nil)
 
-// CacheNameExample is the cache interface for cache name example
-type CacheNameExample interface {
+// NameExample is the cache interface for cache name example
+type NameExample interface {
 	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	// 封装了锁的获取、看门狗自动续期、业务执行及释放逻辑
@@ -60,13 +60,13 @@ type CacheNameExample interface {
 	DelCacheName(ctx context.Context, keyNameExample keyTypeExample) error
 }
 
-// cacheNameExample define a cache struct
-type cacheNameExample struct {
+// nameExample define a cache struct
+type nameExample struct {
 	cache cache.Cache
 }
 
-// NewCacheNameExample new a cache
-func NewCacheNameExample(cacheType *database.CacheType) CacheNameExample {
+// NewNameExample new a cache
+func NewNameExample(cacheType *database.CacheType) NameExample {
 	jsonEncoding := encoding.JSONEncoding{}
 	cachePrefix := ""
 
@@ -76,35 +76,35 @@ func NewCacheNameExample(cacheType *database.CacheType) CacheNameExample {
 			var valueNameExample interface{}
 			return &valueNameExample
 		})
-		return &cacheNameExample{cache: c}
+		return &nameExample{cache: c}
 	}
 
 	return nil // no cache
 }
 
 // GetCacheNameExampleCacheKey cache key
-func (c *cacheNameExample) GetCacheNameExampleCacheKey(key string) string {
+func (c *nameExample) GetCacheNameExampleCacheKey(key string) string {
 	return CacheNameExampleCachePrefixKey + key
 }
 
-func (c *cacheNameExample) getCacheKey(keyNameExample keyTypeExample) string {
+func (c *nameExample) getCacheKey(keyNameExample keyTypeExample) string {
 	return fmt.Sprintf("%s%v", CacheNameExampleCachePrefixKey, keyNameExample)
 }
 
-func (c *cacheNameExample) getLockCacheKey(key string) string {
+func (c *nameExample) getLockCacheKey(key string) string {
 	return fmt.Sprintf("%s%v", CacheNameExampleCachePrefixKeyLock, key)
 }
 
-func (c *cacheNameExample) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
+func (c *nameExample) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLoopLock(ctx, cacheKey, options...)
 }
 
-func (c *cacheNameExample) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
+func (c *nameExample) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	cacheKey := c.getLockCacheKey(key)
 	return c.cache.GetLock(ctx, cacheKey, options...)
 }
-func (c *cacheNameExample) WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
+func (c *nameExample) WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
 	// 1. 获取普通锁
 	lock, err := c.GetLock(ctx, key, options...)
 	if err != nil {
@@ -159,7 +159,7 @@ func (c *cacheNameExample) WatchDogLock(ctx context.Context, key string, expiry 
 	return task(watchdogCtx)
 }
 
-func (c *cacheNameExample) WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
+func (c *nameExample) WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
 	// 1. 获取循环锁 (复用已有的 GetLoopLock 逻辑)
 	lock, err := c.GetLoopLock(ctx, key, options...)
 	if err != nil {
@@ -215,7 +215,7 @@ func (c *cacheNameExample) WatchDogLoopLock(ctx context.Context, key string, exp
 }
 
 // Set write to cache
-func (c *cacheNameExample) Set(ctx context.Context, key string, data interface{}, duration time.Duration) error {
+func (c *nameExample) Set(ctx context.Context, key string, data interface{}, duration time.Duration) error {
 	if data == nil || key == "" {
 		return nil
 	}
@@ -228,7 +228,7 @@ func (c *cacheNameExample) Set(ctx context.Context, key string, data interface{}
 }
 
 // Get cache value
-func (c *cacheNameExample) Get(ctx context.Context, key string) (interface{}, error) {
+func (c *nameExample) Get(ctx context.Context, key string) (interface{}, error) {
 	var data interface{}
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	err := c.cache.Get(ctx, cacheKey, &data)
@@ -237,7 +237,7 @@ func (c *cacheNameExample) Get(ctx context.Context, key string) (interface{}, er
 	}
 	return data, nil
 }
-func (c *cacheNameExample) GetIDByKey(ctx context.Context, key string) (id string, err error) {
+func (c *nameExample) GetIDByKey(ctx context.Context, key string) (id string, err error) {
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	err = c.cache.Get(ctx, cacheKey, &id)
 	if err != nil {
@@ -247,7 +247,7 @@ func (c *cacheNameExample) GetIDByKey(ctx context.Context, key string) (id strin
 }
 
 // Del delete cache
-func (c *cacheNameExample) Del(ctx context.Context, key string) error {
+func (c *nameExample) Del(ctx context.Context, key string) error {
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	err := c.cache.Del(ctx, cacheKey)
 	if err != nil {
@@ -256,14 +256,14 @@ func (c *cacheNameExample) Del(ctx context.Context, key string) error {
 	return nil
 }
 
-func (c *cacheNameExample) DelByPrefix(ctx context.Context, prefix string) error {
+func (c *nameExample) DelByPrefix(ctx context.Context, prefix string) error {
 	err := c.cache.DelByPrefix(ctx, prefix)
 	if err != nil {
 		return err
 	}
 	return nil
 }
-func (c *cacheNameExample) DelByKey(ctx context.Context, key string) error {
+func (c *nameExample) DelByKey(ctx context.Context, key string) error {
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	err := c.cache.Del(ctx, cacheKey)
 	if err != nil {
@@ -273,22 +273,22 @@ func (c *cacheNameExample) DelByKey(ctx context.Context, key string) error {
 }
 
 // SetPlaceholder set placeholder value to cache
-func (c *cacheNameExample) SetPlaceholder(ctx context.Context, key string) error {
+func (c *nameExample) SetPlaceholder(ctx context.Context, key string) error {
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
 }
-func (c *cacheNameExample) SetPlaceholderByKey(ctx context.Context, key string) error {
+func (c *nameExample) SetPlaceholderByKey(ctx context.Context, key string) error {
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
 	return c.cache.SetCacheWithNotFound(ctx, cacheKey)
 }
 
 // IsPlaceholderErr check if cache is placeholder error
-func (c *cacheNameExample) IsPlaceholderErr(err error) bool {
+func (c *nameExample) IsPlaceholderErr(err error) bool {
 	return errors.Is(err, cache.ErrPlaceholder)
 }
 
 // GetCacheName get cache value by key
-func (c *cacheNameExample) GetCacheName(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error) {
+func (c *nameExample) GetCacheName(ctx context.Context, keyNameExample keyTypeExample) (valueTypeExample, error) {
 	var valueNameExample valueTypeExample
 	cacheKey := c.getCacheKey(keyNameExample)
 	err := c.cache.Get(ctx, cacheKey, &valueNameExample)
@@ -299,13 +299,13 @@ func (c *cacheNameExample) GetCacheName(ctx context.Context, keyNameExample keyT
 }
 
 // SetCacheName set cache value
-func (c *cacheNameExample) SetCacheName(ctx context.Context, keyNameExample keyTypeExample, data valueTypeExample, duration time.Duration) error {
+func (c *nameExample) SetCacheName(ctx context.Context, keyNameExample keyTypeExample, data valueTypeExample, duration time.Duration) error {
 	cacheKey := c.getCacheKey(keyNameExample)
 	return c.cache.Set(ctx, cacheKey, &data, duration)
 }
 
 // DelCacheName delete cache
-func (c *cacheNameExample) DelCacheName(ctx context.Context, keyNameExample keyTypeExample) error {
+func (c *nameExample) DelCacheName(ctx context.Context, keyNameExample keyTypeExample) error {
 	cacheKey := c.getCacheKey(keyNameExample)
 	return c.cache.Del(ctx, cacheKey)
 }

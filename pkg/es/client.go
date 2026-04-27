@@ -23,8 +23,8 @@ type Client struct {
 	bufferPool sync.Pool
 }
 
-// ESOptions ES客户端选项配置
-type ESOptions func(*esOptions)
+// Options ES客户端选项配置
+type Options func(*esOptions)
 
 // esOptions ES客户端配置选项
 type esOptions struct {
@@ -39,21 +39,21 @@ func defaultESOptions() *esOptions {
 }
 
 // WithConfig 设置ES配置
-func WithConfig(config Config) ESOptions {
+func WithConfig(config Config) Options {
 	return func(o *esOptions) {
 		o.config = config
 	}
 }
 
 // apply 应用选项
-func (o *esOptions) apply(opts ...ESOptions) {
+func (o *esOptions) apply(opts ...Options) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
 // NewClient 创建ES客户端，启用连接池
-func NewClient(opts ...ESOptions) (*Client, error) {
+func NewClient(opts ...Options) (*Client, error) {
 	o := defaultESOptions()
 	o.apply(opts...)
 
