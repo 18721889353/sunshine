@@ -240,7 +240,7 @@ func (p *Pool) tryGetFromPool(ctx context.Context, startTime time.Time, span tra
 			return pc.conn, true, false // 成功获取
 		}
 		// 深度检查
-		if verified, verifyErr := p.verifyConnection(pc.conn); verifyErr == nil && verified {
+		if verified, verifyErr := p.verifyConnection(ctx, pc.conn); verifyErr == nil && verified {
 			if span != nil {
 				span.SetAttributes(
 					attribute.Bool("rabbitmq.pool.connection_reused", true),
@@ -431,9 +431,9 @@ func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, e
 }
 
 // verifyConnection 验证连接是否真正可用
-func (p *Pool) verifyConnection(conn *Connection) (bool, error) {
+func (p *Pool) verifyConnection(ctx context.Context, conn *Connection) (bool, error) {
 	// 通过获取底层AMQP连接并创建一个临时通道来验证连接
-	amqpConn := conn.GetConn(context.Background())
+	amqpConn := conn.GetConn(ctx)
 	if amqpConn == nil {
 		return false, errors.New("underlying amqp connection is nil")
 	}
@@ -521,7 +521,7 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 }
 
 // doCleanup 实际执行清理工作的函数
-func (p *Pool) doCleanup(_ context.Context) {
+func (p *Pool) doCleanup(ctx context.Context) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -551,7 +551,7 @@ func (p *Pool) doCleanup(_ context.Context) {
 	}
 
 	if removedCount > 0 {
-		logger.InfoWithCtx(context.Background(), "[rabbitmq pool] cleanup completed",
+		logger.InfoWithCtx(ctx, "[rabbitmq pool] cleanup completed",
 			logger.Int("removed_count", removedCount),
 			logger.Int("remaining_pool_size", len(p.conns)))
 	}
@@ -654,7 +654,7 @@ func (p *Pool) HealthCheck(ctx context.Context) {
 		}
 
 		// 执行更严格的验证
-		verified, err := p.verifyConnection(pc.conn)
+		verified, err := p.verifyConnection(ctx, pc.conn)
 		if !verified || err != nil {
 			// 连接实际上不可用，关闭并移除
 			pc.conn.Close()
@@ -665,7 +665,7 @@ func (p *Pool) HealthCheck(ctx context.Context) {
 	}
 
 	if removedCount > 0 {
-		logger.InfoWithCtx(context.Background(), "[rabbitmq pool] health check removed invalid connections",
+		logger.InfoWithCtx(ctx, "[rabbitmq pool] health check removed invalid connections",
 			logger.Int("removedCount", removedCount))
 	}
 }

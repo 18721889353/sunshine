@@ -230,8 +230,10 @@ func (bc *BaseConsumer) buildNormalLetterOptions(exchange *gorabbitmq.Exchange, 
 }
 
 // Stop 优雅停止
-func (bc *BaseConsumer) Stop() error {
-	ctx := context.Background()
+func (bc *BaseConsumer) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger.WarnWithCtx(ctx, ">>> 接收到停止指令: "+bc.name)
 	bc.consumersMutex.Lock()
 	for _, consumer := range bc.consumers {

@@ -165,7 +165,7 @@ func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ..
 }
 
 // initialize 初始化消费者会话
-func (c *Consumer) initialize() error {
+func (c *Consumer) initialize(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -198,7 +198,7 @@ func (c *Consumer) initialize() error {
 		)
 		if err != nil {
 			if closeErr := channel.Close(); closeErr != nil {
-				logger.WarnWithCtx(context.Background(), "关闭channel失败", logger.Err(closeErr))
+				logger.WarnWithCtx(ctx, "关闭channel失败", logger.Err(closeErr))
 			}
 			return err
 		}
@@ -495,7 +495,7 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				}
 				continue
 			}
-			if err := c.initialize(); err != nil {
+			if err := c.initialize(ctx); err != nil {
 				logger.WarnWithCtx(ctx, "[rabbitmq consumer] initialize consumer error",
 					logger.Err(err),
 					logger.String("queue", c.QueueName))
@@ -555,7 +555,7 @@ func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Del
 					logger.String("queue", c.QueueName))
 				return true
 			}
-			c.handleSingleMessage(context.Background(), d, handler)
+			c.handleSingleMessage(ctx, d, handler)
 		}
 	}
 }

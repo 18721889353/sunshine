@@ -155,7 +155,7 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 		exit:            make(chan struct{}),
 	}
 
-	conn, err := connect(connection)
+	conn, err := connect(ctx, connection)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 }
 
 // connect 建立 AMQP 连接
-func connect(c *Connection) (*amqp.Connection, error) {
+func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
 	url := c.url
 	tlsConfig := c.tlsConfig
 	dialTimeout := c.dialTimeout
@@ -197,7 +197,6 @@ func connect(c *Connection) (*amqp.Connection, error) {
 
 		conn, err = amqp.DialConfig(url, amqp.Config{
 			Dial: func(network, addr string) (net.Conn, error) {
-				ctx := context.Background()
 				c, dialErr := dialer.DialContext(ctx, network, addr)
 				if dialErr != nil {
 					return nil, dialErr
@@ -311,7 +310,7 @@ func (c *Connection) monitor(_ context.Context) {
 
 				// 重连
 				reconnectStart := time.Now()
-				amqpConn, amqpErr := connect(c)
+				amqpConn, amqpErr := connect(context.Background(), c)
 				reconnectDuration := time.Since(reconnectStart)
 
 				if amqpErr != nil {
