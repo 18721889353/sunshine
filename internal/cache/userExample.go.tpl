@@ -20,8 +20,9 @@ import (
 )
 
 const (
-    {{.TableNameCamel}}CachePrefixKeyLock = "lock:{{.TableNameCamelFCL}}:"
-	// cache prefix key, must end with a colon
+	// {{.TableNameCamel}}CachePrefixKeyLock cache prefix key, must end with a colon
+	{{.TableNameCamel}}CachePrefixKeyLock = "lock:{{.TableNameCamelFCL}}:"
+	// {{.TableNameCamel}}CachePrefixKey cache prefix key, must end with a colon
 	{{.TableNameCamel}}CachePrefixKey = "data:{{.TableNameCamelFCL}}:"
 	// {{.TableNameCamel}}ExpireTime expire time
 	{{.TableNameCamel}}ExpireTime = 30 * time.Minute
@@ -31,7 +32,7 @@ var _ {{.TableNameCamel}}Cache = (*{{.TableNameCamelFCL}}Cache)(nil)
 
 // {{.TableNameCamel}}Cache cache interface
 type {{.TableNameCamel}}Cache interface {
-    GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
+	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	// 封装了锁的获取、看门狗自动续期、业务执行及释放逻辑
 	WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error
@@ -55,7 +56,6 @@ type {{.TableNameCamel}}Cache interface {
 	SetPlaceholder(ctx context.Context, id uint64) error
 	SetPlaceholderByKey(ctx context.Context, key string) error
 	IsPlaceholderErr(err error) bool
-
 }
 
 // {{.TableNameCamelFCL}}Cache define a cache struct
@@ -79,21 +79,27 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	return nil // no cache
 }
 
+// Get{{.TableNameCamel}}CacheKey cache key
+func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey(id uint64) string {
+	return {{.TableNameCamel}}CachePrefixKey + utils.Uint64ToStr(id)
+}
+func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKeyString(key string) string {
+	return {{.TableNameCamel}}CachePrefixKey + key
+}
+
 func (c *{{.TableNameCamelFCL}}Cache) getLockCacheKey(key string) string {
 	return fmt.Sprintf("%s%v", {{.TableNameCamel}}CachePrefixKeyLock, key)
 }
 
-
 func (c *{{.TableNameCamelFCL}}Cache) GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
-	lockCacheKey := c.getLockCacheKey(key)
-	return c.cache.GetLoopLock(ctx, lockCacheKey, options...)
+	cacheKey := c.getLockCacheKey(key)
+	return c.cache.GetLoopLock(ctx, cacheKey, options...)
 }
 
 func (c *{{.TableNameCamelFCL}}Cache) GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
-	lockCacheKey := c.getLockCacheKey(key)
-	return c.cache.GetLock(ctx, lockCacheKey, options...)
+	cacheKey := c.getLockCacheKey(key)
+	return c.cache.GetLock(ctx, cacheKey, options...)
 }
-
 func (c *{{.TableNameCamelFCL}}Cache) WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
 	// 1. 获取普通锁
 	lock, err := c.GetLock(ctx, key, options...)
@@ -197,21 +203,11 @@ func (c *{{.TableNameCamelFCL}}Cache) WatchDogLoopLock(ctx context.Context, key 
 			}
 		}
 	}()
-
 	if task == nil {
 		logger.WarnWithCtx(ctx, "WatchDogLoopLock: task 参数为 nil", logger.String("key", key))
 		return errors.New("task function cannot be nil")
 	}
 	return task(watchdogCtx)
-}
-
-// Get{{.TableNameCamel}}CacheKey cache key
-func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKey(id uint64) string {
-	return {{.TableNameCamel}}CachePrefixKey + utils.Uint64ToStr(id)
-}
-
-func (c *{{.TableNameCamelFCL}}Cache) Get{{.TableNameCamel}}CacheKeyString(key string) string {
-	return {{.TableNameCamel}}CachePrefixKey + key
 }
 
 // Set write to cache
@@ -262,7 +258,6 @@ func (c *{{.TableNameCamelFCL}}Cache) Get(ctx context.Context, id uint64) (*mode
 	}
 	return data, nil
 }
-
 func (c *{{.TableNameCamelFCL}}Cache) GetIDByKey(ctx context.Context, key string) (id uint64, err error) {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
 	err = c.cache.Get(ctx, cacheKey, &id)
@@ -339,7 +334,6 @@ func (c *{{.TableNameCamelFCL}}Cache) DelByPrefix(ctx context.Context, prefix st
 	}
 	return nil
 }
-
 func (c *{{.TableNameCamelFCL}}Cache) DelByKey(ctx context.Context, key string) error {
 	cacheKey := c.Get{{.TableNameCamel}}CacheKeyString(key)
 	err := c.cache.Del(ctx, cacheKey)
