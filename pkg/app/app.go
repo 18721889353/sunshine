@@ -80,7 +80,9 @@ func (a *App) watch(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done(): // 服务错误
-			_ = a.stop()     // 停止所有服务
+			if err := a.stop(); err != nil {
+				logger.WarnWithCtx(initCtx, "停止服务时出错", logger.Err(err))
+			}
 			return ctx.Err() // 返回上下文的错误
 
 		case sigType := <-sig: // 系统通知信号

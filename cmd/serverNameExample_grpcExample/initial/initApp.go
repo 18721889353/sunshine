@@ -220,7 +220,9 @@ func getConfigFromNacos() {
 	}
 	appConfig := &config.Config{}
 	params := &nacoscli.Params{}
-	_ = copier.Copy(params, &nacosConfig.Nacos)
+	if copyErr := copier.Copy(params, &nacosConfig.Nacos); copyErr != nil {
+		panic(fmt.Sprintf("copy nacos config error: %v", copyErr))
+	}
 	format, data, err := nacoscli.GetConfig(params)
 	if err != nil {
 		panic(fmt.Sprintf("connect to configuration center err, %v", err))

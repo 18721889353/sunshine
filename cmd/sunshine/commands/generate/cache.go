@@ -118,16 +118,26 @@ using help:
 	// 定义命令行标志及其说明
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "模块名称，对应 go.mod 文件中的 module 声明")
 	cmd.Flags().StringVarP(&cacheName, "cache-name", "c", "", "缓存业务名称，例如 userToken")
-	_ = cmd.MarkFlagRequired("cache-name")
+	if err := cmd.MarkFlagRequired("cache-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&prefixKey, "prefix-key", "p", "", "Redis 缓存键前缀，例如 user:token")
 	cmd.Flags().StringVarP(&keyName, "key-name", "k", "", "缓存键的参数名，例如 id、uid")
-	_ = cmd.MarkFlagRequired("key-name")
+	if err := cmd.MarkFlagRequired("key-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&keyType, "key-type", "t", "", "缓存键的 Go 类型，例如 uint64、string")
-	_ = cmd.MarkFlagRequired("key-type")
+	if err := cmd.MarkFlagRequired("key-type"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&valueName, "value-name", "v", "", "缓存值的变量名，例如 token、data")
-	_ = cmd.MarkFlagRequired("value-name")
+	if err := cmd.MarkFlagRequired("value-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&valueType, "value-type", "w", "", "缓存值的 Go 类型，例如 string、*User")
-	_ = cmd.MarkFlagRequired("value-type")
+	if err := cmd.MarkFlagRequired("value-type"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "服务器名称，用于单体仓库模式")
 	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "是否适配单体仓库结构")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "代码输出目录，默认为 ./cache_<时间戳>，可通过 module-name 自动推断")
@@ -175,7 +185,9 @@ func (g *stringCacheGenerator) generateCode() (string, error) {
 	// 配置替换器的子目录和文件
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	// 设置输出目录
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	// 构建字段替换规则
 	fields := g.addFields(r)
 	// 应用替换规则

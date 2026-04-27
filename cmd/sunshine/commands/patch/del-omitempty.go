@@ -41,7 +41,9 @@ func DeleteJSONOmitemptyCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&dir, "dir", "d", "", "input directory")
-	_ = cmd.MarkFlagRequired("dir")
+	if err := cmd.MarkFlagRequired("dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&suffixName, "suffix-name", "s", "", "specified suffix file name, if empty it means all files")
 
 	return cmd

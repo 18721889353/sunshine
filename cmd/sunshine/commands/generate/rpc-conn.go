@@ -88,7 +88,9 @@ using help:
 
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
 	cmd.Flags().StringVarP(&grpcServerNames, "rpc-server-name", "r", "", "rpc service name, multiple names separated by commas")
-	_ = cmd.MarkFlagRequired("rpc-server-name")
+	if err := cmd.MarkFlagRequired("rpc-server-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
 	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "whether the generated code is suitable for mono-repo")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./rpc-conn_<time>, "+flagTip("module-name"))
@@ -117,7 +119,9 @@ func (g *grpcConnectionGenerator) generateCode() (string, error) {
 	subFiles := []string{"internal/rpcclient/serverNameExample.go"}
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	fields := g.addFields()
 	r.SetReplacementFields(fields)
 	if err := r.SaveFiles(); err != nil {

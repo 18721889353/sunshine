@@ -10,6 +10,7 @@ import (
 
 var defaultWhiteList = map[string]struct{}{}
 
+// WhiteListOption 白名单配置选项
 type WhiteListOption func(*whiteListOptions)
 
 func defaultWhiteListOptions() *whiteListOptions {

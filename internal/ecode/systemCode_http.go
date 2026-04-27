@@ -36,6 +36,7 @@ var (
 	DataLoss           = errcode.DataLoss
 )
 
+// SkipResponse 跳过响应标记
 var SkipResponse = errcode.SkipResponse
 
 // GetErrorCode get error code from error

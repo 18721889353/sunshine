@@ -24,16 +24,17 @@ type valueTypeExample = string
 // delete the templates code end
 
 const (
-	// cache prefix key, must end with a colon
+	// CacheNameExampleCachePrefixKeyLock cache prefix key, must end with a colon
 	CacheNameExampleCachePrefixKeyLock = "lock:prefixKeyExample:"
-	CacheNameExampleCachePrefixKey     = "data:prefixKeyExample:"
+	// CacheNameExampleCachePrefixKey 缓存名称示例数据前缀
+	CacheNameExampleCachePrefixKey = "data:prefixKeyExample:"
 	// CacheNameExampleExpireTime expire time
 	CacheNameExampleExpireTime = 30 * time.Minute
 )
 
 var _ CacheNameExample = (*cacheNameExample)(nil)
 
-// CacheNameExample cache interface
+// CacheNameExample is the cache interface for cache name example
 type CacheNameExample interface {
 	GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)
 	GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error)

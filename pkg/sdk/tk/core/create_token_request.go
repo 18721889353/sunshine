@@ -4,27 +4,27 @@ import (
 	"encoding/json"
 )
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// CreateTokenRequest 创建令牌请求（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 CreateTokenRequest
 type CreateTokenRequest struct {
 	BaseTkAPIRequest
 	param *CreateTokenParam
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// GetParamObject 获取参数对象（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的对应方法
 func (r *CreateTokenRequest) GetParamObject() interface{} {
 	return r.param
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// GetParams 获取参数（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的对应方法
 func (r *CreateTokenRequest) GetParams() *CreateTokenParam {
 	return r.param
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// Execute 执行创建令牌请求（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的对应方法
 func (r *CreateTokenRequest) Execute(accessToken string) (*CreateTokenResponse, error) {
 	responseJSON, err := r.GetClient().Request(r, accessToken)
 	if err != nil {
@@ -38,14 +38,14 @@ func (r *CreateTokenRequest) Execute(accessToken string) (*CreateTokenResponse, 
 	return response, nil
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// GetURLPath 获取URL路径（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的对应方法
 func (r *CreateTokenRequest) GetURLPath() string {
 	return "/Api/Common/Auth/getToken"
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// NewCreateTokenRequest 创建新的令牌请求实例（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 NewCreateTokenRequest
 func NewCreateTokenRequest() *CreateTokenRequest {
 	request := &CreateTokenRequest{
 		param: &CreateTokenParam{},
@@ -55,21 +55,21 @@ func NewCreateTokenRequest() *CreateTokenRequest {
 	return request
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// CreateTokenResponse 创建令牌响应（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/response 包中的 CreateTokenResponse
 type CreateTokenResponse struct {
 	BaseTkAPIResponse
 	Data CreateTokenData `json:"data"`
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// CreateTokenData 创建令牌数据（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/response 包中的 CreateTokenData
 type CreateTokenData struct {
 	Token string `json:"token"`
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// CreateTokenParam 创建令牌参数（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 CreateTokenParam
 type CreateTokenParam struct {
 	AppID     string `json:"app_id"`
 	AppSecret string `json:"app_secret"`

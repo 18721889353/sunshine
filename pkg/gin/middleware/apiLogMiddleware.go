@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ResponseWriter 自定义响应writer，用于捕获响应体
@@ -99,7 +101,12 @@ func APILogMiddleware(opts ...APILogOption) gin.HandlerFunc {
 		// 读取请求体
 		var reqBody []byte
 		if c.Request.Body != nil {
-			reqBody, _ = c.GetRawData()
+			var err error
+			reqBody, err = c.GetRawData()
+			if err != nil {
+				logger.WarnWithCtx(c.Request.Context(), "get raw data error", logger.Err(err))
+				reqBody = []byte{}
+			}
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 		}
 		// 创建自定义响应writer来捕获响应体

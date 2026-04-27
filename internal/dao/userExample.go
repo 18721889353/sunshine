@@ -84,10 +84,10 @@ func applyOptions(opts ...QueryOption) *queryOptions {
 // 返回值：baseDuration + random(-300s ~ +300s)
 func getRandomExpireTime(base time.Duration) time.Duration {
 	// 从池中获取随机数生成器（无锁竞争，高性能）
-	randGen := randPool.Get().(*rand.Rand)
+	randGen := randPool.Get().(*rand.Rand) //nolint:errcheck // sync.Pool 保证返回 *rand.Rand 类型
+	defer randPool.Put(randGen)            // 确保放回池中供复用
 	// 生成 -300 ~ +300 秒的随机偏移（对应 CacheExpireTimeOffsetSeconds）
 	offsetSeconds := randGen.Int63n(601) - 300 // 0-600 秒范围，减去 300 得到 -300~+300 秒
-	randPool.Put(randGen)                      // 放回池中供复用
 
 	offset := time.Duration(offsetSeconds) * time.Second
 	return base + offset
@@ -256,7 +256,9 @@ func (m *userExampleCacheManager) handleConditionCacheHit(ctx context.Context, c
 	}
 	// 如果通过 ID 获取失败（可能是记录已删除），清除条件缓存中的 ID
 	if getErr != nil {
-		_ = m.cache.DelByKey(ctx, cacheKey)
+		if delErr := m.cache.DelByKey(ctx, cacheKey); delErr != nil {
+			logger.WarnWithCtx(ctx, "cache.DelByKey error", logger.Err(delErr), logger.Any("key", cacheKey))
+		}
 	}
 	return nil, false, nil // 缓存未命中或失效
 }

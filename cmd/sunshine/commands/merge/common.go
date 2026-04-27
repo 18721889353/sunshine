@@ -168,8 +168,12 @@ func (m *mergeParam) mergeData(subData1 []byte, subData2 []byte) []byte {
 
 func (m *mergeParam) saveFile(file string, data []byte) error {
 	bkDir := m.backupDir + gofile.GetPathDelimiter() + m.dt
-	_ = os.MkdirAll(bkDir, 0744)
-	_, _ = gobash.Exec("cp", file, bkDir+gofile.GetPathDelimiter()+gofile.GetFilename(file))
+	if err := os.MkdirAll(bkDir, 0744); err != nil {
+		return err
+	}
+	if _, err := gobash.Exec("cp", file, bkDir+gofile.GetPathDelimiter()+gofile.GetFilename(file)); err != nil {
+		return err
+	}
 
 	return os.WriteFile(file, data, 0766)
 }
@@ -390,7 +394,11 @@ func adaptDir(dir string) string {
 }
 
 func cutPathPrefix(srcFile string) string {
-	dirPath, _ := filepath.Abs(".")
+	dirPath, err := filepath.Abs(".")
+	if err != nil {
+		fmt.Printf("get absolute path error: %v\n", err)
+		return srcFile
+	}
 	return strings.ReplaceAll(srcFile, dirPath+gofile.GetPathDelimiter(), "")
 }
 
@@ -435,7 +443,9 @@ func filterAndRemoveOldFiles(files []string) []string {
 
 	// remove old files
 	for _, file := range removeFiles {
-		_ = os.Remove(file)
+		if err := os.Remove(file); err != nil {
+			fmt.Printf("remove file %s error: %v\n", file, err)
+		}
 	}
 
 	return newFiles
@@ -469,7 +479,10 @@ func parseErrorCode(str string) (string, int) {
 	if len(ss) != 2 {
 		return "", 0
 	}
-	num, _ := strconv.Atoi(strings.TrimSpace(ss[1]))
+	num, err := strconv.Atoi(strings.TrimSpace(ss[1]))
+	if err != nil {
+		return "", 0
+	}
 	return ss[0], num
 }
 

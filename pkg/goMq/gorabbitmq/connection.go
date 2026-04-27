@@ -259,7 +259,9 @@ func (c *Connection) monitor(_ context.Context) {
 
 			select {
 			case <-c.exit:
-				_ = c.closeConn()
+				if err := c.closeConn(); err != nil {
+					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] 关闭连接失败", logger.Err(err))
+				}
 				logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
 				return
 			case b := <-c.blockChan:
@@ -341,7 +343,9 @@ func (c *Connection) monitor(_ context.Context) {
 		// 防止过快重试
 		select {
 		case <-c.exit:
-			_ = c.closeConn()
+			if err := c.closeConn(); err != nil {
+				logger.WarnWithCtx(context.Background(), "[rabbitmq connection] 关闭连接失败", logger.Err(err))
+			}
 			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
 			return
 		case <-time.After(time.Millisecond * 100):

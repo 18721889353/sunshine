@@ -9,6 +9,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/18721889353/sunshine/pkg/etcdcli"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 )
 
@@ -117,7 +118,9 @@ func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstan
 		return nil, err
 	}
 	if r.lease != nil {
-		_ = r.lease.Close()
+		if closeErr := r.lease.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "close lease error", logger.Err(closeErr))
+		}
 	}
 	//创建一个新的 lease，用于保持服务的活跃状态
 	r.lease = clientv3.NewLease(r.client)
@@ -135,7 +138,9 @@ func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstan
 func (r *Registry) Deregister(ctx context.Context, service *registry.ServiceInstance) error {
 	defer func() {
 		if r.lease != nil {
-			_ = r.lease.Close()
+			if closeErr := r.lease.Close(); closeErr != nil {
+				logger.WarnWithCtx(ctx, "close lease error", logger.Err(closeErr))
+			}
 		}
 	}()
 	key := fmt.Sprintf("%s/%s/%s", r.opts.namespace, service.Name, service.ID)

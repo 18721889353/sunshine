@@ -74,7 +74,11 @@ func getSunshineDir() string {
 	}
 
 	// 5. 回退到 ~/.sunshine
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Printf("get user home directory error: %v\n", err)
+		return ""
+	}
 	if homeDir != "" {
 		return filepath.Join(homeDir, ".sunshine")
 	}

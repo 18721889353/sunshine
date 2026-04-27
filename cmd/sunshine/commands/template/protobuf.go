@@ -141,10 +141,14 @@ func ProtobufCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&protobufFile, "protobuf-file", "p", "", "proto file")
-	_ = cmd.MarkFlagRequired("protobuf-file")
+	if err := cmd.MarkFlagRequired("protobuf-file"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&depProtoDir, "dep-proto-dir", "d", "", "directory where the dependent proto files are located, example: ./depProtoDir")
 	cmd.Flags().StringVarP(&tplDir, "tpl-dir", "i", "", "directory where your template code is located")
-	_ = cmd.MarkFlagRequired("tpl-dir")
+	if err := cmd.MarkFlagRequired("tpl-dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&fieldsFile, "fields", "f", "", "fields defined in json file")
 	cmd.Flags().BoolVarP(&onlyPrint, "only-print", "n", false, "only print template code and all fields, do not generate code")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./protobuf_to_template_<time>")
@@ -161,7 +165,10 @@ type protoGenerator struct {
 
 func (g *protoGenerator) generateCode() (string, error) {
 	subTplName := "protobuf_to_template"
-	r, _ := replacer.New(g.tplDir)
+	r, err := replacer.New(g.tplDir)
+	if err != nil {
+		return "", err
+	}
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -180,7 +187,9 @@ func (g *protoGenerator) generateCode() (string, error) {
 		return "", nil
 	}
 
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveTemplateFiles(g.fields, gofile.GetSuffixDir(g.tplDir)); err != nil {
 		return "", err
 	}
@@ -199,7 +208,9 @@ func copyThirdPartyProtoFiles(depProtoDir string) (string, error) {
 		subDirs := []string{"sunshine/" + thirdPartyDir}
 		subFiles := []string{}
 		r.SetSubDirsAndFiles(subDirs, subFiles...)
-		_ = r.SetOutputDir(".") // out dir is third_party
+		if err := r.SetOutputDir("."); err != nil { // out dir is third_party
+			return "", err
+		}
 		err := r.SaveFiles()
 		if err != nil {
 			return "", err

@@ -175,7 +175,10 @@ func (p *profile) cpu() error {
 		return err
 	}
 
-	_ = pprof.StartCPUProfile(f)
+	if err := pprof.StartCPUProfile(f); err != nil {
+		_ = f.Close()
+		return err
+	}
 
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
@@ -199,7 +202,9 @@ func (p *profile) mem() error {
 
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
-		_ = pprof.Lookup("heap").WriteTo(f, 0)
+		if err := pprof.Lookup("heap").WriteTo(f, 0); err != nil {
+			fmt.Printf("write mem profile error: %v\n", err)
+		}
 		_ = f.Close()
 		runtime.MemProfileRate = old
 	})
@@ -217,7 +222,9 @@ func (p *profile) goroutine() error {
 
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
-		_ = pprof.Lookup(profileName).WriteTo(f, 0)
+		if err := pprof.Lookup(profileName).WriteTo(f, 0); err != nil {
+			fmt.Printf("write goroutine profile error: %v\n", err)
+		}
 		_ = f.Close()
 	})
 
@@ -236,7 +243,9 @@ func (p *profile) block() error {
 
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
-		_ = pprof.Lookup(profileName).WriteTo(f, 0)
+		if err := pprof.Lookup(profileName).WriteTo(f, 0); err != nil {
+			fmt.Printf("write block profile error: %v\n", err)
+		}
 		_ = f.Close()
 		runtime.SetBlockProfileRate(0)
 	})
@@ -257,7 +266,9 @@ func (p *profile) mutex() error {
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
 		if mp := pprof.Lookup(profileName); mp != nil {
-			_ = mp.WriteTo(f, 0)
+			if err := mp.WriteTo(f, 0); err != nil {
+				fmt.Printf("write mutex profile error: %v\n", err)
+			}
 		}
 		_ = f.Close()
 		runtime.SetMutexProfileFraction(0)
@@ -277,7 +288,9 @@ func (p *profile) threadCreate() error {
 	p.files = append(p.files, file)
 	p.closeFns = append(p.closeFns, func() {
 		if mp := pprof.Lookup(profileName); mp != nil {
-			_ = mp.WriteTo(f, 0)
+			if err := mp.WriteTo(f, 0); err != nil {
+				fmt.Printf("write threadcreate profile error: %v\n", err)
+			}
 		}
 		_ = f.Close()
 	})
@@ -328,7 +341,9 @@ func isStop() bool {
 
 func getFilePath(profileName string) string {
 	dir := joinPath(os.TempDir(), serverName+"_profile")
-	_ = os.MkdirAll(dir, 0766)
+	if err := os.MkdirAll(dir, 0766); err != nil {
+		fmt.Printf("create profile directory error: %v\n", err)
+	}
 
 	return joinPath(dir, fmt.Sprintf("%s_%d_%s_%s.out",
 		time.Now().Format(timeFormat), pid, serverName, profileName))

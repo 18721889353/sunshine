@@ -213,7 +213,11 @@ func (p *AsyncProducer) handleResponse(handleFn AsyncSendFailedHandlerFn) {
 
 // Close closes the producer.
 func (p *AsyncProducer) Close() error {
-	defer func() { _ = recover() }() // ignore error
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WarnWithCtx(context.Background(), "关闭producer时发生panic", logger.Any("panic", r))
+		}
+	}()
 	close(p.exit)
 	if p.Producer != nil {
 		return p.Producer.Close()

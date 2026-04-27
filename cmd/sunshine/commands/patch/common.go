@@ -2,6 +2,7 @@ package patch
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,13 +31,21 @@ func getNamesFromOutDir(dir string) (moduleName string, serverName string, suite
 }
 
 func cutPath(srcProtoFile string) string {
-	dirPath, _ := filepath.Abs("..")
+	dirPath, err := filepath.Abs("..")
+	if err != nil {
+		fmt.Printf("get absolute path error: %v\n", err)
+		return srcProtoFile
+	}
 	srcProtoFile = strings.ReplaceAll(srcProtoFile, dirPath, "..")
 	return strings.ReplaceAll(srcProtoFile, "\\", "/")
 }
 
 func cutPathPrefix(srcProtoFile string) string {
-	dirPath, _ := filepath.Abs(".")
+	dirPath, err := filepath.Abs(".")
+	if err != nil {
+		fmt.Printf("get absolute path error: %v\n", err)
+		return srcProtoFile
+	}
 	srcProtoFile = strings.ReplaceAll(srcProtoFile, dirPath, ".")
 	return strings.ReplaceAll(srcProtoFile, "\\", "/")
 }

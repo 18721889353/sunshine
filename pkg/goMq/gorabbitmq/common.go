@@ -302,8 +302,10 @@ func WithQueueBindArgs(args map[string]interface{}) QueueBindOption {
 // -------------------------------------------------------------------------------------------
 
 // NormalLetterOption declare dead letter option.
+// NormalLetterOption 普通消息配置选项
 type NormalLetterOption func(*NormalLetterOptions)
 
+// NormalLetterOptions 普通消息配置选项结构
 type NormalLetterOptions struct {
 	exchangeName     string // exchangeName 普通交换机名称
 	normalQueueName  string // normalQueueName 普通队列名称
@@ -366,6 +368,7 @@ func WithNormalLetter(exchangeName string, normalQueueName string, normalRouting
 // CustomerDeadLetterOption declare dead letter option.
 type CustomerDeadLetterOption func(*CustomerDeadLetterOptions)
 
+// CustomerDeadLetterOptions 自定义死信配置选项结构
 type CustomerDeadLetterOptions struct {
 	exchangeName string // exchangeName 死信交换机名称
 
@@ -486,6 +489,7 @@ func WithCustomerDeadLetter(
 // DeadLetterOption declare dead letter option.
 type DeadLetterOption func(*DeadLetterOptions)
 
+// DeadLetterOptions 死信配置选项结构
 type DeadLetterOptions struct {
 	exchangeName string // exchangeName 死信交换机名称
 

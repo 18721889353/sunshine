@@ -94,7 +94,7 @@ func sendSystemSignForLinux() {
 }
 
 func printUsageInfo() *statData {
-	defer func() { _ = recover() }()
+	defer func() { _ = recover() }() //nolint:errcheck
 
 	mSys := mem.GetSystemMemory()
 	mProc := mem.GetProcessMemory()

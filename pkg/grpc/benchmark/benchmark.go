@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Option 性能测试选项类型
 type Option = runner.Option
 
 // Runner interface
@@ -101,7 +102,9 @@ func (b *bench) Run() error {
 func (b *bench) saveReport(callMethod string, report *runner.Report) error {
 	// specify the output path
 	outDir := os.TempDir() + string(os.PathSeparator) + "sunshine_grpc_benchmark"
-	_ = os.MkdirAll(outDir, 0777)
+	if err := os.MkdirAll(outDir, 0777); err != nil {
+		return err
+	}
 	outputFile := fmt.Sprintf("%sreport_%s.html", outDir+string(os.PathSeparator), b.methodName)
 	file, err := os.Create(outputFile)
 	if err != nil {

@@ -62,7 +62,9 @@ func BrowserRefresh(path string) func(c *gin.Context) {
 			content, err := os.ReadFile(path)
 			if err != nil {
 				c.Writer.WriteHeader(404)
-				_, _ = c.Writer.WriteString("Not Found")
+				if _, writeErr := c.Writer.WriteString("Not Found"); writeErr != nil {
+					return
+				}
 				return
 			}
 			c.Writer.WriteHeader(200)
@@ -82,7 +84,9 @@ func BrowserRefreshFS(fs embed.FS, path string) func(c *gin.Context) {
 			content, err := fs.ReadFile(path)
 			if err != nil {
 				c.Writer.WriteHeader(404)
-				_, _ = c.Writer.WriteString("Not Found")
+				if _, writeErr := c.Writer.WriteString("Not Found"); writeErr != nil {
+					return
+				}
 				return
 			}
 			c.Writer.WriteHeader(200)

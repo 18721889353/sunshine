@@ -123,15 +123,23 @@ func SQLCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "", "database driver, support mysql")
-	_ = cmd.MarkFlagRequired("db-driver")
+	if err := cmd.MarkFlagRequired("db-driver"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database") //nolint
-	_ = cmd.MarkFlagRequired("db-dsn")
+	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
-	_ = cmd.MarkFlagRequired("db-table")
+	if err := cmd.MarkFlagRequired("db-table"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&sqlArgs.TablePrefix, "table-prefix", "p", "", "table name prefix, e.g. t_")
 
 	cmd.Flags().StringVarP(&tplDir, "tpl-dir", "i", "", "directory where your template code is located")
-	_ = cmd.MarkFlagRequired("tpl-dir")
+	if err := cmd.MarkFlagRequired("tpl-dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&fieldsFile, "fields", "f", "", "fields defined in json file")
 	cmd.Flags().BoolVarP(&onlyPrint, "only-print", "n", false, "only print template code and all fields, do not generate code")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./sql_to_template_<time>")
@@ -148,7 +156,10 @@ type sqlGenerator struct {
 
 func (g *sqlGenerator) generateCode() (string, error) {
 	subTplName := "sql_to_template"
-	r, _ := replacer.New(g.tplDir)
+	r, err := replacer.New(g.tplDir)
+	if err != nil {
+		return "", err
+	}
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -167,7 +178,9 @@ func (g *sqlGenerator) generateCode() (string, error) {
 		return "", nil
 	}
 
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveTemplateFiles(g.fields, gofile.GetSuffixDir(g.tplDir)); err != nil {
 		return "", err
 	}

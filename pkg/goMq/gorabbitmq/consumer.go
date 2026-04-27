@@ -197,7 +197,9 @@ func (c *Consumer) initialize() error {
 			c.qosOption.global,
 		)
 		if err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				logger.WarnWithCtx(context.Background(), "关闭channel失败", logger.Err(closeErr))
+			}
 			return err
 		}
 	}
@@ -205,7 +207,9 @@ func (c *Consumer) initialize() error {
 	// 处理自定义死信队列
 	if c.customerDeadLetter.exchangeName != defaultExchangeName {
 		if err := c.setupCustomerDeadLetter(channel); err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				fmt.Printf("close channel error: %v\n", closeErr)
+			}
 			return err
 		}
 	}
@@ -213,7 +217,9 @@ func (c *Consumer) initialize() error {
 	// 处理标准死信队列
 	if c.deadLetter.exchangeName != defaultExchangeName {
 		if err := c.setupStandardDeadLetter(channel); err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				fmt.Printf("close channel error: %v\n", closeErr)
+			}
 			return err
 		}
 	}
@@ -221,7 +227,9 @@ func (c *Consumer) initialize() error {
 	// 处理正常队列
 	if c.normalLetter.exchangeName != defaultExchangeName {
 		if err := c.setupNormalLetter(channel); err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				fmt.Printf("close channel error: %v\n", closeErr)
+			}
 			return err
 		}
 	}
@@ -558,7 +566,11 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	case <-ctx.Done():
 		logger.WarnWithCtx(ctx, "Context已取消，丢弃当前消息处理",
 			logger.Uint64("tag", d.DeliveryTag))
-		_ = d.Reject(true)
+		if rejectErr := d.Reject(true); rejectErr != nil {
+			logger.WarnWithCtx(ctx, "reject message error",
+				logger.Err(rejectErr),
+				logger.Uint64("tag", d.DeliveryTag))
+		}
 		return
 	default:
 	}
@@ -717,7 +729,9 @@ func (c *Consumer) safeChannelClose() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ch != nil {
-		_ = c.ch.Close()
+		if err := c.ch.Close(); err != nil {
+			fmt.Printf("close channel error: %v\n", err)
+		}
 		c.ch = nil
 	}
 }
@@ -727,7 +741,9 @@ func (c *Consumer) Close() {
 	c.closeOnce.Do(func() {
 		c.wg.Wait()
 		if c.ch != nil {
-			_ = c.ch.Close()
+			if err := c.ch.Close(); err != nil {
+				fmt.Printf("close channel error: %v\n", err)
+			}
 			c.ch = nil
 		}
 		logger.InfoWithCtx(context.Background(), "[rabbitmq consumer] 资源已释放",

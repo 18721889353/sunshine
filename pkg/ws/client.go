@@ -97,6 +97,7 @@ func NewClient(url string, opts ...ClientOption) (*Client, error) {
 	return c, nil
 }
 
+// GetConn 获取WebSocket连接
 func (c *Client) GetConn() *websocket.Conn {
 	if c.conn == nil {
 		defer func() {

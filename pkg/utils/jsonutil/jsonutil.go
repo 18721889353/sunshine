@@ -115,11 +115,12 @@ func Unmarshal[T any](data []byte, v *T) error {
 	return jsonAPI.Unmarshal(data, v)
 }
 
-// 兼容标准库的函数
+// MarshalStd 兼容标准库的Marshal函数
 func MarshalStd(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// UnmarshalStd 标准JSON反序列化
 func UnmarshalStd(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }

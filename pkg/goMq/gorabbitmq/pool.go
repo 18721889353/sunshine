@@ -187,7 +187,9 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 		conn, err := NewConnection(ctx, url, poolOpts.connOpts...)
 		if err != nil {
 			// 关闭已经创建的连接
-			_ = pool.Close(ctx)
+			if closeErr := pool.Close(ctx); closeErr != nil {
+				fmt.Printf("close pool error: %v\n", closeErr)
+			}
 			return nil, err
 		}
 
@@ -238,7 +240,7 @@ func (p *Pool) tryGetFromPool(ctx context.Context, startTime time.Time, span tra
 			return pc.conn, true, false // 成功获取
 		}
 		// 深度检查
-		if verified, _ := p.verifyConnection(pc.conn); verified {
+		if verified, verifyErr := p.verifyConnection(pc.conn); verifyErr == nil && verified {
 			if span != nil {
 				span.SetAttributes(
 					attribute.Bool("rabbitmq.pool.connection_reused", true),
@@ -508,10 +510,12 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = p.antsPool.Submit(func() {
+			if err := p.antsPool.Submit(func() {
 				p.doCleanup(ctx)
 				p.HealthCheck(ctx)
-			})
+			}); err != nil {
+				fmt.Printf("submit cleanup task error: %v\n", err)
+			}
 		}
 	}
 }

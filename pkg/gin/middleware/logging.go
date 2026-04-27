@@ -67,6 +67,7 @@ func WithMaxLen(maxLen int) Option {
 	}
 }
 
+// WithLogFrom 设置日志来源标识
 func WithLogFrom(logFrom string) Option {
 	return func(o *options) {
 		o.logFrom = logFrom
@@ -251,7 +252,9 @@ func Logging(opts ...Option) gin.HandlerFunc {
 		// print input information before processing
 		var buf bytes.Buffer
 		if c.Request.Body != nil {
-			_, _ = buf.ReadFrom(c.Request.Body)
+			if _, err := buf.ReadFrom(c.Request.Body); err != nil {
+				logger.WarnWithCtx(c.Request.Context(), "read request body error", logger.Err(err))
+			}
 		}
 
 		fields := []logger.Field{

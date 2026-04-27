@@ -285,14 +285,18 @@ func (d *Dumper) checkCyclicRef(t reflect.Type, v reflect.Value) (goon bool) {
 func (d *Dumper) rvStringer(rt reflect.Type, rv reflect.Value) string {
 	// fmt.Println("Implements fmt.Stringer:", t.Implements(stringerType))
 	if rv.CanInterface() && rt.Implements(stringerType) {
-		return d.ColorTheme.valTip(` #str: "` + rv.Interface().(fmt.Stringer).String() + `"`)
+		if strVal, ok := rv.Interface().(fmt.Stringer); ok {
+			return d.ColorTheme.valTip(` #str: "` + strVal.String() + `"`)
+		}
 	}
 	return ""
 }
 
 func (d *Dumper) writeOutput(v ...any) {
 	if d.NoColor {
-		_, _ = fmt.Fprint(d.Output, v...)
+		if _, err := fmt.Fprint(d.Output, v...); err != nil {
+			fmt.Printf("write output error: %v\n", err)
+		}
 	} else {
 		color.Fprint(d.Output, v...)
 	}
@@ -300,11 +304,15 @@ func (d *Dumper) writeOutput(v ...any) {
 
 func (d *Dumper) printf(f string, v ...any) {
 	if !d.msValue {
-		_, _ = d.Output.Write(d.indentBytes)
+		if _, err := d.Output.Write(d.indentBytes); err != nil {
+			fmt.Printf("write indent error: %v\n", err)
+		}
 	}
 
 	if d.NoColor {
-		_, _ = fmt.Fprintf(d.Output, f, v...)
+		if _, err := fmt.Fprintf(d.Output, f, v...); err != nil {
+			fmt.Printf("fprintf error: %v\n", err)
+		}
 	} else {
 		color.Fprintf(d.Output, f, v...)
 	}
@@ -312,11 +320,15 @@ func (d *Dumper) printf(f string, v ...any) {
 
 func (d *Dumper) write(indent bool, v ...any) {
 	if indent && !d.msValue {
-		_, _ = d.Output.Write(d.indentBytes)
+		if _, err := d.Output.Write(d.indentBytes); err != nil {
+			fmt.Printf("write indent error: %v\n", err)
+		}
 	}
 
 	if d.NoColor {
-		_, _ = fmt.Fprint(d.Output, v...)
+		if _, err := fmt.Fprint(d.Output, v...); err != nil {
+			fmt.Printf("fprint error: %v\n", err)
+		}
 	} else {
 		color.Fprint(d.Output, v...)
 	}
@@ -392,9 +404,11 @@ func (d *Dumper) printStructValue(t reflect.Type, v reflect.Value, isPtr bool) {
 
 	// special handle time.Time struct
 	if t == timeType {
-		timeStr := v.Interface().(time.Time).Format(time.RFC3339)
-		d.printf("time.Time(%s),\n", d.ColorTheme.string(timeStr))
-		return
+		if timeVal, ok := v.Interface().(time.Time); ok {
+			timeStr := timeVal.Format(time.RFC3339)
+			d.printf("time.Time(%s),\n", d.ColorTheme.string(timeStr))
+			return
+		}
 	}
 
 	d.write(!isPtr, d.ColorTheme.msType(t.String()), " {\n")

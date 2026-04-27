@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
@@ -28,7 +29,10 @@ type Service struct {
 
 // NewService instantiated service
 func NewService(dao *Dao, testData interface{}) *Service {
-	port, _ := utils.GetAvailablePort()
+	port, err := utils.GetAvailablePort()
+	if err != nil {
+		panic(fmt.Sprintf("获取可用端口失败: %v", err))
+	}
 	clientAddr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -74,7 +78,9 @@ func (s *Service) Close() {
 		s.MockDao.Close()
 	}
 	if s.clientConn != nil {
-		_ = s.clientConn.Close()
+		if err := s.clientConn.Close(); err != nil {
+			logger.WarnWithCtx(context.Background(), "关闭gRPC客户端连接失败", logger.Err(err))
+		}
 	}
 	if s.Server != nil {
 		s.Server.GracefulStop()

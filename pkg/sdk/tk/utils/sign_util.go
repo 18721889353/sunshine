@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha256"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/gocrypto"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Hmac 计算hmac
@@ -24,23 +26,33 @@ func Hmac(s string, appSecret string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// Md5 计算字符串的MD5值
 func Md5(s string) string {
 	h := md5.New()
-	_, _ = io.WriteString(h, s)
+	if _, err := io.WriteString(h, s); err != nil {
+		logger.WarnWithCtx(context.Background(), "写入MD5哈希器失败", logger.Err(err))
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Marshal 序列化参数
+// Marshal 序列化参数并添加签名
 func Marshal(o interface{}, appSecret string, signFunc func(params map[string]any, appSecret string) string) string {
 	// 序列化一次
-	raw, _ := json.Marshal(o)
+	raw, err := json.Marshal(o)
+	if err != nil {
+		logger.WarnWithCtx(context.Background(), "序列化对象失败", logger.Err(err))
+		return ""
+	}
 
 	// 反序列化为map
 	m := make(map[string]interface{})
 	reader := bytes.NewReader(raw)
 	decode := json.NewDecoder(reader)
 	decode.UseNumber()
-	_ = decode.Decode(&m)
+	if err := decode.Decode(&m); err != nil {
+		logger.WarnWithCtx(context.Background(), "反序列化JSON失败", logger.Err(err))
+		return ""
+	}
 	m["timestamp"] = time.Now().Unix()
 	m["nonce_str"] = RandStringBytesMaskImprSrcUnsafe(32)
 
@@ -54,12 +66,16 @@ func Marshal(o interface{}, appSecret string, signFunc func(params map[string]an
 	buffer := bytes.NewBufferString("")
 	encoder := json.NewEncoder(buffer)
 	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(m)
+	if err := encoder.Encode(m); err != nil {
+		logger.WarnWithCtx(context.Background(), "编码JSON失败", logger.Err(err))
+		return ""
+	}
 
 	marshal := strings.TrimSpace(buffer.String()) // Trim掉末尾的换行符
 	return marshal
 }
 
+// RandStringBytesMaskImprSrcUnsafe 生成随机字符串
 func RandStringBytesMaskImprSrcUnsafe(n int) string {
 	const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	const (
@@ -84,6 +100,7 @@ func RandStringBytesMaskImprSrcUnsafe(n int) string {
 	return string(b)
 }
 
+// Sign 生成签名
 func Sign(params map[string]interface{}, signKey string) string {
 	key := strings.Trim(createEncryptStr(params), "&")
 	key = key + "&key=" + signKey

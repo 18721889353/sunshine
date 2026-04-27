@@ -45,7 +45,9 @@ func OpenUICommand() *cobra.Command {
 			}
 			fmt.Printf("sunshine command ui service is running, port = %d, verson = %s, visit %s in your browser.\n\n", port, getVersion(), sunshineAddr)
 			go func() {
-				_ = open(sunshineAddr)
+				if openErr := open(sunshineAddr); openErr != nil {
+					fmt.Printf("open browser error: %v\n", openErr)
+				}
 			}()
 			server.RunHTTPServer(sunshineAddr, port, isLog)
 			return nil

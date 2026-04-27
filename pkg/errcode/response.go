@@ -141,7 +141,10 @@ func (resp *defaultResponse) unwrapData(data any) any {
 
 	// 3. 快速路径：尝试从缓存读取分析结果
 	if cached, ok := unwrapCache.Load(typ); ok {
-		info := cached.(unwrapInfo)
+		info, ok := cached.(unwrapInfo)
+		if !ok {
+			return data
+		}
 		if info.shouldUnwrap {
 			return v.Field(info.fieldIndex).Interface()
 		}

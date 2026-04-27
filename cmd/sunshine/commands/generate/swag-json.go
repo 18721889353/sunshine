@@ -172,6 +172,8 @@ func saveJSONFile(data []byte, jsonFilePath string) error {
 	}
 
 	dir := gofile.GetFileDir(jsonFilePath)
-	_ = os.MkdirAll(dir, 0766)
+	if err := os.MkdirAll(dir, 0766); err != nil {
+		return fmt.Errorf("create directory %s error: %v", dir, err)
+	}
 	return os.WriteFile(jsonFilePath, data, 0666)
 }

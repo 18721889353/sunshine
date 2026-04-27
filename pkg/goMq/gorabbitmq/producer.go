@@ -84,6 +84,8 @@ func WithProducerMandatory(enable bool) ProducerOption {
 		o.mandatory = enable
 	}
 }
+
+// WithProducerIsDelay 设置生产者是否启用延迟消息
 func WithProducerIsDelay(enable bool) ProducerOption {
 	return func(o *producerOptions) {
 		o.isDelay = enable
@@ -141,7 +143,9 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	// 处理自定义死信队列
 	if o.customerDeadLetter.exchangeName != defaultExchangeName {
 		if err := setupProducerCustomerDeadLetter(channel, exchange, o); err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				fmt.Printf("close channel error: %v\n", closeErr)
+			}
 			return nil, err
 		}
 	}
@@ -149,7 +153,9 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	// 处理标准死信队列
 	if o.deadLetter.exchangeName != defaultExchangeName {
 		if err := setupProducerStandardDeadLetter(channel, exchange, o); err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				fmt.Printf("close channel error: %v\n", closeErr)
+			}
 			return nil, err
 		}
 	}
@@ -157,7 +163,9 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	// 处理正常队列
 	if o.normalLetter.exchangeName != defaultExchangeName {
 		if err := setupProducerNormalLetter(channel, exchange, o); err != nil {
-			_ = channel.Close()
+			if closeErr := channel.Close(); closeErr != nil {
+				fmt.Printf("close channel error: %v\n", closeErr)
+			}
 			return nil, err
 		}
 	}

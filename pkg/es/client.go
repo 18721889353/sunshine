@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Client ES客户端封装
@@ -128,7 +130,11 @@ func (c *Client) Ping(ctx context.Context) error {
 		endSpan(err)
 		return fmt.Errorf("failed to ping elasticsearch: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES Ping响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("elasticsearch ping returned error status: %s", res.String())
@@ -152,7 +158,11 @@ func (c *Client) Info(ctx context.Context) (map[string]interface{}, error) {
 		endSpan(err)
 		return nil, fmt.Errorf("failed to get elasticsearch info: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES Info响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("elasticsearch info request returned error: %s", res.String())
@@ -182,7 +192,11 @@ func (c *Client) HealthCheck(ctx context.Context) (string, error) {
 		endSpan(err)
 		return "", fmt.Errorf("failed to check cluster health: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES Health响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("cluster health check returned error: %s", res.String())
@@ -208,7 +222,10 @@ func (c *Client) HealthCheck(ctx context.Context) (string, error) {
 
 // getBuffer 从池中获取缓冲区
 func (c *Client) getBuffer() *bytes.Buffer {
-	buf := c.bufferPool.Get().(*bytes.Buffer)
+	buf, ok := c.bufferPool.Get().(*bytes.Buffer)
+	if !ok {
+		return bytes.NewBuffer(nil)
+	}
 	buf.Reset()
 	return buf
 }

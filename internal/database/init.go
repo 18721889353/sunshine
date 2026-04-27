@@ -14,6 +14,7 @@ var (
 	gdb     *sgorm.DB
 	gdbOnce sync.Once
 
+	// ErrRecordNotFound 记录未找到错误
 	ErrRecordNotFound = sgorm.ErrRecordNotFound
 )
 

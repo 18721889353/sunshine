@@ -447,6 +447,7 @@ type HTTPPbService struct {
 	ImportPkgMap map[string]string // 导入包映射，例如 [userV1]:[userV1 "user/api/user/v1"]
 }
 
+// HTTPPbServices HTTP协议缓冲区服务列表
 type HTTPPbServices []*HTTPPbService
 
 // ParseHTTPPbServices 解析所有 HTTP 服务

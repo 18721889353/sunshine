@@ -100,7 +100,9 @@ func runTypesPbCommand(moduleName string, outPath string) (string, error) {
 	r.SetIgnoreSubFiles(ignoreFiles...)
 	fields := addTypePbFields(moduleName)
 	r.SetReplacementFields(fields)
-	_ = r.SetOutputDir(outPath, subTplName)
+	if err := r.SetOutputDir(outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}

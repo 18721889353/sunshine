@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // SearchService 搜索服务接口
@@ -85,7 +87,11 @@ func (s *search) Search(ctx context.Context, index string, req SearchRequest) (*
 		endSpan(err)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("search failed: %s", res.String())
@@ -124,7 +130,11 @@ func (s *search) SearchWithRawQuery(ctx context.Context, index string, query []b
 		endSpan(err)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("search failed: %s", res.String())
@@ -262,7 +272,11 @@ func (s *search) ScrollSearch(ctx context.Context, index string, req SearchReque
 		endSpan(err)
 		return nil, fmt.Errorf("scroll search error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("scroll search failed: %s", res.String())
@@ -306,7 +320,11 @@ func (s *search) ScrollContinue(ctx context.Context, scrollID string, scrollTime
 		endSpan(err)
 		return nil, fmt.Errorf("scroll continue error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("scroll continue failed: %s", res.String())
@@ -344,7 +362,11 @@ func (s *search) ScrollClear(ctx context.Context, scrollIDs []string) error {
 		endSpan(err)
 		return fmt.Errorf("scroll clear error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("scroll clear failed: %s", res.String())
@@ -393,7 +415,11 @@ func (s *search) SearchWithSearchAfter(ctx context.Context, index string, req Se
 		endSpan(err)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("search failed: %s", res.String())

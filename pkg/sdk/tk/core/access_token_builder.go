@@ -14,8 +14,8 @@ type GetAccessTokenParam struct {
 	AppSecret string
 }
 
-// GetAccessTokenParam 已废弃，使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
-// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessTokenParam
+// GetAccessToken 获取访问令牌（已废弃）
+// Deprecated: 使用 github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request 包中的 GetAccessToken
 func GetAccessToken(param *GetAccessTokenParam) (string, error) {
 	request := NewCreateTokenRequest()
 	request.GetParams().AppID = param.AppID

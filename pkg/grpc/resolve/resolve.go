@@ -17,7 +17,11 @@ func Register(scheme string, serviceName string, address []string) string {
 	defer mutex.Unlock()
 
 	endpoint := fmt.Sprintf("%s:///%s", scheme, serviceName)
-	u, _ := url.Parse(endpoint)
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		fmt.Printf("parse endpoint error: %v\n", err)
+		return ""
+	}
 
 	resolver.Register(&ResolverBuilder{
 		scheme:      scheme,
@@ -67,7 +71,9 @@ func (b *blResolver) start() {
 	for i, s := range addrStrs {
 		addrs[i] = resolver.Address{Addr: s}
 	}
-	_ = b.cc.UpdateState(resolver.State{Addresses: addrs})
+	if err := b.cc.UpdateState(resolver.State{Addresses: addrs}); err != nil {
+		fmt.Printf("update resolver state error: %v\n", err)
+	}
 }
 
 // ResolveNow Resolve now

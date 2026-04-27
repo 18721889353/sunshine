@@ -387,7 +387,8 @@ func typeForValue(value interface{}, structName string, tags []string, subStruct
 			types[reflect.TypeOf(o)] = true
 		}
 		if len(types) == 1 {
-			return "[]" + typeForValue(mergeElements(objects).([]interface{})[0], structName, tags, subStructMap, convertFloats)
+			merged := mergeElements(objects).([]interface{}) //nolint:errcheck
+			return "[]" + typeForValue(merged[0], structName, tags, subStructMap, convertFloats)
 		}
 		return "[]interface{}"
 	} else if object, ok := value.(map[interface{}]interface{}); ok {
@@ -408,7 +409,10 @@ func typeForValue(value interface{}, structName string, tags []string, subStruct
 // If the number appears to be an integer value, use int instead
 func disambiguateFloatInt(value interface{}) string {
 	const epsilon = .0001
-	vfloat := value.(float64)
+	vfloat, ok := value.(float64)
+	if !ok {
+		return reflect.TypeOf(value).Name()
+	}
 	if !ForceFloats && math.Abs(vfloat-math.Floor(vfloat+epsilon)) < epsilon {
 		var tmp int64
 		return reflect.TypeOf(tmp).Name()

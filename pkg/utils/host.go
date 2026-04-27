@@ -39,9 +39,17 @@ func GetAvailablePort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer func() {
+		if closeErr := listener.Close(); closeErr != nil {
+			fmt.Printf("close listener error: %v\n", closeErr)
+		}
+	}()
 
-	port := listener.Addr().(*net.TCPAddr).Port
-	err = listener.Close()
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("failed to cast listener address to TCPAddr")
+	}
+	port := tcpAddr.Port
 
-	return port, err
+	return port, nil
 }

@@ -78,7 +78,11 @@ func UnaryClientCircuitBreaker(opts ...CircuitBreakerOption) grpc.UnaryClientInt
 	o.apply(opts...)
 
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		breaker := o.group.Get(method).(circuitbreaker.CircuitBreaker)
+		breakerVal := o.group.Get(method)
+		breaker, ok := breakerVal.(circuitbreaker.CircuitBreaker)
+		if !ok {
+			return errcode.StatusServiceUnavailable.ToRPCErr("invalid circuit breaker")
+		}
 		if err := breaker.Allow(); err != nil {
 			// NOTE: when client reject request locally, keep adding counter let the drop ratio higher.
 			breaker.MarkFailed()
@@ -107,7 +111,11 @@ func StreamClientCircuitBreaker(opts ...CircuitBreakerOption) grpc.StreamClientI
 	o.apply(opts...)
 
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-		breaker := o.group.Get(method).(circuitbreaker.CircuitBreaker)
+		breakerVal := o.group.Get(method)
+		breaker, ok := breakerVal.(circuitbreaker.CircuitBreaker)
+		if !ok {
+			return nil, errcode.StatusServiceUnavailable.ToRPCErr("invalid circuit breaker")
+		}
 		if err := breaker.Allow(); err != nil {
 			// NOTE: when client reject request locally, keep adding counter let the drop ratio higher.
 			breaker.MarkFailed()
@@ -136,7 +144,11 @@ func UnaryServerCircuitBreaker(opts ...CircuitBreakerOption) grpc.UnaryServerInt
 	o.apply(opts...)
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		breaker := o.group.Get(info.FullMethod).(circuitbreaker.CircuitBreaker)
+		breakerVal := o.group.Get(info.FullMethod)
+		breaker, ok := breakerVal.(circuitbreaker.CircuitBreaker)
+		if !ok {
+			return nil, errcode.StatusServiceUnavailable.ToRPCErr("invalid circuit breaker")
+		}
 		if err := breaker.Allow(); err != nil {
 			// NOTE: when client reject request locally, keep adding let the drop ratio higher.
 			breaker.MarkFailed()
@@ -169,7 +181,11 @@ func StreamServerCircuitBreaker(opts ...CircuitBreakerOption) grpc.StreamServerI
 	o.apply(opts...)
 
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		breaker := o.group.Get(info.FullMethod).(circuitbreaker.CircuitBreaker)
+		breakerVal := o.group.Get(info.FullMethod)
+		breaker, ok := breakerVal.(circuitbreaker.CircuitBreaker)
+		if !ok {
+			return errcode.StatusServiceUnavailable.ToRPCErr("invalid circuit breaker")
+		}
 		if err := breaker.Allow(); err != nil {
 			// NOTE: when client reject request locally, keep adding counter let the drop ratio higher.
 			breaker.MarkFailed()

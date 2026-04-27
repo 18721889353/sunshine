@@ -65,7 +65,9 @@ func runCopyThirdPartyProtoCommand(out string) (string, error) {
 	subDirs := []string{"sunshine/third_party"}
 
 	r.SetSubDirsAndFiles(subDirs)
-	_ = r.SetOutputDir(out)
+	if err := r.SetOutputDir(out); err != nil {
+		return "", err
+	}
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}

@@ -66,6 +66,7 @@ func WithHeaderRequestIDKey(key string) RequestIDOption {
 	}
 }
 
+// WithSnow 设置雪花算法ID生成器
 func WithSnow(snow *snowflake.Node) RequestIDOption {
 	return func(o *requestIDOptions) {
 		o.snow = snow

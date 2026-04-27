@@ -65,6 +65,7 @@ func ParseDateTimeLayoutWithMSAndTZ(s string) (time.Time, error) {
 	return time.Parse(DateTimeLayoutWithMSAndTZ, s)
 }
 
+// ValidateTimeRange 验证时间范围，确保endTime大于等于startTime
 func ValidateTimeRange(startTimeStr, endTimeStr string) error {
 	// 定义时间格式
 	timeLayout := time.DateOnly

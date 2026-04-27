@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Bulk 批量操作接口
@@ -79,7 +81,11 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 		endSpan(err)
 		return fmt.Errorf("bulk operation error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("bulk operation failed: %s", res.String())

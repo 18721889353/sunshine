@@ -3,10 +3,13 @@ package errors
 
 import "fmt"
 
+// ErroCode 错误代码类型
 type ErroCode int
 
 const (
-	ConfigIsNull          ErroCode = 10001
+	// ConfigIsNull 配置为空错误
+	ConfigIsNull ErroCode = 10001
+	// ParamError 参数错误
 	ParamError            ErroCode = 10002
 	HTTPError             ErroCode = 10003 // nolint: revive // backward compatibility
 	GetTokenError         ErroCode = 10004
@@ -23,6 +26,7 @@ var errMessageMap = map[ErroCode]string{
 	ConfigAppSecretIsNull: "Config中AppSecret为空",
 }
 
+// TkError 途刻SDK错误结构
 type TkError struct {
 	Code    ErroCode
 	Message string
@@ -32,6 +36,7 @@ func (err *TkError) Error() string {
 	return fmt.Sprintf("Code: %d, Message: %s", err.Code, err.Message)
 }
 
+// NewTkErrorWithMessage 创建带消息的途刻错误
 func NewTkErrorWithMessage(code ErroCode, message string) error {
 	return &TkError{
 		Code:    code,
@@ -39,6 +44,7 @@ func NewTkErrorWithMessage(code ErroCode, message string) error {
 	}
 }
 
+// NewTkError 创建途刻错误
 func NewTkError(code ErroCode) error {
 	return &TkError{
 		Code:    code,

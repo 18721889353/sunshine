@@ -164,13 +164,27 @@ func copyToTempDir(targetVersion string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_ = executeCommand("rm", "-rf", targetDir+"/cmd/sunshine")
-	_ = executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-go-gin")
-	_ = executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-go-rpc-tmpl")
-	_ = executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-json-field")
-	_ = executeCommand("rm", "-rf", targetDir+"/pkg")
-	_ = executeCommand("rm", "-rf", targetDir+"/test")
-	_ = executeCommand("rm", "-rf", targetDir+"/assets")
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/cmd/sunshine"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-go-gin"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-go-rpc-tmpl"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/cmd/protoc-gen-json-field"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/pkg"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/test"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
+	if rmErr := executeCommand("rm", "-rf", targetDir+"/assets"); rmErr != nil {
+		fmt.Printf("remove directory error: %v\n", rmErr)
+	}
 
 	versionNum := strings.Replace(sunshineDirName, "sunshine@", "", 1)
 	err = os.WriteFile(versionFile, []byte(versionNum), 0644)

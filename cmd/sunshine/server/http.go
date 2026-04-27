@@ -3,6 +3,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/handlerfunc"
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 //go:embed static
@@ -24,6 +26,8 @@ var staticFS embed.FS // index.html in the static directory
 
 var defaultAddr = "http://localhost:24631"
 var frontendDir = "frontend"
+
+// ConfigJsFile 配置文件路径
 var ConfigJsFile = "static/appConfig.js"
 
 // NewRouter create a router
@@ -95,7 +99,9 @@ func checkIsUseEmbedFS(targetDir string, sunshineAddr string) bool {
 }
 
 func saveFSToLocal(targetDir string, sunshineAddr string) error {
-	_ = os.RemoveAll(filepath.Join(targetDir, "static"))
+	if err := os.RemoveAll(filepath.Join(targetDir, "static")); err != nil {
+		logger.WarnWithCtx(context.Background(), "删除static目录失败", logger.Err(err))
+	}
 	time.Sleep(time.Millisecond * 10)
 
 	// Walk through the embedded filesystem

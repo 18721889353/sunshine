@@ -13,20 +13,30 @@ import (
 // https://platform.openai.com/docs/api-reference
 
 const (
+	// ModelGPT3Dot5Turbo GPT-3.5 Turbo模型
 	ModelGPT3Dot5Turbo = openai.GPT3Dot5Turbo
-	ModelGPT4          = openai.GPT4
-	ModelGPT4Turbo     = openai.GPT4Turbo
-	ModelGPT4o         = openai.GPT4o // default
-	ModelGPT4oMini     = openai.GPT4oMini
-	ModelO1Mini        = openai.O1Mini
-	ModelO1Preview     = openai.O1Preview
+	// ModelGPT4 GPT-4模型
+	ModelGPT4 = openai.GPT4
+	// ModelGPT4Turbo GPT-4 Turbo模型
+	ModelGPT4Turbo = openai.GPT4Turbo
+	// ModelGPT4o GPT-4o模型（默认）
+	ModelGPT4o = openai.GPT4o // default
+	// ModelGPT4oMini GPT-4o Mini模型
+	ModelGPT4oMini = openai.GPT4oMini
+	// ModelO1Mini O1 Mini模型
+	ModelO1Mini = openai.O1Mini
+	// ModelO1Preview O1 Preview模型
+	ModelO1Preview = openai.O1Preview
 
+	// DefaultModel 默认模型
 	DefaultModel     = ModelO1Mini
 	defaultMaxTokens = 4096
 
+	// RoleTypeGopher Go语言代码助手角色
 	RoleTypeGopher = "You are a Go Language Coder Assistant, an AI specialized in writing, debugging, " +
 		"and explaining Go code. You only provide solutions and explanations for Go programming " +
 		"language. Always provide clear and concise code examples, and explain your solutions step by step."
+	// RoleTypeGeneral 通用助手角色
 	RoleTypeGeneral = "You are a General Assistant, an AI that can help with a wide range of tasks, including " +
 		"answering questions, writing content, generating code, translating languages, and more. " +
 		"Always provide clear, concise, and helpful responses."

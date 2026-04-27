@@ -208,28 +208,40 @@ func rwSeparationPlugin(o *options) (gorm.Plugin, error) {
 // GORM 的 Before 回调是逆序执行（后注册的后执行），所以我们的 Before 会在 otel 之后执行
 func registerEnhancedTraceCallback(db *gorm.DB) {
 	// 查询操作：在 otel 创建 span 后（Before 逆序执行）、SQL 执行前注入属性
-	_ = db.Callback().Query().Before("gorm:query").Register("gorm:trace:enhance:query", func(db *gorm.DB) {
+	if err := db.Callback().Query().Before("gorm:query").Register("gorm:trace:enhance:query", func(db *gorm.DB) {
 		enhanceSpanWithQueryInfo(db.Statement.Context, db, "query")
-	})
+	}); err != nil {
+		fmt.Printf("register query callback error: %v\n", err)
+	}
 	// 创建操作
-	_ = db.Callback().Create().After("otel:before:create").Before("otel:after:create").Register("gorm:trace:enhance:create", func(db *gorm.DB) {
+	if err := db.Callback().Create().After("otel:before:create").Before("otel:after:create").Register("gorm:trace:enhance:create", func(db *gorm.DB) {
 		enhanceSpanWithQueryInfo(db.Statement.Context, db, "create")
-	})
+	}); err != nil {
+		fmt.Printf("register create callback error: %v\n", err)
+	}
 	// 更新操作
-	_ = db.Callback().Update().After("otel:before:update").Before("otel:after:update").Register("gorm:trace:enhance:update", func(db *gorm.DB) {
+	if err := db.Callback().Update().After("otel:before:update").Before("otel:after:update").Register("gorm:trace:enhance:update", func(db *gorm.DB) {
 		enhanceSpanWithQueryInfo(db.Statement.Context, db, "update")
-	})
+	}); err != nil {
+		fmt.Printf("register update callback error: %v\n", err)
+	}
 	// 删除操作
-	_ = db.Callback().Delete().After("otel:before:delete").Before("otel:after:delete").Register("gorm:trace:enhance:delete", func(db *gorm.DB) {
+	if err := db.Callback().Delete().After("otel:before:delete").Before("otel:after:delete").Register("gorm:trace:enhance:delete", func(db *gorm.DB) {
 		enhanceSpanWithQueryInfo(db.Statement.Context, db, "delete")
-	})
+	}); err != nil {
+		fmt.Printf("register delete callback error: %v\n", err)
+	}
 	// 原始 SQL 操作
-	_ = db.Callback().Row().After("otel:before:row").Before("otel:after:row").Register("gorm:trace:enhance:row", func(db *gorm.DB) {
+	if err := db.Callback().Row().After("otel:before:row").Before("otel:after:row").Register("gorm:trace:enhance:row", func(db *gorm.DB) {
 		enhanceSpanWithQueryInfo(db.Statement.Context, db, "row")
-	})
-	_ = db.Callback().Raw().After("otel:before:raw").Before("otel:after:raw").Register("gorm:trace:enhance:raw", func(db *gorm.DB) {
+	}); err != nil {
+		fmt.Printf("register row callback error: %v\n", err)
+	}
+	if err := db.Callback().Raw().After("otel:before:raw").Before("otel:after:raw").Register("gorm:trace:enhance:raw", func(db *gorm.DB) {
 		enhanceSpanWithQueryInfo(db.Statement.Context, db, "raw")
-	})
+	}); err != nil {
+		fmt.Printf("register raw callback error: %v\n", err)
+	}
 }
 
 // enhanceSpanWithQueryInfo 增强 Span 信息：重命名 Span 并添加诊断属性

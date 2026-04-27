@@ -120,6 +120,7 @@ func (o *logOptions) apply(opts ...LogOption) {
 	}
 }
 
+// WithMaxLen 设置日志最大长度
 func WithMaxLen(maxLen int) LogOption {
 	return func(o *logOptions) {
 		o.maxLength = maxLen
@@ -193,7 +194,11 @@ func UnaryServerLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 
 		resp, err := handler(ctx, req)
 
-		data, _ := json.Marshal(resp)
+		data, marshalErr := json.Marshal(resp)
+		if marshalErr != nil {
+			logger.WarnWithCtx(ctx, "marshal response error", logger.Err(marshalErr))
+			data = []byte("{}")
+		}
 		if len(data) > o.maxLength {
 			data = append(data[:o.maxLength], []byte("......")...)
 		}

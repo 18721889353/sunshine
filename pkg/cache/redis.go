@@ -228,7 +228,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 				continue
 			}
 			object := c.newObject()
-			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object)
+			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object) //nolint:errcheck
 			if err != nil {
 				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(err), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]), logger.String("type", reflect.TypeOf(value).String()))
 				continue
@@ -246,7 +246,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 				continue
 			}
 			object := c.newObject()
-			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object)
+			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object) //nolint:errcheck
 			if err != nil {
 				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(err), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]), logger.String("type", reflect.TypeOf(value).String()))
 				continue

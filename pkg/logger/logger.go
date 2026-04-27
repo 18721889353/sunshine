@@ -143,7 +143,9 @@ func Init(opts ...Option) (*zap.Logger, error) {
 	// 强制同步一次，确保之前的 InfoWithCtx 写入完成
 	// 注意：即使是终端输出，如果是异步模式也需要同步
 	if isAsync {
-		_ = zapLog.Sync()
+		if syncErr := zapLog.Sync(); syncErr != nil {
+			fmt.Printf("sync logger error: %v\n", syncErr)
+		}
 	}
 
 	return defaultLogger, err

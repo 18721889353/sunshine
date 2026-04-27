@@ -11,6 +11,7 @@ import (
 
 // https://api-docs.deepseek.com/
 
+// DeepSeek API 常量定义
 const (
 	BaseURL = "https://api.deepseek.com/"
 
@@ -27,11 +28,15 @@ const (
 	RoleTypeGeneral = chatgpt.RoleTypeGeneral
 )
 
+// Client is a DeepSeek client type alias
 type (
-	Client       = chatgpt.Client
-	ClientOption = chatgpt.ClientOption
+	Client = chatgpt.Client
 )
 
+// ClientOption is a DeepSeek client configuration option alias
+type ClientOption = chatgpt.ClientOption
+
+// DeepSeek客户端配置选项
 var (
 	WithMaxTokens   = chatgpt.WithMaxTokens
 	WithModel       = chatgpt.WithModel

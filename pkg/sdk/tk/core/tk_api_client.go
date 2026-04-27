@@ -12,14 +12,18 @@ import (
 	"github.com/18721889353/sunshine/pkg/sdk/tk/utils"
 )
 
+// TkAPIClient 途刻API客户端
 type TkAPIClient struct{}
 
+// NewTkAPIClient 创建新的API客户端实例
 func NewTkAPIClient() *TkAPIClient {
 	return &TkAPIClient{}
 }
 
+// DefaultTkAPIClient 默认API客户端实例
 var DefaultTkAPIClient = NewTkAPIClient()
 
+// Request 发送API请求
 func (client *TkAPIClient) Request(request TkAPIRequest, accessToken string) (string, error) {
 	if request.GetConfig() == nil {
 		return "", errors.NewTkError(errors.ConfigIsNull)
@@ -62,6 +66,7 @@ func (client *TkAPIClient) Request(request TkAPIRequest, accessToken string) (st
 	return httpResponse.Body, nil
 }
 
+// RequestWithContext 带上下文发送API请求
 func (client *TkAPIClient) RequestWithContext(ctx context.Context, request TkAPIRequest, accessToken string) (string, error) {
 	// 创建链路追踪 span
 	// 使用请求的 URL 路径作为 span 名称，便于区分不同接口

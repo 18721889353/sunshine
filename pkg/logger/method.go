@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strings"
 	"time"
@@ -26,7 +27,9 @@ func Sync() error {
 	// 如果默认 logger 是输出到终端 (stdout)，则跳过 Sync，避免在关闭时产生文件 I/O
 	// defaultLogger != nil check is intentional
 
-	_ = getSugaredLogger().Sync()
+	if syncErr := getSugaredLogger().Sync(); syncErr != nil {
+		fmt.Printf("sync sugared logger error: %v\n", syncErr)
+	}
 	err := getDefaultLogger().Sync()
 	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") && !strings.Contains(err.Error(), "stdout") {
 		return err
@@ -45,7 +48,7 @@ func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...) //nolint:errcheck
 	}
 
 	getDefaultLogger().Debug(msg, allFields...)
@@ -60,7 +63,7 @@ func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...) //nolint:errcheck
 	}
 
 	getDefaultLogger().Info(msg, allFields...)
@@ -75,7 +78,7 @@ func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...) //nolint:errcheck
 	}
 
 	getDefaultLogger().Warn(msg, allFields...)
@@ -90,7 +93,7 @@ func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...) //nolint:errcheck
 	}
 
 	getDefaultLogger().Error(msg, allFields...)
@@ -105,7 +108,7 @@ func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...) //nolint:errcheck
 	}
 
 	getDefaultLogger().Panic(msg, allFields...)
@@ -120,7 +123,7 @@ func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...)
+		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...) //nolint:errcheck
 	}
 
 	getDefaultLogger().Fatal(msg, allFields...)

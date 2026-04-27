@@ -11,6 +11,7 @@ import (
 
 type customResponse struct{}
 
+// NewCustomResponse 创建自定义响应处理器
 func NewCustomResponse() *customResponse {
 	return &customResponse{}
 }

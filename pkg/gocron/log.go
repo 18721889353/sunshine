@@ -9,7 +9,9 @@ import (
 )
 
 var (
+	// SecondType 秒级粒度
 	SecondType = 0
+	// MinuteType 分钟级粒度
 	MinuteType = 1
 )
 

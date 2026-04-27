@@ -11,6 +11,7 @@ var (
 	once         sync.Once
 )
 
+// TkConfig 途刻SDK配置结构
 type TkConfig struct {
 	AppID           string
 	AppSecret       string
@@ -30,8 +31,11 @@ type TkConfig struct {
 
 	SignFunc func(params map[string]any, appSecret string) string
 }
+
+// TkOption 配置选项函数类型
 type TkOption func(*TkConfig)
 
+// NewTkConfig 创建新的配置实例
 func NewTkConfig(opts ...TkOption) *TkConfig {
 	config := &TkConfig{
 		HTTPReadTimeout: 10000, //默认10s超时
@@ -171,6 +175,7 @@ func WithDialKeepAlive(dialKeepAlive time.Duration) TkOption {
 	}
 }
 
+// WithSignFunc 设置签名函数
 func WithSignFunc(funcName func(params map[string]any, appSecret string) string) TkOption {
 	return func(config *TkConfig) {
 		config.SignFunc = funcName

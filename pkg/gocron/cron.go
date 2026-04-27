@@ -110,7 +110,9 @@ func IsRunningTask(name string) bool {
 func GetRunningTasks() []string {
 	var names []string
 	nameID.Range(func(key, _ interface{}) bool {
-		names = append(names, key.(string))
+		if name, ok := key.(string); ok {
+			names = append(names, name)
+		}
 		return true
 	})
 	return names

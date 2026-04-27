@@ -79,7 +79,9 @@ func (f *FrontEnd) SetRouter(r *gin.Engine) error {
 }
 
 func (f *FrontEnd) saveFSToLocal() error {
-	_ = os.RemoveAll(filepath.Join(targetDir, f.htmlDir))
+	if err := os.RemoveAll(filepath.Join(targetDir, f.htmlDir)); err != nil {
+		fmt.Printf("remove old directory error: %v\n", err)
+	}
 	time.Sleep(time.Millisecond * 10)
 
 	// Walk through the embedded filesystem
@@ -127,7 +129,10 @@ func browserRefreshFS(efs embed.FS, path string) func(c *gin.Context) {
 			content, err := efs.ReadFile(path)
 			if err != nil {
 				c.Writer.WriteHeader(404)
-				_, _ = c.Writer.WriteString("Not Found")
+				_, writeErr := c.Writer.WriteString("Not Found")
+				if writeErr != nil {
+					return
+				}
 				return
 			}
 			c.Writer.WriteHeader(200)

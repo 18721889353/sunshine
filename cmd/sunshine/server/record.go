@@ -56,7 +56,9 @@ func initRecord() {
 	if err != nil {
 		return
 	}
-	_ = json.Unmarshal(data, &rcd.HostRecord)
+	if err := json.Unmarshal(data, &rcd.HostRecord); err != nil {
+		logger.WarnWithCtx(initCtx, "解析HostRecord失败", logger.Err(err))
+	}
 }
 
 func recordObj() *record {
@@ -84,7 +86,9 @@ func (r *record) set(ip string, commandType string, params *parameters) {
 			file = strings.ReplaceAll(dataFile, "/", "\\")
 		}
 		dir := gofile.GetFileDir(file)
-		_ = gofile.CreateDir(dir)
+		if createErr := gofile.CreateDir(dir); createErr != nil {
+			logger.WarnWithCtx(initCtx, "创建目录失败", logger.String("dir", dir), logger.Err(createErr))
+		}
 		err = os.WriteFile(file, data, 0666)
 		if err != nil {
 			logger.WarnWithCtx(initCtx, "WriteFile error", logger.Err(err))

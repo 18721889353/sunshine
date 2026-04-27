@@ -77,9 +77,13 @@ func ModelCommand(parentName string) *cobra.Command {
 
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动，支持 mysql")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，例如 user:password@(host:port)/database") //nolint
-	_ = cmd.MarkFlagRequired("db-dsn")                                                                         // 标记 db-dsn 参数为必填
+	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "表名，多个表名用逗号分隔")
-	_ = cmd.MarkFlagRequired("db-table") // 标记 db-table 参数为必填
+	if err := cmd.MarkFlagRequired("db-table"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "是否嵌入 gorm.Model 结构体")
 	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "JSON 标签名称类型，0: snake case, 1: camel case")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "输出目录，默认为 ./model_<时间>")
@@ -108,7 +112,9 @@ func (g *modelGenerator) generateCode() (string, error) {
 	r.SetSubDirsAndFiles(subDirs, subFiles...) // 设置子目录和文件
 	fields := g.addFields(r)                   // 添加替换字段
 	r.SetReplacementFields(fields)             // 设置替换字段
-	_ = r.SetOutputDir(g.outPath, subTplName)  // 设置输出目录
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveFiles(); err != nil {
 		return "", err // 保存文件时返回错误
 	}

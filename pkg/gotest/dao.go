@@ -10,6 +10,8 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Dao dao info
@@ -52,7 +54,9 @@ func NewDao(c *Cache, testData interface{}) *Dao {
 	}
 
 	closeFns = append(closeFns, func() {
-		_ = sqlDB.Close()
+		if err := sqlDB.Close(); err != nil {
+			logger.WarnWithCtx(context.Background(), "关闭数据库连接失败", logger.Err(err))
+		}
 	})
 
 	return &Dao{

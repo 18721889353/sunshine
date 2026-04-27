@@ -48,7 +48,9 @@ the directory /tmp/sunshine_copy_backup_proto_files.`,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if !gofile.IsExists(outPath) {
-				_ = os.MkdirAll(outPath, 0766)
+				if err := os.MkdirAll(outPath, 0766); err != nil {
+					return err
+				}
 			}
 
 			if targetModule == "" {
@@ -96,7 +98,9 @@ the directory /tmp/sunshine_copy_backup_proto_files.`,
 	}
 
 	cmd.Flags().StringVarP(&serverDir, "server-dir", "s", "", "server directory, multiple names separated by commas")
-	_ = cmd.MarkFlagRequired("server-dir")
+	if err := cmd.MarkFlagRequired("server-dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&protoFile, "proto-file", "p", "", "proto files, multiple names separated by commas")
 	cmd.Flags().StringVarP(&targetModule, "target-module", "t", "", "target module name, same module name as the target project's go.mod")
 	cmd.Flags().StringVarP(&versionFolder, "version-folder", "v", "v1", "proto file version folder")
@@ -231,7 +235,9 @@ func (c *protoCopier) copyProtoFile(srcProtoFile string, targetProtoFile string,
 	}
 
 	targetProtoDir := gofile.GetFileDir(targetProtoFile)
-	_ = os.MkdirAll(targetProtoDir, 0766)
+	if err := os.MkdirAll(targetProtoDir, 0766); err != nil {
+		return err
+	}
 
 	// replace go_package
 	pbContent, err := os.ReadFile(srcProtoFile)
@@ -291,7 +297,10 @@ func backupProtoFiles(outPath string) error {
 		return err
 	}
 
-	pfs, _ := gofile.ListFiles(outPath, gofile.WithSuffix(".proto"))
+	pfs, err := gofile.ListFiles(outPath, gofile.WithSuffix(".proto"))
+	if err != nil {
+		return err
+	}
 	backupDir := os.TempDir() + gofile.GetPathDelimiter() + "sunshine_copy_backup_proto_files" +
 		gofile.GetPathDelimiter() + time.Now().Format("20060102T150405")
 	for _, srcProtoFile := range pfs {
@@ -299,10 +308,12 @@ func backupProtoFiles(outPath string) error {
 		targetProtoFile := backupDir + suffixPath
 		targetProtoDir := gofile.GetFileDir(targetProtoFile)
 
-		_ = os.MkdirAll(targetProtoDir, 0744)
-		_, err = gobash.Exec("cp", srcProtoFile, targetProtoFile)
-		if err != nil {
-			return err
+		if mkdirErr := os.MkdirAll(targetProtoDir, 0744); mkdirErr != nil {
+			return mkdirErr
+		}
+		_, cpErr := gobash.Exec("cp", srcProtoFile, targetProtoFile)
+		if cpErr != nil {
+			return cpErr
 		}
 	}
 	return nil

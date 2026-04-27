@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	MQMAIN = "main" // 本项目 MQ
+	// MQMAIN 本项目主MQ实例名称
+	MQMAIN = "main"
 )
 
 // InitRabbitmq 确保在程序启动时配置被加载并初始化连接池

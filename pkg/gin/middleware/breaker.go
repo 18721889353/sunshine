@@ -74,7 +74,13 @@ func CircuitBreaker(opts ...CircuitBreakerOption) gin.HandlerFunc {
 	o.apply(opts...)
 
 	return func(c *gin.Context) {
-		breaker := o.group.Get(c.FullPath()).(circuitbreaker.CircuitBreaker)
+		breakerVal := o.group.Get(c.FullPath())
+		breaker, ok := breakerVal.(circuitbreaker.CircuitBreaker)
+		if !ok {
+			response.Output(c, http.StatusServiceUnavailable, "invalid circuit breaker")
+			c.Abort()
+			return
+		}
 		if err := breaker.Allow(); err != nil {
 			// NOTE: when client reject request locally, keep adding counter let the drop ratio higher.
 			breaker.MarkFailed()

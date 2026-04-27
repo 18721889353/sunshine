@@ -82,8 +82,12 @@ func (r *discoveryResolver) update(ins []*registry.ServiceInstance) {
 	}
 
 	if !r.debugLogDisabled {
-		b, _ := json.Marshal(ins)
-		fmt.Printf("[resolver] update instances: %s\n", b)
+		b, marshalErr := json.Marshal(ins)
+		if marshalErr != nil {
+			fmt.Printf("[resolver] marshal instances error: %v\n", marshalErr)
+		} else {
+			fmt.Printf("[resolver] update instances: %s\n", b)
+		}
 	}
 }
 

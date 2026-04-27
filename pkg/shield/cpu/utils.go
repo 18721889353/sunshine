@@ -25,10 +25,11 @@ func parseUint(s string) (uint64, error) {
 		// 2. Handle negative values lesser than MinInt64
 		if intErr == nil && intValue < 0 {
 			return 0, nil
-		} else if intErr != nil &&
-			intErr.(*strconv.NumError).Err == strconv.ErrRange &&
-			intValue < 0 {
-			return 0, nil
+		} else if intErr != nil {
+			numErr, ok := intErr.(*strconv.NumError)
+			if ok && numErr.Err == strconv.ErrRange && intValue < 0 {
+				return 0, nil
+			}
 		}
 		return 0, err
 	}

@@ -82,8 +82,10 @@ func (s *cronServer) Stop() error {
 	if s.iRegistry != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		go func() {
-			_ = s.iRegistry.Deregister(ctx, s.instance)
-			cancel()
+			defer cancel()
+			if err := s.iRegistry.Deregister(ctx, s.instance); err != nil {
+				logger.WarnWithCtx(ctx, "注销服务实例失败", logger.Err(err))
+			}
 		}()
 		<-ctx.Done()
 	}

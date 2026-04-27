@@ -11,8 +11,10 @@ import (
 	"github.com/18721889353/sunshine/pkg/sgorm/dbclose"
 )
 
+// DB GORM数据库实例类型别名
 type DB = gorm.DB
 
+// ErrRecordNotFound 记录未找到错误
 var ErrRecordNotFound = gorm.ErrRecordNotFound
 
 const (

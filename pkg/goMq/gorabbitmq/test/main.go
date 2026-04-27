@@ -161,7 +161,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("create producer failed: %v", err)
 	}
-	defer func() { _ = producer.Close() }()
+	defer func() {
+		if closeErr := producer.Close(); closeErr != nil {
+			log.Printf("关闭生产者失败: %v", closeErr)
+		}
+	}()
 
 	// 7. 创建 Consumer
 	consumerOpts := []gorabbitmq.ConsumerOption{
@@ -222,7 +226,9 @@ func main() {
 		log.Printf("Error closing Redis: %v", err)
 	}
 	if sqlDB, err := mysqlDB.DB(); err == nil {
-		_ = sqlDB.Close()
+		if closeErr := sqlDB.Close(); closeErr != nil {
+			log.Printf("关闭数据库连接失败: %v", closeErr)
+		}
 	}
 
 	// 关闭 Tracer（确保所有 Span 都被上报）

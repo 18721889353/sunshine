@@ -15,6 +15,7 @@ import (
 
 type customResponse2 struct{}
 
+// NewcustomResponse2 创建自定义响应处理器2
 func NewcustomResponse2() *customResponse2 {
 	return &customResponse2{}
 }
@@ -30,12 +31,15 @@ type dataInfo struct {
 	ReturnInfo []ReturnInfo `json:"returnInfo"`
 }
 
+// Result 结果信息结构
 type Result struct {
 	Code            string `json:"code"`
 	Message         string `json:"message"`
 	TransactionID   string `json:"transactionId"`
 	TransactionTime string `json:"transactionTime"`
 }
+
+// ReturnInfo 返回信息结构
 type ReturnInfo struct {
 	OrderID    string `json:"orderId"`
 	Msisdn     string `json:"msisdn"`

@@ -17,6 +17,7 @@ import (
 	chatgpt "github.com/18721889353/sunshine/pkg/aicli/chatgpt"
 	"github.com/18721889353/sunshine/pkg/aicli/deepseek"
 	"github.com/18721889353/sunshine/pkg/gofile"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
@@ -116,9 +117,13 @@ func GenerateCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&assistantType, "type", "t", "", "assistant type, e.g. chatgpt, deepseek")
-	_ = cmd.MarkFlagRequired("type")
+	if err := cmd.MarkFlagRequired("type"); err != nil {
+		logger.WarnWithCtx(context.Background(), "标记type参数为必需失败", logger.Err(err))
+	}
 	cmd.Flags().StringVarP(&apiKey, "api-key", "k", "", "assistant api key")
-	_ = cmd.MarkFlagRequired("api-key")
+	if err := cmd.MarkFlagRequired("api-key"); err != nil {
+		logger.WarnWithCtx(context.Background(), "标记api-key参数为必需失败", logger.Err(err))
+	}
 	cmd.Flags().StringVarP(&model, "model", "m", "", "assistant model, corresponding assistant type.")
 	cmd.Flags().StringVarP(&role, "role", "r", "", "role of the model")
 	cmd.Flags().IntVarP(&maxToken, "max-token", "s", 0, "maximum number of tokens")

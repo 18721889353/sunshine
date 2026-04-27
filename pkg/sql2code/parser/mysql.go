@@ -1,10 +1,13 @@
 package parser
 
 import (
+	"context"
 	"database/sql" // 导入数据库操作包
 	"fmt"          // 导入格式化输入输出包
 
 	_ "github.com/go-sql-driver/mysql" // 导入 MySQL 驱动，_ 表示仅导入而不使用
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // GetMysqlTableInfo 从 MySQL 数据库中获取表的创建信息
@@ -14,7 +17,11 @@ func GetMysqlTableInfo(dsn, tableName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("GetMysqlTableInfo 错误, %v", err)
 	}
-	defer func() { _ = db.Close() }() // 关闭数据库连接
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			logger.WarnWithCtx(context.Background(), "关闭数据库连接失败", logger.Err(closeErr))
+		}
+	}() // 关闭数据库连接
 
 	// 执行 SQL 查询，获取表的创建信息
 	rows, err := db.Query("SHOW CREATE TABLE `" + tableName + "`")
@@ -22,7 +29,11 @@ func GetMysqlTableInfo(dsn, tableName string) (string, error) {
 		return "", fmt.Errorf("查询 SHOW CREATE TABLE 错误, %v", err)
 	}
 
-	defer func() { _ = rows.Close() }() // 关闭查询结果集
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			logger.WarnWithCtx(context.Background(), "关闭查询结果集失败", logger.Err(closeErr))
+		}
+	}() // 关闭查询结果集
 
 	// 检查查询结果是否为空
 	if !rows.Next() {

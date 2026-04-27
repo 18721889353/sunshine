@@ -77,7 +77,9 @@ func (r *LogRouter) RegisterRoute(config *RouteConfig) error {
 	key := r.getRouteKey(config)
 
 	if oldLogger, exists := r.loggers[key]; exists {
-		_ = oldLogger.Sync()
+		if syncErr := oldLogger.Sync(); syncErr != nil {
+			fmt.Printf("sync old logger error: %v\n", syncErr)
+		}
 	}
 
 	logger, err := r.createLogger(config)

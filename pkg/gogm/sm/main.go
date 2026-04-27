@@ -134,14 +134,21 @@ func main() {
 		fmt.Printf("sm4 dec error:%s\n", err.Error())
 		return
 	}
-	decodeString, _ := base64.StdEncoding.DecodeString(string(ecbDec))
+	decodeString, err := base64.StdEncoding.DecodeString(string(ecbDec))
+	if err != nil {
+		fmt.Printf("base64 decode error:%s\n", err.Error())
+		return
+	}
 	fmt.Printf("%s\n", decodeString)
 	fmt.Println("------------------------------------------------------------------------------")
 }
 
+// Base64encode Base64编码
 func Base64encode(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
+
+// Base64Decode Base64解码
 func Base64Decode(data string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(data)
 }
@@ -154,18 +161,15 @@ func CreateSM2Key() (privateKey *sm2.PrivateKey, publicKey *sm2.PublicKey, err e
 		return nil, nil, err
 	}
 	// 进行 SM2 公钥断言
-	publicKey = privateKey.Public().(*sm2.PublicKey)
+	pubKey, ok := privateKey.Public().(*sm2.PublicKey)
+	if !ok {
+		return nil, nil, fmt.Errorf("failed to cast public key to sm2.PublicKey")
+	}
+	publicKey = pubKey
 	return privateKey, publicKey, nil
 }
 
-// CreatePrivatePem
-/**
- *  @Description: 创建私钥文件
- *  @param privateKey 私钥
- *  @param pwd 私钥密码
- *  @param path 生成的私钥文件路径
- *  @return err
- */
+// CreatePrivatePem 创建私钥文件
 func CreatePrivatePem(privateKey *sm2.PrivateKey, pwd []byte, path string) (err error) {
 	// 将私钥反序列化并进行pem编码
 	var privateKeyToPem []byte
@@ -200,13 +204,7 @@ func CreatePrivatePem(privateKey *sm2.PrivateKey, pwd []byte, path string) (err 
 	return nil
 }
 
-// CreatePublicPem
-/**
-*  @Description: 创建公钥文件
-*  @param publicKey 公钥
-*  @param path 生成的公钥文件路径
-*  @return err
- */
+// CreatePublicPem 创建公钥文件
 func CreatePublicPem(publicKey *sm2.PublicKey, path string) (err error) {
 	// 将私钥反序列化并进行pem编码
 	var publicKeyToPem []byte
@@ -308,13 +306,7 @@ func ReadPublicPem(path string) (publicKey *sm2.PublicKey, err error) {
 	return publicKey, nil
 }
 
-// Encrypt
-/**
-*  @Description: SM2加密（公钥加密）
-*  @param data 需要加密的数据
-*  @param publicKey 公钥
-*  @return cipherStr 加密后的字符串
- */
+// Encrypt SM2加密（公钥加密）
 func Encrypt(data string, publicKey *sm2.PublicKey) (cipherStr string) {
 	// 将字符串转为[]byte
 	dataByte := []byte(data)
@@ -332,14 +324,7 @@ func Encrypt(data string, publicKey *sm2.PublicKey) (cipherStr string) {
 	// return
 }
 
-// Decode
-/**
-*  @Description: SM2解密（私钥解密）
-*  @param cipherStr 加密后的字符串
-*  @param privateKey 私钥
-*  @return data 解密后的数据
-*  @return err
- */
+// Decode SM2解密（私钥解密）
 func Decode(cipherStr []byte, privateKey *sm2.PrivateKey) (data string, err error) {
 	// sm2解密
 	var dataByte []byte
@@ -354,15 +339,7 @@ func Decode(cipherStr []byte, privateKey *sm2.PrivateKey) (data string, err erro
 	return *str, err
 }
 
-// Sign
-/**
- *  @Description: 签名
- *  @param msg 需要签名的内容
- *  @param privateKey 私钥
- *  @param signer
- *  @return sign
- *  @return err
- */
+// Sign 签名
 func Sign(dataByte []byte, privateKey *sm2.PrivateKey, signer crypto.SignerOpts) (sign string, err error) {
 	//dataByte := []byte(msg)
 	var signByte []byte
@@ -376,18 +353,14 @@ func Sign(dataByte []byte, privateKey *sm2.PrivateKey, signer crypto.SignerOpts)
 	return sign, nil
 }
 
-// Verify
-/**
-*  @Description: 验签
-*  @param msg 需要验签的内容
-*  @param sign 验签
-*  @param publicKey 公钥
-*  @return verify
- */
+// Verify 验签
 func Verify(msgBytes []byte, sign string, publicKey *sm2.PublicKey) (verify bool) {
 	// 16进制字符串转[]byte
 	//msgBytes := []byte(msg)
-	signBytes, _ := hex.DecodeString(sign)
+	signBytes, err := hex.DecodeString(sign)
+	if err != nil {
+		return false
+	}
 	// sm2 验签
 	verify = publicKey.Verify(msgBytes, signBytes)
 	return verify

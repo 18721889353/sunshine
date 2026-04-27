@@ -219,6 +219,7 @@ func getSinglePathKey(method string, singlePath string) string { //nolint
 
 // 自定义ctx，主要是从gin中获取需要的信息，通过ctx传递
 
+// MyCtx creates a custom context with client IP and metadata from gin.Context.
 func MyCtx(c *gin.Context) context.Context {
 	// 在这里获取client ip
 	clientIP := c.ClientIP()

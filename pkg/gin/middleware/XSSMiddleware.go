@@ -17,6 +17,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// XSSOptions XSS防护配置选项
 type XSSOptions func(*xssOptions)
 
 func defaultXSSOptions() *xssOptions {
@@ -35,6 +36,7 @@ func (o *xssOptions) apply(opts ...XSSOptions) {
 	}
 }
 
+// WithIgnoreXSSURL 设置忽略XSS检查的URL列表
 func WithIgnoreXSSURL(urls ...string) XSSOptions {
 	return func(o *xssOptions) {
 		for _, url := range urls {
@@ -43,6 +45,7 @@ func WithIgnoreXSSURL(urls ...string) XSSOptions {
 	}
 }
 
+// XSSCrossMiddleware XSS跨站脚本攻击防护中间件
 func XSSCrossMiddleware(opts ...XSSOptions) gin.HandlerFunc {
 	o := defaultXSSOptions()
 	o.apply(opts...)

@@ -103,9 +103,13 @@ using help:
 	//_ = cmd.MarkFlagRequired("server-name")
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database") //nolint
-	_ = cmd.MarkFlagRequired("db-dsn")
+	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
-	_ = cmd.MarkFlagRequired("db-table")
+	if err := cmd.MarkFlagRequired("db-table"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "json tags name type, 0:snake case, 1:camel case")
 	cmd.Flags().BoolVarP(&sqlArgs.IsWebProto, "web-type", "w", false, "if true, the proto file include router path and swagger info")
 	cmd.Flags().BoolVarP(&sqlArgs.IsExtendedAPI, "extended-api", "a", false, "whether to generate extended crud api, additional includes: DeleteByIDs, GetByCondition, ListByIDs, ListByLatestID")
@@ -139,7 +143,9 @@ func (g *protobufGenerator) generateCode() (string, error) {
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}

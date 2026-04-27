@@ -166,7 +166,10 @@ func FuzzyMatchFiles(f string) []string {
 	}
 	for _, file := range lFiles {
 		_, filename := filepath.Split(file)
-		isMatch, _ := path.Match(filenameReg, filename)
+		isMatch, err := path.Match(filenameReg, filename)
+		if err != nil {
+			continue
+		}
 		if isMatch {
 			files = append(files, file)
 		}

@@ -111,10 +111,12 @@ func checkInstallPlugins() (installed []string, lack []string) {
 		installedNames = append(installedNames, name)
 	}
 
-	data, _ := os.ReadFile(versionFile)
-	v := string(data)
-	if v != "" {
-		version = v
+	data, err := os.ReadFile(versionFile)
+	if err == nil {
+		v := string(data)
+		if v != "" {
+			version = v
+		}
 	}
 
 	return installedNames, lackNames

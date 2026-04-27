@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"fmt"
 	"net"
 	"sync"
 
@@ -112,13 +113,15 @@ func (l *CustomListener) closeConnection(clientAddr string) {
 
 // Close closes the listener, any blocked except operations will be unblocked and return errors.
 func (c *CustomConn) Close() error {
-	defer func() { _ = recover() }()
+	defer func() { _ = recover() }() //nolint:errcheck
 	clientAddr := c.Conn.RemoteAddr().String()
 	err := c.Conn.Close()
-	if err == nil {
-		c.listener.closeConnection(clientAddr)
+	if err != nil {
+		fmt.Printf("close connection error: %v\n", err)
+		return err
 	}
-	return err
+	c.listener.closeConnection(clientAddr)
+	return nil
 }
 
 // NewCustomListener creates a new custom listener.

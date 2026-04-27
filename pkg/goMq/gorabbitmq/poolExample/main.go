@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -15,7 +16,10 @@ import (
 
 func main() {
 	// 创建一个 zap logger 实例
-	_, _ = logger.Init()
+	_, err := logger.Init()
+	if err != nil {
+		log.Fatalf("初始化logger失败: %v", err)
+	}
 	ctx := context.Background()
 	// 创建连接池，配置 ants 协程池大小
 	pool, err := gorabbitmq.NewPool(
@@ -36,7 +40,11 @@ func main() {
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
-	defer func() { _ = pool.Close(ctx) }()
+	defer func() {
+		if closeErr := pool.Close(ctx); closeErr != nil {
+			log.Printf("关闭连接池失败: %v", closeErr)
+		}
+	}()
 
 	// 打印连接池状态
 	printAntsExampleStats(ctx, pool)

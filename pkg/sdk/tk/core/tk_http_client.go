@@ -16,15 +16,18 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
 )
 
 var clientMap sync.Map
 
+// TkHTTPClient 途刻HTTP客户端
 type TkHTTPClient struct {
 	httpClient *http.Client
 }
 
+// TkHTTPRequest HTTP请求结构
 type TkHTTPRequest struct {
 	URL     string
 	Params  map[string]string
@@ -32,10 +35,12 @@ type TkHTTPRequest struct {
 	Body    string
 }
 
+// TkHTTPResponse HTTP响应结构
 type TkHTTPResponse struct {
 	Body string
 }
 
+// Post 发送POST请求
 func (client *TkHTTPClient) Post(httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
 	u, err := url.Parse(httpRequest.URL)
 	if err != nil {
@@ -75,6 +80,7 @@ func (client *TkHTTPClient) Post(httpRequest *TkHTTPRequest) (*TkHTTPResponse, e
 	return &TkHTTPResponse{Body: string(bs)}, nil
 }
 
+// PostWithContext 带上下文发送POST请求
 func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
 	// 创建链路追踪 span
 	spanName := fmt.Sprintf("HttpPost:%s", httpRequest.URL)
@@ -126,7 +132,9 @@ func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	}
 	defer func() {
 		if httpResp != nil && httpResp.Body != nil {
-			_ = httpResp.Body.Close()
+			if closeErr := httpResp.Body.Close(); closeErr != nil {
+				logger.WarnWithCtx(ctx, "close response body error", logger.Err(closeErr))
+			}
 		}
 	}()
 
@@ -151,6 +159,7 @@ func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *Tk
 	return &TkHTTPResponse{Body: string(bs)}, nil
 }
 
+// GetHTTPClient 获取HTTP客户端实例
 func GetHTTPClient() *TkHTTPClient {
 	// 使用 LoadOrStore 确保并发安全初始化
 	client, loaded := clientMap.LoadOrStore(GetTkConfig().HTTPReadTimeout, nil)
@@ -182,5 +191,33 @@ func GetHTTPClient() *TkHTTPClient {
 		clientMap.Store(GetTkConfig().HTTPReadTimeout, newClient)
 		return newClient
 	}
-	return client.(*TkHTTPClient)
+	tkClient, ok := client.(*TkHTTPClient)
+	if !ok {
+		// 如果类型断言失败，创建新的客户端
+		config := GetTkConfig()
+		tkClient = &TkHTTPClient{
+			httpClient: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: config.InsecureSkipVerify,
+						MinVersion:         tls.VersionTLS12,
+						RootCAs:            nil,
+						ClientAuth:         tls.NoClientCert,
+					},
+					DisableKeepAlives:     config.DisableKeepAlives,
+					MaxIdleConns:          config.MaxIdleCons,
+					MaxIdleConnsPerHost:   config.MaxIdleConsPerHost,
+					IdleConnTimeout:       config.IdleConnTimeout,
+					ResponseHeaderTimeout: config.ResponseHeaderTimeout,
+					DialContext: (&net.Dialer{
+						Timeout:   config.DialTimeout,
+						KeepAlive: config.DialKeepAlive,
+					}).DialContext,
+				},
+				Timeout: time.Duration(config.HTTPReadTimeout) * time.Millisecond,
+			},
+		}
+		clientMap.Store(GetTkConfig().HTTPReadTimeout, tkClient)
+	}
+	return tkClient
 }

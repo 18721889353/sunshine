@@ -8,14 +8,16 @@ import (
 	"io"
 
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// Document 文档操作接口
+// Document ES文档操作实例
 type Document struct {
 	client *Client
 }
 
-// NewDocument 创建文档操作实例
+// Document 返回文档操作实例
 func (c *Client) Document() *Document {
 	return &Document{client: c}
 }
@@ -47,7 +49,11 @@ func (d *Document) Index(ctx context.Context, index string, doc interface{}, doc
 		endSpan(err)
 		return fmt.Errorf("index document error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("index document failed: %s", res.String())
@@ -74,7 +80,11 @@ func (d *Document) Get(ctx context.Context, index string, docID string, result i
 		endSpan(err)
 		return fmt.Errorf("get document error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.StatusCode == 404 {
 		err = fmt.Errorf("document not found")
@@ -128,7 +138,11 @@ func (d *Document) Delete(ctx context.Context, index string, docID string) error
 		endSpan(err)
 		return fmt.Errorf("delete document error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("delete document failed: %s", res.String())
@@ -168,7 +182,11 @@ func (d *Document) Update(ctx context.Context, index string, docID string, updat
 		endSpan(err)
 		return fmt.Errorf("update document error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("update document failed: %s", res.String())
@@ -226,7 +244,11 @@ func (d *Document) IndexExists(ctx context.Context, index string) (bool, error) 
 		endSpan(err)
 		return false, fmt.Errorf("check index exists error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	switch res.StatusCode {
 	case 200:
@@ -251,7 +273,11 @@ func (d *Document) DeleteIndex(ctx context.Context, index string) error {
 		endSpan(err)
 		return fmt.Errorf("delete index error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("delete index failed: %s", res.String())
@@ -290,7 +316,11 @@ func (d *Document) CreateIndex(ctx context.Context, index string, mapping interf
 		endSpan(err)
 		return fmt.Errorf("create index error: %w", err)
 	}
-	defer func() { _ = res.Body.Close() }()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭ES响应体失败", logger.Err(closeErr))
+		}
+	}()
 
 	if res.IsError() {
 		err = fmt.Errorf("create index failed: %s", res.String())

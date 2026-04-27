@@ -135,7 +135,9 @@ func (g *dbInitGenerator) generateCode() (string, error) {
 	}
 
 	r.SetSubDirsAndFiles(subDirs, getSubFiles(selectFiles)...)
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
 	if err := r.SaveFiles(); err != nil {
@@ -194,16 +196,16 @@ func checkDbDriver(files []string) string {
 
 func detectDbDriverName() string {
 	var dbDriverName string
-	files, _ := gofile.ListFiles("internal/handler", gofile.WithSuffix(".go"))
-	if len(files) > 0 {
+	files, err := gofile.ListFiles("internal/handler", gofile.WithSuffix(".go"))
+	if err == nil && len(files) > 0 {
 		dbDriverName = checkDbDriver(files)
 		if dbDriverName != "" {
 			return dbDriverName
 		}
 	}
 
-	files, _ = gofile.ListFiles("internal/service", gofile.WithSuffix(".go"))
-	if len(files) > 0 {
+	files, err = gofile.ListFiles("internal/service", gofile.WithSuffix(".go"))
+	if err == nil && len(files) > 0 {
 		dbDriverName = checkDbDriver(files)
 	}
 	return dbDriverName

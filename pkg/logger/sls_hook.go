@@ -175,7 +175,9 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 验证 Producer 状态
 	if err := hook.verifyProducerState(); err != nil {
 		// 启动失败，返回错误由调用方决定如何处理
-		_ = hook.Close() // 清理资源
+		if closeErr := hook.Close(); closeErr != nil { // 清理资源
+			fmt.Printf("close SLS hook error: %v\n", closeErr)
+		}
 		return nil, fmt.Errorf("SLS producer verification failed: %w", err)
 	}
 
@@ -248,8 +250,12 @@ func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) e
 		default:
 			// 其他类型尝试序列化为 JSON
 			if field.Interface != nil {
-				jsonBytes, _ := json.Marshal(field.Interface)
-				valueStr = string(jsonBytes)
+				jsonBytes, marshalErr := json.Marshal(field.Interface)
+				if marshalErr != nil {
+					valueStr = fmt.Sprintf("marshal error: %v", marshalErr)
+				} else {
+					valueStr = string(jsonBytes)
+				}
 			} else {
 				valueStr = field.String
 			}
@@ -301,7 +307,10 @@ func (h *SLSHook) Close() error {
 	if h.producer != nil {
 		// 优雅关闭：等待所有日志发送完成，最多等待 30 秒
 		// 根据阿里云官方文档，Close 方法会阻塞直到所有缓存数据发送完毕或超时
-		_ = h.producer.Close(30000)
+		closeErr = h.producer.Close(30000)
+		if closeErr != nil {
+			fmt.Printf("close SLS producer error: %v\n", closeErr)
+		}
 	}
 
 	h.setState(StateStopped)

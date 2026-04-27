@@ -114,8 +114,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// Set up Ping handling for the connection,
 		// when the client sends a ping message, the server side triggers this callback function
 		conn.SetPingHandler(func(string) error {
-			_ = conn.SetReadDeadline(time.Now().Add(s.maxMessageWaitPeriod))
-			return nil
+			return conn.SetReadDeadline(time.Now().Add(s.maxMessageWaitPeriod))
 		})
 	}
 

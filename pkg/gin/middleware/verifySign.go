@@ -22,6 +22,7 @@ import (
 
 var defaultIgnoreURL = map[string]struct{}{}
 
+// SignOption 签名验证配置选项
 type SignOption func(*signOptions)
 
 func defaultSignOptions() *signOptions {
@@ -43,6 +44,8 @@ func (o *signOptions) apply(opts ...SignOption) {
 		opt(o)
 	}
 }
+
+// WithIgnoreURL 设置忽略签名验证的URL列表
 func WithIgnoreURL(urls ...string) SignOption {
 	return func(o *signOptions) {
 		for _, url := range urls {
@@ -50,17 +53,22 @@ func WithIgnoreURL(urls ...string) SignOption {
 		}
 	}
 }
+
+// WithSignKey 设置签名密钥
 func WithSignKey(signKey string) SignOption {
 	return func(o *signOptions) {
 		o.signKey = signKey
 	}
 }
+
+// WithSignExpiredTime 设置签名过期时间
 func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	return func(o *signOptions) {
 		o.signExpiredTime = signExpiredTime
 	}
 }
 
+// VerifySignatureMiddleware 签名验证中间件
 func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 	o := defaultSignOptions()
 	o.apply(opts...)
@@ -91,7 +99,10 @@ func verifySign(ctx *gin.Context, o *signOptions) error {
 	//case "GET", "DELETE":
 	//	body = []byte(ctx.Request.URL.RawQuery)
 	case "POST":
-		body, _ = io.ReadAll(ctx.Request.Body)
+		body, err = io.ReadAll(ctx.Request.Body)
+		if err != nil {
+			return fmt.Errorf("read request body error: %v", err)
+		}
 		ctx.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 	default:
 		return errors.New("unsupported request method")

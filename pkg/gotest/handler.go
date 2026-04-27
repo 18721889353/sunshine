@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
@@ -119,6 +120,8 @@ func (h *Handler) Close() {
 	}
 	if h.HTTPServer != nil {
 		ctx, _ := context.WithTimeout(context.Background(), 3*time.Second) //nolint
-		_ = h.HTTPServer.Shutdown(ctx)
+		if err := h.HTTPServer.Shutdown(ctx); err != nil {
+			logger.WarnWithCtx(ctx, "关闭HTTP服务器失败", logger.Err(err))
+		}
 	}
 }

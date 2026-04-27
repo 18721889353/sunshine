@@ -53,12 +53,14 @@ func WithSignIgnoreMethods(fullMethodNames ...string) SignOption {
 	}
 }
 
+// WithSignKey 设置签名密钥
 func WithSignKey(signKey string) SignOption {
 	return func(o *signOption) {
 		o.signKey = signKey
 	}
 }
 
+// WithSignExpiredTime 设置签名过期时间
 func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	return func(o *signOption) {
 		o.signExpiredTime = signExpiredTime
@@ -123,14 +125,24 @@ func verifySign(ctx context.Context, req interface{}, o *signOption) (context.Co
 	}
 
 	// 验证签名
-	if mapData["sign"].(string) == "debug" {
+	signVal, ok := mapData["sign"]
+	if !ok {
+		return ctx, status.Errorf(codes.InvalidArgument, "sign is missing")
+	}
+	signStr, ok := signVal.(string)
+	if !ok || signStr == "debug" {
 		return ctx, nil
 	}
-	if mapData["sign"] == nil || mapData["sign"].(string) == "" {
+	if signStr == "" {
 		return ctx, status.Errorf(codes.InvalidArgument, "sign is missing")
 	}
 
-	if mapData["timestamp"] == nil || mapData["timestamp"].(string) == "" {
+	timestampVal, ok := mapData["timestamp"]
+	if !ok {
+		return ctx, status.Errorf(codes.InvalidArgument, "timestamp is missing")
+	}
+	timestampStr, ok := timestampVal.(string)
+	if !ok || timestampStr == "" {
 		return ctx, status.Errorf(codes.InvalidArgument, "timestamp is missing")
 	}
 

@@ -16,25 +16,30 @@ import (
 func main() {
 	// 检测是否是编译后的二进制运行（非 go run 临时编译）
 	// go run 的可执行文件在临时目录，包含 "go-build"
-	exePath, _ := os.Executable()
+	exePath, err := os.Executable()
+	if err != nil {
+		fmt.Printf("get executable path error: %v\n", err)
+		return
+	}
 	isGoRun := strings.Contains(exePath, os.TempDir()) ||
 		strings.Contains(exePath, "go-build")
 
 	if !isGoRun {
 		// 编译后的二进制，不添加 replace 指令（用户独立项目）
-		_ = os.Setenv("SUNSHINE_COMPILED_BINARY", "true")
+		if setErr := os.Setenv("SUNSHINE_COMPILED_BINARY", "true"); setErr != nil {
+			fmt.Printf("set env error: %v\n", setErr)
+		}
 	}
 	// go run 是本地调试模式，会添加 replace 指令
 
-	err := generate.Init()
-	if err != nil {
-		fmt.Printf("\n    %v\n\n", err)
+	if initErr := generate.Init(); initErr != nil {
+		fmt.Printf("\n    %v\n\n", initErr)
 		return
 	}
 
 	rootCMD := commands.NewRootCMD()
-	if err = rootCMD.Execute(); err != nil {
-		rootCMD.PrintErrln("Error:", err)
+	if execErr := rootCMD.Execute(); execErr != nil {
+		rootCMD.PrintErrln("Error:", execErr)
 		os.Exit(1)
 	}
 }

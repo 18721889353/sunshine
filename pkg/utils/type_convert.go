@@ -9,8 +9,9 @@ import (
 const MaxStringID = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 
 // StrToInt string to int
+// Note: error is intentionally ignored for simplicity, use StrToIntE if you need error handling
 func StrToInt(str string) int {
-	v, _ := strconv.Atoi(str)
+	v, _ := strconv.Atoi(str) //nolint:errcheck
 	return v
 }
 
@@ -20,8 +21,9 @@ func StrToIntE(str string) (int, error) {
 }
 
 // StrToUint32 string to uint32
+// Note: error is intentionally ignored for simplicity, use StrToUint32E if you need error handling
 func StrToUint32(str string) uint32 {
-	v, _ := strconv.ParseUint(str, 10, 64)
+	v, _ := strconv.ParseUint(str, 10, 64) //nolint:errcheck
 	return uint32(v)
 }
 
@@ -36,8 +38,9 @@ func StrToUint32E(str string) (uint32, error) {
 }
 
 // StrToUint64 string to uint64
+// Note: error is intentionally ignored for simplicity, use StrToUint64E if you need error handling
 func StrToUint64(str string) uint64 {
-	v, _ := strconv.ParseUint(str, 10, 64)
+	v, _ := strconv.ParseUint(str, 10, 64) //nolint:errcheck
 	return v
 }
 
@@ -47,8 +50,9 @@ func StrToUint64E(str string) (uint64, error) {
 }
 
 // StrToFloat32 string to float32
+// Note: error is intentionally ignored for simplicity, use StrToFloat32E if you need error handling
 func StrToFloat32(str string) float32 {
-	v, _ := strconv.ParseFloat(str, 32)
+	v, _ := strconv.ParseFloat(str, 32) //nolint:errcheck
 	return float32(v)
 }
 
@@ -62,8 +66,9 @@ func StrToFloat32E(str string) (float32, error) {
 }
 
 // StrToFloat64 string to float64
+// Note: error is intentionally ignored for simplicity, use StrToFloat64E if you need error handling
 func StrToFloat64(str string) float64 {
-	v, _ := strconv.ParseFloat(str, 64)
+	v, _ := strconv.ParseFloat(str, 64) //nolint:errcheck
 	return v
 }
 

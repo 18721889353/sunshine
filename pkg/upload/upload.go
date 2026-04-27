@@ -136,7 +136,10 @@ func (c *cosUploader) cosCredentials() map[string]string {
 		},
 	}
 
-	policy, _ := json.Marshal(policyData)
+	policy, err := json.Marshal(policyData)
+	if err != nil {
+		return map[string]string{}
+	}
 
 	h := hmac.New(sha1.New, secretKey)
 	h.Write([]byte(qKeyTime))

@@ -170,7 +170,10 @@ func NewLimiter(opts ...Option) *BBR {
 func (l *BBR) maxPASS() int64 {
 	passCache := l.maxPASSCache.Load()
 	if passCache != nil {
-		ps := passCache.(*counterCache)
+		ps, ok := passCache.(*counterCache)
+		if !ok {
+			return 1
+		}
 		if l.timespan(ps.time) < 1 {
 			return ps.val
 		}
@@ -208,7 +211,10 @@ func (l *BBR) timespan(lastTime time.Time) int {
 func (l *BBR) minRT() int64 {
 	rtCache := l.minRtCache.Load()
 	if rtCache != nil {
-		rc := rtCache.(*counterCache)
+		rc, ok := rtCache.(*counterCache)
+		if !ok {
+			return 1
+		}
 		if l.timespan(rc.time) < 1 {
 			return rc.val
 		}
@@ -247,7 +253,11 @@ func (l *BBR) shouldDrop() bool {
 	now := time.Duration(time.Now().UnixNano())
 	if l.cpu() < l.opts.CPUThreshold {
 		// current cpu payload below the threshold
-		prevDropTime, _ := l.prevDropTime.Load().(time.Duration)
+		prevDropTimeVal := l.prevDropTime.Load()
+		prevDropTime, ok := prevDropTimeVal.(time.Duration)
+		if !ok {
+			prevDropTime = 0
+		}
 		if prevDropTime == 0 {
 			// haven't start drop,
 			// accept current request
@@ -265,7 +275,11 @@ func (l *BBR) shouldDrop() bool {
 	inFlight := atomic.LoadInt64(&l.inFlight)
 	drop := inFlight > 1 && inFlight > l.maxInFlight()
 	if drop {
-		prevDrop, _ := l.prevDropTime.Load().(time.Duration)
+		prevDropVal := l.prevDropTime.Load()
+		prevDrop, ok := prevDropVal.(time.Duration)
+		if !ok {
+			prevDrop = 0
+		}
 		if prevDrop != 0 {
 			// already started drop, return directly
 			return drop

@@ -393,6 +393,7 @@ func getInvokeType(isStreamingClient bool, isStreamingServer bool) int {
 	return 0 // unary
 }
 
+// GetProtoFileDir 获取proto文件所在目录
 func GetProtoFileDir(protoPath string) string {
 	ss := strings.Split(protoPath, "/")
 	if len(ss) > 1 {
@@ -401,6 +402,7 @@ func GetProtoFileDir(protoPath string) string {
 	return protoPath
 }
 
+// GetProtoPkgName 获取proto包名
 func GetProtoPkgName(importPath string) string {
 	return convertToPkgName(importPath)
 }

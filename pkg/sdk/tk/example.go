@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	create_token_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/request"
-	get_card_request "github.com/18721889353/sunshine/pkg/sdk/tk/api/get_card/request"
+	createtokenrequest "github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/createtokenrequest"
+	getcardrequest "github.com/18721889353/sunshine/pkg/sdk/tk/api/getcard/request"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 )
 
@@ -26,9 +26,9 @@ func main() {
 	//	AppId:     tkConfig.AppId,
 	//	AppSecret: tkConfig.AppSecret,
 	//})
-	accessToken, err := create_token_request.GetAccessTokenWithContext(context.Background(), &create_token_request.GetAccessTokenParam{
+	accessToken, err := createtokenrequest.GetAccessTokenWithContext(context.Background(), &createtokenrequest.GetAccessTokenParam{
 		Config:    tkConfig,
-		AppId:     tkConfig.AppID,
+		AppID:     tkConfig.AppID,
 		AppSecret: tkConfig.AppSecret,
 	})
 	fmt.Println(accessToken)
@@ -68,7 +68,7 @@ func main() {
 	//	panic(err)
 	//}
 
-	request := get_card_request.New()
+	request := getcardrequest.New()
 	param := request.GetParams()
 	param.OrderSn = "2507291705389285325512"
 	res, err := request.Execute(accessToken)

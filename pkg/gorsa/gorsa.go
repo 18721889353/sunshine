@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	// 密钥长度
+	// KEYSIZE 密钥长度
 	KEYSIZE = 1024
 )
 

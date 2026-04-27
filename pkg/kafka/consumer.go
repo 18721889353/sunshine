@@ -82,6 +82,7 @@ func (c *ConsumerGroup) ConsumeCustom(ctx context.Context, topics []string, hand
 	return nil
 }
 
+// Close 关闭消费者组
 func (c *ConsumerGroup) Close() error {
 	if c == nil || c.Group == nil {
 		return c.Group.Close()
@@ -112,7 +113,9 @@ func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, 
 	defer func() {
 		if e := recover(); e != nil {
 			logger.ErrorWithCtx(h.ctx, "panic occurred while consuming messages", logger.Any("error", e))
-			_ = h.ConsumeClaim(sess, claim)
+			if err := h.ConsumeClaim(sess, claim); err != nil {
+				logger.WarnWithCtx(h.ctx, "重新消费失败", logger.Err(err))
+			}
 		}
 	}()
 

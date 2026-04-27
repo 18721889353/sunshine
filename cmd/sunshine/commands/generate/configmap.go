@@ -52,9 +52,13 @@ func ConfigmapCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
-	_ = cmd.MarkFlagRequired("server-name")
+	if err := cmd.MarkFlagRequired("server-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
-	_ = cmd.MarkFlagRequired("project-name")
+	if err := cmd.MarkFlagRequired("project-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&configFile, "config-file", "f", "", "server config file")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./configmap_<time>")
 
@@ -89,7 +93,9 @@ func (g *copyConfigGenerator) generateCode() (string, error) {
 	r.SetIgnoreSubFiles(ignoreFiles...)
 	fields := g.addFields()
 	r.SetReplacementFields(fields)
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}

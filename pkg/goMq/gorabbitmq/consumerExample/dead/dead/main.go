@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -45,7 +46,11 @@ func main() {
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
-	defer func() { _ = pool.Close(ctx) }()
+	defer func() {
+		if closeErr := pool.Close(ctx); closeErr != nil {
+			log.Printf("关闭连接池失败: %v", closeErr)
+		}
+	}()
 	conn, err := pool.Get(ctx)
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to get connection from pool", logger.Err(err))

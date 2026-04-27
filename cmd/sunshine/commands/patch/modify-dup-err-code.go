@@ -87,7 +87,10 @@ func parseErrCodeInfo(line string) eCodeInfo {
 	if len(ss) != 2 {
 		return ci
 	}
-	num, _ := strconv.Atoi(strings.TrimSpace(ss[1]))
+	num, err := strconv.Atoi(strings.TrimSpace(ss[1]))
+	if err != nil {
+		return ci
+	}
 
 	ci.Name = match[1]
 	ci.Num = num

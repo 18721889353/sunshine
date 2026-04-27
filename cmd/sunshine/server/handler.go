@@ -19,6 +19,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/gobash"
 	"github.com/18721889353/sunshine/pkg/gofile"
 	"github.com/18721889353/sunshine/pkg/krand"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm"
 	"github.com/18721889353/sunshine/pkg/sgorm/mysql"
 	"github.com/18721889353/sunshine/pkg/utils"
@@ -335,7 +336,9 @@ func getSavePath() string {
 	}
 	dir += "/" + "s_" + krand.String(krand.R_NUM|krand.R_LOWER, 10)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		_ = os.MkdirAll(dir, 0766)
+		if err := os.MkdirAll(dir, 0766); err != nil {
+			logger.WarnWithCtx(context.Background(), "创建目录失败", logger.String("dir", dir), logger.Err(err))
+		}
 	}
 	return dir
 }
@@ -351,7 +354,9 @@ func CompressPathToZip(outPath, targetFile string) error {
 	}()
 	w := zip.NewWriter(d)
 	defer func() {
-		_ = w.Close()
+		if closeErr := w.Close(); closeErr != nil {
+			logger.WarnWithCtx(context.Background(), "关闭zip writer失败", logger.Err(closeErr))
+		}
 	}()
 
 	f, err := os.Open(outPath)

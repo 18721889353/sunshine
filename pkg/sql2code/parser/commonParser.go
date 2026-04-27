@@ -1,12 +1,15 @@
 package parser
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"text/template"
 
 	"github.com/jinzhu/inflection"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // CrudInfo crud info for cache, dao, handler, service, protobuf, error
@@ -114,10 +117,15 @@ func (info *CrudInfo) getCode() string {
 	if info == nil {
 		return ""
 	}
-	pkData, _ := json.Marshal(info)
+	pkData, err := json.Marshal(info)
+	if err != nil {
+		logger.WarnWithCtx(context.Background(), "序列化CrudInfo失败", logger.Err(err))
+		return ""
+	}
 	return string(pkData)
 }
 
+// CheckCommonType 检查是否为通用类型
 func (info *CrudInfo) CheckCommonType() bool {
 	if info == nil {
 		return false
@@ -140,6 +148,7 @@ func (info *CrudInfo) isIDPrimaryKey() bool {
 	return false
 }
 
+// GetGRPCProtoValidation 获取gRPC Proto验证规则
 func (info *CrudInfo) GetGRPCProtoValidation() string {
 	if info == nil {
 		return ""
@@ -150,6 +159,7 @@ func (info *CrudInfo) GetGRPCProtoValidation() string {
 	return fmt.Sprintf(`[(validate.rules).%s.gt = 0]`, info.ProtoType)
 }
 
+// GetWebProtoValidation 获取Web Proto验证规则
 func (info *CrudInfo) GetWebProtoValidation() string {
 	if info == nil {
 		return ""

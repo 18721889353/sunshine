@@ -75,7 +75,9 @@ func ModifyProtoPackageCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&dir, "dir", "d", "", "input specified directory")
-	_ = cmd.MarkFlagRequired("dir")
+	if err := cmd.MarkFlagRequired("dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&serverDir, "server-dir", "s", "", "server directory, get module name and server name from docs/gen.info")
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "go module name")
 

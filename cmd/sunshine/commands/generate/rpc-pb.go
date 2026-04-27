@@ -66,19 +66,29 @@ func RPCPbCommand() *cobra.Command {
 				return err
 			}
 
-			_ = generateConfigmap(serverName, outPath)
+			if configmapErr := generateConfigmap(serverName, outPath); configmapErr != nil {
+				fmt.Printf("generate configmap error: %v\n", configmapErr)
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
-	_ = cmd.MarkFlagRequired("module-name")
+	if err := cmd.MarkFlagRequired("module-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
-	_ = cmd.MarkFlagRequired("server-name")
+	if err := cmd.MarkFlagRequired("server-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
-	_ = cmd.MarkFlagRequired("project-name")
+	if err := cmd.MarkFlagRequired("project-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&protobufFile, "protobuf-file", "f", "", "proto file")
-	_ = cmd.MarkFlagRequired("protobuf-file")
+	if err := cmd.MarkFlagRequired("protobuf-file"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "whether the generated code is suitable for mono-repo")
 	cmd.Flags().StringVarP(&repoAddr, "repo-addr", "r", "", "docker image repository address, excluding http and repository names")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./serverName_rpc-pb_<time>")
@@ -160,7 +170,9 @@ func (g *rpcPbGenerator) generateCode() error {
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
 	r.SetIgnoreSubFiles(ignoreFiles...)
-	_ = r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName)
+	if err := r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName); err != nil {
+		return err
+	}
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
 	if err = r.SaveFiles(); err != nil {
@@ -182,7 +194,9 @@ func (g *rpcPbGenerator) generateCode() error {
 	if err = saveProtobufFiles(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir(), protobufFiles); err != nil {
 		return err
 	}
-	_ = saveGenInfo(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir())
+	if saveErr := saveGenInfo(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir()); saveErr != nil {
+		fmt.Printf("save gen info error: %v\n", saveErr)
+	}
 
 	fmt.Printf(`
 using help:

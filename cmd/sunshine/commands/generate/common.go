@@ -68,7 +68,8 @@ var (
 	databaseInitDBFile     = "database/init.go"
 	databaseInitDBFileMark = "// todo generate initialisation database code here"
 
-	showDbNameMark  = "// todo show db driver name here"
+	showDbNameMark = "// todo show db driver name here"
+	// CurrentDbDriver 当前数据库驱动标记
 	CurrentDbDriver = func(dbDriver string) string { return "// db driver is " + dbDriver }
 
 	cacheFile = "cache/cacheNameExample.go"
@@ -152,12 +153,18 @@ var (
 )
 
 var (
-	ModelInitDBFile     = databaseInitDBFile
+	// ModelInitDBFile 模型初始化数据库文件
+	ModelInitDBFile = databaseInitDBFile
+	// ModelInitDBFileMark 模型初始化数据库文件标记
 	ModelInitDBFileMark = databaseInitDBFileMark
 	//AppConfigFileDBMark = appConfigFileMark2
-	StartMark = startMark
-	EndMark   = endMark
 )
+
+// StartMark is the start mark used in code generation templates
+var StartMark = startMark
+
+// EndMark is the end mark used in code generation templates
+var EndMark = endMark
 
 func symbolConvert(str string, additionalChar ...string) []byte {
 	char := ""
@@ -353,7 +360,9 @@ func ParseFuzzyProtobufFiles(protobufFile string) ([]string, error) {
 func saveGenInfo(moduleName string, serverName string, suitedMonoRepo bool, outputDir string) error {
 	genInfo := moduleName + "," + serverName + "," + strconv.FormatBool(suitedMonoRepo)
 	dir := outputDir + "/docs"
-	_ = os.MkdirAll(dir, 0766)
+	if err := os.MkdirAll(dir, 0766); err != nil {
+		return fmt.Errorf("create directory %s error: %v", dir, err)
+	}
 	file := dir + "/gen.info"
 	err := os.WriteFile(file, []byte(genInfo), 0666)
 	if err != nil {
@@ -364,7 +373,9 @@ func saveGenInfo(moduleName string, serverName string, suitedMonoRepo bool, outp
 
 func saveEmptySwaggerJSON(outputDir string) error {
 	dir := outputDir + "/docs"
-	_ = os.MkdirAll(dir, 0766)
+	if err := os.MkdirAll(dir, 0766); err != nil {
+		return fmt.Errorf("create directory %s error: %v", dir, err)
+	}
 	file := dir + "/apis.swagger.json"
 	err := os.WriteFile(file, []byte(`{"swagger":"2.0","info":{"version":"version not set"}}`), 0666)
 	if err != nil {
@@ -408,7 +419,9 @@ func saveProtobufFiles(moduleName string, serverName string, suitedMonoRepo bool
 		pbContent = replacePackage(pbContent, moduleName, serverName)
 
 		dir := outputDir + "/api/" + serverName + "/v1"
-		_ = os.MkdirAll(dir, 0766)
+		if mkdirErr := os.MkdirAll(dir, 0766); mkdirErr != nil {
+			return fmt.Errorf("create directory %s error: %v", dir, mkdirErr)
+		}
 
 		_, name := filepath.Split(pbFile)
 		file := dir + "/" + name
@@ -612,12 +625,18 @@ func removeElements(slice []string, elements ...string) []string {
 
 func moveProtoFileToAPIDir(moduleName string, serverName string, suitedMonoRepo bool, outputDir string) error {
 	apiDir := outputDir + gofile.GetPathDelimiter() + "api"
-	protoFiles, _ := gofile.ListFiles(apiDir, gofile.WithNoAbsolutePath(), gofile.WithSuffix(".proto"))
+	protoFiles, err := gofile.ListFiles(apiDir, gofile.WithNoAbsolutePath(), gofile.WithSuffix(".proto"))
+	if err != nil {
+		fmt.Printf("list proto files error: %v\n", err)
+		return err
+	}
 	if err := saveProtobufFiles(moduleName, serverName, suitedMonoRepo, outputDir, protoFiles); err != nil {
 		return err
 	}
 	time.Sleep(time.Millisecond * 100)
-	_ = os.RemoveAll(apiDir)
+	if removeErr := os.RemoveAll(apiDir); removeErr != nil {
+		fmt.Printf("remove api directory error: %v\n", removeErr)
+	}
 	return nil
 }
 
@@ -768,6 +787,7 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	return files
 }
 
+// Version 版本信息结构
 type Version struct {
 	major     string
 	minor     string
@@ -830,7 +850,11 @@ func flagTip(name ...string) string {
 }
 
 func cutPath(srcFilePath string) string {
-	dirPath, _ := filepath.Abs(".")
+	dirPath, err := filepath.Abs(".")
+	if err != nil {
+		fmt.Printf("get absolute path error: %v\n", err)
+		return srcFilePath
+	}
 	srcFilePath = strings.ReplaceAll(srcFilePath, dirPath, ".")
 	return strings.ReplaceAll(srcFilePath, "\\", "/")
 }

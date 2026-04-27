@@ -240,12 +240,14 @@ func WithLocalTime(isLocalTime bool) FileOption {
 	}
 }
 
+// WithSaveDay 设置是否按天保存日志文件
 func WithSaveDay(isSaveDay bool) FileOption {
 	return func(f *fileOptions) {
 		f.isSaveDay = isSaveDay
 	}
 }
 
+// WithNoPrint 设置是否禁用控制台输出
 func WithNoPrint(noPrint bool) FileOption {
 	return func(f *fileOptions) {
 		f.noPrint = noPrint

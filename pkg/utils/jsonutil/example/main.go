@@ -9,7 +9,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/utils/jsonutil"
 )
 
-// 定义一个订单结构体用于演示
+// Order 订单结构体用于演示
 type Order struct {
 	ID        int64                  `json:"id"`
 	UserID    int64                  `json:"user_id"`
@@ -19,6 +19,7 @@ type Order struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
+// OrderItem 订单项结构体
 type OrderItem struct {
 	ProductID int64   `json:"product_id"`
 	Name      string  `json:"name"`
@@ -122,7 +123,7 @@ func main() {
 	// 这里只是简单演示，实际性能测试需要运行基准测试
 	start := time.Now()
 	for i := 0; i < 1000; i++ {
-		_, _ = jsonutil.Marshal(order)
+		_, _ = jsonutil.Marshal(order) //nolint:errcheck
 	}
 	jsonutilTime := time.Since(start)
 

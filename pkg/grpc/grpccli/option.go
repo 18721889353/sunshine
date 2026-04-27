@@ -1,6 +1,7 @@
 package grpccli
 
 import (
+	"fmt"
 	"time"
 
 	"go.uber.org/zap"
@@ -98,7 +99,11 @@ func WithEnableLog(log *zap.Logger) Option {
 			o.log = log
 			return
 		}
-		o.log, _ = zap.NewProduction()
+		var err error
+		o.log, err = zap.NewProduction()
+		if err != nil {
+			fmt.Printf("create production logger error: %v\n", err)
+		}
 	}
 }
 

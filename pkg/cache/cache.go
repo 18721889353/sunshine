@@ -38,10 +38,12 @@ type Cache interface {
 	SetCacheWithNotFound(ctx context.Context, key string) error
 }
 
+// GetLoopLock 获取循环等待的分布式锁
 func GetLoopLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	return DefaultClient.GetLoopLock(ctx, key, options...)
 }
 
+// GetLock 获取一次性分布式锁
 func GetLock(ctx context.Context, key string, options ...redsync.Option) (*redsync.Mutex, error) {
 	return DefaultClient.GetLock(ctx, key, options...)
 }

@@ -52,8 +52,12 @@ func CopyGOModCommand() *cobra.Command {
 					return nil
 				}
 				// delete the go.mod and go.sum file if it exists
-				_ = os.RemoveAll(goModFile)
-				_ = os.RemoveAll(strings.TrimSuffix(goModFile, ".mod") + ".sum")
+				if err := os.RemoveAll(goModFile); err != nil {
+					return err
+				}
+				if err := os.RemoveAll(strings.TrimSuffix(goModFile, ".mod") + ".sum"); err != nil {
+					return err
+				}
 			}
 
 			out, err := runCopyGoModCommand(moduleName, outPath)
@@ -84,7 +88,9 @@ func runCopyGoModCommand(moduleName string, out string) (string, error) {
 	subFiles := []string{"sunshine/go.mod", "sunshine/go.sum"}
 	r.SetSubDirsAndFiles(nil, subFiles...)
 	r.SetReplacementFields(generate.GetGoModFields(moduleName))
-	_ = r.SetOutputDir(out)
+	if err := r.SetOutputDir(out); err != nil {
+		return "", err
+	}
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}

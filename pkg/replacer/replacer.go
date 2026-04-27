@@ -50,7 +50,10 @@ func New(path string) (Replacer, error) {
 		return nil, err
 	}
 
-	path, _ = filepath.Abs(path)
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
 	return &replacerInfo{
 		path:              path,
 		isActual:          true,
@@ -482,7 +485,9 @@ func walkDir(dirPath string, allFiles *[]string, fs embed.FS) error {
 	for _, file := range files {
 		deepFile := dirPath + "/" + file.Name()
 		if file.IsDir() {
-			_ = walkDir(deepFile, allFiles, fs)
+			if err := walkDir(deepFile, allFiles, fs); err != nil {
+				return err
+			}
 			continue
 		}
 		*allFiles = append(*allFiles, deepFile)

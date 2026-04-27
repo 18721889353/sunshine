@@ -144,16 +144,26 @@ using help:
 	}
 
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
-	_ = cmd.MarkFlagRequired("module-name")
+	if err := cmd.MarkFlagRequired("module-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
-	_ = cmd.MarkFlagRequired("server-name")
+	if err := cmd.MarkFlagRequired("server-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
-	_ = cmd.MarkFlagRequired("project-name")
+	if err := cmd.MarkFlagRequired("project-name"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql")
 	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database") //nolint
-	_ = cmd.MarkFlagRequired("db-dsn")
+	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
-	_ = cmd.MarkFlagRequired("db-table")
+	if err := cmd.MarkFlagRequired("db-table"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "whether to embed gorm.model struct")
 	cmd.Flags().BoolVarP(&sqlArgs.IsExtendedAPI, "extended-api", "a", false, "whether to generate extended crud api, additional includes: DeleteByIDs, GetByCondition, ListByIDs, ListByLatestID")
 	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "whether the generated code is suitable for mono-repo")
@@ -183,7 +193,10 @@ type rpcGenerator struct {
 
 func (g *rpcGenerator) generateCode() (string, error) {
 	subTplName := codeNameGRPC
-	r, _ := replacer.New(SunshineDir)
+	r, err := replacer.New(SunshineDir)
+	if err != nil {
+		return "", err
+	}
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -236,13 +249,15 @@ func (g *rpcGenerator) generateCode() (string, error) {
 			"rabbitmq/mq.go", "rabbitmq/consumers/doingOrder.go",
 		},
 	}
-	err := SetSelectFiles(g.dbDriver, selectFiles)
-	if err != nil {
-		return "", err
+	if setErr := SetSelectFiles(g.dbDriver, selectFiles); setErr != nil {
+		return "", setErr
 	}
 
 	info := g.codes[parser.CodeTypeCrudInfo]
-	crudInfo, _ := unmarshalCrudInfo(info)
+	crudInfo, err := unmarshalCrudInfo(info)
+	if err != nil {
+		return "", err
+	}
 	if crudInfo.CheckCommonType() {
 		g.isCommonStyle = true
 		selectFiles["internal/cache"] = []string{"userExample.go.tpl"}
@@ -295,7 +310,9 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
 	r.SetIgnoreSubDirs(ignoreDirs...)
 	r.SetIgnoreSubFiles(ignoreFiles...)
-	_ = r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName)
+	if setErr := r.SetOutputDir(g.outPath, g.serverName+"_"+subTplName); setErr != nil {
+		return "", setErr
+	}
 	fields := g.addFields(r)
 	r.SetReplacementFields(fields)
 	if saveErr := r.SaveFiles(); saveErr != nil {
@@ -319,7 +336,9 @@ func (g *rpcGenerator) generateCode() (string, error) {
 			return "", err
 		}
 	}
-	_ = saveGenInfo(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir())
+	if saveErr := saveGenInfo(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir()); saveErr != nil {
+		fmt.Printf("save gen info error: %v\n", saveErr)
+	}
 
 	return r.GetOutputDir(), nil
 }

@@ -80,7 +80,11 @@ func GetProcess() *Process {
 	}
 	proc.UsagePercent = floatRound(percent, 1)
 
-	mInfo, _ := p.MemoryInfo()
+	mInfo, err := p.MemoryInfo()
+	if err != nil {
+		fmt.Printf("p.MemoryInfo error, %v\n", err)
+		return proc
+	}
 	proc.RSS = mInfo.RSS >> 20
 	proc.VMS = mInfo.VMS >> 20
 
@@ -89,6 +93,9 @@ func GetProcess() *Process {
 
 func floatRound(f float64, n int) float64 {
 	format := "%." + strconv.Itoa(n) + "f"
-	res, _ := strconv.ParseFloat(fmt.Sprintf(format, f), 64)
+	res, err := strconv.ParseFloat(fmt.Sprintf(format, f), 64)
+	if err != nil {
+		return 0
+	}
 	return res
 }

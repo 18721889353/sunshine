@@ -1,12 +1,15 @@
-package get_card_response
+// Package getcardresponse 提供获取卡片API的响应类型
+package getcardresponse
 
 import "github.com/18721889353/sunshine/pkg/sdk/tk/core"
 
+// GetCardResponse 获取卡片响应
 type GetCardResponse struct {
 	core.BaseTkAPIResponse
 	Data []GetCardData `json:"data"`
 }
 
+// GetCardData 获取卡片数据
 type GetCardData struct {
 	ID             string `json:"id"`
 	Code           string `json:"code"`

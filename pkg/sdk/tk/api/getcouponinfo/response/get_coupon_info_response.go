@@ -1,19 +1,26 @@
-package get_coupon_info_response
+// Package getcouponinforesponse 提供获取优惠券信息API的响应类型
+package getcouponinforesponse
 
 import (
 	"encoding/json"
-	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
+
 	"github.com/spf13/cast"
+
+	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
 )
 
+// GetCouponInfoResponse 获取优惠券信息响应
 type GetCouponInfoResponse struct {
 	core.BaseTkAPIResponse
 	Data *GetCouponInfoData `json:"data"`
 }
 
+// UseInfo 使用信息
 type UseInfo struct {
 	Name string `json:"name"`
 }
+
+// ExchangeNotice 兑换须知
 type ExchangeNotice struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
@@ -52,6 +59,7 @@ func (e *ExchangeNotice) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// WriteoffNotice 核销须知
 type WriteoffNotice struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
@@ -90,10 +98,13 @@ func (w *WriteoffNotice) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// UseRule 使用规则
 type UseRule struct {
 	Name    string `json:"name"`
 	Support int    `json:"support"`
 }
+
+// GetCouponInfoData 获取优惠券信息数据
 type GetCouponInfoData struct {
 	ID                       int              `json:"id"`
 	CouponName               string           `json:"coupon_name"`

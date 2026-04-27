@@ -30,6 +30,7 @@ type ProtoInfo struct {
 	FieldImportPkgMap map[string]string // message import packages, example: userV1 -> userV1 "moduleName/api/user/v1"
 }
 
+// Service 服务信息结构
 type Service struct {
 	ServiceName               string // service name, example: foobar or Foobar
 	ServiceNameCamel          string // service name camel case, example: FooBar
@@ -42,6 +43,7 @@ type Service struct {
 	Methods []RPCMethod // rpc methods
 }
 
+// RPCMethod RPC方法信息结构
 type RPCMethod struct {
 	MethodName string // method name, example: Create
 	Comment    string // method comment, example: // Create a record
@@ -65,6 +67,7 @@ type RPCMethod struct {
 	IsIgnoreGinBind  bool
 }
 
+// Field 字段信息结构
 type Field struct {
 	Name           string // field name
 	GoType         string // field go type

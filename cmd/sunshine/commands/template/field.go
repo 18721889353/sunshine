@@ -76,9 +76,13 @@ func FieldCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&tplDir, "tpl-dir", "i", "", "directory where your template code is located")
-	_ = cmd.MarkFlagRequired("tpl-dir")
+	if err := cmd.MarkFlagRequired("tpl-dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().StringVarP(&fieldsFile, "fields", "f", "", "fields defined in JSON file")
-	_ = cmd.MarkFlagRequired("fields")
+	if err := cmd.MarkFlagRequired("fields"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
 	cmd.Flags().BoolVarP(&onlyPrint, "only-print", "n", false, "only print template code and all fields, do not generate code")
 	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./custom_<time>")
 
@@ -94,7 +98,10 @@ type customGenerator struct {
 
 func (g *customGenerator) generateCode() (string, error) {
 	subTplName := "custom"
-	r, _ := replacer.New(g.tplDir)
+	r, err := replacer.New(g.tplDir)
+	if err != nil {
+		return "", err
+	}
 	if r == nil {
 		return "", errors.New("replacer is nil")
 	}
@@ -111,7 +118,9 @@ func (g *customGenerator) generateCode() (string, error) {
 		return "", nil
 	}
 
-	_ = r.SetOutputDir(g.outPath, subTplName)
+	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
+		return "", err
+	}
 	if err := r.SaveTemplateFiles(g.fields, gofile.GetSuffixDir(g.tplDir)); err != nil {
 		return "", err
 	}

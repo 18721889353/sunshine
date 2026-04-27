@@ -147,7 +147,11 @@ func GetRabbitMQ(name string) *RabbitMQ {
 	if !ok {
 		return nil
 	}
-	return val.(*RabbitMQ)
+	rabbitmq, ok := val.(*RabbitMQ)
+	if !ok {
+		return nil
+	}
+	return rabbitmq
 }
 
 // safeCloseProducer 安全清理 Producer 并将其持有的连接归还连接池
@@ -178,7 +182,11 @@ func (r *RabbitMQ) GetConnection(ctx context.Context) (*gorabbitmq.Connection, e
 // getExchangeFromCache 从缓存中获取或创建exchange
 func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabbitmq.Exchange {
 	if exchange, ok := r.exchangeCache.Load(routingKey); ok {
-		return exchange.(*gorabbitmq.Exchange)
+		ex, ok := exchange.(*gorabbitmq.Exchange)
+		if !ok {
+			return nil
+		}
+		return ex
 	}
 
 	// 创建新的exchange
@@ -187,7 +195,11 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 	// 存入缓存，使用LoadOrStore确保并发安全
 	if actual, loaded := r.exchangeCache.LoadOrStore(routingKey, exchange); loaded {
 		// 如果已存在，返回已存在的exchange
-		return actual.(*gorabbitmq.Exchange)
+		ex, ok := actual.(*gorabbitmq.Exchange)
+		if !ok {
+			return nil
+		}
+		return ex
 	}
 
 	return exchange
@@ -197,7 +209,10 @@ func (r *RabbitMQ) getExchangeFromCache(exchangeName, routingKey string) *gorabb
 func (r *RabbitMQ) getProducerFromCache(ctx context.Context, exchangeName, routingKey string) (*gorabbitmq.Producer, error) {
 	// 1. 快速路径
 	if val, ok := r.producerCache.Load(routingKey); ok {
-		p := val.(*gorabbitmq.Producer)
+		p, ok := val.(*gorabbitmq.Producer)
+		if !ok {
+			return nil, fmt.Errorf("invalid producer type in cache")
+		}
 		if r.isProducerValid(ctx, p) {
 			return p, nil
 		}
@@ -220,7 +235,11 @@ func (r *RabbitMQ) getProducerFromCache(ctx context.Context, exchangeName, routi
 	if err != nil {
 		return nil, err
 	}
-	return val.(*gorabbitmq.Producer), nil
+	producer, ok := val.(*gorabbitmq.Producer)
+	if !ok {
+		return nil, fmt.Errorf("invalid producer type returned")
+	}
+	return producer, nil
 }
 
 // isProducerValid 检查producer是否有效
@@ -255,7 +274,9 @@ func (r *RabbitMQ) createNewProducer(ctx context.Context, exchangeName, routingK
 	producer, err := gorabbitmq.NewProducer(ctx, exchange, conn)
 	if err != nil {
 		// 只有创建失败才在这里 Put，创建成功后连接被 Producer 持有
-		_ = r.PutConnection(ctx, conn)
+		if putErr := r.PutConnection(ctx, conn); putErr != nil {
+			logger.WarnWithCtx(ctx, "归还连接到池失败", logger.Err(putErr))
+		}
 		return nil, err
 	}
 
