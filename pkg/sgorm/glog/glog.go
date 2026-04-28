@@ -125,6 +125,18 @@ func (l *gLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql str
 	}
 
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		// context.Canceled 和 context.DeadlineExceeded 是预期的控制流，不是真正的错误
+		// 通常发生在：服务关闭、请求超时、业务主动取消等场景
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			// 使用 Debug 级别记录，避免污染错误日志
+			// 这些是预期的行为，不应该触发告警
+			if l.logLevel >= gormLogger.Info {
+				logger.DebugWithCtx(ctx, "Gorm query canceled (expected)", fields...)
+			}
+			return
+		}
+
+		// 其他错误才是真正的异常，记录为 Error
 		logger.ErrorWithCtx(ctx, "Gorm msg", append(fields, logger.Err(err))...)
 		return
 	}
