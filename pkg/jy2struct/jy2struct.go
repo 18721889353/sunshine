@@ -171,6 +171,71 @@ func convertKeysToStrings(obj map[interface{}]interface{}) map[string]interface{
 	return res
 }
 
+// handleNestedValue 处理嵌套值类型并返回适当的类型字符串
+// 返回值: (valueType, sub) - valueType是字段类型，sub是子结构定义（如果有）
+func handleNestedValue(value interface{}, key string, structName string, tags []string, depth int, subStructMap map[string]string, convertFloats bool) (valueType string, sub string) {
+	valueType = typeForValue(value, structName, tags, subStructMap, convertFloats)
+	sub = ""
+
+	switch v := value.(type) {
+	case []interface{}:
+		if len(v) > 0 {
+			if firstElem, ok := v[0].(map[interface{}]interface{}); ok {
+				sub = generateTypes(convertKeysToStrings(firstElem), structName, tags, depth+1, subStructMap, convertFloats) + "}"
+			} else if firstElem, ok := v[0].(map[string]interface{}); ok {
+				sub = generateTypes(firstElem, structName, tags, depth+1, subStructMap, convertFloats) + "}"
+			}
+		}
+	case map[interface{}]interface{}:
+		sub = generateTypes(convertKeysToStrings(v), structName, tags, depth+1, subStructMap, convertFloats) + "}"
+	case map[string]interface{}:
+		sub = generateTypes(v, structName, tags, depth+1, subStructMap, convertFloats) + "}"
+	}
+
+	if sub == "" {
+		return valueType, ""
+	}
+
+	// 处理子结构命名
+	subName := getSubStructName(sub, key, structName, subStructMap)
+	if sub != "" {
+		// 根据子结构更新valueType
+		switch value.(type) {
+		case []interface{}:
+			valueType = "[]" + subName
+		default:
+			valueType = subName
+		}
+	}
+
+	return valueType, sub
+}
+
+// getSubStructName 获取或创建子结构的名称
+// 如果子结构已存在于subStructMap中，则返回已有名称；否则使用字段名生成新名称
+func getSubStructName(sub string, key string, _ string, subStructMap map[string]string) string {
+	if subStructMap == nil {
+		return sub
+	}
+
+	if val, ok := subStructMap[sub]; ok {
+		return val
+	}
+
+	subName := FmtFieldName(key) // 使用字段名作为子结构名称
+	subStructMap[sub] = subName
+	return subName
+}
+
+// buildFieldTag 构建字段的struct tag字符串
+func buildFieldTag(key string, tags []string) string {
+	tagList := make([]string, 0, len(tags))
+	for _, t := range tags {
+		tagList = append(tagList, fmt.Sprintf("%s:\"%s\"", t, key))
+	}
+	return strings.Join(tagList, " ")
+}
+
 // jyParse go struct entries for a map[string]interface{} structure
 func generateTypes(obj map[string]interface{}, structName string, tags []string, depth int, subStructMap map[string]string, convertFloats bool) string {
 	structure := "struct {"
@@ -183,78 +248,15 @@ func generateTypes(obj map[string]interface{}, structName string, tags []string,
 
 	for _, key := range keys {
 		value := obj[key]
-		valueType := typeForValue(value, structName, tags, subStructMap, convertFloats)
-
-		//value = mergeElements(value)
-		//If a nested value, recurse
-		switch value := value.(type) {
-		case []interface{}:
-			if len(value) > 0 {
-				sub := ""
-				if v, ok := value[0].(map[interface{}]interface{}); ok {
-					sub = generateTypes(convertKeysToStrings(v), structName, tags, depth+1, subStructMap, convertFloats) + "}"
-				} else if v, ok := value[0].(map[string]interface{}); ok {
-					sub = generateTypes(v, structName, tags, depth+1, subStructMap, convertFloats) + "}"
-				}
-
-				if sub != "" {
-					subName := sub
-
-					if subStructMap != nil {
-						if val, ok := subStructMap[sub]; ok {
-							subName = val
-						} else {
-							//subName = fmt.Sprintf("%v_sub%v", structName, len(subStructMap)+1)
-							subName = FmtFieldName(key) // use the field name word
-							subStructMap[sub] = subName
-						}
-					}
-
-					valueType = "[]" + subName
-				}
-			}
-		case map[interface{}]interface{}:
-			sub := generateTypes(convertKeysToStrings(value), structName, tags, depth+1, subStructMap, convertFloats) + "}"
-			subName := sub
-
-			if subStructMap != nil {
-				if val, ok := subStructMap[sub]; ok {
-					subName = val
-				} else {
-					//subName = fmt.Sprintf("%v_sub%v", structName, len(subStructMap)+1)
-					subName = FmtFieldName(key) // use the field name word
-					subStructMap[sub] = subName
-				}
-			}
-			valueType = subName
-		case map[string]interface{}:
-			sub := generateTypes(value, structName, tags, depth+1, subStructMap, convertFloats) + "}"
-			subName := sub
-
-			if subStructMap != nil {
-				if val, ok := subStructMap[sub]; ok {
-					subName = val
-				} else {
-					//subName = fmt.Sprintf("%v_sub%v", structName, len(subStructMap)+1)
-					subName = FmtFieldName(key) // use the field name word
-					subStructMap[sub] = subName
-				}
-			}
-
-			valueType = subName
-		}
+		valueType, _ := handleNestedValue(value, key, structName, tags, depth, subStructMap, convertFloats)
 
 		fieldName := FmtFieldName(key)
-
-		tagList := make([]string, 0)
-		for _, t := range tags {
-			tagList = append(tagList, fmt.Sprintf("%s:\"%s\"", t, key))
-		}
+		tagStr := buildFieldTag(key, tags)
 
 		structure += fmt.Sprintf("\n%s %s `%s`",
 			fieldName,
 			valueType,
-			strings.Join(tagList, " "))
+			tagStr)
 	}
 	return structure
 }

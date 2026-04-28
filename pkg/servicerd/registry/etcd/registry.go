@@ -2,8 +2,8 @@ package etcd
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"math/rand"
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -192,6 +192,55 @@ func (r *Registry) registerWithKV(ctx context.Context, key string, value string)
 	return grant.ID, nil // 返回 lease ID，表示注册成功
 }
 
+// tryReRegister 尝试重新注册
+func (r *Registry) tryReRegister(ctx context.Context, key, value string) (clientv3.LeaseID, error) {
+	for retryCnt := 0; retryCnt < r.opts.maxRetry; retryCnt++ {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+
+		// 防止无限阻塞
+		idChan := make(chan clientv3.LeaseID, 1)
+		errChan := make(chan error, 1)
+		cancelCtx, cancel := context.WithCancel(ctx)
+		go func() {
+			defer cancel()
+			id, registerErr := r.registerWithKV(cancelCtx, key, value)
+			if registerErr != nil {
+				errChan <- registerErr
+			} else {
+				idChan <- id
+			}
+		}()
+
+		select {
+		case <-time.After(3 * time.Second):
+			cancel()
+			continue
+		case <-errChan:
+			continue
+		case curLeaseID := <-idChan:
+			return curLeaseID, nil
+		}
+	}
+
+	return 0, errors.New("re-register failed after max retries")
+}
+
+// handleKeepAliveChannel 处理 KeepAlive 通道
+func (r *Registry) handleKeepAliveChannel(ctx context.Context, kac <-chan *clientv3.LeaseKeepAliveResponse) bool {
+	_, ok := <-kac
+	if !ok {
+		if ctx.Err() != nil {
+			// 通道因上下文取消而关闭
+			return false
+		}
+		// 需要重新注册
+		return true
+	}
+	return false
+}
+
 // heartBeat 心跳维护，确保租约不被回收。
 func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key string, value string) {
 	curLeaseID := leaseID
@@ -199,68 +248,39 @@ func (r *Registry) heartBeat(ctx context.Context, leaseID clientv3.LeaseID, key 
 	if err != nil {
 		curLeaseID = 0
 	}
-	//rand.Seed(time.Now().Unix()) // 初始化随机数种子
-	source := rand.NewSource(time.Now().UnixNano()) // 创建新的随机数源
-	rng := rand.New(source)                         // 创建新的随机数生成器
 
 	for {
 		if curLeaseID == 0 {
 			// 尝试重新注册
-			var retreat []int
-			for retryCnt := 0; retryCnt < r.opts.maxRetry; retryCnt++ {
-				if ctx.Err() != nil {
-					return
-				}
-				// 防止无限阻塞
-				idChan := make(chan clientv3.LeaseID, 1)
-				errChan := make(chan error, 1)
-				cancelCtx, cancel := context.WithCancel(ctx)
-				go func() {
-					defer cancel()
-					id, registerErr := r.registerWithKV(cancelCtx, key, value)
-					if registerErr != nil {
-						errChan <- registerErr
-					} else {
-						idChan <- id
-					}
-				}()
-
-				select {
-				case <-time.After(3 * time.Second):
-					cancel()
-					continue
-				case <-errChan:
-					continue
-				case curLeaseID = <-idChan:
-				}
-
-				kac, err = r.client.KeepAlive(ctx, curLeaseID)
-				if err == nil {
-					break
-				}
-				retreat = append(retreat, 1<<retryCnt)
-				//time.Sleep(time.Duration(retreat[rand.Intn(len(retreat))]) * time.Second)
-				time.Sleep(time.Duration(retreat[rng.Intn(len(retreat))]) * time.Second) // 使用新的随机数生成器
+			newLeaseID, regErr := r.tryReRegister(ctx, key, value)
+			if regErr != nil {
+				return
 			}
+			curLeaseID = newLeaseID
+
+			kac, err = r.client.KeepAlive(ctx, curLeaseID)
+			if err != nil {
+				curLeaseID = 0
+				continue
+			}
+
 			if _, ok := <-kac; !ok {
 				// 重试失败
 				return
 			}
 		}
 
+		// 处理 KeepAlive 通道
+		if needReregister := r.handleKeepAliveChannel(ctx, kac); needReregister {
+			curLeaseID = 0
+			continue
+		}
+
+		// 检查是否收到退出信号
 		select {
-		case _, ok := <-kac:
-			if !ok {
-				if ctx.Err() != nil {
-					// 通道因上下文取消而关闭
-					return
-				}
-				// 需要重新注册
-				curLeaseID = 0
-				continue
-			}
 		case <-r.opts.ctx.Done():
 			return
+		default:
 		}
 	}
 }

@@ -241,6 +241,91 @@ func (c *Connection) CheckConnected(_ context.Context) bool {
 	return c.isConnected && c.conn != nil && !c.conn.IsClosed()
 }
 
+// handleExitSignal 处理退出信号
+func (c *Connection) handleExitSignal() {
+	if err := c.closeConn(); err != nil {
+		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] 关闭连接失败", logger.Err(err))
+	}
+	logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
+}
+
+// handleBlockNotification 处理阻塞通知
+func (c *Connection) handleBlockNotification(b amqp.Blocking) {
+	if b.Active {
+		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] TCP blocked", logger.String("reason", b.Reason))
+	}
+}
+
+// handleCloseError 处理连接关闭错误
+func (c *Connection) handleCloseError(closeChanErr *amqp.Error, reconnectTip string) bool {
+	c.mutex.Lock()
+	c.isConnected = false
+	c.lastError = closeChanErr
+	c.lastErrorTime = time.Now()
+	c.mutex.Unlock()
+
+	atomic.AddInt64(&c.reconnectCount, 1)
+	retryCount := c.GetReconnectCount(context.Background())
+
+	// 检查是否超过最大重试次数
+	if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
+		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
+			logger.Int64("retryCount", retryCount),
+			logger.Int("maxRetries", c.maxRetries),
+			logger.String("url", c.url))
+		return false // 停止重连
+	}
+
+	// 记录错误日志（每10次重试记录一次）
+	if retryCount%10 == 1 {
+		if closeChanErr != nil {
+			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
+				logger.String("err", closeChanErr.Error()),
+				logger.Int64("retryCount", retryCount),
+				logger.String("url", c.url))
+		} else {
+			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
+				logger.Int64("retryCount", retryCount),
+				logger.String("url", c.url))
+		}
+		logger.InfoWithCtx(context.Background(), reconnectTip,
+			logger.Int64("retryCount", retryCount),
+			logger.String("url", c.url))
+	}
+
+	time.Sleep(c.reconnectTime)
+
+	// 重连
+	reconnectStart := time.Now()
+	amqpConn, amqpErr := connect(context.Background(), c)
+	reconnectDuration := time.Since(reconnectStart)
+
+	if amqpErr != nil {
+		if retryCount%10 == 1 {
+			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] reconnect error",
+				logger.Err(amqpErr),
+				logger.Int64("retryCount", retryCount),
+				logger.String("url", c.url))
+		}
+		return true // 继续下一次循环尝试重连
+	}
+
+	logger.InfoWithCtx(context.Background(), "[rabbitmq connection] reconnected successfully",
+		logger.Int64("retryCount", retryCount),
+		logger.String("url", c.url),
+		logger.Duration("duration", reconnectDuration))
+
+	// 设置新连接
+	c.mutex.Lock()
+	c.isConnected = true
+	c.conn = amqpConn
+	c.blockChan = c.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
+	c.closeChan = c.conn.NotifyClose(make(chan *amqp.Error, 1))
+	c.mutex.Unlock()
+
+	return true // 继续监控
+}
+
 // monitor 监控连接状态
 func (c *Connection) monitor(_ context.Context) {
 	reconnectTip := fmt.Sprintf("[rabbitmq connection] lost connection, attempting reconnect in %s", c.reconnectTime)
@@ -258,94 +343,21 @@ func (c *Connection) monitor(_ context.Context) {
 
 			select {
 			case <-c.exit:
-				if err := c.closeConn(); err != nil {
-					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] 关闭连接失败", logger.Err(err))
-				}
-				logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
+				c.handleExitSignal()
 				return
 			case b := <-c.blockChan:
-				if b.Active {
-					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] TCP blocked", logger.String("reason", b.Reason))
-				}
+				c.handleBlockNotification(b)
 			case closeChanErr := <-c.closeChan:
-				c.mutex.Lock()
-				c.isConnected = false
-				c.lastError = closeChanErr
-				c.lastErrorTime = time.Now()
-				c.mutex.Unlock()
-
-				atomic.AddInt64(&c.reconnectCount, 1)
-				retryCount := c.GetReconnectCount(context.Background())
-
-				// 检查是否超过最大重试次数
-				if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
-					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
-						logger.Int64("retryCount", retryCount),
-						logger.Int("maxRetries", c.maxRetries),
-						logger.String("url", c.url))
-					return
+				if !c.handleCloseError(closeChanErr, reconnectTip) {
+					return // 停止重连
 				}
-
-				if closeChanErr != nil {
-					if retryCount%10 == 1 {
-						logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
-							logger.String("err", closeChanErr.Error()),
-							logger.Int64("retryCount", retryCount),
-							logger.String("url", c.url))
-					}
-				} else {
-					if retryCount%10 == 1 {
-						logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
-							logger.Int64("retryCount", retryCount),
-							logger.String("url", c.url))
-					}
-				}
-
-				if retryCount%10 == 1 {
-					logger.InfoWithCtx(context.Background(), reconnectTip,
-						logger.Int64("retryCount", retryCount),
-						logger.String("url", c.url))
-				}
-				time.Sleep(c.reconnectTime)
-
-				// 重连
-				reconnectStart := time.Now()
-				amqpConn, amqpErr := connect(context.Background(), c)
-				reconnectDuration := time.Since(reconnectStart)
-
-				if amqpErr != nil {
-					if retryCount%10 == 1 {
-						logger.WarnWithCtx(context.Background(), "[rabbitmq connection] reconnect error",
-							logger.Err(amqpErr),
-							logger.Int64("retryCount", retryCount),
-							logger.String("url", c.url))
-					}
-					// 继续下一次循环尝试重连
-					return
-				}
-
-				logger.InfoWithCtx(context.Background(), "[rabbitmq connection] reconnected successfully",
-					logger.Int64("retryCount", retryCount),
-					logger.String("url", c.url),
-					logger.Duration("duration", reconnectDuration))
-
-				// 设置新连接
-				c.mutex.Lock()
-				c.isConnected = true
-				c.conn = amqpConn
-				c.blockChan = c.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
-				c.closeChan = c.conn.NotifyClose(make(chan *amqp.Error, 1))
-				c.mutex.Unlock()
 			}
 		}()
 
 		// 防止过快重试
 		select {
 		case <-c.exit:
-			if err := c.closeConn(); err != nil {
-				logger.WarnWithCtx(context.Background(), "[rabbitmq connection] 关闭连接失败", logger.Err(err))
-			}
-			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
+			c.handleExitSignal()
 			return
 		case <-time.After(time.Millisecond * 100):
 			// 继续下一次循环

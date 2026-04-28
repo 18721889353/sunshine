@@ -359,6 +359,62 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 	}
 }
 
+// calculateRetryDelay 计算重试延迟时间
+func calculateRetryDelay(attempt int) time.Duration {
+	delay := time.Duration(1<<uint(attempt)) * time.Millisecond * 100
+	if delay > time.Second*3 {
+		delay = time.Second * 3
+	}
+	return delay
+}
+
+// handleGetRetry 处理单次获取连接的重试逻辑
+func (p *Pool) handleGetRetry(ctx context.Context, i, maxRetries int, span trace.Span) (*Connection, bool, error) {
+	conn, err := p.Get(ctx)
+	if err == nil {
+		if span != nil {
+			span.SetAttributes(
+				attribute.Int("rabbitmq.pool.retry_attempts_used", i),
+			)
+			span.AddEvent("connection acquired after retries")
+		}
+		return conn, false, nil // 成功，不需要继续重试
+	}
+
+	// 如果是连接池关闭错误，则不重试
+	if err.Error() == "pool is closed" {
+		if span != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "pool closed")
+		}
+		return nil, false, err // 失败，停止重试
+	}
+
+	// 指数退避延迟
+	if i < maxRetries {
+		delay := calculateRetryDelay(i)
+
+		if span != nil {
+			span.AddEvent(fmt.Sprintf("waiting %.0fms before retry", float64(delay.Milliseconds())))
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if span != nil {
+				span.RecordError(ctx.Err())
+				span.SetStatus(codes.Error, ctx.Err().Error())
+			}
+			return nil, false, ctx.Err()
+		case <-timer.C:
+			timer.Stop()
+		}
+	}
+
+	return nil, true, err // 失败，需要继续重试
+}
+
 // GetWithRetry 从连接池获取一个连接，带重试机制
 func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, error) {
 	var span trace.Span
@@ -376,51 +432,11 @@ func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, e
 			span.AddEvent(fmt.Sprintf("retry attempt %d/%d", i, maxRetries))
 		}
 
-		conn, err := p.Get(ctx)
-		if err == nil {
-			if span != nil {
-				span.SetAttributes(
-					attribute.Int("rabbitmq.pool.retry_attempts_used", i),
-				)
-				span.AddEvent("connection acquired after retries")
-			}
-			return conn, nil
+		conn, shouldContinue, err := p.handleGetRetry(ctx, i, maxRetries, span)
+		if !shouldContinue {
+			return conn, err
 		}
-
 		lastErr = err
-		// 如果是连接池关闭错误，则不重试
-		if err.Error() == "pool is closed" {
-			if span != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "pool closed")
-			}
-			break
-		}
-
-		// 指数退避延迟
-		if i < maxRetries {
-			delay := time.Duration(1<<uint(i)) * time.Millisecond * 100
-			if delay > time.Second*3 {
-				delay = time.Second * 3
-			}
-
-			if span != nil {
-				span.AddEvent(fmt.Sprintf("waiting %.0fms before retry", float64(delay.Milliseconds())))
-			}
-
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				if span != nil {
-					span.RecordError(ctx.Err())
-					span.SetStatus(codes.Error, ctx.Err().Error())
-				}
-				return nil, ctx.Err()
-			case <-timer.C:
-				timer.Stop()
-			}
-		}
 	}
 
 	if span != nil {

@@ -164,6 +164,66 @@ func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ..
 	return c, nil
 }
 
+// validateQueueConfig 验证队列配置合法性
+func (c *Consumer) validateQueueConfig() error {
+	if c.customerDeadLetter.exchangeName != defaultExchangeName && c.normalLetter.exchangeName != defaultExchangeName {
+		return fmt.Errorf("cannot set both customerDeadLetter and normalLetter")
+	}
+	if c.customerDeadLetter.exchangeName != defaultExchangeName && c.deadLetter.exchangeName != defaultExchangeName {
+		return fmt.Errorf("cannot set both customerDeadLetter and deadLetter")
+	}
+	if c.normalLetter.exchangeName != defaultExchangeName && c.deadLetter.exchangeName != defaultExchangeName {
+		return fmt.Errorf("cannot set both normalLetter and deadLetter")
+	}
+	return nil
+}
+
+// setupQoS 设置 QoS
+func (c *Consumer) setupQoS(ctx context.Context, channel *amqp.Channel) error {
+	if !c.qosOption.enable {
+		return nil
+	}
+
+	err := channel.Qos(
+		c.qosOption.prefetchCount,
+		c.qosOption.prefetchSize,
+		c.qosOption.global,
+	)
+	if err != nil {
+		if closeErr := channel.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "关闭channel失败", logger.Err(closeErr))
+		}
+		return err
+	}
+	return nil
+}
+
+// setupQueues 设置所有队列
+func (c *Consumer) setupQueues(channel *amqp.Channel) error {
+	// 处理自定义死信队列
+	if c.customerDeadLetter.exchangeName != defaultExchangeName {
+		if err := c.setupCustomerDeadLetter(channel); err != nil {
+			return err
+		}
+	}
+
+	// 处理标准死信队列
+	if c.deadLetter.exchangeName != defaultExchangeName {
+		if err := c.setupStandardDeadLetter(channel); err != nil {
+			return err
+		}
+	}
+
+	// 处理正常队列
+	if c.normalLetter.exchangeName != defaultExchangeName {
+		if err := c.setupNormalLetter(channel); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // initialize 初始化消费者会话
 func (c *Consumer) initialize(ctx context.Context) error {
 	c.mu.Lock()
@@ -180,58 +240,22 @@ func (c *Consumer) initialize(ctx context.Context) error {
 	c.ch = channel
 	c.conn.mutex.Unlock()
 
-	if c.customerDeadLetter.exchangeName != defaultExchangeName && c.normalLetter.exchangeName != defaultExchangeName {
-		return fmt.Errorf("cannot set both customerDeadLetter and normalLetter")
-	}
-	if c.customerDeadLetter.exchangeName != defaultExchangeName && c.deadLetter.exchangeName != defaultExchangeName {
-		return fmt.Errorf("cannot set both customerDeadLetter and deadLetter")
-	}
-	if c.normalLetter.exchangeName != defaultExchangeName && c.deadLetter.exchangeName != defaultExchangeName {
-		return fmt.Errorf("cannot set both normalLetter and deadLetter")
-	}
-	// 添加 QoS 设置
-	if c.qosOption.enable {
-		err = c.ch.Qos(
-			c.qosOption.prefetchCount,
-			c.qosOption.prefetchSize,
-			c.qosOption.global,
-		)
-		if err != nil {
-			if closeErr := channel.Close(); closeErr != nil {
-				logger.WarnWithCtx(ctx, "关闭channel失败", logger.Err(closeErr))
-			}
-			return err
-		}
+	// 验证队列配置
+	if err := c.validateQueueConfig(); err != nil {
+		return err
 	}
 
-	// 处理自定义死信队列
-	if c.customerDeadLetter.exchangeName != defaultExchangeName {
-		if err := c.setupCustomerDeadLetter(channel); err != nil {
-			if closeErr := channel.Close(); closeErr != nil {
-				fmt.Printf("close channel error: %v\n", closeErr)
-			}
-			return err
-		}
+	// 设置 QoS
+	if err := c.setupQoS(ctx, channel); err != nil {
+		return err
 	}
 
-	// 处理标准死信队列
-	if c.deadLetter.exchangeName != defaultExchangeName {
-		if err := c.setupStandardDeadLetter(channel); err != nil {
-			if closeErr := channel.Close(); closeErr != nil {
-				fmt.Printf("close channel error: %v\n", closeErr)
-			}
-			return err
+	// 设置所有队列
+	if err := c.setupQueues(channel); err != nil {
+		if closeErr := channel.Close(); closeErr != nil {
+			fmt.Printf("close channel error: %v\n", closeErr)
 		}
-	}
-
-	// 处理正常队列
-	if c.normalLetter.exchangeName != defaultExchangeName {
-		if err := c.setupNormalLetter(channel); err != nil {
-			if closeErr := channel.Close(); closeErr != nil {
-				fmt.Printf("close channel error: %v\n", closeErr)
-			}
-			return err
-		}
+		return err
 	}
 
 	return nil

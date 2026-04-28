@@ -1,3 +1,5 @@
+// Package cache 缓存层
+// 提供 Redis 和本地缓存的统一接口，支持分布式锁、防击穿、防穿透等功能
 package cache
 
 import (
@@ -10,6 +12,8 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/go-redsync/redsync/v4"
+
+	"github.com/18721889353/sunshine/internal/consts"
 
 	"github.com/18721889353/sunshine/pkg/cache"
 	"github.com/18721889353/sunshine/pkg/encoding"
@@ -69,7 +73,7 @@ func NewUserExampleCache(cacheType *database.CacheType) UserExampleCache {
 	cachePrefix := ""
 
 	cType := strings.ToLower(cacheType.CType)
-	if cType == "redis" {
+	if cType == consts.CacheTypeRedis {
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.UserExample{}
 		})

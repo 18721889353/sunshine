@@ -200,7 +200,31 @@ func ListDirs(specifiedDir string) ([]string, error) {
 	return dirs, nil
 }
 
-// FilterDirs filter directories that meet the criteria
+// checkDirMatch 检查目录是否匹配过滤条件
+func checkDirMatch(dir string, file os.DirEntry, filterType string, name string, existDir map[string]struct{}) (bool, []string) {
+	matched := false
+	var filteredDirs []string
+
+	switch filterType {
+	case prefix:
+		matched = matchPrefix(name)(file.Name())
+	case suffix:
+		matched = matchSuffix(name)(file.Name())
+	case contain:
+		matched = matchContain(name)(file.Name())
+	}
+
+	if matched {
+		if _, ok := existDir[dir]; !ok {
+			existDir[dir] = struct{}{}
+			filteredDirs = append(filteredDirs, dir)
+		}
+	}
+
+	return matched, filteredDirs
+}
+
+// FilterDirs 过滤符合条件的目录
 func FilterDirs(dirs []string, opts Option) []string {
 	o := defaultOptions()
 	o.apply(opts)
@@ -217,29 +241,8 @@ func FilterDirs(dirs []string, opts Option) []string {
 			if file.IsDir() {
 				continue
 			}
-			switch o.filter {
-			case prefix:
-				if matchPrefix(o.name)(file.Name()) {
-					if _, ok := existDir[dir]; !ok {
-						existDir[dir] = struct{}{}
-						filteredDirs = append(filteredDirs, dir)
-					}
-				}
-			case suffix:
-				if matchSuffix(o.name)(file.Name()) {
-					if _, ok := existDir[dir]; !ok {
-						existDir[dir] = struct{}{}
-						filteredDirs = append(filteredDirs, dir)
-					}
-				}
-			case contain:
-				if matchContain(o.name)(file.Name()) {
-					if _, ok := existDir[dir]; !ok {
-						existDir[dir] = struct{}{}
-						filteredDirs = append(filteredDirs, dir)
-					}
-				}
-			}
+			_, newDirs := checkDirMatch(dir, file, o.filter, o.name, existDir)
+			filteredDirs = append(filteredDirs, newDirs...)
 		}
 	}
 

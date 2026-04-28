@@ -1,6 +1,8 @@
 // todo generate model code to here
 // delete the templates code start
 
+// Package model 数据模型层
+// 定义数据库表结构对应的 Go 结构体，支持 GORM 映射
 package model
 
 import (

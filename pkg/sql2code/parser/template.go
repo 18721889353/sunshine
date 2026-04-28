@@ -722,81 +722,65 @@ message List{{.TableName}}Reply {
 	tmplParseOnce sync.Once
 )
 
+// parseTemplate 解析单个模板
+func parseTemplate(name string, tmplRaw string, existingErr error) (*template.Template, error) {
+	tmpl, err := template.New(name).Parse(tmplRaw)
+	if err != nil {
+		if existingErr != nil {
+			return nil, errors.Wrap(existingErr, name+":"+err.Error())
+		}
+		return nil, errors.Wrap(err, name)
+	}
+	return tmpl, nil
+}
+
+// templateConfig 模板配置结构
+type templateConfig struct {
+	name    string
+	raw     **template.Template
+	tmplRaw string
+}
+
+// parseAllTemplates 解析所有模板
+func parseAllTemplates() error {
+	var errSum error
+
+	templates := []templateConfig{
+		{"goStruct", &modelStructTmpl, modelStructTmplRaw},
+		{"goFile", &modelTmpl, modelTmplRaw},
+		{"goUpdateField", &updateFieldTmpl, updateFieldTmplRaw},
+		{"goPostStruct", &handlerCreateStructTmpl, handlerCreateStructTmplRaw},
+		{"goPutStruct", &handlerUpdateStructTmpl, handlerUpdateStructTmplRaw},
+		{"goGetStruct", &handlerDetailStructTmpl, handlerDetailStructTmplRaw},
+		{"modelJSON", &modelJSONTmpl, modelJSONTmplRaw},
+		{"protoFile", &protoFileTmpl, protoFileTmplRaw},
+		{"protoFileSimple", &protoFileSimpleTmpl, protoFileSimpleTmplRaw},
+		{"protoFileForWeb", &protoFileForWebTmpl, protoFileForWebTmplRaw},
+		{"protoFileForSimpleWeb", &protoFileForSimpleWebTmpl, protoFileForSimpleWebTmplRaw},
+		{"protoMessageCreate", &protoMessageCreateTmpl, protoMessageCreateTmplRaw},
+		{"protoMessageUpdate", &protoMessageUpdateTmpl, protoMessageUpdateTmplRaw},
+		{"protoMessageDetail", &protoMessageDetailTmpl, protoMessageDetailTmplRaw},
+		{"serviceCreateStruct", &serviceCreateStructTmpl, serviceCreateStructTmplRaw},
+		{"serviceUpdateStruct", &serviceUpdateStructTmpl, serviceUpdateStructTmplRaw},
+		{"serviceStruct", &serviceStructTmpl, serviceStructTmplRaw},
+	}
+
+	for _, config := range templates {
+		tmpl, parseErr := parseTemplate(config.name, config.tmplRaw, errSum)
+		if parseErr != nil {
+			errSum = parseErr
+		} else {
+			*config.raw = tmpl
+		}
+	}
+
+	return errSum
+}
+
 func initTemplate() {
 	tmplParseOnce.Do(func() {
-		var err, errSum error
-
-		modelStructTmpl, err = template.New("goStruct").Parse(modelStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(err, "modelStructTmplRaw")
-		}
-		modelTmpl, err = template.New("goFile").Parse(modelTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "modelTmplRaw:"+err.Error())
-		}
-		updateFieldTmpl, err = template.New("goUpdateField").Parse(updateFieldTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "updateFieldTmplRaw:"+err.Error())
-		}
-		handlerCreateStructTmpl, err = template.New("goPostStruct").Parse(handlerCreateStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "handlerCreateStructTmplRaw:"+err.Error())
-		}
-		handlerUpdateStructTmpl, err = template.New("goPutStruct").Parse(handlerUpdateStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "handlerUpdateStructTmplRaw:"+err.Error())
-		}
-		handlerDetailStructTmpl, err = template.New("goGetStruct").Parse(handlerDetailStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "handlerDetailStructTmplRaw:"+err.Error())
-		}
-		modelJSONTmpl, err = template.New("modelJSON").Parse(modelJSONTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "modelJSONTmplRaw:"+err.Error())
-		}
-		protoFileTmpl, err = template.New("protoFile").Parse(protoFileTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoFileTmplRaw:"+err.Error())
-		}
-		protoFileSimpleTmpl, err = template.New("protoFileSimple").Parse(protoFileSimpleTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoFileSimpleTmplRaw:"+err.Error())
-		}
-		protoFileForWebTmpl, err = template.New("protoFileForWeb").Parse(protoFileForWebTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoFileForWebTmplRaw:"+err.Error())
-		}
-		protoFileForSimpleWebTmpl, err = template.New("protoFileForSimpleWeb").Parse(protoFileForSimpleWebTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoFileForSimpleWebTmplRaw:"+err.Error())
-		}
-		protoMessageCreateTmpl, err = template.New("protoMessageCreate").Parse(protoMessageCreateTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoMessageCreateTmplRaw:"+err.Error())
-		}
-		protoMessageUpdateTmpl, err = template.New("protoMessageUpdate").Parse(protoMessageUpdateTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoMessageUpdateTmplRaw:"+err.Error())
-		}
-		protoMessageDetailTmpl, err = template.New("protoMessageDetail").Parse(protoMessageDetailTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "protoMessageDetailTmplRaw:"+err.Error())
-		}
-		serviceCreateStructTmpl, err = template.New("serviceCreateStruct").Parse(serviceCreateStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "serviceCreateStructTmplRaw:"+err.Error())
-		}
-		serviceUpdateStructTmpl, err = template.New("serviceUpdateStruct").Parse(serviceUpdateStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "serviceUpdateStructTmplRaw:"+err.Error())
-		}
-		serviceStructTmpl, err = template.New("serviceStruct").Parse(serviceStructTmplRaw)
-		if err != nil {
-			errSum = errors.Wrap(errSum, "serviceStructTmplRaw:"+err.Error())
-		}
-
-		if errSum != nil {
-			panic(errSum)
+		if err := parseAllTemplates(); err != nil {
+			panic(err)
 		}
 	})
 }

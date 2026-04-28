@@ -90,6 +90,54 @@ func responseUnauthorized(c *gin.Context, isSwitchHTTPCode bool) {
 // VerifyFn verify function, tokenTail10 is the last 10 characters of the token.
 type VerifyFn func(claims *jwt.Claims, tokenTail10 string, c *gin.Context) error
 
+// extractUIDFromClaims 从 claims 中提取 UID
+func extractUIDFromClaims(claims *jwt.Claims, uidFields []string) string {
+	uid := claims.UID
+	if uid == "" {
+		// 按优先级顺序检查各种可能的 ID 字段
+		for _, key := range uidFields {
+			if val, ok := claims.Fields[key]; ok {
+				if str, ok := val.(string); ok && str != "" {
+					uid = str
+					break
+				}
+				// 如果不是字符串类型，尝试转换为字符串
+				if str := cast.ToString(val); str != "" {
+					uid = str
+					break
+				}
+			}
+		}
+	}
+	return uid
+}
+
+// handleAuthVerification 处理认证验证
+func handleAuthVerification(o *jwtOptions, claims *jwt.Claims, token string, c *gin.Context) error {
+	if o.verify != nil {
+		tokenTail10 := token[len(token)-10:]
+		if err := o.verify(claims, tokenTail10, c); err != nil {
+			logger.WarnWithCtx(c.Request.Context(), "verify error",
+				logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+				logger.String("method", c.Request.Method),
+				logger.String("url", c.Request.URL.String()),
+				logger.Err(err),
+				logger.Any("claims", claims),
+				logger.String("uid", claims.UID),
+				logger.String("name", claims.Name))
+			responseUnauthorized(c, o.isSwitchHTTPCode)
+			c.Abort()
+			return err
+		}
+	} else {
+		// 优化 UID 设置逻辑，支持更多字段名
+		uid := extractUIDFromClaims(claims, o.uidFields)
+		c.Set("uid", uid)
+		c.Set("name", claims.Name)
+	}
+	return nil
+}
+
 // Auth authorization
 func Auth(opts ...JwtOption) gin.HandlerFunc {
 	o := defaultJwtOptions()
@@ -97,72 +145,40 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if _, ok := o.ignoreMethods[c.Request.URL.Path]; ok {
 			c.Next()
-		} else {
-			authorization := c.GetHeader(HeaderAuthorizationKey)
-			if len(authorization) < 150 {
-				logger.WarnWithCtx(c.Request.Context(), "authorization is illegal",
-					logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-					logger.String("method", c.Request.Method),
-					logger.String("url", c.Request.URL.String()),
-					logger.String(HeaderAuthorizationKey, authorization))
-				responseUnauthorized(c, o.isSwitchHTTPCode)
-				c.Abort()
-				return
-			}
-
-			token := authorization[7:] // remove Bearer prefix
-			claims, err := jwt.ParseToken(token)
-			if err != nil {
-				logger.WarnWithCtx(c.Request.Context(), "ParseToken error",
-					logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-					logger.String("method", c.Request.Method),
-					logger.String("url", c.Request.URL.String()),
-					logger.String("token", token),
-					logger.Err(err))
-				responseUnauthorized(c, o.isSwitchHTTPCode)
-				c.Abort()
-				return
-			}
-
-			if o.verify != nil {
-				tokenTail10 := token[len(token)-10:]
-				if err = o.verify(claims, tokenTail10, c); err != nil {
-					logger.WarnWithCtx(c.Request.Context(), "verify error",
-						logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
-						logger.String("method", c.Request.Method),
-						logger.String("url", c.Request.URL.String()),
-						logger.Err(err),
-						logger.Any("claims", claims),
-						logger.String("uid", claims.UID),
-						logger.String("name", claims.Name))
-					responseUnauthorized(c, o.isSwitchHTTPCode)
-					c.Abort()
-					return
-				}
-			} else {
-				// 优化 UID 设置逻辑，支持更多字段名
-				uid := claims.UID
-				if uid == "" {
-					// 按优先级顺序检查各种可能的 ID 字段
-					for _, key := range o.uidFields {
-						if val, ok := claims.Fields[key]; ok {
-							if str, ok := val.(string); ok && str != "" {
-								uid = str
-								break
-							}
-							// 如果不是字符串类型，尝试转换为字符串
-							if str := cast.ToString(val); str != "" {
-								uid = str
-								break
-							}
-						}
-					}
-				}
-				c.Set("uid", uid)
-				c.Set("name", claims.Name)
-			}
-			c.Next()
+			return
 		}
+
+		authorization := c.GetHeader(HeaderAuthorizationKey)
+		if len(authorization) < 150 {
+			logger.WarnWithCtx(c.Request.Context(), "authorization is illegal",
+				logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+				logger.String("method", c.Request.Method),
+				logger.String("url", c.Request.URL.String()),
+				logger.String(HeaderAuthorizationKey, authorization))
+			responseUnauthorized(c, o.isSwitchHTTPCode)
+			c.Abort()
+			return
+		}
+
+		token := authorization[7:] // remove Bearer prefix
+		claims, err := jwt.ParseToken(token)
+		if err != nil {
+			logger.WarnWithCtx(c.Request.Context(), "ParseToken error",
+				logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
+				logger.String("method", c.Request.Method),
+				logger.String("url", c.Request.URL.String()),
+				logger.String("token", token),
+				logger.Err(err))
+			responseUnauthorized(c, o.isSwitchHTTPCode)
+			c.Abort()
+			return
+		}
+
+		if err := handleAuthVerification(o, claims, token, c); err != nil {
+			return
+		}
+
+		c.Next()
 	}
 }
 

@@ -10,19 +10,19 @@ import (
 	"strconv"
 	"time"
 
+	v5 "github.com/golang-jwt/jwt/v5"
 	"github.com/jinzhu/copier"
 
 	"github.com/18721889353/sunshine/configs"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/database"
+
 	"github.com/18721889353/sunshine/pkg/conf"
 	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 	"github.com/18721889353/sunshine/pkg/stat"
 	"github.com/18721889353/sunshine/pkg/tracer"
-
-	v5 "github.com/golang-jwt/jwt/v5"
 )
 
 var (

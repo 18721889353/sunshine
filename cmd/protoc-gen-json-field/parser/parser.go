@@ -215,6 +215,66 @@ func newFieldPkgInfo(ident protogen.GoIdent, importPkgMap map[string]string) *fi
 	}
 }
 
+// processMapField 处理 map 类型字段
+// 返回值: (fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg)
+//
+//nolint:revive // 需要返回5个值用于protobuf字段解析
+func processMapField(f *protogen.Field, fieldImportPkgMap map[string]string) (string, string, string, string, string) {
+	var fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg string
+	// map value is message
+	if f.Desc.MapValue().Kind() == protoreflect.MessageKind {
+		for _, fSub := range f.Message.Fields {
+			if fSub.Message != nil {
+				fpi := newFieldPkgInfo(fSub.Message.GoIdent, fieldImportPkgMap)
+				fieldType = fpi.fieldType
+				importPkgPath = fpi.importPkgPath
+				importPkgName = fpi.importPkgName
+				goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goType
+				goTypeCrossPkg = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goTypeCrossPkg
+			}
+		}
+	} else {
+		// map value is not message
+		goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + toGoType(f.Desc.MapValue().Kind())
+		goTypeCrossPkg = goType
+	}
+	return fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg
+}
+
+// processMessageField 处理 message 类型字段
+// 返回值: (fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg)
+//
+//nolint:revive // 需要返回5个值用于protobuf字段解析
+func processMessageField(fpi *fieldPkgInfo, isList bool) (string, string, string, string, string) {
+	fieldType := fpi.fieldType
+	importPkgPath := fpi.importPkgPath
+	importPkgName := fpi.importPkgName
+	goType := fpi.goType
+	goTypeCrossPkg := fpi.goTypeCrossPkg
+
+	if isList {
+		// field is list of message
+		goType = "[]" + fpi.goType
+		goTypeCrossPkg = "[]" + fpi.goTypeCrossPkg
+	}
+	return fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg
+}
+
+// processNonMessageField 处理非 message 类型字段
+// 返回值: (fieldType, goType, goTypeCrossPkg)
+func processNonMessageField(f *protogen.Field, isList bool) (fieldType string, goType string, goTypeCrossPkg string) {
+	fieldType = f.Desc.Kind().String()
+	goType = toGoType(f.Desc.Kind())
+	goTypeCrossPkg = goType
+
+	if isList {
+		// field is list of not message
+		goType = "[]" + goType
+		goTypeCrossPkg = "[]" + goTypeCrossPkg
+	}
+	return fieldType, goType, goTypeCrossPkg
+}
+
 func getFields(m *protogen.Message, fieldImportPkgMap map[string]string) []*Field {
 	var fields []*Field
 	for _, f := range m.Fields {
@@ -238,46 +298,15 @@ func getFields(m *protogen.Message, fieldImportPkgMap map[string]string) []*Fiel
 		if f.Message != nil {
 			fpi := newFieldPkgInfo(f.Message.GoIdent, fieldImportPkgMap)
 			if isMap {
-				// map value is message
-				if f.Desc.MapValue().Kind() == protoreflect.MessageKind {
-					for _, fSub := range f.Message.Fields {
-						if fSub.Message != nil {
-							fpi = newFieldPkgInfo(fSub.Message.GoIdent, fieldImportPkgMap)
-							fieldType = fpi.fieldType
-							importPkgPath = fpi.importPkgPath
-							importPkgName = fpi.importPkgName
-							goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goType
-							goTypeCrossPkg = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goTypeCrossPkg
-						}
-					}
-				} else {
-					// map value is not message
-					goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + toGoType(f.Desc.MapValue().Kind())
-					goTypeCrossPkg = goType
-				}
+				// 处理 map 类型
+				fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg = processMapField(f, fieldImportPkgMap)
 			} else {
-				// field is message
-				fieldType = fpi.fieldType
-				importPkgPath = fpi.importPkgPath
-				importPkgName = fpi.importPkgName
-				goType = fpi.goType
-				goTypeCrossPkg = fpi.goTypeCrossPkg
-				if isList {
-					// field is list of message
-					goType = "[]" + fpi.goType
-					goTypeCrossPkg = "[]" + fpi.goTypeCrossPkg
-				}
+				// 处理 message 类型
+				fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg = processMessageField(fpi, isList)
 			}
 		} else {
-			// field is not message
-			fieldType = f.Desc.Kind().String()
-			goType = toGoType(f.Desc.Kind())
-			goTypeCrossPkg = goType
-			if isList {
-				// field is list of not message
-				goType = "[]" + goType
-				goTypeCrossPkg = "[]" + goTypeCrossPkg
-			}
+			// 处理非 message 类型
+			fieldType, goType, goTypeCrossPkg = processNonMessageField(f, isList)
 		}
 
 		fields = append(fields, &Field{

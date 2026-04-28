@@ -1,3 +1,5 @@
+// Package cache 缓存层
+// 提供 Redis 和本地缓存的统一接口，支持分布式锁、防击穿、防穿透等功能
 package cache
 
 import (

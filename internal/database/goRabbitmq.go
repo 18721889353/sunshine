@@ -1,3 +1,5 @@
+// Package database 数据库层
+// 提供 MySQL、Redis、RabbitMQ、Elasticsearch 等数据源的初始化和连接管理
 package database
 
 import (

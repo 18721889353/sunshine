@@ -1118,6 +1118,7 @@ func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 	switch dbDriver {
 	case DBDriverMysql:
 		selectFiles["internal/database"] = []string{"init.go", "redis.go", "mysql.go", "snow.go", "goRabbitmq.go", "es.go"}
+		selectFiles["internal/consts"] = []string{"constants.go"}
 	default:
 		return errors.New("unsupported db driver: " + dbDriver)
 	}

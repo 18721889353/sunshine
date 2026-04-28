@@ -1,3 +1,5 @@
+// Package generate 代码生成器
+// 提供基于 SQL 的 DAO、Model、Cache 等代码生成功能
 package generate
 
 import (

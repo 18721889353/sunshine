@@ -26,6 +26,103 @@ var (
 )
 
 // ProtobufCommand generate code based on protobuf and custom template
+// setupProtobufFlags 设置 protobuf 命令的标志
+func setupProtobufFlags(cmd *cobra.Command, protobufFile, depProtoDir, tplDir, fieldsFile *string, onlyPrint *bool, outPath *string) {
+	cmd.Flags().StringVarP(protobufFile, "protobuf-file", "p", "", "proto file")
+	if err := cmd.MarkFlagRequired("protobuf-file"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
+	cmd.Flags().StringVarP(depProtoDir, "dep-proto-dir", "d", "", "directory where the dependent proto files are located, example: ./depProtoDir")
+	cmd.Flags().StringVarP(tplDir, "tpl-dir", "i", "", "directory where your template code is located")
+	if err := cmd.MarkFlagRequired("tpl-dir"); err != nil {
+		fmt.Printf("mark flag required error: %v\n", err)
+	}
+	cmd.Flags().StringVarP(fieldsFile, "fields", "f", "", "fields defined in json file")
+	cmd.Flags().BoolVarP(onlyPrint, "only-print", "n", false, "only print template code and all fields, do not generate code")
+	cmd.Flags().StringVarP(outPath, "out", "o", "", "output directory, default is ./protobuf_to_template_<time>")
+}
+
+// executeProtobufCommand 执行 protobuf 命令的核心逻辑
+func executeProtobufCommand(protobufFile, depProtoDir, tplDir, fieldsFile, outPath string, onlyPrint bool) error {
+	if files, err := gofile.ListFiles(tplDir); err != nil {
+		return err
+	} else if len(files) == 0 {
+		return fmt.Errorf("no template files found in directory '%s'", tplDir)
+	}
+
+	m := make(map[string]interface{})
+	if fieldsFile != "" {
+		var err error
+		m, err = parseFields(fieldsFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	thirdPartyDir, err := copyThirdPartyProtoFiles(depProtoDir)
+	if err != nil {
+		return err
+	}
+	defer deleteFileOrDir(thirdPartyDir)
+
+	isSucceed := false
+	pbfs, err := generate.ParseFuzzyProtobufFiles(protobufFile)
+	if err != nil {
+		return err
+	}
+	l := len(pbfs)
+	for i, file := range pbfs {
+		if !gofile.IsExists(file) || gofile.GetFileSuffixName(file) != ".proto" {
+			continue
+		}
+
+		jsonFile, err := convertProtoToJSON(file, thirdPartyDir)
+		if err != nil {
+			return err
+		}
+
+		protoData, err := getProtoDataFromJSON(jsonFile)
+		deleteFileOrDir(jsonFile)
+		if err != nil {
+			return err
+		}
+		protoMap := map[string]interface{}{"Proto": protoData}
+		fields, err := mergeFields(protoMap, m)
+		if err != nil {
+			return err
+		}
+
+		g := protoGenerator{
+			tplDir:    tplDir,
+			fields:    fields,
+			onlyPrint: onlyPrint,
+			outPath:   outPath,
+		}
+		outPath, err = g.generateCode()
+		if err != nil {
+			return err
+		}
+		isSucceed = true
+
+		if i != l-1 {
+			printProtoContent.WriteString("\n    " +
+				"------------------------------------------------------------------\n\n\n")
+		}
+	}
+
+	if !isSucceed {
+		return errors.New("no proto file found")
+	}
+
+	if onlyPrint {
+		fmt.Println(printProtoContent.String())
+	} else {
+		fmt.Printf("generate custom code successfully, out = %s\n", outPath)
+	}
+	return nil
+}
+
+// ProtobufCommand 创建基于 protobuf 和自定义模板生成代码的命令
 func ProtobufCommand() *cobra.Command {
 	var (
 		protobufFile string // protobuf file, support * matching
@@ -61,97 +158,11 @@ func ProtobufCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if files, err := gofile.ListFiles(tplDir); err != nil {
-				return err
-			} else if len(files) == 0 {
-				return fmt.Errorf("no template files found in directory '%s'", tplDir)
-			}
-
-			m := make(map[string]interface{})
-			if fieldsFile != "" {
-				var err error
-				m, err = parseFields(fieldsFile)
-				if err != nil {
-					return err
-				}
-			}
-
-			thirdPartyDir, err := copyThirdPartyProtoFiles(depProtoDir)
-			if err != nil {
-				return err
-			}
-			defer deleteFileOrDir(thirdPartyDir)
-
-			isSucceed := false
-			pbfs, err := generate.ParseFuzzyProtobufFiles(protobufFile)
-			if err != nil {
-				return err
-			}
-			l := len(pbfs)
-			for i, file := range pbfs {
-				if !gofile.IsExists(file) || gofile.GetFileSuffixName(file) != ".proto" {
-					continue
-				}
-
-				jsonFile, err := convertProtoToJSON(file, thirdPartyDir)
-				if err != nil {
-					return err
-				}
-
-				protoData, err := getProtoDataFromJSON(jsonFile)
-				deleteFileOrDir(jsonFile)
-				if err != nil {
-					return err
-				}
-				protoMap := map[string]interface{}{"Proto": protoData}
-				fields, err := mergeFields(protoMap, m)
-				if err != nil {
-					return err
-				}
-
-				g := protoGenerator{
-					tplDir:    tplDir,
-					fields:    fields,
-					onlyPrint: onlyPrint,
-					outPath:   outPath,
-				}
-				outPath, err = g.generateCode()
-				if err != nil {
-					return err
-				}
-				isSucceed = true
-
-				if i != l-1 {
-					printProtoContent.WriteString("\n    " +
-						"------------------------------------------------------------------\n\n\n")
-				}
-			}
-
-			if !isSucceed {
-				return errors.New("no proto file found")
-			}
-
-			if onlyPrint {
-				fmt.Println(printProtoContent.String())
-			} else {
-				fmt.Printf("generate custom code successfully, out = %s\n", outPath)
-			}
-			return nil
+			return executeProtobufCommand(protobufFile, depProtoDir, tplDir, fieldsFile, outPath, onlyPrint)
 		},
 	}
 
-	cmd.Flags().StringVarP(&protobufFile, "protobuf-file", "p", "", "proto file")
-	if err := cmd.MarkFlagRequired("protobuf-file"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
-	}
-	cmd.Flags().StringVarP(&depProtoDir, "dep-proto-dir", "d", "", "directory where the dependent proto files are located, example: ./depProtoDir")
-	cmd.Flags().StringVarP(&tplDir, "tpl-dir", "i", "", "directory where your template code is located")
-	if err := cmd.MarkFlagRequired("tpl-dir"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
-	}
-	cmd.Flags().StringVarP(&fieldsFile, "fields", "f", "", "fields defined in json file")
-	cmd.Flags().BoolVarP(&onlyPrint, "only-print", "n", false, "only print template code and all fields, do not generate code")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./protobuf_to_template_<time>")
+	setupProtobufFlags(cmd, &protobufFile, &depProtoDir, &tplDir, &fieldsFile, &onlyPrint, &outPath)
 
 	return cmd
 }

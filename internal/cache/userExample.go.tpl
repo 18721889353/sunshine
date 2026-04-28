@@ -1,3 +1,5 @@
+// Package cache 缓存层
+// 提供 Redis 和本地缓存的统一接口，支持分布式锁、防击穿、防穿透等功能
 package cache
 
 import (
@@ -11,6 +13,8 @@ import (
 
 	"github.com/go-redsync/redsync/v4"
 
+	"github.com/18721889353/sunshine/internal/consts"
+
 	"github.com/18721889353/sunshine/pkg/cache"
 	"github.com/18721889353/sunshine/pkg/encoding"
 	"github.com/18721889353/sunshine/pkg/utils"
@@ -22,7 +26,7 @@ import (
 const (
 	// {{.TableNameCamel}}CachePrefixKeyLock cache prefix key, must end with a colon
 	{{.TableNameCamel}}CachePrefixKeyLock = "lock:{{.TableNameCamelFCL}}:"
-	// {{.TableNameCamel}}CachePrefixKey cache prefix key, must end with a colon
+	// {{.TableNameCamel}}CachePrefixKey 缓存数据前缀
 	{{.TableNameCamel}}CachePrefixKey = "data:{{.TableNameCamelFCL}}:"
 	// {{.TableNameCamel}}ExpireTime expire time
 	{{.TableNameCamel}}ExpireTime = 30 * time.Minute
@@ -69,7 +73,7 @@ func New{{.TableNameCamel}}Cache(cacheType *database.CacheType) {{.TableNameCame
 	cachePrefix := ""
 
 	cType := strings.ToLower(cacheType.CType)
-	if cType == "redis" {
+	if cType == consts.CacheTypeRedis {
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			return &model.{{.TableNameCamel}}{}
 		})

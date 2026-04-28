@@ -213,6 +213,60 @@ func (r *replacerInfo) ReadFile(filename string) ([]byte, error) {
 	return r.fs.ReadFile(foundFile[0])
 }
 
+// processFileContent 处理单个文件的内容替换
+func (r *replacerInfo) processFileContent(file string) ([]byte, error) {
+	var data []byte
+	var err error
+
+	if r.isActual {
+		data, err = os.ReadFile(file) // 从本地文件读取
+	} else {
+		data, err = r.fs.ReadFile(file) // 从嵌入的 FS 读取
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 替换文本内容
+	for _, field := range r.replacementFields {
+		data = bytes.ReplaceAll(data, []byte(field.Old), []byte(field.New))
+	}
+
+	return data, nil
+}
+
+// getProcessedFilePath 获取处理后的文件路径
+func (r *replacerInfo) getProcessedFilePath(file string) string {
+	newFilePath := r.getNewFilePath(file)
+	dir, filename := filepath.Split(newFilePath)
+
+	// 替换文件名和目录名
+	for _, field := range r.replacementFields {
+		if strings.Contains(dir, field.Old) {
+			dir = strings.ReplaceAll(dir, field.Old, field.New)
+		}
+		if strings.Contains(filename, field.Old) {
+			filename = strings.ReplaceAll(filename, field.Old, field.New)
+		}
+
+		if newFilePath != dir+filename {
+			newFilePath = dir + filename
+		}
+	}
+
+	return newFilePath
+}
+
+// validateWriteFiles 验证文件写入合法性
+func (r *replacerInfo) validateWriteFiles(writeData map[string][]byte) error {
+	for file, data := range writeData {
+		if isForbiddenFile(file, r.path) {
+			return fmt.Errorf("禁止将文件(%s)写入目录(%s)，文件大小=%d", file, r.path, len(data))
+		}
+	}
+	return nil
+}
+
 // SaveFiles 根据设置保存文件
 func (r *replacerInfo) SaveFiles() error {
 	if r.outPath == "" {
@@ -220,65 +274,43 @@ func (r *replacerInfo) SaveFiles() error {
 	}
 
 	var existFiles []string
-	var writeData = make(map[string][]byte)
+	writeData := make(map[string][]byte)
 
+	// 处理所有文件
 	for _, file := range r.files {
 		if r.isInIgnoreDir(file) || r.isIgnoreFile(file) {
 			continue
 		}
 
-		var data []byte
-		var err error
-
-		if r.isActual {
-			data, err = os.ReadFile(file) // 从本地文件读取
-		} else {
-			data, err = r.fs.ReadFile(file) // 从嵌入的 FS 读取
-		}
+		// 处理文件内容
+		data, err := r.processFileContent(file)
 		if err != nil {
 			return err
 		}
 
-		// 替换文本内容
-		for _, field := range r.replacementFields {
-			data = bytes.ReplaceAll(data, []byte(field.Old), []byte(field.New))
-		}
-
 		// 获取新的文件路径
-		newFilePath := r.getNewFilePath(file)
-		dir, filename := filepath.Split(newFilePath)
-		// 替换文件名和目录名
-		for _, field := range r.replacementFields {
-			if strings.Contains(dir, field.Old) {
-				dir = strings.ReplaceAll(dir, field.Old, field.New)
-			}
-			if strings.Contains(filename, field.Old) {
-				filename = strings.ReplaceAll(filename, field.Old, field.New)
-			}
+		newFilePath := r.getProcessedFilePath(file)
 
-			if newFilePath != dir+filename {
-				newFilePath = dir + filename
-			}
-		}
-
+		// 检查文件是否存在
 		if gofile.IsExists(newFilePath) {
 			existFiles = append(existFiles, newFilePath)
 		}
 		writeData[newFilePath] = data
 	}
 
+	// 检查是否有已存在的文件
 	if len(existFiles) > 0 {
 		//nolint
 		return fmt.Errorf("检测到已存在的文件\n    %s\n代码生成已取消\n",
 			strings.Join(existFiles, "\n    "))
 	}
 
-	for file, data := range writeData {
-		if isForbiddenFile(file, r.path) {
-			return fmt.Errorf("禁止将文件(%s)写入目录(%s)，文件大小=%d", file, r.path, len(data))
-		}
+	// 验证文件写入合法性
+	if err := r.validateWriteFiles(writeData); err != nil {
+		return err
 	}
 
+	// 保存所有文件
 	for file, data := range writeData {
 		err := saveToNewFile(file, data)
 		if err != nil {

@@ -1,3 +1,5 @@
+// Package routers 路由层
+// 提供 HTTP 路由配置、自定义响应处理、中间件注册等功能
 package routers
 
 import (
