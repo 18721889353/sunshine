@@ -462,7 +462,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByIDs(ctx context.Context, ids [
 }
 
 // findMissedIDs 查找缓存未命中的 ID
-func findMissedIDs(ids []uint64, itemMap map[uint64]*model.{{.TableNameCamel}}) []uint64 {
+func (m *{{.TableNameCamelFCL}}CacheManager) findMissedIDs(ids []uint64, itemMap map[uint64]*model.{{.TableNameCamel}}) []uint64 {
 	var missedIDs []uint64
 	for _, id := range ids {
 		if _, ok := itemMap[id]; !ok {
@@ -504,7 +504,7 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByIDsBatch(ctx context.Context, 
 	}
 
 	// 查找未命中的 ID
-	missedIDs := findMissedIDs(ids, itemMap)
+	missedIDs := m.findMissedIDs(ids, itemMap)
 
 	// 获取未命中的数据
 	if len(missedIDs) > 0 {
@@ -994,7 +994,7 @@ func (d *{{.TableNameCamelFCL}}Dao) executeUpdateByCondition(ctx context.Context
 
 // UpdateByCondition 根据条件更新记录
 //
-//nolint:revive // table 参数用于自动生成代码，在 // todo generate the update fields code to here 位置使用
+//nolint:revive
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
 	// 先删除所有缓存（第一次删除）
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
@@ -1040,7 +1040,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB,
 }
 // UpdateByConditionTx 在事务中根据条件更新记录
 //
-//nolint:revive // table 参数用于自动生成代码，在 // todo generate the update fields code to here 位置使用
+//nolint:revive
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.{{.TableNameCamel}}) error {
 	// 先删除所有缓存（第一次删除）
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {

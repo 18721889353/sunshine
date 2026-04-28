@@ -101,7 +101,7 @@ func (s *rabbitmqConsumerServer) Stop() error {
 		go func(c mq.Consumer) {
 			defer wg.Done()
 			logger.WarnWithCtx(context.Background(), "开始执行停止 consumer", logger.Any("name", c.Name()))
-			if err := c.Stop(); err != nil {
+			if err := c.Stop(context.Background()); err != nil {
 				logger.WarnWithCtx(context.Background(), "consumer.Stop() err", logger.Any("body", c.Name()), logger.Err(err))
 			}
 		}(consumer) // 注意这里要传参，避免闭包变量捕获问题

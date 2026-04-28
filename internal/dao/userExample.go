@@ -994,7 +994,7 @@ func (d *userExampleDao) executeUpdateByCondition(ctx context.Context, db *gorm.
 
 // UpdateByCondition 根据条件更新记录
 //
-//nolint:revive // table 参数用于自动生成代码，在 // todo generate the update fields code to here 位置使用
+//nolint:revive
 func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
 	// 先删除所有缓存（第一次删除）
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
@@ -1041,7 +1041,7 @@ func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *mod
 
 // UpdateByConditionTx 在事务中根据条件更新记录
 //
-//nolint:revive // table 参数用于自动生成代码，在 // todo generate the update fields code to here 位置使用
+//nolint:revive
 func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
 	// 先删除所有缓存（第一次删除）
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {

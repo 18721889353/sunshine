@@ -33,8 +33,8 @@ install:
 .PHONY: ci-lint
 # 代码质量检查：格式化、命名规范、安全性、可维护性等（规则在 .golangci.yml 中定义）
 ci-lint:
-	@gofmt -s -w .  # 自动格式化代码
-	golangci-lint run ./...  # 运行 lint 检查
+	@gofmt -s -w .
+	golangci-lint run ./...
 
 
 .PHONY: test
