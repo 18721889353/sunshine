@@ -7,6 +7,8 @@ package consumers
 //	"encoding/json"
 //	"errors"
 //	"fmt"
+//	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+//	"github.com/go-redsync/redsync/v4"
 //	"runtime"
 //	"runtime/debug"
 //	"time"
@@ -15,14 +17,12 @@ package consumers
 //
 //	"github.com/18721889353/sunshine/internal/cache"
 //	"github.com/18721889353/sunshine/internal/dao"
-//   "google.golang.org/grpc/metadata"
-
+//	"google.golang.org/grpc/metadata"
+//
 //	"github.com/18721889353/sunshine/internal/config"
 //	"github.com/18721889353/sunshine/internal/database"
 //	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
-//	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq/gorabbitmqConsumer"
-//	"github.com/go-redsync/redsync/v4"
-//
+//	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq/gorabbitmqconsumer"
 //	"github.com/18721889353/sunshine/pkg/httpcli"
 //	"github.com/18721889353/sunshine/pkg/logger"
 //	"github.com/spf13/cast"
@@ -40,7 +40,7 @@ package consumers
 //	oc := &orderConsumer{}
 //
 //	// 创建基础消费者，传入消费者名称和消息处理函数
-//	oc.BaseConsumer = gorabbitmqConsumer.NewBaseConsumer(
+//	oc.BaseConsumer = gorabbitmqconsumer.NewBaseConsumer(
 //		"doingOrderMqConsumer", // 消费者名称，用于日志和监控标识
 //		oc.HandleMessage,       // 消息处理函数
 //	)
@@ -78,7 +78,7 @@ package consumers
 //// orderConsumer 订单消费者结构体
 //// 继承 BaseConsumer，实现订单消息的具体处理逻辑
 //type orderConsumer struct {
-//	*gorabbitmqConsumer.BaseConsumer                        // 嵌入基础消费者，复用通用功能
+//	*gorabbitmqconsumer.BaseConsumer                        // 嵌入基础消费者，复用通用功能
 //	iUserExampleDao                  dao.UserExampleDao     // 数据访问对象（示例）
 //	iCache                           cache.UserExampleCache // 缓存对象（用于分布式锁）
 //	httpClient                       *httpcli.Client        // HTTP 客户端（预留，可用于调用外部服务）
@@ -148,12 +148,12 @@ package consumers
 //
 //	// 构建日志字段
 //	fields := []logger.Field{
-//      logger.String("ms", fmt.Sprintf("%.4f", float64(duration.Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
+//		logger.String("ms", fmt.Sprintf("%.4f", float64(duration.Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
 //	}
 //
 //	// 根据执行结果记录不同级别的日志
 //	if err != nil {
-//		fields = append(fields, logger.Error(err))
+//		fields = append(fields, logger.Err(err))
 //		logger.WarnWithCtx(ctx, name+"(失败)", fields...)
 //	} else {
 //		logger.InfoWithCtx(ctx, name+"(成功)", fields...)
@@ -181,12 +181,12 @@ package consumers
 //// 返回:
 ////   - err: 处理错误，如果返回非 nil 错误，消息会被重新投递或进入死信队列
 //func (s *orderConsumer) HandleMessage(ctx context.Context, data []byte, messageId, tagID string) (err error) {
-//// 1. 初始化 Context 和 RequestID
-//ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
-//string(logger.ContextKeyRequestID): messageId,
-//}))
-//ctx = interceptor.WrapServerCtx(ctx)
-//ctx = glog.WithCallerFunc(ctx, s.Name())
+//	// 1. 初始化 Context 和 RequestID
+//	ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+//		string(logger.ContextKeyRequestID): messageId,
+//	}))
+//	ctx = interceptor.WrapServerCtx(ctx)
+//	ctx = logger.WithCallerFunc(ctx, s.Name())
 //	var orderSn string // 订单号，用于后续日志记录和分布式锁
 //
 //	// ========== 步骤 2: 统一处理收尾工作（Panic 恢复） ==========
@@ -307,7 +307,7 @@ package consumers
 //				logger.String("orderSn", orderMQParam.OrderSn),
 //				logger.String("source", orderMQParam.Source),
 //				logger.String("busType", orderMQParam.BusType),
-//				logger.Error(err))
+//				logger.Err(err))
 //			return s.getErrorWithLine(fmt.Errorf("订单处理失败: %w", err))
 //		}
 //
