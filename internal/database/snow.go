@@ -130,3 +130,23 @@ func GenerateOrderNo(prefix string, snowID snowflake.ID) string {
 	sequence := snowID % 1000000
 	return fmt.Sprintf("%s%s%06d", prefix, timestamp, sequence)
 }
+
+const (
+	// SnowflakeIDLength 雪花算法生成的ID长度（19位十进制数字）
+	SnowflakeIDLength = 19
+)
+
+// IsSnowflakeID 判断字符串是否是雪花算法生成的ID（19位纯数字）
+// 用于区分 Go Producer（雪花ID）和其他语言/系统（UUID或其他格式）发送的消息
+// 注意：此函数仅做格式校验，不做数值范围校验
+func IsSnowflakeID(id string) bool {
+	if len(id) != SnowflakeIDLength {
+		return false
+	}
+	for _, c := range id {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
