@@ -298,3 +298,39 @@ func TestSSRFProtectionWithURLValidation(t *testing.T) {
 		t.Error("File protocol should be blocked")
 	}
 }
+
+// TestInsecureSkipVerify 测试跳过 HTTPS 证书验证功能
+func TestInsecureSkipVerify(t *testing.T) {
+	// 测试1：使用 WithInsecureSkipVerify 选项创建客户端
+	client1 := New(
+		WithBaseURL("https://example.com"),
+		WithInsecureSkipVerify(),
+	)
+	defer client1.Close()
+
+	// 验证 TLS 配置是否正确设置
+	if client1.transport.TLSClientConfig == nil || !client1.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be enabled when using WithInsecureSkipVerify()")
+	}
+
+	// 测试2：动态更新跳过验证设置
+	client2 := New(WithBaseURL("https://example.com"))
+	defer client2.Close()
+
+	// 初始状态应该不启用
+	if client2.transport.TLSClientConfig != nil && client2.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should not be enabled by default")
+	}
+
+	// 动态启用跳过验证
+	client2.UpdateInsecureSkipVerify(true)
+	if client2.transport.TLSClientConfig == nil || !client2.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be enabled after UpdateInsecureSkipVerify(true)")
+	}
+
+	// 动态禁用跳过验证
+	client2.UpdateInsecureSkipVerify(false)
+	if client2.transport.TLSClientConfig != nil && client2.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be disabled after UpdateInsecureSkipVerify(false)")
+	}
+}

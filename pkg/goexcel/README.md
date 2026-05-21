@@ -27,6 +27,7 @@
 package main
 
 import (
+    "context"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
 )
@@ -43,7 +44,7 @@ func main() {
     }
     
     // 导出 Excel
-    f, err := goexcel.ExportExcel("用户列表", headers, rows)
+    f, err := goexcel.ExportExcel(context.Background(), "用户列表", headers, rows)
     if err != nil {
         log.Fatal(err)
     }
@@ -81,6 +82,7 @@ func main() {
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
@@ -99,7 +101,7 @@ func main() {
     }
     
     // 导出 Excel
-    f, err := goexcel.ExportExcel("员工列表", headers, rows)
+    f, err := goexcel.ExportExcel(context.Background(), "员工列表", headers, rows)
     if err != nil {
         log.Fatalf("导出失败: %v", err)
     }
@@ -130,6 +132,7 @@ func main() {
 package main
 
 import (
+    "context"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
 )
@@ -167,7 +170,7 @@ func main() {
     }
 
     // 导出多工作表 Excel
-    f, err := goexcel.ExportMultiSheetExcel(sheets)
+    f, err := goexcel.ExportMultiSheetExcel(context.Background(), sheets)
     if err != nil {
         log.Fatalf("导出失败: %v", err)
     }
@@ -197,6 +200,7 @@ func main() {
 package main
 
 import (
+    "context"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
 )
@@ -222,7 +226,7 @@ func main() {
         },
     }
 
-    f, err := goexcel.ExportMultiSheetExcel(sheets)
+    f, err := goexcel.ExportMultiSheetExcel(context.Background(), sheets)
     if err != nil {
         log.Fatal(err)
     }
@@ -257,7 +261,7 @@ rowGenerator := func() ([][]interface{}, error) {
     for i := 0; i < 5000; i++ {
         rows[i] = []interface{}{
             batchIndex*5000 + i + 1,
-            fmt.Sprintf("用户%d", batchIndex*5000+i+1),
+            fmt.Sprintf("用户%d", batchIndex*5000 + i + 1),
             20 + i%50,
         }
     }
@@ -267,6 +271,7 @@ rowGenerator := func() ([][]interface{}, error) {
 
 // 流式导出（每次只加载5000行到内存）
 f, err := goexcel.ExportLargeDataset(
+    context.Background(),
     "大数据表",
     []string{"ID", "姓名", "年龄"},
     rowGenerator,
@@ -290,7 +295,7 @@ if err := f.SaveAs("large_data.xlsx"); err != nil {
 **实际业务示例（从数据库读取）**：
 
 ```go
-func exportUsersToExcel(db *sql.DB) error {
+func exportUsersToExcel(ctx context.Context, db *sql.DB) error {
     // 查询总数
     var total int
     if err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&total); err != nil {
@@ -332,6 +337,7 @@ func exportUsersToExcel(db *sql.DB) error {
     }
     
     f, err := goexcel.ExportLargeDataset(
+        ctx,
         "用户数据",
         []string{"ID", "姓名", "年龄", "邮箱"},
         rowGenerator,
@@ -359,6 +365,7 @@ func exportUsersToExcel(db *sql.DB) error {
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
@@ -371,10 +378,10 @@ func main() {
     for i := 0; i < 500000; i++ {
         allRows[i] = []interface{}{
             i + 1,
-            fmt.Sprintf("用户%d", i+1),
-            fmt.Sprintf("user%d@example.com", i+1),
+            fmt.Sprintf("用户%d", i + 1),
+            fmt.Sprintf("user%d@example.com", i + 1),
             20 + (i % 50),
-            fmt.Sprintf("备注信息-%d", i+1),
+            fmt.Sprintf("备注信息-%d", i + 1),
         }
     }
     fmt.Printf("已生成 %d 行数据\n", len(allRows))
@@ -387,11 +394,11 @@ func main() {
     
     fmt.Printf("数据已分割为 %d 个工作表\n", len(sheets))
     for i, sheet := range sheets {
-        fmt.Printf("  - Sheet %d: %s (%d 行)\n", i+1, sheet.SheetName, len(sheet.Rows))
+        fmt.Printf("  - Sheet %d: %s (%d 行)\n", i + 1, sheet.SheetName, len(sheet.Rows))
     }
 
     // 导出多工作表 Excel
-    f, err := goexcel.ExportMultiSheetExcel(sheets)
+    f, err := goexcel.ExportMultiSheetExcel(context.Background(), sheets)
     if err != nil {
         log.Fatalf("导出失败: %v", err)
     }
@@ -439,6 +446,7 @@ func main() {
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
@@ -465,14 +473,14 @@ func main() {
         
         rows[i] = []interface{}{
             i + 1,
-            fmt.Sprintf("学生%d", i+1),
+            fmt.Sprintf("学生%d", i + 1),
             score,
             grade,
             fmt.Sprintf("第%d学期", (i%4)+1),
         }
     }
 
-    f, err := goexcel.ExportExcel("成绩表", headers, rows)
+    f, err := goexcel.ExportExcel(context.Background(), "成绩表", headers, rows)
     if err != nil {
         log.Fatalf("导出失败: %v", err)
     }
@@ -496,6 +504,7 @@ func main() {
 package main
 
 import (
+    "context"
     "fmt"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
@@ -517,7 +526,7 @@ func main() {
         rows[0][i] = fmt.Sprintf("值%d", i+1)
     }
 
-    f, err := goexcel.ExportExcel("多列表格", headers, rows)
+    f, err := goexcel.ExportExcel(context.Background(), "多列表格", headers, rows)
     if err != nil {
         log.Fatalf("导出失败: %v", err)
     }
@@ -543,6 +552,7 @@ func main() {
 package main
 
 import (
+    "context"
     "log"
     "github.com/18721889353/sunshine/pkg/goexcel"
 )
@@ -557,7 +567,7 @@ func main() {
         {"Emoji 😊", 999999, 3.1415926, false, ""},
     }
 
-    f, err := goexcel.ExportExcel("混合类型", headers, rows)
+    f, err := goexcel.ExportExcel(context.Background(), "混合类型", headers, rows)
     if err != nil {
         log.Fatalf("导出失败: %v", err)
     }
@@ -738,7 +748,7 @@ func main() {
 ### ExportExcel - 基础导出
 
 ```go
-func ExportExcel(sheetName string, headers []string, rows [][]interface{}) (*excelize.File, error)
+func ExportExcel(ctx context.Context, sheetName string, headers []string, rows [][]interface{}) (*excelize.File, error)
 ```
 
 **参数:**
@@ -755,7 +765,7 @@ func ExportExcel(sheetName string, headers []string, rows [][]interface{}) (*exc
 ### ExportMultiSheetExcel - 多工作表导出
 
 ```go
-func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error)
+func ExportMultiSheetExcel(ctx context.Context, sheets []SheetData) (*excelize.File, error)
 ```
 
 **参数:**
@@ -776,6 +786,7 @@ type SheetData struct {
 
 ```go
 func ExportLargeDataset(
+    ctx context.Context,
     sheetName string,
     headers []string,
     rowGenerator func() ([][]interface{}, error),
@@ -981,7 +992,7 @@ goexcel 自动处理特殊字符，包括：
 如需样式，可直接使用 `excelize` 库：
 
 ```go
-f, _ := goexcel.ExportExcel("Sheet1", headers, rows)
+f, _ := goexcel.ExportExcel(context.Background(), "Sheet1", headers, rows)
 
 // 设置样式
 style, _ := f.NewStyle(&excelize.Style{
@@ -1035,6 +1046,12 @@ Excel 的列名规则：
 
 ## 📝 更新日志
 
+- **v2.0.0** (2026-05-21): 大厂标准升级
+  - 所有公共方法添加 `context.Context` 参数
+  - 集成 OpenTelemetry 链路追踪
+  - 使用结构化日志记录
+  - 符合大厂代码规范
+  - 更新所有测试和文档
 - **v1.1.1** (2026-05-21): Bug修复
   - 修复所有导出函数生成空Sheet1的问题
   - 改用重命名默认Sheet而非创建新Sheet
@@ -1044,7 +1061,7 @@ Excel 的列名规则：
   - 新增 `ExportMultiSheetExcel` 多工作表导出
   - 新增 `ExportLargeDataset` 流式写入（支持50万+行）
   - 新增 `SplitIntoSheets` 数据分割功能
-  - 性能优化：10万行 ~150ms，50万行 ~750ms
+  - 性能优化：10万行约150ms，50万行约750ms
   - 内存优化：流式写入，避免OOM
 - **v1.0.0** (2026-05-21): 初始版本
   - 支持基本的 Excel 导出功能

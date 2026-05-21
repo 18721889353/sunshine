@@ -26,10 +26,19 @@
 package goexcel
 
 import (
+	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/xuri/excelize/v2"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // maxCharCount Excel列名最大字符数（A-Z共26个字母）
@@ -61,19 +70,47 @@ const maxCharCount = 26
 //	if err := f.SaveAs("users.xlsx"); err != nil {
 //	    log.Fatal(err)
 //	}
-func ExportExcel(sheetName string, headers []string, rows [][]interface{}) (*excelize.File, error) {
+func ExportExcel(ctx context.Context, sheetName string, headers []string, rows [][]interface{}) (*excelize.File, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goexcel")
+	spanName := "excel.export.single"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start exporting Excel file",
+		logger.String("sheet_name", sheetName),
+		logger.Int("headers_count", len(headers)),
+		logger.Int("rows_count", len(rows)))
+
+	startTime := time.Now()
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("excel.sheet.name", sheetName),
+		attribute.Int("excel.headers.count", len(headers)),
+		attribute.Int("excel.rows.count", len(rows)),
+	)
+
 	if sheetName == "" {
-		return nil, fmt.Errorf("工作表名称不能为空")
+		err := fmt.Errorf("工作表名称不能为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	if headers == nil || len(headers) == 0 {
-		return nil, fmt.Errorf("表头不能为空")
+		err := fmt.Errorf("表头不能为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	f := excelize.NewFile()
-	
+
 	// 重命名默认的Sheet1为指定名称
 	defaultSheet := f.GetSheetName(0)
 	if err := f.SetSheetName(defaultSheet, sheetName); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("重命名默认工作表失败: %w", err)
 	}
 	sheetIndex := 0 // 重命名后的Sheet索引为0
@@ -86,24 +123,35 @@ func ExportExcel(sheetName string, headers []string, rows [][]interface{}) (*exc
 
 	// 设置表头（第一行）
 	if err := setHeaders(f, sheetName, columnNames, headers); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
 	// 设置数据行（从第二行开始）
 	if err := setDataRows(f, sheetName, columnNames, rows); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
 	// 设置活动工作表
 	f.SetActiveSheet(sheetIndex)
 
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Float64("excel.export.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "excel exported successfully")
+
 	return f, nil
 }
 
 // SheetData 工作表数据结构
 type SheetData struct {
-	SheetName string        // 工作表名称
-	Headers   []string      // 表头
+	SheetName string          // 工作表名称
+	Headers   []string        // 表头
 	Rows      [][]interface{} // 数据行
 }
 
@@ -144,9 +192,28 @@ type SheetData struct {
 //	if err := f.SaveAs("multi_sheet.xlsx"); err != nil {
 //	    log.Fatal(err)
 //	}
-func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error) {
+func ExportMultiSheetExcel(ctx context.Context, sheets []SheetData) (*excelize.File, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goexcel")
+	spanName := "excel.export.multi_sheet"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start exporting multi-sheet Excel file",
+		logger.Int("sheets_count", len(sheets)))
+
+	startTime := time.Now()
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.Int("excel.sheets.count", len(sheets)),
+	)
+
 	if len(sheets) == 0 {
-		return nil, fmt.Errorf("工作表数据不能为空")
+		err := fmt.Errorf("工作表数据不能为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	f := excelize.NewFile()
@@ -155,12 +222,16 @@ func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error) {
 	if len(sheets) > 0 {
 		defaultSheet := f.GetSheetName(0)
 		if err := f.SetSheetName(defaultSheet, sheets[0].SheetName); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("重命名默认工作表失败: %w", err)
 		}
 	}
 
 	for i, sheet := range sheets {
 		if err := validateSheetData(sheet); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("工作表[%d]数据验证失败: %w", i, err)
 		}
 
@@ -173,6 +244,8 @@ func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error) {
 			var err error
 			sheetIndex, err = f.NewSheet(sheet.SheetName)
 			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
 				return nil, fmt.Errorf("创建工作表[%s]失败: %w", sheet.SheetName, err)
 			}
 		}
@@ -185,11 +258,15 @@ func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error) {
 
 		// 设置表头
 		if err := setHeaders(f, sheet.SheetName, columnNames, sheet.Headers); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("设置表头失败: %w", err)
 		}
 
 		// 设置数据行
 		if err := setDataRows(f, sheet.SheetName, columnNames, sheet.Rows); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("设置数据行失败: %w", err)
 		}
 
@@ -198,6 +275,13 @@ func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error) {
 			f.SetActiveSheet(sheetIndex)
 		}
 	}
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Float64("excel.export.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "excel exported successfully")
 
 	return f, nil
 }
@@ -245,23 +329,50 @@ func ExportMultiSheetExcel(sheets []SheetData) (*excelize.File, error) {
 //	    log.Fatal(err)
 //	}
 func ExportLargeDataset(
+	ctx context.Context,
 	sheetName string,
 	headers []string,
 	rowGenerator func() ([][]interface{}, error),
 	batchSize int,
 ) (*excelize.File, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goexcel")
+	spanName := "excel.export.large_dataset"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start exporting large dataset",
+		logger.String("sheet_name", sheetName),
+		logger.Int("headers_count", len(headers)),
+		logger.Int("batch_size", batchSize))
+
+	startTime := time.Now()
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("excel.sheet.name", sheetName),
+		attribute.Int("excel.headers.count", len(headers)),
+		attribute.Int("excel.batch.size", batchSize),
+	)
+
 	if sheetName == "" {
-		return nil, fmt.Errorf("工作表名称不能为空")
+		err := fmt.Errorf("工作表名称不能为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	if headers == nil || len(headers) == 0 {
-		return nil, fmt.Errorf("表头不能为空")
+		err := fmt.Errorf("表头不能为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	if batchSize <= 0 {
 		batchSize = 5000 // 默认批次大小
 	}
 
 	f := excelize.NewFile()
-	
+
 	// 重命名默认的Sheet1为指定名称
 	defaultSheet := f.GetSheetName(0)
 	if err := f.SetSheetName(defaultSheet, sheetName); err != nil {
@@ -315,6 +426,14 @@ func ExportLargeDataset(
 
 	f.SetActiveSheet(sheetIndex)
 
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Float64("excel.export.duration_ms", float64(duration.Milliseconds())),
+		attribute.Int("excel.total.rows", totalRows),
+	)
+	span.SetStatus(codes.Ok, "excel exported successfully")
+
 	return f, nil
 }
 
@@ -338,10 +457,27 @@ func ExportLargeDataset(
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-func SplitIntoSheets(sheetNamePrefix string, headers []string, allRows [][]interface{}, maxRowsPerSheet int) []SheetData {
+func SplitIntoSheets(ctx context.Context, sheetNamePrefix string, headers []string, allRows [][]interface{}, maxRowsPerSheet int) []SheetData {
+	// 链路追踪
+	tracer := otel.Tracer("goexcel")
+	spanName := "excel.split_into_sheets"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start splitting data into multiple sheets",
+		logger.String("sheet_name_prefix", sheetNamePrefix),
+		logger.Int("total_rows", len(allRows)))
+
 	if maxRowsPerSheet <= 0 {
 		maxRowsPerSheet = 100000 // 默认每个Sheet 10万行
 	}
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("excel.sheet_name_prefix", sheetNamePrefix),
+		attribute.Int("excel.total_rows", len(allRows)),
+		attribute.Int("excel.max_rows_per_sheet", maxRowsPerSheet),
+	)
 
 	totalRows := len(allRows)
 	sheetCount := (totalRows + maxRowsPerSheet - 1) / maxRowsPerSheet // 向上取整
@@ -362,6 +498,12 @@ func SplitIntoSheets(sheetNamePrefix string, headers []string, allRows [][]inter
 			Rows:      allRows[startIdx:endIdx],
 		})
 	}
+
+	// 设置成功的追踪属性
+	span.SetAttributes(
+		attribute.Int("excel.resulting_sheet_count", sheetCount),
+	)
+	span.SetStatus(codes.Ok, "split completed successfully")
 
 	return sheets
 }

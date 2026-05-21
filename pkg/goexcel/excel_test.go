@@ -1,6 +1,7 @@
 package goexcel
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,8 @@ func TestExportExcel(t *testing.T) {
 		{"王五", "男", 28},
 	}
 
-	f, err := ExportExcel("用户信息", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "用户信息", headers, rows)
 	if err != nil {
 		t.Fatalf("导出Excel失败: %v", err)
 	}
@@ -55,7 +57,8 @@ func TestExportExcelWithSave(t *testing.T) {
 		{"赵六", 35, "深圳"},
 	}
 
-	f, err := ExportExcel("员工列表", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "员工列表", headers, rows)
 	if err != nil {
 		t.Fatalf("导出Excel失败: %v", err)
 	}
@@ -87,7 +90,8 @@ func TestExportExcelEmptySheetName(t *testing.T) {
 	headers := []string{"列1", "列2"}
 	rows := [][]interface{}{{"值1", "值2"}}
 
-	_, err := ExportExcel("", headers, rows)
+	ctx := context.Background()
+	_, err := ExportExcel(ctx, "", headers, rows)
 	if err == nil {
 		t.Error("空工作表名称应该返回错误")
 	}
@@ -97,12 +101,13 @@ func TestExportExcelEmptySheetName(t *testing.T) {
 func TestExportExcelEmptyHeaders(t *testing.T) {
 	rows := [][]interface{}{{"值1", "值2"}}
 
-	_, err := ExportExcel("测试", []string{}, rows)
+	ctx := context.Background()
+	_, err := ExportExcel(ctx, "测试", []string{}, rows)
 	if err == nil {
 		t.Error("空表头应该返回错误")
 	}
 
-	_, err = ExportExcel("测试", nil, rows)
+	_, err = ExportExcel(ctx, "测试", nil, rows)
 	if err == nil {
 		t.Error("nil表头应该返回错误")
 	}
@@ -126,7 +131,8 @@ func TestExportExcelLargeData(t *testing.T) {
 		}
 	}
 
-	f, err := ExportExcel("成绩表", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "成绩表", headers, rows)
 	if err != nil {
 		t.Fatalf("导出大数据Excel失败: %v", err)
 	}
@@ -167,7 +173,8 @@ func TestExportExcelManyColumns(t *testing.T) {
 		rows[0][i] = fmt.Sprintf("值%d", i+1)
 	}
 
-	f, err := ExportExcel("多列测试", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "多列测试", headers, rows)
 	if err != nil {
 		t.Fatalf("导出多列Excel失败: %v", err)
 	}
@@ -196,7 +203,8 @@ func TestExportExcelSpecialCharacters(t *testing.T) {
 		{"王五", "wang@test.com", "换行\n测试\t制表符"},
 	}
 
-	f, err := ExportExcel("特殊字符", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "特殊字符", headers, rows)
 	if err != nil {
 		t.Fatalf("导出特殊字符Excel失败: %v", err)
 	}
@@ -225,7 +233,8 @@ func TestExportExcelMixedTypes(t *testing.T) {
 		{"中文", -100, -3.14, true, 123},
 	}
 
-	f, err := ExportExcel("混合类型", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "混合类型", headers, rows)
 	if err != nil {
 		t.Fatalf("导出混合类型Excel失败: %v", err)
 	}
@@ -304,8 +313,8 @@ func TestCalculateMaxColumnRowNameLen(t *testing.T) {
 		columnCount int
 		minLen      int // 最小期望长度
 	}{
-		{10, 5, 2},   // A11 (2位)
-		{100, 20, 3}, // A101 (3位)
+		{10, 5, 2},    // A11 (2位)
+		{100, 20, 3},  // A101 (3位)
 		{1000, 30, 5}, // AA1001 (5位)
 	}
 
@@ -334,9 +343,10 @@ func BenchmarkExportExcel(b *testing.B) {
 		}
 	}
 
+	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		f, err := ExportExcel("性能测试", headers, rows)
+		f, err := ExportExcel(ctx, "性能测试", headers, rows)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -352,7 +362,8 @@ func ExampleExportExcel() {
 		{"李四", 30, "上海"},
 	}
 
-	f, err := ExportExcel("用户列表", headers, rows)
+	ctx := context.Background()
+	f, err := ExportExcel(ctx, "用户列表", headers, rows)
 	if err != nil {
 		return
 	}
@@ -393,7 +404,8 @@ func TestExportMultiSheetExcel(t *testing.T) {
 		},
 	}
 
-	f, err := ExportMultiSheetExcel(sheets)
+	ctx := context.Background()
+	f, err := ExportMultiSheetExcel(ctx, sheets)
 	if err != nil {
 		t.Fatalf("导出多工作表Excel失败: %v", err)
 	}
@@ -455,7 +467,9 @@ func TestExportLargeDataset(t *testing.T) {
 		return rows, nil
 	}
 
+	ctx := context.Background()
 	f, err := ExportLargeDataset(
+		ctx,
 		"大数据表",
 		[]string{"ID", "姓名", "年龄", "备注"},
 		rowGenerator,
@@ -499,8 +513,9 @@ func TestSplitIntoSheets(t *testing.T) {
 	headers := []string{"ID", "内容"}
 	maxRowsPerSheet := 30000
 
+	ctx := context.Background()
 	// 分割成多个工作表
-	sheets := SplitIntoSheets("数据", headers, allRows, maxRowsPerSheet)
+	sheets := SplitIntoSheets(ctx, "数据", headers, allRows, maxRowsPerSheet)
 
 	// 验证分割结果
 	expectedSheets := 4 // 100000 / 30000 = 3.33，向上取整为4
@@ -524,7 +539,7 @@ func TestSplitIntoSheets(t *testing.T) {
 	}
 
 	// 导出验证
-	f, err := ExportMultiSheetExcel(sheets)
+	f, err := ExportMultiSheetExcel(ctx, sheets)
 	if err != nil {
 		t.Fatalf("导出分割后的Excel失败: %v", err)
 	}
@@ -542,7 +557,8 @@ func TestSplitIntoSheets(t *testing.T) {
 // TestExportMultiSheetEmpty 空数据测试
 func TestExportMultiSheetEmpty(t *testing.T) {
 	// 测试空列表
-	_, err := ExportMultiSheetExcel([]SheetData{})
+	ctx := context.Background()
+	_, err := ExportMultiSheetExcel(ctx, []SheetData{})
 	if err == nil {
 		t.Error("空工作表列表应该返回错误")
 	}
@@ -555,7 +571,7 @@ func TestExportMultiSheetEmpty(t *testing.T) {
 			Rows:      [][]interface{}{{"值"}},
 		},
 	}
-	_, err = ExportMultiSheetExcel(sheets)
+	_, err = ExportMultiSheetExcel(ctx, sheets)
 	if err == nil {
 		t.Error("空表头应该返回错误")
 	}
@@ -590,10 +606,12 @@ func BenchmarkExportLargeDataset(b *testing.B) {
 		return rows, nil
 	}
 
+	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		currentRow = 0 // 重置计数器
 		f, err := ExportLargeDataset(
+			ctx,
 			"性能测试",
 			[]string{"ID", "姓名", "年龄"},
 			rowGenerator,

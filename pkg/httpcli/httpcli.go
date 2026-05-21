@@ -46,6 +46,15 @@ var (
 	ErrCircuitBreakerOpen = errors.New("httpcli: circuit breaker is open")
 )
 
+// contextKey 类型定义，用于避免基本类型作为 context key 的问题
+type contextKey string
+
+// 预定义的 context key
+const (
+	httpSpanContextKey contextKey = "_http_span"
+	traceIDContextKey  contextKey = "common_trace_id"
+)
+
 // Client 封装了企业级 Resty 客户端
 type Client struct {
 	cli       *resty.Client
@@ -181,10 +190,10 @@ func (c *Client) setupMiddlewares() {
 		otel.GetTextMapPropagator().Inject(spanCtx, propagation.HeaderCarrier(req.Header))
 
 		// 存储 span 到 request 的 user data 中，以便在响应时使用
-		req.SetContext(context.WithValue(spanCtx, "_http_span", span))
+		req.SetContext(context.WithValue(spanCtx, httpSpanContextKey, span))
 
 		// 尝试从 context 中自动捞出分布式链路追踪 TraceID（兼容旧逻辑）
-		if traceID, ok := ctx.Value("common_trace_id").(string); ok && traceID != "" {
+		if traceID, ok := ctx.Value(traceIDContextKey).(string); ok && traceID != "" {
 			req.SetHeader("X-Trace-ID", traceID)
 		}
 
@@ -200,7 +209,7 @@ func (c *Client) setupMiddlewares() {
 		}
 
 		// 从 context 中获取 span
-		if spanVal := ctx.Value("_http_span"); spanVal != nil {
+		if spanVal := ctx.Value(httpSpanContextKey); spanVal != nil {
 			if span, ok := spanVal.(trace.Span); ok {
 				defer span.End()
 
@@ -499,6 +508,16 @@ func WithRequestSizeLimit(_ int64) Option {
 	}
 }
 
+// WithInsecureSkipVerify 跳过 HTTPS 证书验证（仅用于开发/测试环境，生产环境不建议使用）
+func WithInsecureSkipVerify() Option {
+	return func(c *Client) {
+		if c.transport.TLSClientConfig == nil {
+			c.transport.TLSClientConfig = &tls.Config{}
+		}
+		c.transport.TLSClientConfig.InsecureSkipVerify = true
+	}
+}
+
 // GetConnectionPoolStats 获取连接池统计信息
 func (c *Client) GetConnectionPoolStats() map[string]int {
 	c.mu.RLock()
@@ -524,6 +543,17 @@ func (c *Client) UpdateTimeout(timeout time.Duration) {
 	defer c.mu.Unlock()
 	c.config.timeout = timeout
 	c.cli.SetTimeout(timeout)
+}
+
+// UpdateInsecureSkipVerify 动态更新是否跳过 HTTPS 证书验证（无需重建客户端）
+// 仅用于开发/测试环境，生产环境不建议使用
+func (c *Client) UpdateInsecureSkipVerify(insecure bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.transport.TLSClientConfig == nil {
+		c.transport.TLSClientConfig = &tls.Config{}
+	}
+	c.transport.TLSClientConfig.InsecureSkipVerify = insecure
 }
 
 // ValidateURL 校验URL合法性并防止重定向攻击

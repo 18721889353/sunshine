@@ -21,9 +21,10 @@ func TestValidateEmail(t *testing.T) {
 		{"invalid no dot in domain", "test@example", false},
 	}
 
+	ctx := context.Background()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ValidateEmail(tt.email); got != tt.want {
+			if got := ValidateEmail(ctx, tt.email); got != tt.want {
 				t.Errorf("ValidateEmail(%q) = %v, want %v", tt.email, got, tt.want)
 			}
 		})
@@ -39,7 +40,8 @@ func TestValidateEmails(t *testing.T) {
 		"@bad.com",
 	}
 
-	invalid := ValidateEmails(emails)
+	ctx := context.Background()
+	invalid := ValidateEmails(ctx, emails)
 	if len(invalid) != 2 {
 		t.Errorf("Expected 2 invalid emails, got %d: %v", len(invalid), invalid)
 	}
@@ -103,7 +105,7 @@ func TestSMTPClient_SendEmail(t *testing.T) {
 		SMTPHost:     "smtp.qq.com",
 		SMTPPort:     465,
 		SMTPUsername: "your_email@qq.com", // 替换为真实邮箱
-		SMTPPassword: "your_password",      // 替换为授权码
+		SMTPPassword: "your_password",     // 替换为授权码
 		UseTLS:       false,
 	}
 
@@ -116,7 +118,7 @@ func TestSMTPClient_SendEmail(t *testing.T) {
 		From:     "your_email@qq.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "Test Email",
-		HtmlBody: "<h1>Hello</h1><p>This is a test email</p>",
+		HTMLBody: "<h1>Hello</h1><p>This is a test email</p>",
 		TextBody: "Hello\nThis is a test email",
 	}
 
@@ -143,8 +145,8 @@ func TestTencentSESClient_SendEmail(t *testing.T) {
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSES,
 		Region:       "ap-guangzhou",
-		AccessKeyID:  "your_access_key",    // 替换为真实AK
-		SecretKey:    "your_secret_key",    // 替换为真实SK
+		AccessKeyID:  "your_access_key", // 替换为真实AK
+		SecretKey:    "your_secret_key", // 替换为真实SK
 	}
 
 	client, err := NewEmailClient(cfg)
@@ -156,7 +158,7 @@ func TestTencentSESClient_SendEmail(t *testing.T) {
 		From:     "sender@example.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "Test from Tencent SES",
-		HtmlBody: "<h1>Hello from Tencent SES</h1>",
+		HTMLBody: "<h1>Hello from Tencent SES</h1>",
 		Tags: map[string]string{
 			"env":  "test",
 			"type": "notification",
@@ -200,7 +202,7 @@ func TestAliyunDMClient_SendEmail(t *testing.T) {
 		From:     "sender@example.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "Test from Aliyun DM",
-		HtmlBody: "<h1>Hello from Aliyun DM</h1>",
+		HTMLBody: "<h1>Hello from Aliyun DM</h1>",
 		Tags: map[string]string{
 			"campaign": "test",
 		},
@@ -244,13 +246,13 @@ func TestSendBatchEmail(t *testing.T) {
 			From:     "test@qq.com",
 			To:       []string{"user1@example.com"},
 			Subject:  "Batch Email 1",
-			HtmlBody: "<p>Email 1</p>",
+			HTMLBody: "<p>Email 1</p>",
 		},
 		{
 			From:     "test@qq.com",
 			To:       []string{"user2@example.com"},
 			Subject:  "Batch Email 2",
-			HtmlBody: "<p>Email 2</p>",
+			HTMLBody: "<p>Email 2</p>",
 		},
 	}
 
@@ -285,7 +287,7 @@ func BenchmarkSMTPSendEmail(b *testing.B) {
 		From:     "test@qq.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "Benchmark Email",
-		HtmlBody: "<p>Benchmark test</p>",
+		HTMLBody: "<p>Benchmark test</p>",
 	}
 
 	ctx := context.Background()

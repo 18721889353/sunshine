@@ -1,3 +1,4 @@
+// Package gozip provides ZIP file compression and decompression utilities.
 package gozip
 
 import (
@@ -9,8 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/yeka/zip"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ZipCompressionLevel ZIP压缩级别常量
@@ -70,8 +77,8 @@ type ZipFileResult struct {
 //	    log.Printf("压缩失败: %v", err)
 //	}
 //	fmt.Printf("压缩文件: %s, 大小: %d bytes\n", result.Path, result.Size)
-func ZipFilesFromPaths(sourceFiles []string, destPath string, password string) (*ZipFileResult, error) {
-	return ZipFilesFromPathsWithOptions(sourceFiles, destPath, &ZipOptions{
+func ZipFilesFromPaths(ctx context.Context, sourceFiles []string, destPath string, password string) (*ZipFileResult, error) {
+	return ZipFilesFromPathsWithOptions(ctx, sourceFiles, destPath, &ZipOptions{
 		Password:   password,
 		Encryption: ZipAES256Encryption,
 	})
@@ -97,9 +104,28 @@ func ZipFilesFromPaths(sourceFiles []string, destPath string, password string) (
 //	    Compression: tools.ZipBestCompression,
 //	}
 //	result, err := tools.ZipFilesFromPathsWithOptions(files, "", options)
-func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options *ZipOptions) (*ZipFileResult, error) {
+func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, destPath string, options *ZipOptions) (*ZipFileResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("gozip")
+	spanName := fmt.Sprintf("gozip.zip_files_from_paths_with_options")
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("gozip.operation", "zip_files_from_paths_with_options"),
+		attribute.Int("gozip.source_file_count", len(sourceFiles)),
+		attribute.String("gozip.dest_path", destPath),
+		attribute.Bool("gozip.is_encrypted", options != nil && options.Password != ""),
+	)
+
+	startTime := time.Now()
+
 	if len(sourceFiles) == 0 {
-		return nil, fmt.Errorf("源文件列表为空")
+		err := fmt.Errorf("源文件列表为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	// 设置默认选项
@@ -126,6 +152,8 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 	// 创建ZIP文件
 	zipFile, err := os.Create(destPath)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("创建ZIP文件失败: %w", err)
 	}
 	defer func() {
@@ -149,13 +177,19 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 	for _, sourceFile := range sourceFiles {
 		// 验证源文件是否存在
 		if _, statErr := os.Stat(sourceFile); statErr != nil {
-			return nil, fmt.Errorf("源文件不存在 [%s]: %w", sourceFile, statErr)
+			err = fmt.Errorf("源文件不存在 [%s]: %w", sourceFile, statErr)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 
 		// 读取源文件内容
 		fileData, readErr := os.ReadFile(sourceFile)
 		if readErr != nil {
-			return nil, fmt.Errorf("读取源文件失败 [%s]: %w", sourceFile, readErr)
+			err = fmt.Errorf("读取源文件失败 [%s]: %w", sourceFile, readErr)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 
 		// 获取文件名(不含路径)
@@ -170,7 +204,10 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 			encryptionMethod := getEncryptionMethod(options.Encryption)
 			writer, writeErr = zipWriter.Encrypt(fileName, options.Password, encryptionMethod)
 			if writeErr != nil {
-				return nil, fmt.Errorf("创建加密ZIP条目失败 [%s]: %w", fileName, writeErr)
+				err = fmt.Errorf("创建加密ZIP条目失败 [%s]: %w", fileName, writeErr)
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				return nil, err
 			}
 		} else {
 			// 非加密模式
@@ -180,13 +217,19 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 			}
 			writer, writeErr = zipWriter.CreateHeader(header)
 			if writeErr != nil {
-				return nil, fmt.Errorf("创建ZIP条目失败 [%s]: %w", fileName, writeErr)
+				err = fmt.Errorf("创建ZIP条目失败 [%s]: %w", fileName, writeErr)
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				return nil, err
 			}
 		}
 
 		// 写入文件内容
 		if _, writeErr := io.Copy(writer, strings.NewReader(string(fileData))); writeErr != nil {
-			return nil, fmt.Errorf("写入ZIP文件内容失败 [%s]: %w", fileName, writeErr)
+			err = fmt.Errorf("写入ZIP文件内容失败 [%s]: %w", fileName, writeErr)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return nil, err
 		}
 
 		fileCount++
@@ -199,13 +242,16 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 
 	// 刷新并关闭ZIP写入器
 	if flushErr := zipWriter.Flush(); flushErr != nil {
-		return nil, fmt.Errorf("刷新ZIP文件失败: %w", flushErr)
+		err = fmt.Errorf("刷新ZIP文件失败: %w", flushErr)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	// 获取压缩文件大小
 	fileInfo, statErr := zipFile.Stat()
 	if statErr != nil {
-		logger.WarnWithCtx(context.Background(), "获取压缩文件大小失败", logger.Err(statErr))
+		logger.WarnWithCtx(ctx, "获取压缩文件大小失败", logger.Err(statErr))
 	}
 
 	result := &ZipFileResult{
@@ -215,12 +261,22 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 		IsEncrypted: options.Password != "",
 	}
 
-	logger.InfoWithCtx(context.Background(), "ZIP压缩完成",
+	logger.InfoWithCtx(ctx, "ZIP压缩完成",
 		logger.String("dest_path", destPath),
 		logger.Int("file_count", fileCount),
 		logger.Int64("total_original_size", totalSize),
 		logger.Int64("compressed_size", fileInfo.Size()),
 		logger.Float64("compression_ratio", calculateCompressionRatio(totalSize, fileInfo.Size())))
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Int("gozip.file_count", fileCount),
+		attribute.Int64("gozip.total_original_size", totalSize),
+		attribute.Int64("gozip.compressed_size", fileInfo.Size()),
+		attribute.Float64("gozip.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "zip completed successfully")
 
 	return result, nil
 }
@@ -239,8 +295,8 @@ func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options
 // 使用示例:
 //
 //	result, err := tools.ZipDirectory("/path/to/dir", "", "password123")
-func ZipDirectory(sourceDir string, destPath string, password string) (*ZipFileResult, error) {
-	return ZipDirectoryWithOptions(sourceDir, destPath, &ZipOptions{
+func ZipDirectory(ctx context.Context, sourceDir string, destPath string, password string) (*ZipFileResult, error) {
+	return ZipDirectoryWithOptions(ctx, sourceDir, destPath, &ZipOptions{
 		Password:   password,
 		Encryption: ZipAES256Encryption,
 	})
@@ -256,18 +312,43 @@ func ZipDirectory(sourceDir string, destPath string, password string) (*ZipFileR
 // 返回:
 //   - *ZipFileResult: 压缩结果
 //   - error: 错误信息
-func ZipDirectoryWithOptions(sourceDir string, destPath string, options *ZipOptions) (*ZipFileResult, error) {
+func ZipDirectoryWithOptions(ctx context.Context, sourceDir string, destPath string, options *ZipOptions) (*ZipFileResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("gozip")
+	spanName := fmt.Sprintf("gozip.zip_directory_with_options")
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("gozip.operation", "zip_directory_with_options"),
+		attribute.String("gozip.source_dir", sourceDir),
+		attribute.String("gozip.dest_path", destPath),
+		attribute.Bool("gozip.is_encrypted", options != nil && options.Password != ""),
+	)
+
+	startTime := time.Now()
+
 	if sourceDir == "" {
-		return nil, fmt.Errorf("源目录路径为空")
+		err := fmt.Errorf("源目录路径为空")
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	// 验证目录是否存在
 	dirInfo, statErr := os.Stat(sourceDir)
 	if statErr != nil {
-		return nil, fmt.Errorf("源目录不存在: %w", statErr)
+		err := fmt.Errorf("源目录不存在: %w", statErr)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 	if !dirInfo.IsDir() {
-		return nil, fmt.Errorf("指定路径不是目录: %s", sourceDir)
+		err := fmt.Errorf("指定路径不是目录: %s", sourceDir)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
 	}
 
 	// 收集所有文件路径
@@ -282,15 +363,36 @@ func ZipDirectoryWithOptions(sourceDir string, destPath string, options *ZipOpti
 		return nil
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("遍历目录失败: %w", err)
 	}
 
 	if len(filePaths) == 0 {
-		return nil, fmt.Errorf("目录为空: %s", sourceDir)
+		emptyDirErr := fmt.Errorf("目录为空: %s", sourceDir)
+		span.RecordError(emptyDirErr)
+		span.SetStatus(codes.Error, emptyDirErr.Error())
+		return nil, emptyDirErr
 	}
 
 	// 使用已有的文件列表压缩方法
-	return ZipFilesFromPathsWithOptions(filePaths, destPath, options)
+	result, err := ZipFilesFromPathsWithOptions(ctx, filePaths, destPath, options)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return nil, err
+	}
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Int("gozip.file_count", result.FileCount),
+		attribute.Int64("gozip.compressed_size", result.Size),
+		attribute.Float64("gozip.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "directory zip completed successfully")
+
+	return result, nil
 }
 
 // ==================== 辅助函数 ====================

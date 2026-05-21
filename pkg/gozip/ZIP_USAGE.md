@@ -15,14 +15,17 @@
 ### 基础用法 - 压缩文件列表（带密码）
 
 ```go
-import "github.com/18721889353/sunshine/pkg/gozip"
+import (
+    "context"
+    "github.com/18721889353/sunshine/pkg/gozip"
+)
 
 // 压缩多个文件
 files := []string{
     "/tmp/file1.xlsx",
     "/tmp/file2.xlsx",
 }
-result, err := gozip.ZipFilesFromPaths(files, "", "password123")
+result, err := gozip.ZipFilesFromPaths(context.Background(), files, "", "password123")
 if err != nil {
     log.Printf("压缩失败: %v", err)
     return
@@ -38,7 +41,10 @@ fmt.Printf("  已加密: %v\n", result.IsEncrypted)
 ### 高级用法 - 自定义选项
 
 ```go
-import "github.com/18721889353/sunshine/pkg/gozip"
+import (
+    "context"
+    "github.com/18721889353/sunshine/pkg/gozip"
+)
 
 files := []string{"/tmp/file1.xlsx", "/tmp/file2.xlsx"}
 
@@ -49,7 +55,7 @@ options := &gozip.ZipOptions{
     Compression: gozip.ZipBestCompression,   // 最佳压缩率
 }
 
-result, err := gozip.ZipFilesFromPathsWithOptions(files, "/output/archive.zip", options)
+result, err := gozip.ZipFilesFromPathsWithOptions(context.Background(), files, "/output/archive.zip", options)
 if err != nil {
     log.Fatal(err)
 }
@@ -58,10 +64,13 @@ if err != nil {
 ### 压缩整个目录
 
 ```go
-import "github.com/18721889353/sunshine/pkg/gozip"
+import (
+    "context"
+    "github.com/18721889353/sunshine/pkg/gozip"
+)
 
 // 压缩整个目录（递归包含子目录）
-result, err := gozip.ZipDirectory("/path/to/directory", "", "password123")
+result, err := gozip.ZipDirectory(context.Background(), "/path/to/directory", "", "password123")
 if err != nil {
     log.Fatal(err)
 }
@@ -78,10 +87,11 @@ fmt.Printf("目录压缩完成: %s\n", result.Path)
 从文件路径列表创建ZIP压缩文件（带密码保护）
 
 ```go
-func ZipFilesFromPaths(sourceFiles []string, destPath string, password string) (*ZipFileResult, error)
+func ZipFilesFromPaths(ctx context.Context, sourceFiles []string, destPath string, password string) (*ZipFileResult, error)
 ```
 
 **参数:**
+- `ctx`: 上下文，用于链路追踪
 - `sourceFiles`: 源文件路径列表
 - `destPath`: 目标ZIP文件路径（如果为空，自动生成临时文件）
 - `password`: 压缩密码（可选，为空则不加密）
@@ -93,7 +103,7 @@ func ZipFilesFromPaths(sourceFiles []string, destPath string, password string) (
 **示例:**
 ```go
 files := []string{"/path/to/file1.xlsx", "/path/to/file2.xlsx"}
-result, err := gozip.ZipFilesFromPaths(files, "", "password123")
+result, err := gozip.ZipFilesFromPaths(context.Background(), files, "", "password123")
 ```
 
 ---
@@ -103,10 +113,11 @@ result, err := gozip.ZipFilesFromPaths(files, "", "password123")
 从文件路径列表创建ZIP压缩文件（支持自定义选项）
 
 ```go
-func ZipFilesFromPathsWithOptions(sourceFiles []string, destPath string, options *ZipOptions) (*ZipFileResult, error)
+func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, destPath string, options *ZipOptions) (*ZipFileResult, error)
 ```
 
 **参数:**
+- `ctx`: 上下文，用于链路追踪
 - `sourceFiles`: 源文件路径列表
 - `destPath`: 目标ZIP文件路径
 - `options`: 压缩选项（密码、加密类型、压缩级别等）
@@ -128,7 +139,7 @@ options := &gozip.ZipOptions{
     Encryption:  gozip.ZipAES256Encryption,
     Compression: gozip.ZipBestCompression,
 }
-result, err := gozip.ZipFilesFromPathsWithOptions(files, "/output.zip", options)
+result, err := gozip.ZipFilesFromPathsWithOptions(context.Background(), files, "/output.zip", options)
 ```
 
 ---
@@ -138,17 +149,18 @@ result, err := gozip.ZipFilesFromPathsWithOptions(files, "/output.zip", options)
 压缩整个目录（递归包含子目录）
 
 ```go
-func ZipDirectory(sourceDir string, destPath string, password string) (*ZipFileResult, error)
+func ZipDirectory(ctx context.Context, sourceDir string, destPath string, password string) (*ZipFileResult, error)
 ```
 
 **参数:**
+- `ctx`: 上下文，用于链路追踪
 - `sourceDir`: 源目录路径
 - `destPath`: 目标ZIP文件路径
 - `password`: 压缩密码（可选）
 
 **示例:**
 ```go
-result, err := gozip.ZipDirectory("/path/to/dir", "", "password123")
+result, err := gozip.ZipDirectory(context.Background(), "/path/to/dir", "", "password123")
 ```
 
 ---
@@ -158,7 +170,7 @@ result, err := gozip.ZipDirectory("/path/to/dir", "", "password123")
 压缩整个目录（支持自定义选项）
 
 ```go
-func ZipDirectoryWithOptions(sourceDir string, destPath string, options *ZipOptions) (*ZipFileResult, error)
+func ZipDirectoryWithOptions(ctx context.Context, sourceDir string, destPath string, options *ZipOptions) (*ZipFileResult, error)
 ```
 
 **示例:**
@@ -168,7 +180,7 @@ options := &gozip.ZipOptions{
     Encryption:  gozip.ZipAES256Encryption,
     Compression: gozip.ZipBestSpeed, // 最快速度
 }
-result, err := gozip.ZipDirectoryWithOptions("/path/to/dir", "/output.zip", options)
+result, err := gozip.ZipDirectoryWithOptions(context.Background(), "/path/to/dir", "/output.zip", options)
 ```
 
 ### 常量定义
@@ -235,7 +247,7 @@ type ZipFileResult struct {
 func compressFiles(ctx context.Context, sourceFiles []string, password string) (string, error) {
     compressPath := filepath.Join(os.TempDir(), fmt.Sprintf("compress_%d.zip", time.Now().Unix()))
     
-    result, err := gozip.ZipFilesFromPaths(sourceFiles, compressPath, password)
+    result, err := gozip.ZipFilesFromPaths(ctx, sourceFiles, compressPath, password)
     if err != nil {
         return "", err
     }
@@ -247,7 +259,7 @@ func compressFiles(ctx context.Context, sourceFiles []string, password string) (
 ### 场景2: 批量导出Excel并压缩
 
 ```go
-func exportAndCompress(records []*DataRecord) (string, error) {
+func exportAndCompress(ctx context.Context, records []*DataRecord) (string, error) {
     var excelFiles []string
     
     // 生成Excel文件
@@ -266,7 +278,7 @@ func exportAndCompress(records []*DataRecord) (string, error) {
         Compression: gozip.ZipBestCompression,
     }
     
-    result, err := gozip.ZipFilesFromPathsWithOptions(excelFiles, "", options)
+    result, err := gozip.ZipFilesFromPathsWithOptions(ctx, excelFiles, "", options)
     if err != nil {
         return "", err
     }
@@ -283,9 +295,9 @@ func exportAndCompress(records []*DataRecord) (string, error) {
 ### 场景3: 日志文件归档
 
 ```go
-func archiveLogs(logDir string) (string, error) {
+func archiveLogs(ctx context.Context, logDir string) (string, error) {
     // 压缩整个日志目录（不加密，便于后续分析）
-    result, err := gozip.ZipDirectory(logDir, "", "")
+    result, err := gozip.ZipDirectory(ctx, logDir, "", "")
     if err != nil {
         return "", err
     }
@@ -314,7 +326,7 @@ func TestZipFiles(t *testing.T) {
     defer cleanupTestFiles(testFiles)
     
     // 测试加密压缩
-    result, err := gozip.ZipFilesFromPaths(testFiles, "", "test_password")
+    result, err := gozip.ZipFilesFromPaths(context.Background(), testFiles, "", "test_password")
     assert.NoError(t, err)
     assert.True(t, result.IsEncrypted)
     assert.Equal(t, len(testFiles), result.FileCount)
@@ -336,6 +348,12 @@ func TestZipFiles(t *testing.T) {
   - 增加9个新测试用例
   - 代码覆盖率提升至85.5%
   - 新增特殊文件名、大文件、深层目录等测试
+- **v2.0.0** (2026-05-21): 大厂标准升级
+  - 所有公共方法添加 `context.Context` 参数
+  - 集成 OpenTelemetry 链路追踪
+  - 使用结构化日志记录
+  - 符合大厂代码规范
+  - 更新所有测试和文档
 
 ---
 

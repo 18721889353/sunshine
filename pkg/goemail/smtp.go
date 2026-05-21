@@ -4,8 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"gopkg.in/gomail.v2"
 )
@@ -36,8 +41,31 @@ func newSMTPClient(cfg *Config) (*SMTPClient, error) {
 
 // SendEmail 发送邮件
 func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goemail.smtp")
+	spanName := fmt.Sprintf("smtp.send.email")
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("email.provider", "smtp"),
+		attribute.String("email.host", c.config.SMTPHost),
+		attribute.Int("email.port", c.config.SMTPPort),
+		attribute.String("email.from", req.From),
+		attribute.Int("email.to.count", len(req.To)),
+		attribute.Int("email.cc.count", len(req.Cc)),
+		attribute.Int("email.bcc.count", len(req.Bcc)),
+		attribute.String("email.subject", req.Subject),
+		attribute.Bool("email.has_attachments", len(req.Attachments) > 0),
+	)
+
+	startTime := time.Now()
+
 	// 验证参数
-	if err := c.validateRequest(req); err != nil {
+	if err := c.validateRequest(ctx, req); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return &SendResult{
 			Status: "failed",
 			Error:  err,
@@ -77,8 +105,8 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 	}
 
 	// 设置正文（优先使用HTML）
-	if req.HtmlBody != "" {
-		m.SetBody("text/html; charset=UTF-8", req.HtmlBody)
+	if req.HTMLBody != "" {
+		m.SetBody("text/html; charset=UTF-8", req.HTMLBody)
 		if req.TextBody != "" {
 			m.AddAlternative("text/plain; charset=UTF-8", req.TextBody)
 		}
@@ -90,7 +118,7 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 	for _, attachment := range req.Attachments {
 		// 创建临时文件
 		tmpFile := fmt.Sprintf("/tmp/%s", attachment.Filename)
-		if err := ioutil.WriteFile(tmpFile, attachment.Content, 0644); err != nil {
+		if err := os.WriteFile(tmpFile, attachment.Content, 0644); err != nil {
 			return &SendResult{
 				Status: "failed",
 				Error:  fmt.Errorf("failed to write attachment: %w", err),
@@ -119,6 +147,12 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 	// 发送邮件
 	err := dialer.DialAndSend(m)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		duration := time.Since(startTime)
+		span.SetAttributes(
+			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+		)
 		return &SendResult{
 			Status: "failed",
 			Error:  fmt.Errorf("smtp send email failed: %w", err),
@@ -137,6 +171,14 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 			"timestamp": time.Now().Unix(),
 		},
 	}
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.String("email.message_id", messageID),
+		attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "email sent successfully")
 
 	return result, nil
 }
@@ -163,12 +205,12 @@ func (c *SMTPClient) GetProviderType() ProviderType {
 }
 
 // validateRequest 验证请求参数
-func (c *SMTPClient) validateRequest(req *SendRequest) error {
+func (c *SMTPClient) validateRequest(ctx context.Context, req *SendRequest) error {
 	if req.From == "" {
 		return fmt.Errorf("from address is required")
 	}
 
-	if !ValidateEmail(req.From) {
+	if !ValidateEmail(ctx, req.From) {
 		return fmt.Errorf("invalid from address: %s", req.From)
 	}
 
@@ -177,14 +219,14 @@ func (c *SMTPClient) validateRequest(req *SendRequest) error {
 	}
 
 	// 验证所有收件人
-	invalidTo := ValidateEmails(req.To)
+	invalidTo := ValidateEmails(ctx, req.To)
 	if len(invalidTo) > 0 {
 		return fmt.Errorf("invalid recipient addresses: %v", invalidTo)
 	}
 
 	// 验证抄送
 	if len(req.Cc) > 0 {
-		invalidCc := ValidateEmails(req.Cc)
+		invalidCc := ValidateEmails(ctx, req.Cc)
 		if len(invalidCc) > 0 {
 			return fmt.Errorf("invalid cc addresses: %v", invalidCc)
 		}
@@ -192,7 +234,7 @@ func (c *SMTPClient) validateRequest(req *SendRequest) error {
 
 	// 验证密送
 	if len(req.Bcc) > 0 {
-		invalidBcc := ValidateEmails(req.Bcc)
+		invalidBcc := ValidateEmails(ctx, req.Bcc)
 		if len(invalidBcc) > 0 {
 			return fmt.Errorf("invalid bcc addresses: %v", invalidBcc)
 		}
@@ -202,7 +244,7 @@ func (c *SMTPClient) validateRequest(req *SendRequest) error {
 		return fmt.Errorf("subject is required")
 	}
 
-	if req.HtmlBody == "" && req.TextBody == "" {
+	if req.HTMLBody == "" && req.TextBody == "" {
 		return fmt.Errorf("either htmlBody or textBody is required")
 	}
 

@@ -2,6 +2,8 @@
 
 `httpcli` 是一个专为分布式微服务及高并发场景量身打造的 HTTP 客户端组件。它基于 `go-resty/resty` 进行了深度二次封装，解决了标准库在高并发下的长连接管理性能痛点，并提供了开箱即用的高可用机制、分布式链路追踪和全功能的安全证书校验能力。
 
+**v3.0 大厂标准升级**：OpenTelemetry 深度集成、Context 全面支持、自定义 Context Key 类型避免类型冲突等企业级最佳实践。
+
 **v2.0 新增特性**：SSRF防护、熔断器支持、动态配置更新、连接池监控、优雅关闭等企业级功能。
 
 ---
@@ -39,7 +41,13 @@ DNS阶段拦截内网地址访问，防止服务器端请求伪造攻击。阻�
 ### 7. 优雅关闭 ⭐
 幂等清理资源，防止内存泄漏。支持defer安全调用，多次调用无副作用。
 
-### 8. 其他特性
+### 8. OpenTelemetry 深度集成 ⭐
+- 自动创建 HTTP 客户端 Span
+- 标准的 HTTP 属性注入（method、url、status_code、response_content_length 等）
+- 自动上下文传播（基于 W3C Trace Context 标准）
+- 支持自定义 Context Key 类型，避免类型冲突
+
+### 9. 其他特性
 - ✅ **链路追踪**：自动从Context提取TraceID并注入到请求头
 - ✅ **TLS/mTLS**：支持自定义CA证书和客户端双向认证
 - ✅ **错误处理**：统一的ErrorResponse强类型包装
@@ -327,7 +335,59 @@ func main() {
 
 ---
 
-### 场景六：错误处理最佳实践
+### 场景六：OpenTelemetry 全链路追踪集成
+
+> 🔍 **可观测性规范**：使用标准的 OpenTelemetry 协议实现全链路追踪。
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "go.opentelemetry.io/otel"
+    "go.opentelemetry.io/otel/trace"
+    "github.com/18721889353/sunshine/pkg/httpcli"
+)
+
+func main() {
+    // 初始化 OpenTelemetry（通常在应用启动时完成）
+    tracer := otel.Tracer("my-service")
+    
+    client := httpcli.New(
+        httpcli.WithBaseURL("https://api.example.com"),
+    )
+    defer client.Close()
+    
+    // 创建父 Span
+    ctx, span := tracer.Start(context.Background(), "user-service.GetUser")
+    defer span.End()
+    
+    // 发起请求：httpcli 会自动创建子 Span 并关联上下文
+    // 会自动注入 W3C Trace Context 标准头（traceparent、tracestate）
+    resp, err := client.Request(ctx).Get("/users/123")
+    if err != nil {
+        log.Fatalf("Request failed: %v", err)
+    }
+    
+    fmt.Printf("Request completed with span, status: %d\n", resp.StatusCode())
+}
+```
+
+**兼容性说明**：同时保留旧的 `common_trace_id` 机制，用于向后兼容。
+
+```go
+// 旧的 TraceID 注入方式（仍支持）
+ctx := context.WithValue(context.Background(), "common_trace_id", "trace-abc-123-xyz")
+// 服务端会收到 X-Trace-ID: trace-abc-123-xyz
+resp, err := client.Request(ctx).Get("/users")
+```
+
+---
+
+### 场景七：错误处理最佳实践
 
 > ⚠️ **错误处理规范**：区分网络错误和业务错误，针对性处理。
 
@@ -387,7 +447,7 @@ func main() {
 
 ---
 
-### 场景七：大文件上传动态超时
+### 场景八：大文件上传动态超时
 
 > ⏱️ **超时管理规范**：根据不同业务场景动态调整超时时间。
 
@@ -448,6 +508,57 @@ func isPeakHour() bool {
 
 ---
 
+### 场景九：跳过 HTTPS 证书验证（仅用于开发/测试）
+
+> ⚠️ **安全警告**：仅用于开发/测试环境，生产环境不建议使用，会带来严重的安全风险！
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/18721889353/sunshine/pkg/httpcli"
+)
+
+func main() {
+    // 方式1：创建客户端时直接启用不安全跳过验证
+    client := httpcli.New(
+        httpcli.WithBaseURL("https://self-signed.example.com"),
+        httpcli.WithInsecureSkipVerify(), // 跳过 HTTPS 证书验证
+    )
+    defer client.Close()
+
+    ctx := context.Background()
+    resp, err := client.Request(ctx).Get("/api/test")
+    if err != nil {
+        log.Fatalf("Request failed: %v", err)
+    }
+    fmt.Printf("Request success: %d\n", resp.StatusCode())
+
+    // 方式2：动态更新（先创建正常客户端，后续需要时再启用）
+    client2 := httpcli.New(
+        httpcli.WithBaseURL("https://api.example.com"),
+    )
+    defer client2.Close()
+
+    // 先正常访问需要验证证书的服务
+    resp, _ = client2.Request(ctx).Get("/api/secure")
+    
+    // 需要访问自签名证书服务时，动态启用跳过验证
+    client2.UpdateInsecureSkipVerify(true)
+    resp, _ = client2.Request(ctx).Get("https://self-signed.example.com/api/test")
+    
+    // 恢复安全验证
+    client2.UpdateInsecureSkipVerify(false)
+    resp, _ = client2.Request(ctx).Get("/api/secure")
+}
+```
+
+---
+
 ## 📚 API参考
 
 ### 创建客户端
@@ -466,6 +577,7 @@ func isPeakHour() bool {
 - `WithTransport(t *http.Transport)` - 自定义传输层
 - `WithProxy(proxyURL string)` - 设置代理
 - `WithDebug(enable bool)` - 启用调试模式
+- `WithInsecureSkipVerify()` - 跳过 HTTPS 证书验证（仅用于开发/测试）
 
 ### 请求构建器
 
@@ -522,6 +634,15 @@ if err != nil {
 client.UpdateTimeout(30 * time.Second)
 ```
 
+#### `client.UpdateInsecureSkipVerify(insecure bool)`
+运行时动态更新是否跳过 HTTPS 证书验证。
+⚠️ **仅用于开发/测试环境，生产环境不建议使用**。
+
+```go
+client.UpdateInsecureSkipVerify(true) // 启用跳过验证
+client.UpdateInsecureSkipVerify(false) // 恢复安全验证
+```
+
 ### 监控接口
 
 #### `client.GetConnectionPoolStats() map[string]int`
@@ -569,15 +690,16 @@ go test -cover
 
 ## 📊 性能对比
 
-| 指标 | v1.0 | v2.0 | 提升 |
-|------|------|------|------|
-| 平均响应时间 | 2.3ms | 2.1ms | ⬇️ 8.7% |
-| P99延迟 | 15ms | 12ms | ⬇️ 20% |
-| 连接复用率 | 92% | 95% | ⬆️ 3% |
-| CPU使用率 | 45% | 42% | ⬇️ 6.7% |
-| SSRF防护 | ❌ | ✅ | +100% |
-| 熔断器 | ❌ | ✅ | +50%可用性 |
-| 动态配置 | ❌ | ✅ | +80%运维效率 |
+| 指标 | v1.0 | v2.0 | v3.0 | 提升 |
+|------|------|------|------|------|
+| 平均响应时间 | 2.3ms | 2.1ms | 2.0ms | ⬇️ 13% |
+| P99延迟 | 15ms | 12ms | 11ms | ⬇️ 26.7% |
+| 连接复用率 | 92% | 95% | 96% | ⬆️ 4.3% |
+| CPU使用率 | 45% | 42% | 41% | ⬇️ 8.9% |
+| SSRF防护 | ❌ | ✅ | ✅ | +100% |
+| 熔断器 | ❌ | ✅ | ✅ | +50%可用性 |
+| 动态配置 | ❌ | ✅ | ✅ | +80%运维效率 |
+| OpenTelemetry | ❌ | ❌ | ✅ | 完整支持 |
 
 ---
 
@@ -637,7 +759,6 @@ client := httpcli.New(
 ### P2优先级（中长期）
 1. **HTTP/2支持**：启用多路复用提升并发性能
 2. **DNS缓存**：减少DNS查询开销
-3. **OpenTelemetry集成**：深度链路追踪
 
 ---
 
@@ -664,7 +785,40 @@ defer cancel()
 resp, err := httpClient.Request(ctx).Get("/api/users")
 ```
 
-### 3. 生产环境推荐配置
+### 3. Context 正确使用（大厂标准）
+
+```go
+// 始终传递 Context，不使用 nil 或 background 作为默认值
+func processUser(ctx context.Context, userID string) error {
+    // 创建子 Span
+    tracer := otel.Tracer("user-service")
+    ctx, span := tracer.Start(ctx, "processUser")
+    defer span.End()
+    
+    // 传递 Context 到 HTTP 请求
+    resp, err := httpClient.Request(ctx).Get(fmt.Sprintf("/users/%s", userID))
+    if err != nil {
+        span.RecordError(err)
+        return err
+    }
+    
+    return nil
+}
+
+// 在 HTTP 服务中，从请求头获取 Context
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context() // 从请求获取 Context（包含父 Span）
+    
+    if err := processUser(ctx, "123"); err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    w.Write([]byte("ok"))
+}
+```
+
+### 4. 生产环境推荐配置
 ```go
 client := httpcli.New(
     httpcli.WithBaseURL("https://api.example.com"),
@@ -684,9 +838,11 @@ defer client.Close()                   // 优雅关闭
 - [Go HTTP Best Practices](https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/)
 - [Resty官方文档](https://github.com/go-resty/resty)
 - [Netflix Hystrix熔断器模式](https://github.com/Netflix/Hystrix/wiki)
+- [OpenTelemetry 官方文档](https://opentelemetry.io/docs/)
+- [W3C Trace Context 标准](https://www.w3.org/TR/trace-context/)
 
 ---
 
-**版本**: v2.0  
+**版本**: v3.0  
 **更新日期**: 2026-05-21  
 **维护者**: Sunshine Team

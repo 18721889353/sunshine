@@ -8,15 +8,15 @@ import (
 	"time"
 )
 
-// Example_FromConfig 从配置文件初始化（推荐方式）
-func Example_FromConfig() {
+// ExampleFromConfig 从配置文件初始化（推荐方式）
+func ExampleFromConfig() {
 	// 1. 从项目配置中读取email配置
 	// 假设你已经通过 config.Init() 初始化了配置
 	// import "github.com/18721889353/sunshine/internal/config"
-	
+
 	// cfg := config.Get()
 	// emailCfg := cfg.Email
-	
+
 	// 这里模拟配置数据
 	emailCfg := struct {
 		ProviderType string
@@ -46,7 +46,7 @@ func Example_FromConfig() {
 			Password: "your_auth_code",
 		},
 	}
-	
+
 	// 2. 创建邮件客户端配置
 	cfg := &Config{
 		ProviderType: ProviderType(emailCfg.ProviderType),
@@ -54,7 +54,7 @@ func Example_FromConfig() {
 		AccessKeyID:  emailCfg.AccessKeyID,
 		SecretKey:    emailCfg.SecretKey,
 	}
-	
+
 	// SMTP专用配置
 	if emailCfg.ProviderType == "smtp" {
 		cfg.SMTPHost = emailCfg.SMTP.Host
@@ -63,34 +63,35 @@ func Example_FromConfig() {
 		cfg.SMTPPassword = emailCfg.SMTP.Password
 		cfg.UseTLS = true
 	}
-	
+
 	// 3. 创建客户端
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
-	
+
 	// 4. 发送邮件
 	req := &SendRequest{
 		From:     "sender@example.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "测试邮件",
-		HtmlBody: "<h1>Hello</h1><p>从配置初始化的邮件客户端</p>",
+		HTMLBody: "<h1>Hello</h1><p>从配置初始化的邮件客户端</p>",
 	}
-	
+
 	ctx := context.Background()
 	result, err := client.SendEmail(ctx, req)
 	if err != nil {
 		log.Printf("Send failed: %v", err)
 		return
 	}
-	
+
 	fmt.Printf("Message ID: %s\n", result.MessageID)
 	fmt.Printf("Status: %s\n", result.Status)
 }
 
-// Example_TencentSES 腾讯云SES使用示例
-func Example_TencentSES() {
+// ExampleTencentSES 腾讯云SES使用示例
+func ExampleTencentSES() {
 	// 从环境变量读取AK/SK（推荐）
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSES,
@@ -101,7 +102,8 @@ func Example_TencentSES() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 2. 构建发送请求
@@ -110,7 +112,7 @@ func Example_TencentSES() {
 		To:       []string{"recipient1@example.com", "recipient2@example.com"},
 		Cc:       []string{"cc@example.com"},
 		Subject:  "欢迎注册",
-		HtmlBody: "<h1>欢迎加入</h1><p>感谢您的注册！</p>",
+		HTMLBody: "<h1>欢迎加入</h1><p>感谢您的注册！</p>",
 		TextBody: "欢迎加入\n感谢您的注册！",
 		ReplyTo:  []string{"support@example.com"},
 		Tags: map[string]string{
@@ -132,8 +134,8 @@ func Example_TencentSES() {
 	fmt.Printf("Status: %s\n", result.Status)
 }
 
-// Example_AliyunDM 阿里云DM使用示例
-func Example_AliyunDM() {
+// ExampleAliyunDM 阿里云DM使用示例
+func ExampleAliyunDM() {
 	// 从环境变量读取AK/SK
 	cfg := &Config{
 		ProviderType: ProviderTypeAliyunDM,
@@ -144,7 +146,8 @@ func Example_AliyunDM() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 2. 构建发送请求
@@ -152,7 +155,7 @@ func Example_AliyunDM() {
 		From:     "sender@example.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "订单通知",
-		HtmlBody: "<h1>订单已发货</h1><p>您的订单已发货，请注意查收。</p>",
+		HTMLBody: "<h1>订单已发货</h1><p>您的订单已发货，请注意查收。</p>",
 		Tags: map[string]string{
 			"order_id": "123456",
 			"type":     "notification",
@@ -171,8 +174,8 @@ func Example_AliyunDM() {
 	fmt.Printf("Env ID: %v\n", result.Extra["env_id"])
 }
 
-// Example_AliyunDM_Template 阿里云DM模板邮件示例
-func Example_AliyunDM_Template() {
+// ExampleAliyunDMTemplate 阿里云DM模板邮件示例
+func ExampleAliyunDMTemplate() {
 	// 1. 创建客户端
 	cfg := &Config{
 		ProviderType: ProviderTypeAliyunDM,
@@ -183,13 +186,15 @@ func Example_AliyunDM_Template() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 2. 转换为AliyunDMClient以使用模板功能
 	aliyunClient, ok := client.(*AliyunDMClient)
 	if !ok {
-		log.Fatal("Client is not AliyunDMClient")
+		log.Printf("Client type error: not AliyunDMClient")
+		return
 	}
 
 	// 3. 准备模板数据
@@ -205,10 +210,10 @@ func Example_AliyunDM_Template() {
 	ctx := context.Background()
 	result, err := aliyunClient.SendTemplateEmail(
 		ctx,
-		"noreply@example.com",           // 发件人
+		"noreply@example.com",             // 发件人
 		[]string{"recipient@example.com"}, // 收件人
-		"verification_code",              // 模板名称（在阿里云控制台创建）
-		templateData,                     // 模板变量
+		"verification_code",               // 模板名称（在阿里云控制台创建）
+		templateData,                      // 模板变量
 	)
 	if err != nil {
 		log.Printf("Send template email failed: %v", err)
@@ -220,8 +225,8 @@ func Example_AliyunDM_Template() {
 	fmt.Printf("Template Name: %v\n", result.Extra["template_name"])
 }
 
-// Example_SMTP SMTP使用示例
-func Example_SMTP() {
+// ExampleSMTP SMTP使用示例
+func ExampleSMTP() {
 	// 从环境变量读取SMTP配置
 	cfg := &Config{
 		ProviderType: ProviderTypeSMTP,
@@ -234,7 +239,8 @@ func Example_SMTP() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 2. 构建发送请求
@@ -244,7 +250,7 @@ func Example_SMTP() {
 		Cc:       []string{"cc@example.com"},
 		Bcc:      []string{"bcc@example.com"},
 		Subject:  "测试邮件",
-		HtmlBody: "<h1>Hello</h1><p>这是一封测试邮件</p>",
+		HTMLBody: "<h1>Hello</h1><p>这是一封测试邮件</p>",
 		TextBody: "Hello\n这是一封测试邮件",
 		Headers: map[string]string{
 			"X-Priority": "1",
@@ -264,8 +270,8 @@ func Example_SMTP() {
 	fmt.Printf("Status: %s\n", result.Status)
 }
 
-// Example_BatchSend 批量发送示例
-func Example_BatchSend() {
+// ExampleBatchSend 批量发送示例
+func ExampleBatchSend() {
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSES,
 		Region:       "ap-guangzhou",
@@ -275,7 +281,8 @@ func Example_BatchSend() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 构建多个发送请求
@@ -284,19 +291,19 @@ func Example_BatchSend() {
 			From:     "sender@example.com",
 			To:       []string{"user1@example.com"},
 			Subject:  "通知1",
-			HtmlBody: "<p>内容1</p>",
+			HTMLBody: "<p>内容1</p>",
 		},
 		{
 			From:     "sender@example.com",
 			To:       []string{"user2@example.com"},
 			Subject:  "通知2",
-			HtmlBody: "<p>内容2</p>",
+			HTMLBody: "<p>内容2</p>",
 		},
 		{
 			From:     "sender@example.com",
 			To:       []string{"user3@example.com"},
 			Subject:  "通知3",
-			HtmlBody: "<p>内容3</p>",
+			HTMLBody: "<p>内容3</p>",
 		},
 	}
 
@@ -318,8 +325,8 @@ func Example_BatchSend() {
 	}
 }
 
-// Example_WithAttachment 带附件发送示例
-func Example_WithAttachment() {
+// ExampleWithAttachment 带附件发送示例
+func ExampleWithAttachment() {
 	cfg := &Config{
 		ProviderType: ProviderTypeSMTP,
 		SMTPHost:     "smtp.qq.com",
@@ -330,7 +337,8 @@ func Example_WithAttachment() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 读取附件内容（实际使用时从文件读取）
@@ -340,7 +348,7 @@ func Example_WithAttachment() {
 		From:     "your_email@qq.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "带附件的邮件",
-		HtmlBody: "<h1>请查收附件</h1>",
+		HTMLBody: "<h1>请查收附件</h1>",
 		Attachments: []*Attachment{
 			{
 				Filename:    "report.pdf",
@@ -365,8 +373,8 @@ func Example_WithAttachment() {
 	fmt.Printf("Sent with attachments: %s\n", result.MessageID)
 }
 
-// Example_TemplateEmail 模板邮件示例（腾讯云SES）
-func Example_TemplateEmail() {
+// ExampleTemplateEmail 模板邮件示例（腾讯云SES）
+func ExampleTemplateEmail() {
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSES,
 		Region:       "ap-guangzhou",
@@ -376,13 +384,15 @@ func Example_TemplateEmail() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	// 转换为TencentSESClient以使用模板功能
 	tencentClient, ok := client.(*TencentSESClient)
 	if !ok {
-		log.Fatal("Client is not TencentSESClient")
+		log.Printf("Client type error: not TencentSESClient")
+		return
 	}
 
 	// 模板数据（对应模板中的变量）
@@ -396,11 +406,11 @@ func Example_TemplateEmail() {
 	ctx := context.Background()
 	result, err := tencentClient.SendTemplateEmail(
 		ctx,
-		"sender@example.com",           // 发件人
+		"sender@example.com",              // 发件人
 		[]string{"recipient@example.com"}, // 收件人
-		12345,                          // 模板ID（在腾讯云控制台创建）
-		templateData,                   // 模板数据
-		"验证码",                        // 邮件主题
+		12345,                             // 模板ID（在腾讯云控制台创建）
+		templateData,                      // 模板数据
+		"验证码",                             // 邮件主题
 	)
 	if err != nil {
 		log.Printf("Send template email failed: %v", err)
@@ -412,8 +422,8 @@ func Example_TemplateEmail() {
 	fmt.Printf("Template ID: %v\n", result.Extra["template_id"])
 }
 
-// Example_ErrorHandling 错误处理示例
-func Example_ErrorHandling() {
+// ExampleErrorHandling 错误处理示例
+func ExampleErrorHandling() {
 	cfg := &Config{
 		ProviderType: ProviderTypeSMTP,
 		SMTPHost:     "smtp.qq.com",
@@ -432,16 +442,16 @@ func Example_ErrorHandling() {
 		From:     "test@qq.com",
 		To:       []string{"invalid-email"}, // 无效的邮箱地址
 		Subject:  "Test",
-		HtmlBody: "<p>Test</p>",
+		HTMLBody: "<p>Test</p>",
 	}
 
 	ctx := context.Background()
 	result, err := client.SendEmail(ctx, req)
-	
+
 	// 检查错误
 	if err != nil {
 		log.Printf("Send error: %v", err)
-		
+
 		// 可以根据错误类型进行不同处理
 		if result != nil && result.Status == "failed" {
 			log.Printf("Result status: %s", result.Status)
@@ -453,8 +463,8 @@ func Example_ErrorHandling() {
 	fmt.Println("Email sent successfully")
 }
 
-// Example_ContextTimeout 超时控制示例
-func Example_ContextTimeout() {
+// ExampleContextTimeout 超时控制示例
+func ExampleContextTimeout() {
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSES,
 		Region:       "ap-guangzhou",
@@ -464,14 +474,15 @@ func Example_ContextTimeout() {
 
 	client, err := NewEmailClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		log.Printf("Create client error: %v", err)
+		return
 	}
 
 	req := &SendRequest{
 		From:     "sender@example.com",
 		To:       []string{"recipient@example.com"},
 		Subject:  "Test",
-		HtmlBody: "<p>Test</p>",
+		HTMLBody: "<p>Test</p>",
 	}
 
 	// 创建带超时的context
@@ -487,8 +498,8 @@ func Example_ContextTimeout() {
 	fmt.Printf("Sent: %s\n", result.MessageID)
 }
 
-// Example_SendVerificationCode 发送验证码（完整实战案例）
-func Example_SendVerificationCode() {
+// ExampleSendVerificationCode 发送验证码（完整实战案例）
+func ExampleSendVerificationCode() {
 	// 1. 初始化客户端（建议全局单例）
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSES,
@@ -505,7 +516,8 @@ func Example_SendVerificationCode() {
 
 	tencentClient, ok := client.(*TencentSESClient)
 	if !ok {
-		log.Fatal("Not a Tencent SES client")
+		log.Printf("Client type error: not Tencent SES")
+		return
 	}
 
 	// 2. 模拟业务逻辑：生成验证码

@@ -5,6 +5,14 @@ package goemail
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ProviderType 邮件服务提供商类型
@@ -36,7 +44,7 @@ type SendRequest struct {
 	Cc          []string          // 抄送列表
 	Bcc         []string          // 密送列表
 	Subject     string            // 邮件主题
-	HtmlBody    string            // HTML正文
+	HTMLBody    string            // HTML正文
 	TextBody    string            // 纯文本正文
 	ReplyTo     []string          // 回复地址
 	Attachments []*Attachment     // 附件列表
@@ -88,11 +96,31 @@ func NewEmailClient(cfg *Config) (EmailClient, error) {
 }
 
 // ValidateEmail 验证邮箱地址格式
-func ValidateEmail(email string) bool {
+func ValidateEmail(ctx context.Context, email string) bool {
+	// 链路追踪
+	tracer := otel.Tracer("goemail")
+	spanName := "email.validate.single"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start validating email",
+		logger.String("email", email))
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("email.to_validate", email),
+	)
+
+	startTime := time.Now()
+
 	if len(email) == 0 {
+		span.SetAttributes(
+			attribute.Bool("email.is_valid", false),
+		)
+		span.SetStatus(codes.Ok, "validation completed")
 		return false
 	}
-	
+
 	atIndex := -1
 	for i, c := range email {
 		if c == '@' {
@@ -100,18 +128,26 @@ func ValidateEmail(email string) bool {
 			break
 		}
 	}
-	
+
 	if atIndex <= 0 || atIndex >= len(email)-1 {
+		span.SetAttributes(
+			attribute.Bool("email.is_valid", false),
+		)
+		span.SetStatus(codes.Ok, "validation completed")
 		return false
 	}
-	
+
 	localPart := email[:atIndex]
 	domainPart := email[atIndex+1:]
-	
+
 	if len(localPart) == 0 || len(domainPart) == 0 {
+		span.SetAttributes(
+			attribute.Bool("email.is_valid", false),
+		)
+		span.SetStatus(codes.Ok, "validation completed")
 		return false
 	}
-	
+
 	// 检查域名是否包含点
 	hasDot := false
 	for _, c := range domainPart {
@@ -120,17 +156,50 @@ func ValidateEmail(email string) bool {
 			break
 		}
 	}
-	
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Bool("email.is_valid", hasDot),
+		attribute.Float64("email.validate.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "validation completed")
+
 	return hasDot
 }
 
 // ValidateEmails 批量验证邮箱地址
-func ValidateEmails(emails []string) []string {
+func ValidateEmails(ctx context.Context, emails []string) []string {
+	// 链路追踪
+	tracer := otel.Tracer("goemail")
+	spanName := "email.validate.batch"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start validating emails batch",
+		logger.Int("count", len(emails)))
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.Int("email.count", len(emails)),
+	)
+
+	startTime := time.Now()
+
 	var invalid []string
 	for _, email := range emails {
-		if !ValidateEmail(email) {
+		if !ValidateEmail(ctx, email) {
 			invalid = append(invalid, email)
 		}
 	}
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Int("email.invalid_count", len(invalid)),
+		attribute.Float64("email.validate.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "validation completed")
+
 	return invalid
 }
