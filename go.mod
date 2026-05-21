@@ -7,6 +7,7 @@ require (
 	github.com/IBM/sarama v1.45.2
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/alibaba/sentinel-golang/pkg/adapters/gin v0.0.0-20250702131350-f7a7f9575711
+	github.com/alibabacloud-go/dm-20151123 v1.0.4
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/aliyun/aliyun-log-go-sdk v0.1.117
 	github.com/bojand/ghz v0.120.0
@@ -60,6 +61,8 @@ require (
 	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.6.0
 	github.com/swaggo/swag v1.16.6
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.102
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ses v1.3.86
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/tjfoc/gmsm v1.4.1
@@ -88,6 +91,8 @@ require (
 	gorm.io/plugin/dbresolver v1.6.2
 )
 
+require github.com/alibabacloud-go/darabonba-openapi v0.1.18 // indirect
+
 require (
 	cel.dev/expr v0.25.1 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
@@ -112,8 +117,8 @@ require (
 	github.com/alibabacloud-go/endpoint-util v1.1.0 // indirect
 	github.com/alibabacloud-go/kms-20160120/v3 v3.2.3 // indirect
 	github.com/alibabacloud-go/openapi-util v0.1.0 // indirect
-	github.com/alibabacloud-go/tea v1.2.2 // indirect
-	github.com/alibabacloud-go/tea-utils v1.4.4 // indirect
+	github.com/alibabacloud-go/tea v1.4.0
+	github.com/alibabacloud-go/tea-utils v1.4.5 // indirect
 	github.com/alibabacloud-go/tea-utils/v2 v2.0.7 // indirect
 	github.com/alibabacloud-go/tea-xml v1.1.3 // indirect
 	github.com/aliyun/alibaba-cloud-sdk-go v1.61.1800 // indirect

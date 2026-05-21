@@ -32,6 +32,7 @@ type Config struct {
 	App           App           `yaml:"app" json:"app"`
 	Database      Database      `yaml:"database" json:"database"`
 	Elasticsearch Elasticsearch `yaml:"elasticsearch" json:"elasticsearch"`
+	Email         Email         `yaml:"email" json:"email"`
 	Etcd          Etcd          `yaml:"etcd" json:"etcd"`
 	Grpc          Grpc          `yaml:"grpc" json:"grpc"`
 	GrpcClient    []GrpcClient  `yaml:"grpcClient" json:"grpcClient"`
@@ -44,6 +45,14 @@ type Config struct {
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
 	Sign          Sign          `yaml:"sign" json:"sign"`
 	Sls           Sls           `yaml:"sls" json:"sls"`
+}
+
+type Email struct {
+	AccessKeyID  string `yaml:"accessKeyID" json:"accessKeyID"`
+	ProviderType string `yaml:"providerType" json:"providerType"`
+	Region       string `yaml:"region" json:"region"`
+	SecretKey    string `yaml:"secretKey" json:"secretKey"`
+	SMTP         SMTP   `yaml:"smtp" json:"smtp"`
 }
 
 type Sls struct {
@@ -305,6 +314,13 @@ type LogFileConfig struct {
 type IgnoreMethods struct {
 	Grpc []string `yaml:"grpc" json:"grpc"`
 	HTTP []string `yaml:"http" json:"http"`
+}
+
+type SMTP struct {
+	Host     string `yaml:"host" json:"host"`
+	Password string `yaml:"password" json:"password"`
+	Port     int    `yaml:"port" json:"port"`
+	Username string `yaml:"username" json:"username"`
 }
 
 type Sign struct {

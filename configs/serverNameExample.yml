@@ -298,3 +298,16 @@ elasticsearch:
   # 健康检查
   enablePingCheck: true           # 是否启用ping检查
   enableHealthCheck: true         # 是否启用健康检查
+
+# 邮件服务配置（支持腾讯云SES/阿里云DM/SMTP）
+email:
+  providerType: "tencent_ses"     # tencent_ses | aliyun_dm | smtp
+  region: "ap-guangzhou"          # 区域
+  accessKeyID: "YOUR_AK"          # AK/SK（建议从环境变量读取）
+  secretKey: "YOUR_SK"
+  # SMTP专用（providerType=smtp时使用）
+  smtp:
+    host: "smtp.qq.com"
+    port: 465
+    username: "your_email@qq.com"
+    password: "your_auth_code"
