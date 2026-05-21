@@ -66,6 +66,7 @@ require (
 	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2
 	github.com/vmihailenco/msgpack v4.0.4+incompatible
 	github.com/xuri/excelize/v2 v2.9.1
+	github.com/yeka/zip v0.0.0-20231116150916-03d6312748a9
 	go.etcd.io/etcd/client/v3 v3.6.4
 	go.opentelemetry.io/contrib v1.43.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.62.0

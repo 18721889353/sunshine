@@ -34,3 +34,4 @@ cmd/serverNameExample_httpPbExample/serverNameExample_httpPbExample
 cmd/serverNameExample_mixExample/serverNameExample_mixExample
 cmd/sunshine/sunshine
 # delete the templates code end
+*.zip
