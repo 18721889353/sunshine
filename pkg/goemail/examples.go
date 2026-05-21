@@ -171,6 +171,55 @@ func Example_AliyunDM() {
 	fmt.Printf("Env ID: %v\n", result.Extra["env_id"])
 }
 
+// Example_AliyunDM_Template 阿里云DM模板邮件示例
+func Example_AliyunDM_Template() {
+	// 1. 创建客户端
+	cfg := &Config{
+		ProviderType: ProviderTypeAliyunDM,
+		Region:       "cn-hangzhou",
+		AccessKeyID:  os.Getenv("ALIYUN_AK"),
+		SecretKey:    os.Getenv("ALIYUN_SK"),
+	}
+
+	client, err := NewEmailClient(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+
+	// 2. 转换为AliyunDMClient以使用模板功能
+	aliyunClient, ok := client.(*AliyunDMClient)
+	if !ok {
+		log.Fatal("Client is not AliyunDMClient")
+	}
+
+	// 3. 准备模板数据
+	// 假设在阿里云控制台创建了模板，模板内容类似：
+	// 尊敬的${userName}，您的验证码是${code}，有效期${expiry}
+	templateData := map[string]interface{}{
+		"userName": "张三",
+		"code":     "123456",
+		"expiry":   "10分钟",
+	}
+
+	// 4. 发送模板邮件
+	ctx := context.Background()
+	result, err := aliyunClient.SendTemplateEmail(
+		ctx,
+		"noreply@example.com",           // 发件人
+		[]string{"recipient@example.com"}, // 收件人
+		"verification_code",              // 模板名称（在阿里云控制台创建）
+		templateData,                     // 模板变量
+	)
+	if err != nil {
+		log.Printf("Send template email failed: %v", err)
+		return
+	}
+
+	fmt.Printf("Template email sent successfully!\n")
+	fmt.Printf("Env ID: %v\n", result.Extra["env_id"])
+	fmt.Printf("Template Name: %v\n", result.Extra["template_name"])
+}
+
 // Example_SMTP SMTP使用示例
 func Example_SMTP() {
 	// 从环境变量读取SMTP配置

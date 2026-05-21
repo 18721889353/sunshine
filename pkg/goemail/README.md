@@ -278,6 +278,90 @@ func main() {
 
 ---
 
+### 案例1.5：阿里云DM模板邮件
+
+**场景**: 使用阿里云DM发送模板邮件
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
+    
+    "github.com/18721889353/sunshine/pkg/goemail"
+)
+
+func SendAliyunTemplateEmail(email string, code string) error {
+    // 1. 初始化客户端
+    cfg := &goemail.Config{
+        ProviderType: goemail.ProviderTypeAliyunDM,
+        Region:       "cn-hangzhou",
+        AccessKeyID:  os.Getenv("ALIYUN_AK"),
+        SecretKey:    os.Getenv("ALIYUN_SK"),
+    }
+    
+    client, err := goemail.NewEmailClient(cfg)
+    if err != nil {
+        return fmt.Errorf("init client failed: %w", err)
+    }
+    
+    // 2. 转换为AliyunDMClient以使用模板功能
+    aliyunClient, ok := client.(*goemail.AliyunDMClient)
+    if !ok {
+        return fmt.Errorf("not an Aliyun DM client")
+    }
+    
+    // 3. 准备模板数据
+    // 假设在阿里云控制台创建了模板：
+    // 内容：尊敬的${userName}，您的验证码是${code}，有效期${expiry}
+    templateData := map[string]interface{}{
+        "userName": "用户",
+        "code":     code,
+        "expiry":   "10分钟",
+    }
+    
+    // 4. 发送模板邮件
+    ctx := context.Background()
+    result, err := aliyunClient.SendTemplateEmail(
+        ctx,
+        "noreply@example.com",           // 发件人
+        []string{email},                  // 收件人
+        "verification_code",              // 模板名称（从阿里云控制台获取）
+        templateData,                     // 模板变量
+    )
+    
+    if err != nil {
+        return fmt.Errorf("send failed: %w", err)
+    }
+    
+    log.Printf("验证码已发送至 %s, EnvID: %v", email, result.Extra["env_id"])
+    return nil
+}
+
+func main() {
+    // 生成随机验证码
+    code := "123456" // 实际应使用随机生成
+    
+    err := SendAliyunTemplateEmail("user@example.com", code)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("验证码发送成功！")
+}
+```
+
+**阿里云DM模板管理步骤:**
+1. 登录 [阿里云DM控制台](https://dm.console.aliyun.com)
+2. 进入「模板管理」→ 创建模板
+3. 填写模板内容（使用`${变量名}`语法）
+4. 审核通过后获得模板名称
+
+---
+
 ### 案例2：订单通知（带标签追踪）
 
 **场景**: 电商订单发货通知
@@ -697,15 +781,15 @@ func main() {
 | **发送速度** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
 | **到达率** | 高 | 高 | 中 |
 | **成本** | 按量付费 | 按量付费 | 免费 |
-| **模板支持** | ✅ | ✅ | ❌ |
+| **模板支持** | ✅ (TemplateID) | ✅ (TemplateName) | ❌ |
 | **批量发送** | ✅ | ✅ | ✅ |
 | **标签追踪** | ✅ | ✅ | ❌ |
 
 **推荐选择:**
 - 🎯 **生产环境**: 腾讯云SES（优先）或阿里云DM
 - 🧪 **开发测试**: SMTP（QQ/163邮箱）
-- 📨 **验证码/通知**: 腾讯云SES模板邮件
-- 📢 **营销邮件**: 腾讯云SES（支持标签追踪）
+- 📨 **验证码/通知**: 腾讯云SES模板邮件（使用TemplateID）
+- 📢 **营销邮件**: 阿里云DM模板邮件（使用TemplateName）
 
 ---
 
@@ -794,6 +878,22 @@ result, err := tencentClient.SendTemplateEmail(
 )
 ```
 
+### 模板邮件（阿里云DM）
+
+```go
+aliyunClient := client.(*goemail.AliyunDMClient)
+result, err := aliyunClient.SendTemplateEmail(
+    ctx,
+    "sender@example.com",
+    []string{"user@example.com"},
+    "verification_code",      // 模板名称
+    map[string]interface{}{   // 模板变量
+        "userName": "张三",
+        "code": "123456",
+    },
+)
+```
+
 ---
 
 ## ⚠️ 注意事项
@@ -832,6 +932,11 @@ go test -v -short
 
 ## 📝 更新日志
 
+- **v2.2.0** (2026-05-21): 新增阿里云DM模板邮件支持
+  - ✅ 阿里云DM客户端完整实现（修复SDK初始化）
+  - ✅ 阿里云DM模板邮件发送功能（使用TemplateName）
+  - ✅ 完善文档和示例（腾讯云SES + 阿里云DM双平台）
+  
 - **v2.1.0** (2026-05-21): 新增模板邮件支持
   - ✅ 腾讯云SES模板邮件完整实现
   - ✅ 参考PHP官方案例优化API设计

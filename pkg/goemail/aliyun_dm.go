@@ -2,10 +2,12 @@ package goemail
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	darabonba "github.com/alibabacloud-go/darabonba-openapi/client"
 	dm "github.com/alibabacloud-go/dm-20151123/client"
 	"github.com/alibabacloud-go/tea/tea"
 )
@@ -26,9 +28,24 @@ func newAliyunDMClient(cfg *Config) (*AliyunDMClient, error) {
 		cfg.Region = "cn-hangzhou" // 默认杭州区域
 	}
 
-	// TODO: 使用正确的阿里云DM SDK初始化方式
-	// 当前SDK版本API有变化，需要查阅最新文档
-	return nil, fmt.Errorf("aliyun DM client initialization pending SDK update")
+	// 创建配置
+	config := &darabonba.Config{
+		AccessKeyId:     tea.String(cfg.AccessKeyID),
+		AccessKeySecret: tea.String(cfg.SecretKey),
+		Endpoint:        tea.String(fmt.Sprintf("dm.%s.aliyuncs.com", cfg.Region)),
+		RegionId:        tea.String(cfg.Region),
+	}
+
+	// 创建客户端
+	client, err := dm.NewClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aliyun DM client: %w", err)
+	}
+
+	return &AliyunDMClient{
+		client: client,
+		config: cfg,
+	}, nil
 }
 
 // SendEmail 发送邮件
@@ -43,13 +60,13 @@ func (c *AliyunDMClient) SendEmail(ctx context.Context, req *SendRequest) (*Send
 
 	// 构建请求
 	request := &dm.SingleSendMailRequest{
-		AccountName:    tea.String(req.From),                     // 发件人地址
-		AddressType:    tea.Int32(1),                             // 1为发信地址
-		ReplyToAddress: tea.Bool(true),                           // 是否允许回复
-		Subject:        tea.String(req.Subject),                  // 邮件主题
-		HtmlBody:       tea.String(req.HtmlBody),                 // HTML正文
-		TextBody:       tea.String(req.TextBody),                 // 纯文本正文
-		ToAddress:      tea.String(strings.Join(req.To, ",")),   // 收件人列表（逗号分隔）
+		AccountName:    tea.String(req.From),                  // 发件人地址
+		AddressType:    tea.Int32(1),                          // 1为发信地址
+		ReplyToAddress: tea.Bool(true),                        // 是否允许回复
+		Subject:        tea.String(req.Subject),               // 邮件主题
+		HtmlBody:       tea.String(req.HtmlBody),              // HTML正文
+		TextBody:       tea.String(req.TextBody),              // 纯文本正文
+		ToAddress:      tea.String(strings.Join(req.To, ",")), // 收件人列表（逗号分隔）
 	}
 
 	// 调用API
@@ -129,4 +146,76 @@ func (c *AliyunDMClient) validateRequest(req *SendRequest) error {
 	}
 
 	return nil
+}
+
+// SendTemplateEmail 发送模板邮件（阿里云DM）
+// templateName: 模板名称（在阿里云控制台创建）
+// templateData: 模板变量数据，会被序列化为JSON字符串
+func (c *AliyunDMClient) SendTemplateEmail(ctx context.Context, from string, to []string, templateName string, templateData map[string]interface{}) (*SendResult, error) {
+	// 验证参数
+	if from == "" {
+		return &SendResult{
+			Status: "failed",
+			Error:  fmt.Errorf("from address is required"),
+		}, fmt.Errorf("from address is required")
+	}
+
+	if len(to) == 0 {
+		return &SendResult{
+			Status: "failed",
+			Error:  fmt.Errorf("at least one recipient is required"),
+		}, fmt.Errorf("at least one recipient is required")
+	}
+
+	if templateName == "" {
+		return &SendResult{
+			Status: "failed",
+			Error:  fmt.Errorf("template name is required"),
+		}, fmt.Errorf("template name is required")
+	}
+
+	// 构建批量发送请求（阿里云DM使用BatchSendMail发送模板）
+	request := &dm.BatchSendMailRequest{
+		AccountName:   tea.String(from),                  // 发件人地址
+		AddressType:   tea.Int32(1),                      // 1为发信地址
+		TemplateName:  tea.String(templateName),          // 模板名称
+		ReceiversName: tea.String(strings.Join(to, ",")), // 收件人列表（逗号分隔）
+	}
+
+	// 如果有模板变量，需要添加到请求中
+	// 注意：阿里云DM的模板变量通过TagName传递
+	if templateData != nil && len(templateData) > 0 {
+		// 将模板数据序列化为JSON，存入TagName或其他字段
+		templateDataJSON, err := json.Marshal(templateData)
+		if err != nil {
+			return &SendResult{
+				Status: "failed",
+				Error:  fmt.Errorf("failed to marshal template data: %w", err),
+			}, err
+		}
+		// TagName可以用于标记和追踪，也可以存储额外的模板数据
+		request.TagName = tea.String(string(templateDataJSON))
+	}
+
+	// 调用API
+	response, err := c.client.BatchSendMail(request)
+	if err != nil {
+		return &SendResult{
+			Status: "failed",
+			Error:  fmt.Errorf("aliyun DM send template email failed: %w", err),
+		}, err
+	}
+
+	// 解析结果
+	result := &SendResult{
+		MessageID: "",
+		Status:    "success",
+		Extra: map[string]interface{}{
+			"env_id":        tea.StringValue(response.Body.EnvId),
+			"template_name": templateName,
+			"timestamp":     time.Now().Unix(),
+		},
+	}
+
+	return result, nil
 }
