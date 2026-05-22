@@ -118,6 +118,12 @@ type Config struct {
 	UseTLS       bool
 }
 
+// 邮件状态常量
+const (
+	// StatusFailed 邮件发送失败状态
+	StatusFailed = "failed"
+)
+
 // NewEmailClient 创建邮件客户端
 func NewEmailClient(cfg *Config) (EmailClient, error) {
 	switch cfg.ProviderType {

@@ -1,3 +1,4 @@
+// Package main 演示defaultAvatar.png文件上传
 package main
 
 import (

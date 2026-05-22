@@ -453,7 +453,7 @@ func ExampleErrorHandling() {
 		log.Printf("Send error: %v", err)
 
 		// 可以根据错误类型进行不同处理
-		if result != nil && result.Status == "failed" {
+		if result != nil && result.Status == StatusFailed {
 			log.Printf("Result status: %s", result.Status)
 			log.Printf("Result error: %v", result.Error)
 		}

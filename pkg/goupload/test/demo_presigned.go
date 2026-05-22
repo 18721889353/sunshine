@@ -1,3 +1,4 @@
+// Package main 演示预签名URL的使用
 package main
 
 import (
@@ -107,6 +108,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("❌ 上传失败: %v", err)
 	}
+	//nolint:errcheck // 在程序退出时关闭response body，错误可忽略
 	defer uploadResp.Body.Close()
 
 	uploadElapsed := time.Since(uploadStartTime)

@@ -81,7 +81,7 @@ func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*Se
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  err,
 		}, err
 	}
@@ -121,7 +121,7 @@ func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*Se
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
 		)
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  fmt.Errorf("tencent SES send email failed: %w", err),
 		}, err
 	}
@@ -223,7 +223,7 @@ func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatu
 			attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
 		)
 		return &EmailStatusResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  fmt.Errorf("tencent SES get email status failed: %w", err),
 		}, err
 	}
@@ -313,41 +313,41 @@ func (c *TencentSESClient) parseSendStatus(status *int64) (statusStr string, mes
 	case 0:
 		return "accepted", "处理成功"
 	case 1001, 1002, 1003, 1005, 1009:
-		return "failed", "内部系统异常"
+		return StatusFailed, "内部系统异常"
 	case 1004:
-		return "failed", "发信超时"
+		return StatusFailed, "发信超时"
 	case 1006:
-		return "failed", "触发频率控制"
+		return StatusFailed, "触发频率控制"
 	case 1007:
-		return "failed", "邮件地址在黑名单中"
+		return StatusFailed, "邮件地址在黑名单中"
 	case 1008:
-		return "failed", "域名被收件人拒收"
+		return StatusFailed, "域名被收件人拒收"
 	case 1010:
-		return "failed", "超出了每日发送限制"
+		return StatusFailed, "超出了每日发送限制"
 	case 1011:
-		return "failed", "无发送自定义内容权限，必须使用模板"
+		return StatusFailed, "无发送自定义内容权限，必须使用模板"
 	case 1013:
-		return "failed", "域名被收件人取消订阅"
+		return StatusFailed, "域名被收件人取消订阅"
 	case 2001:
-		return "failed", "找不到相关记录"
+		return StatusFailed, "找不到相关记录"
 	case 3007:
-		return "failed", "模板ID无效或者不可用"
+		return StatusFailed, "模板ID无效或者不可用"
 	case 3008:
-		return "failed", "被收信域名临时封禁"
+		return StatusFailed, "被收信域名临时封禁"
 	case 3009:
-		return "failed", "无权限使用该模板"
+		return StatusFailed, "无权限使用该模板"
 	case 3010:
-		return "failed", "TemplateData字段格式不正确"
+		return StatusFailed, "TemplateData字段格式不正确"
 	case 3014:
-		return "failed", "发件域名没有经过认证，无法发送"
+		return StatusFailed, "发件域名没有经过认证，无法发送"
 	case 3020:
-		return "failed", "收件方邮箱类型在黑名单"
+		return StatusFailed, "收件方邮箱类型在黑名单"
 	case 3024:
-		return "failed", "邮箱地址格式预检查失败"
+		return StatusFailed, "邮箱地址格式预检查失败"
 	case 3030:
-		return "failed", "退信率过高，临时限制发送"
+		return StatusFailed, "退信率过高，临时限制发送"
 	case 3033:
-		return "failed", "余额不足，账号欠费等"
+		return StatusFailed, "余额不足，账号欠费等"
 	default:
 		return "unknown", fmt.Sprintf("未知状态码: %d", *status)
 	}
@@ -365,7 +365,7 @@ func (c *TencentSESClient) parseDeliverStatus(status *int64) (statusStr string, 
 	case 1:
 		return "delivered", "邮件递送成功"
 	case 2:
-		return "failed", "邮件因某种原因被丢弃"
+		return StatusFailed, "邮件因某种原因被丢弃"
 	case 3:
 		return "rejected", "收件方ESP拒信"
 	case 8:
@@ -437,7 +437,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  err,
 		}, err
 	}
@@ -447,7 +447,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  err,
 		}, err
 	}
@@ -457,7 +457,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  err,
 		}, err
 	}
@@ -482,7 +482,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 	templateDataJSON, err := json.Marshal(templateData)
 	if err != nil {
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  fmt.Errorf("failed to marshal template data: %w", err),
 		}, err
 	}
@@ -502,7 +502,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
 		)
 		return &SendResult{
-			Status: "failed",
+			Status: StatusFailed,
 			Error:  fmt.Errorf("tencent SES send template email failed: %w", err),
 		}, err
 	}
