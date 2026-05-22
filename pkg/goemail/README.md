@@ -12,6 +12,7 @@
 - ✅ **批量发送**: 高效批量邮件处理
 - ✅ **附件支持**: 多附件上传
 - ✅ **标签追踪**: 邮件统计分析
+- ✅ **状态查询**: 查询邮件发送状态和投递结果 ⭐
 - ✅ **Context支持**: 超时控制和取消
 
 ---
@@ -185,6 +186,198 @@ func main() {
     fmt.Printf("发送成功！Message ID: %s\n", result.MessageID)
 }
 ```
+
+---
+
+## 📊 邮件状态查询 ⭐
+
+### 功能概述
+
+发送邮件后，您可以查询邮件的发送状态、投递状态以及用户行为（打开、点击、退订、投诉等）。
+
+**支持的平台：**
+- ✅ **腾讯云SES**: 完整支持单封邮件状态查询
+- ⚠️ **阿里云DM**: 仅支持基于TagName的发送记录统计查询
+- ❌ **SMTP**: 不支持（协议限制）
+
+### 案例1：腾讯云SES - 查询邮件发送状态
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/18721889353/sunshine/pkg/goemail"
+)
+
+func main() {
+    // 创建客户端
+    cfg := &goemail.Config{
+        ProviderType: goemail.ProviderTypeTencentSES,
+        Region:       "ap-guangzhou",
+        AccessKeyID:  os.Getenv("TENCENT_AK"),
+        SecretKey:    os.Getenv("TENCENT_SK"),
+    }
+    
+    client, err := goemail.NewEmailClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    ctx := context.Background()
+    
+    // 步骤1: 发送邮件
+    sendReq := &goemail.SendRequest{
+        From:     "sender@example.com",
+        To:       []string{"user@example.com"},
+        Subject:  "测试邮件",
+        HTMLBody: "<h1>这是一封测试邮件</h1>",
+    }
+    
+    result, err := client.SendEmail(ctx, sendReq)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("✅ 邮件发送成功! MessageID: %s\n", result.MessageID)
+    
+    // 步骤2: 等待邮件处理（可选）
+    time.Sleep(2 * time.Second)
+    
+    // 步骤3: 查询邮件状态
+    statusResult, err := client.GetEmailStatus(ctx, &goemail.EmailStatusQuery{
+        MessageID: result.MessageID,
+        FromDate:  time.Now(),
+        Limit:     10,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // 步骤4: 显示状态信息
+    for i, status := range statusResult.Data {
+        fmt.Printf("📧 邮件 %d:\n", i+1)
+        fmt.Printf("   MessageID: %s\n", status.MessageID)
+        fmt.Printf("   收件人: %s\n", status.ToAddress)
+        fmt.Printf("   状态: %s\n", status.Status)
+        fmt.Printf("   状态码: %d\n", status.StatusCode)
+        fmt.Printf("   描述: %s\n", status.StatusMessage)
+        fmt.Printf("   请求时间: %s\n", 
+            status.RequestTime.Format("2006-01-02 15:04:05"))
+        if !status.DeliverTime.IsZero() {
+            fmt.Printf("   投递时间: %s\n", 
+                status.DeliverTime.Format("2006-01-02 15:04:05"))
+        }
+        fmt.Printf("   已打开: %v\n", status.UserOpened)
+        fmt.Printf("   已点击: %v\n", status.UserClicked)
+        fmt.Printf("   已退订: %v\n", status.UserUnsubscribed)
+        fmt.Printf("   已投诉: %v\n", status.UserComplained)
+    }
+}
+```
+
+### 案例2：按时间范围查询
+
+```go
+// 查询最近1小时的邮件状态
+now := time.Now()
+oneHourAgo := now.Add(-1 * time.Hour)
+
+statusResult, err := client.GetEmailStatus(ctx, &goemail.EmailStatusQuery{
+    FromDate: oneHourAgo,
+    ToDate:   now,
+    Offset:   0,
+    Limit:    100,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("查询到 %d 条邮件记录\n", len(statusResult.Data))
+```
+
+### 案例3：按收件人查询
+
+```go
+// 查询特定收件人的邮件状态
+statusResult, err := client.GetEmailStatus(ctx, &goemail.EmailStatusQuery{
+    ToAddress: "user@example.com",
+    FromDate:  time.Now().Add(-24 * time.Hour),
+    Limit:     50,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, status := range statusResult.Data {
+    fmt.Printf("收件人: %s, 状态: %s\n", status.ToAddress, status.Status)
+}
+```
+
+### 案例4：阿里云DM - 查询发送记录
+
+```go
+// 注意：阿里云DM不支持直接查询单封邮件状态
+// 需要使用GetTrackList方法查询基于TagName的发送记录
+
+aliyunClient := client.(*goemail.AliyunDMClient)
+
+trackResult, err := aliyunClient.GetTrackList(
+    ctx,
+    "sender@example.com",           // 发件人
+    "verification_code",             // 标签名（发送邮件时设置）
+    time.Now().Add(-24*time.Hour),   // 开始时间
+    time.Now(),                      // 结束时间
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("查询到 %d 条发送记录\n", trackResult.Extra["total"])
+```
+
+**发送邮件时设置TagName：**
+
+```go
+// 阿里云DM发送邮件时，通过Tags设置TagName用于后续追踪
+sendReq := &goemail.SendRequest{
+    From:     "sender@example.com",
+    To:       []string{"user@example.com"},
+    Subject:  "验证码",
+    HTMLBody: "<p>您的验证码是: 123456</p>",
+    Tags: map[string]string{
+        "TagName": "verification_code", // 设置标签名
+    },
+}
+
+result, err := client.SendEmail(ctx, sendReq)
+```
+
+### 状态说明
+
+**腾讯云SES状态码：**
+
+| 状态 | 说明 |
+|------|------|
+| `accepted` | 处理成功，进入发送队列 |
+| `delivered` | 邮件递送成功 |
+| `failed` | 发送失败 |
+| `rejected` | 被收件方拒收 |
+| `delayed` | 延迟递送 |
+| `pending` | 等待投递 |
+
+**用户行为追踪：**
+
+| 字段 | 说明 |
+|------|------|
+| `UserOpened` | 用户是否打开了邮件 |
+| `UserClicked` | 用户是否点击了邮件中的链接 |
+| `UserUnsubscribed` | 用户是否退订 |
+| `UserComplained` | 用户是否投诉为垃圾邮件 |
 
 ---
 
@@ -932,6 +1125,13 @@ go test -v -short
 
 ## 📝 更新日志
 
+- **v2.3.0** (2026-05-22): 新增邮件状态查询功能 ⭐
+  - ✅ 腾讯云SES完整支持单封邮件状态查询
+  - ✅ 阿里云DM支持基于TagName的发送记录统计查询
+  - ✅ 统一接口设计（GetEmailStatus）
+  - ✅ 支持查询发送状态、投递状态、用户行为（打开/点击/退订/投诉）
+  - ✅ 完整的OpenTelemetry链路追踪集成
+  
 - **v2.2.0** (2026-05-21): 新增阿里云DM模板邮件支持
   - ✅ 阿里云DM客户端完整实现（修复SDK初始化）
   - ✅ 阿里云DM模板邮件发送功能（使用TemplateName）

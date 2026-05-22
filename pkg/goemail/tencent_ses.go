@@ -31,7 +31,7 @@ func newTencentSESClient(cfg *Config) (*TencentSESClient, error) {
 	}
 
 	if cfg.Region == "" {
-		cfg.Region = "ap-guangzhou" // 默认广州区域
+		cfg.Region = "ap-hongkong" // 默认香港区域
 	}
 
 	// 创建凭证
@@ -166,6 +166,213 @@ func (c *TencentSESClient) SendBatchEmail(ctx context.Context, reqs []*SendReque
 // GetProviderType 获取提供商类型
 func (c *TencentSESClient) GetProviderType() ProviderType {
 	return ProviderTypeTencentSES
+}
+
+// GetEmailStatus 查询邮件发送状态
+func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goemail.tencent_ses")
+	spanName := "tencent_ses.get_email_status"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start querying email status",
+		logger.String("message_id", query.MessageID),
+		logger.String("to_address", query.ToAddress))
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("email.provider", "tencent_ses"),
+		attribute.String("email.query.message_id", query.MessageID),
+		attribute.String("email.query.to_address", query.ToAddress),
+	)
+
+	startTime := time.Now()
+
+	// 构建请求
+	request := ses.NewGetSendEmailStatusRequest()
+
+	// 设置查询日期（必须）
+	if query.FromDate.IsZero() {
+		query.FromDate = time.Now()
+	}
+	request.RequestDate = common.StringPtr(query.FromDate.Format("2006-01-02"))
+
+	// 设置可选参数
+	if query.MessageID != "" {
+		request.MessageId = common.StringPtr(query.MessageID)
+	}
+	if query.ToAddress != "" {
+		request.ToEmailAddress = common.StringPtr(query.ToAddress)
+	}
+	// Offset 必须设置，默认为0
+	request.Offset = common.Uint64Ptr(query.Offset)
+	if query.Limit > 0 {
+		request.Limit = common.Uint64Ptr(query.Limit)
+	} else {
+		request.Limit = common.Uint64Ptr(10) // 默认10条
+	}
+
+	// 调用API
+	response, err := c.client.GetSendEmailStatus(request)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		duration := time.Since(startTime)
+		span.SetAttributes(
+			attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+		)
+		return &EmailStatusResult{
+			Status: "failed",
+			Error:  fmt.Errorf("tencent SES get email status failed: %w", err),
+		}, err
+	}
+
+	// 解析结果
+	var emailStatuses []*EmailStatus
+	if response.Response.EmailStatusList != nil {
+		for _, status := range response.Response.EmailStatusList {
+			emailStatus := &EmailStatus{
+				MessageID:   *status.MessageId,
+				ToAddress:   *status.ToEmailAddress,
+				FromAddress: *status.FromEmailAddress,
+				StatusCode:  int(*status.SendStatus),
+			}
+
+			// 转换发送状态
+			emailStatus.Status, emailStatus.StatusMessage = c.parseSendStatus(status.SendStatus)
+
+			// 转换投递状态
+			if status.DeliverStatus != nil {
+				deliverStatus, deliverMsg := c.parseDeliverStatus(status.DeliverStatus)
+				if emailStatus.Status == "pending" {
+					emailStatus.Status = deliverStatus
+					emailStatus.StatusMessage = deliverMsg
+				}
+			}
+
+			// 时间戳转换
+			if status.RequestTime != nil {
+				emailStatus.RequestTime = time.Unix(*status.RequestTime, 0)
+			}
+			if status.DeliverTime != nil {
+				emailStatus.DeliverTime = time.Unix(*status.DeliverTime, 0)
+			}
+
+			// 用户行为
+			if status.UserOpened != nil {
+				emailStatus.UserOpened = *status.UserOpened
+			}
+			if status.UserClicked != nil {
+				emailStatus.UserClicked = *status.UserClicked
+			}
+			if status.UserUnsubscribed != nil {
+				emailStatus.UserUnsubscribed = *status.UserUnsubscribed
+			}
+			if status.UserComplained != nil {
+				emailStatus.UserComplained = *status.UserComplained
+			}
+
+			// 额外信息
+			emailStatus.Extra = map[string]interface{}{
+				"send_status":     *status.SendStatus,
+				"deliver_status":  *status.DeliverStatus,
+				"deliver_message": *status.DeliverMessage,
+			}
+
+			emailStatuses = append(emailStatuses, emailStatus)
+		}
+	}
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Int("email.status.count", len(emailStatuses)),
+		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "email status queried successfully")
+
+	return &EmailStatusResult{
+		Status: "success",
+		Data:   emailStatuses,
+		Extra: map[string]interface{}{
+			"request_id":  *response.Response.RequestId,
+			"total_count": len(emailStatuses),
+			"timestamp":   time.Now().Unix(),
+		},
+	}, nil
+}
+
+// parseSendStatus 解析腾讯云服务端处理状态
+func (c *TencentSESClient) parseSendStatus(status *int64) (statusStr string, message string) {
+	if status == nil {
+		return "unknown", "状态未知"
+	}
+
+	switch *status {
+	case 0:
+		return "accepted", "处理成功"
+	case 1001, 1002, 1003, 1005, 1009:
+		return "failed", "内部系统异常"
+	case 1004:
+		return "failed", "发信超时"
+	case 1006:
+		return "failed", "触发频率控制"
+	case 1007:
+		return "failed", "邮件地址在黑名单中"
+	case 1008:
+		return "failed", "域名被收件人拒收"
+	case 1010:
+		return "failed", "超出了每日发送限制"
+	case 1011:
+		return "failed", "无发送自定义内容权限，必须使用模板"
+	case 1013:
+		return "failed", "域名被收件人取消订阅"
+	case 2001:
+		return "failed", "找不到相关记录"
+	case 3007:
+		return "failed", "模板ID无效或者不可用"
+	case 3008:
+		return "failed", "被收信域名临时封禁"
+	case 3009:
+		return "failed", "无权限使用该模板"
+	case 3010:
+		return "failed", "TemplateData字段格式不正确"
+	case 3014:
+		return "failed", "发件域名没有经过认证，无法发送"
+	case 3020:
+		return "failed", "收件方邮箱类型在黑名单"
+	case 3024:
+		return "failed", "邮箱地址格式预检查失败"
+	case 3030:
+		return "failed", "退信率过高，临时限制发送"
+	case 3033:
+		return "failed", "余额不足，账号欠费等"
+	default:
+		return "unknown", fmt.Sprintf("未知状态码: %d", *status)
+	}
+}
+
+// parseDeliverStatus 解析收件方处理状态
+func (c *TencentSESClient) parseDeliverStatus(status *int64) (statusStr string, message string) {
+	if status == nil {
+		return "pending", "等待投递"
+	}
+
+	switch *status {
+	case 0:
+		return "pending", "请求成功被腾讯云接受，进入发送队列"
+	case 1:
+		return "delivered", "邮件递送成功"
+	case 2:
+		return "failed", "邮件因某种原因被丢弃"
+	case 3:
+		return "rejected", "收件方ESP拒信"
+	case 8:
+		return "delayed", "邮件被ESP因某些原因延迟递送"
+	default:
+		return "unknown", fmt.Sprintf("未知投递状态码: %d", *status)
+	}
 }
 
 // validateRequest 验证请求参数

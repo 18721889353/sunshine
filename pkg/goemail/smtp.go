@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/logger"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -202,6 +204,50 @@ func (c *SMTPClient) SendBatchEmail(ctx context.Context, reqs []*SendRequest) ([
 // GetProviderType 获取提供商类型
 func (c *SMTPClient) GetProviderType() ProviderType {
 	return ProviderTypeSMTP
+}
+
+// GetEmailStatus 查询邮件发送状态
+// 注：SMTP协议不支持查询邮件发送状态
+// 邮件发送成功后即认为已送达SMTP服务器，后续投递由邮件服务器处理
+func (c *SMTPClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goemail.smtp")
+	spanName := "smtp.get_email_status"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start querying email status",
+		logger.String("message_id", query.MessageID))
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("email.provider", "smtp"),
+		attribute.String("email.query.message_id", query.MessageID),
+	)
+
+	startTime := time.Now()
+
+	// SMTP协议不支持查询邮件状态
+	span.SetAttributes(
+		attribute.String("email.status.note", "smtp_does_not_support_status_query"),
+	)
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "query completed with notice")
+
+	return &EmailStatusResult{
+		Status: "success",
+		Data:   nil,
+		Extra: map[string]interface{}{
+			"note":       "SMTP协议不支持查询邮件发送状态，邮件发送成功后即认为已送达SMTP服务器",
+			"message_id": query.MessageID,
+			"timestamp":  time.Now().Unix(),
+		},
+	}, nil
 }
 
 // validateRequest 验证请求参数

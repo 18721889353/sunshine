@@ -33,6 +33,8 @@ type EmailClient interface {
 	SendEmail(ctx context.Context, req *SendRequest) (*SendResult, error)
 	// SendBatchEmail 批量发送邮件
 	SendBatchEmail(ctx context.Context, reqs []*SendRequest) ([]*SendResult, error)
+	// GetEmailStatus 查询邮件发送状态
+	GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error)
 	// GetProviderType 获取提供商类型
 	GetProviderType() ProviderType
 }
@@ -65,6 +67,41 @@ type SendResult struct {
 	Status    string                 // 状态: success/failed
 	Error     error                  // 错误信息
 	Extra     map[string]interface{} // 额外信息（不同提供商返回的数据）
+}
+
+// EmailStatus 邮件状态信息
+type EmailStatus struct {
+	MessageID        string                 // 邮件消息ID
+	ToAddress        string                 // 收件人地址
+	FromAddress      string                 // 发件人地址
+	Status           string                 // 发送状态: delivered, failed, pending, rejected
+	StatusCode       int                    // 状态码
+	StatusMessage    string                 // 状态描述
+	RequestTime      time.Time              // 请求时间
+	DeliverTime      time.Time              // 投递时间
+	UserOpened       bool                   // 是否已打开
+	UserClicked      bool                   // 是否已点击
+	UserUnsubscribed bool                   // 是否退订
+	UserComplained   bool                   // 是否投诉
+	Extra            map[string]interface{} // 额外信息
+}
+
+// EmailStatusResult 邮件状态查询结果
+type EmailStatusResult struct {
+	Status string                 // 查询状态: success, failed
+	Data   []*EmailStatus         // 邮件状态列表
+	Error  error                  // 错误信息
+	Extra  map[string]interface{} // 额外信息
+}
+
+// EmailStatusQuery 邮件状态查询参数
+type EmailStatusQuery struct {
+	MessageID string    // 邮件消息ID（可选）
+	ToAddress string    // 收件人地址（可选）
+	FromDate  time.Time // 开始日期
+	ToDate    time.Time // 结束日期
+	Offset    uint64    // 偏移量
+	Limit     uint64    // 拉取条数
 }
 
 // Config 基础配置

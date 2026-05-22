@@ -153,6 +153,123 @@ func (c *AliyunDMClient) GetProviderType() ProviderType {
 	return ProviderTypeAliyunDM
 }
 
+// GetEmailStatus 查询邮件发送状态
+// 注：阿里云DM没有直接提供查询单封邮件状态的API
+// 这里实现一个基于TagName追踪的查询方法
+func (c *AliyunDMClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goemail.aliyun_dm")
+	spanName := "aliyun_dm.get_email_status"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start querying email status",
+		logger.String("message_id", query.MessageID))
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("email.provider", "aliyun_dm"),
+		attribute.String("email.query.message_id", query.MessageID),
+	)
+
+	startTime := time.Now()
+
+	// 阿里云DM没有直接查询邮件状态的API
+	// 建议使用以下方式：
+	// 1. 使用GetTrackListByMailFromAndTagName查询发送记录
+	// 2. 通过TagName追踪邮件
+	// 3. 通过阿里云控制台查看统计报表
+
+	// 这里返回一个提示信息
+	span.SetAttributes(
+		attribute.String("email.status.note", "aliyun_dm_does_not_support_direct_status_query"),
+	)
+
+	// 设置成功的追踪属性
+	duration := time.Since(startTime)
+	span.SetAttributes(
+		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "query completed with notice")
+
+	return &EmailStatusResult{
+		Status: "success",
+		Data:   nil,
+		Extra: map[string]interface{}{
+			"note":       "阿里云DM暂不支持直接查询单封邮件状态，请使用GetTrackListByMailFromAndTagName查询发送记录",
+			"message_id": query.MessageID,
+			"timestamp":  time.Now().Unix(),
+		},
+	}, nil
+}
+
+// GetTrackList 查询发送记录（基于AccountName和TagName）
+// 注：这是阿里云DM提供的主要查询方式，但返回的是统计数据而非单封邮件状态
+func (c *AliyunDMClient) GetTrackList(ctx context.Context, accountName, tagName string, startTime, endTime time.Time) (*EmailStatusResult, error) {
+	// 链路追踪
+	tracer := otel.Tracer("goemail.aliyun_dm")
+	spanName := "aliyun_dm.get_track_list"
+	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+
+	logger.InfoWithCtx(ctx, "Start querying track list",
+		logger.String("account_name", accountName),
+		logger.String("tag_name", tagName))
+
+	// 设置追踪属性
+	span.SetAttributes(
+		attribute.String("email.provider", "aliyun_dm"),
+		attribute.String("email.account_name", accountName),
+		attribute.String("email.tag_name", tagName),
+	)
+
+	queryStartTime := time.Now()
+
+	// 构建请求
+	request := &dm.GetTrackListByMailFromAndTagNameRequest{}
+	request.SetAccountName(accountName)
+	request.SetTagName(tagName)
+	request.SetStartTime(startTime.Format("2006-01-02 15:04:05"))
+	request.SetEndTime(endTime.Format("2006-01-02 15:04:05"))
+
+	// 调用API
+	response, err := c.client.GetTrackListByMailFromAndTagName(request)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		duration := time.Since(queryStartTime)
+		span.SetAttributes(
+			attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+		)
+		return &EmailStatusResult{
+			Status: "failed",
+			Error:  fmt.Errorf("aliyun DM get track list failed: %w", err),
+		}, err
+	}
+
+	// 设置成功的追踪属性
+	duration := time.Since(queryStartTime)
+	span.SetAttributes(
+		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+	)
+	span.SetStatus(codes.Ok, "track list queried successfully")
+
+	// 阿里云DM的TrackList返回的是统计数据，不是单封邮件状态
+	// 返回一个提示信息
+	return &EmailStatusResult{
+		Status: "success",
+		Data:   nil,
+		Extra: map[string]interface{}{
+			"note":       "阿里云DM的TrackList API返回的是统计数据，建议使用控制台查看详细发送记录",
+			"total":      tea.Int32Value(response.Body.Total),
+			"page_no":    tea.Int32Value(response.Body.PageNo),
+			"page_size":  tea.Int32Value(response.Body.PageSize),
+			"request_id": tea.StringValue(response.Body.RequestId),
+			"timestamp":  time.Now().Unix(),
+		},
+	}, nil
+}
+
 // validateRequest 验证请求参数
 func (c *AliyunDMClient) validateRequest(ctx context.Context, req *SendRequest) error {
 	if req.From == "" {

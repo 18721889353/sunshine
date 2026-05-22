@@ -36,3 +36,4 @@ cmd/sunshine/sunshine
 # delete the templates code end
 *.zip
 pkg/goexcel/files/
+*.env
