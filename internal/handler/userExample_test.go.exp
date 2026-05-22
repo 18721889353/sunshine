@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
-	"github.com/18721889353/sunshine/pkg/httpcli"
+	"github.com/18721889353/sunshine/pkg/gohttp"
 	"github.com/18721889353/sunshine/pkg/gotest"
 	"github.com/18721889353/sunshine/pkg/utils"
 
@@ -120,15 +120,15 @@ func Test_userExampleHandler_Create(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("Create"), testData)
+	result := &gohttp.StdResult{}
+	err := gohttp.Post(result, h.GetRequestURL("Create"), testData)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	t.Logf("%+v", result)
 	// delete the templates code start
-	result = &httpcli.StdResult{}
+	result = &gohttp.StdResult{}
 	testData = &types.CreateUserExampleRequest{
 		Name:     "foo",
 		Password: "f447b20a7fcbf53a5d5be013ea0b15af",
@@ -138,7 +138,7 @@ func Test_userExampleHandler_Create(t *testing.T) {
 		Age:      10,
 		Gender:   1,
 	}
-	err = httpcli.Post(result, h.GetRequestURL("Create"), testData)
+	err = gohttp.Post(result, h.GetRequestURL("Create"), testData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,8 +147,8 @@ func Test_userExampleHandler_Create(t *testing.T) {
 	h.MockDao.SQLMock.ExpectBegin()
 	h.MockDao.SQLMock.ExpectCommit()
 	// create error test
-	result = &httpcli.StdResult{}
-	err = httpcli.Post(result, h.GetRequestURL("Create"), testData)
+	result = &gohttp.StdResult{}
+	err = gohttp.Post(result, h.GetRequestURL("Create"), testData)
 	assert.Error(t, err)
 	// delete the templates code end
 }
@@ -166,8 +166,8 @@ func Test_userExampleHandler_DeleteByID(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Delete(result, h.GetRequestURL("DeleteByID", testData.ID))
+	result := &gohttp.StdResult{}
+	err := gohttp.Delete(result, h.GetRequestURL("DeleteByID", testData.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,11 +176,11 @@ func Test_userExampleHandler_DeleteByID(t *testing.T) {
 	}
 
 	// zero id error test
-	err = httpcli.Delete(result, h.GetRequestURL("DeleteByID", 0))
+	err = gohttp.Delete(result, h.GetRequestURL("DeleteByID", 0))
 	assert.NoError(t, err)
 
 	// delete error test
-	err = httpcli.Delete(result, h.GetRequestURL("DeleteByID", 111))
+	err = gohttp.Delete(result, h.GetRequestURL("DeleteByID", 111))
 	assert.Error(t, err)
 }
 
@@ -196,8 +196,8 @@ func Test_userExampleHandler_UpdateByID(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Put(result, h.GetRequestURL("UpdateByID", testData.ID), testData)
+	result := &gohttp.StdResult{}
+	err := gohttp.Put(result, h.GetRequestURL("UpdateByID", testData.ID), testData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,11 +206,11 @@ func Test_userExampleHandler_UpdateByID(t *testing.T) {
 	}
 
 	// zero id error test
-	err = httpcli.Put(result, h.GetRequestURL("UpdateByID", 0), testData)
+	err = gohttp.Put(result, h.GetRequestURL("UpdateByID", 0), testData)
 	assert.NoError(t, err)
 
 	// update error test
-	err = httpcli.Put(result, h.GetRequestURL("UpdateByID", 111), testData)
+	err = gohttp.Put(result, h.GetRequestURL("UpdateByID", 111), testData)
 	assert.Error(t, err)
 }
 
@@ -227,8 +227,8 @@ func Test_userExampleHandler_GetByID(t *testing.T) {
 		WithArgs(testData.ID).
 		WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Get(result, h.GetRequestURL("GetByID", testData.ID))
+	result := &gohttp.StdResult{}
+	err := gohttp.Get(result, h.GetRequestURL("GetByID", testData.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,11 +237,11 @@ func Test_userExampleHandler_GetByID(t *testing.T) {
 	}
 
 	// zero id error test
-	err = httpcli.Get(result, h.GetRequestURL("GetByID", 0))
+	err = gohttp.Get(result, h.GetRequestURL("GetByID", 0))
 	assert.NoError(t, err)
 
 	// get error test
-	err = httpcli.Get(result, h.GetRequestURL("GetByID", 111))
+	err = gohttp.Get(result, h.GetRequestURL("GetByID", 111))
 	assert.Error(t, err)
 }
 
@@ -256,8 +256,8 @@ func Test_userExampleHandler_List(t *testing.T) {
 
 	h.MockDao.SQLMock.ExpectQuery("SELECT .*").WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("List"), &types.ListUserExamplesRequest{query.Params{
+	result := &gohttp.StdResult{}
+	err := gohttp.Post(result, h.GetRequestURL("List"), &types.ListUserExamplesRequest{query.Params{
 		Page: 0,
 		Limit: 10,
 		Sort: "ignore count", // ignore test count
@@ -270,11 +270,11 @@ func Test_userExampleHandler_List(t *testing.T) {
 	}
 
 	// nil params error test
-	err = httpcli.Post(result, h.GetRequestURL("List"), nil)
+	err = gohttp.Post(result, h.GetRequestURL("List"), nil)
 	assert.NoError(t, err)
 
 	// get error test
-	err = httpcli.Post(result, h.GetRequestURL("List"), &types.ListUserExamplesRequest{query.Params{
+	err = gohttp.Post(result, h.GetRequestURL("List"), &types.ListUserExamplesRequest{query.Params{
 		Page: 0,
 		Limit: 10,
 		Sort: "unknown-column",
@@ -293,8 +293,8 @@ func Test_userExampleHandler_DeleteByIDs(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("DeleteByIDs"), &types.DeleteUserExamplesByIDsRequest{IDs: []uint64{testData.ID}})
+	result := &gohttp.StdResult{}
+	err := gohttp.Post(result, h.GetRequestURL("DeleteByIDs"), &types.DeleteUserExamplesByIDsRequest{IDs: []uint64{testData.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,11 +303,11 @@ func Test_userExampleHandler_DeleteByIDs(t *testing.T) {
 	}
 
 	// zero id error test
-	err = httpcli.Post(result, h.GetRequestURL("DeleteByIDs"), nil)
+	err = gohttp.Post(result, h.GetRequestURL("DeleteByIDs"), nil)
 	assert.NoError(t, err)
 
 	// get error test
-	err = httpcli.Post(result, h.GetRequestURL("DeleteByIDs"), &types.DeleteUserExamplesByIDsRequest{IDs: []uint64{111}})
+	err = gohttp.Post(result, h.GetRequestURL("DeleteByIDs"), &types.DeleteUserExamplesByIDsRequest{IDs: []uint64{111}})
 	assert.Error(t, err)
 }
 
@@ -322,8 +322,8 @@ func Test_userExampleHandler_GetByCondition(t *testing.T) {
 
 	h.MockDao.SQLMock.ExpectQuery("SELECT .*").WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("GetByCondition"), &types.GetUserExampleByConditionRequest{
+	result := &gohttp.StdResult{}
+	err := gohttp.Post(result, h.GetRequestURL("GetByCondition"), &types.GetUserExampleByConditionRequest{
 		query.Conditions{
 			Columns: []query.Column{
 				{
@@ -341,11 +341,11 @@ func Test_userExampleHandler_GetByCondition(t *testing.T) {
 	}
 
 	// zero error test
-	err = httpcli.Post(result, h.GetRequestURL("GetByCondition"), nil)
+	err = gohttp.Post(result, h.GetRequestURL("GetByCondition"), nil)
 	assert.NoError(t, err)
 
 	// get error test
-	err = httpcli.Post(result, h.GetRequestURL("GetByCondition"), &types.GetUserExampleByConditionRequest{
+	err = gohttp.Post(result, h.GetRequestURL("GetByCondition"), &types.GetUserExampleByConditionRequest{
 		query.Conditions{
 			Columns: []query.Column{
 				{
@@ -369,8 +369,8 @@ func Test_userExampleHandler_ListByIDs(t *testing.T) {
 
 	h.MockDao.SQLMock.ExpectQuery("SELECT .*").WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Post(result, h.GetRequestURL("ListByIDs"), &types.ListUserExamplesByIDsRequest{IDs: []uint64{testData.ID}})
+	result := &gohttp.StdResult{}
+	err := gohttp.Post(result, h.GetRequestURL("ListByIDs"), &types.ListUserExamplesByIDsRequest{IDs: []uint64{testData.ID}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,10 +379,10 @@ func Test_userExampleHandler_ListByIDs(t *testing.T) {
 	}
 
 	// zero id error test
-	_ = httpcli.Post(result, h.GetRequestURL("ListByIDs"), nil)
+	_ = gohttp.Post(result, h.GetRequestURL("ListByIDs"), nil)
 
 	// get error test
-	err = httpcli.Post(result, h.GetRequestURL("ListByIDs"), &types.ListUserExamplesByIDsRequest{IDs: []uint64{111}})
+	err = gohttp.Post(result, h.GetRequestURL("ListByIDs"), &types.ListUserExamplesByIDsRequest{IDs: []uint64{111}})
 	assert.Error(t, err)
 }
 
@@ -397,8 +397,8 @@ func Test_userExampleHandler_ListByLastID(t *testing.T) {
 
 	h.MockDao.SQLMock.ExpectQuery("SELECT .*").WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Get(result, h.GetRequestURL("ListByLastID"), httpcli.WithParams(map[string]interface{}{"id": 10}))
+	result := &gohttp.StdResult{}
+	err := gohttp.Get(result, h.GetRequestURL("ListByLastID"), gohttp.WithParams(map[string]interface{}{"id": 10}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +407,7 @@ func Test_userExampleHandler_ListByLastID(t *testing.T) {
 	}
 
 	// error test
-	err = httpcli.Get(result, h.GetRequestURL("ListByLastID"), httpcli.WithParams(map[string]interface{}{"lastID": 0, "limit": 10, "sort": "unknown-column"}))
+	err = gohttp.Get(result, h.GetRequestURL("ListByLastID"), gohttp.WithParams(map[string]interface{}{"lastID": 0, "limit": 10, "sort": "unknown-column"}))
 	assert.Error(t, err)
 }
 

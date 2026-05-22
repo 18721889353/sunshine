@@ -48,3 +48,37 @@ const (
 	// DaoEmptyCountSQL 空查询的 COUNT SQL，用于返回 0 计数
 	DaoEmptyCountSQL = "SELECT COUNT(*) FROM (SELECT 1) AS count_query WHERE 1=0"
 )
+
+// MQ日志状态常量 (cp_mq_log.status)
+const (
+	// MqLogStatusSuccess 成功
+	MqLogStatusSuccess = 1
+	// MqLogStatusFailed 失败
+	MqLogStatusFailed = 2
+)
+
+// 分布式锁配置常量 (redsync/InnoDB通用配置)
+const (
+	// LockExpirySeconds Redis分布式锁过期时间(秒) (redsync.WithExpiry)
+	LockExpirySeconds = 6
+	// LockRetryDelayMs Redis分布式锁重试延迟(毫秒) (redsync.WithRetryDelay)
+	LockRetryDelayMs = 25
+	// LockMaxTries Redis分布式锁最大尝试次数 (redsync.WithTries)
+	LockMaxTries = 400
+	// InnoDBLockWaitTimeout MySQL InnoDB锁等待超时时间(秒) (SET SESSION innodb_lock_wait_timeout)
+	InnoDBLockWaitTimeout = 5
+)
+
+// MQ业务类型常量 (cp_mq_log.bus_type / rabbitmq routing_key)
+const (
+	// BusMQLogStatusSuccess MQ日志成功状态标识
+	BusMQLogStatusSuccess = "success"
+)
+
+// MQ消费者通用常量 (rabbitmq/consumers业务逻辑配置)
+const (
+	// MqUnknownOrderSn JSON解析失败时的默认订单号 (日志追踪用)
+	MqUnknownOrderSn = "unknown"
+	// MqMaxRetryErrorNum MQ最大重试错误次数 (cp_mq_log.error_num统计阈值)
+	MqMaxRetryErrorNum = 5
+)

@@ -7,6 +7,7 @@ require (
 	github.com/IBM/sarama v1.45.2
 	github.com/alibaba/sentinel-golang v1.0.4
 	github.com/alibaba/sentinel-golang/pkg/adapters/gin v0.0.0-20250702131350-f7a7f9575711
+	github.com/alibabacloud-go/darabonba-openapi v0.1.18
 	github.com/alibabacloud-go/dm-20151123 v1.0.4
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/aliyun/aliyun-log-go-sdk v0.1.117
@@ -94,7 +95,6 @@ require (
 )
 
 require (
-	github.com/alibabacloud-go/darabonba-openapi v0.1.18 // indirect
 	github.com/clbanning/mxj v1.8.4 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/mozillazg/go-httpheader v0.2.1 // indirect

@@ -10,8 +10,8 @@ import (
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/18721889353/sunshine/pkg/gohttp"
 	"github.com/18721889353/sunshine/pkg/gotest"
-	"github.com/18721889353/sunshine/pkg/httpcli"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	"github.com/18721889353/sunshine/pkg/utils"
 
@@ -97,7 +97,7 @@ func Test_userExampleHandler_Create(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	client := httpcli.New()
+	client := gohttp.New()
 	result := make(map[string]interface{})
 	resp, err := client.Request(context.Background()).
 		SetBody(testData).
@@ -156,7 +156,7 @@ func Test_userExampleHandler_DeleteByID(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	client := httpcli.New()
+	client := gohttp.New()
 	result := make(map[string]interface{})
 	resp, err := client.Request(context.Background()).
 		SetResult(&result).
@@ -193,7 +193,7 @@ func Test_userExampleHandler_UpdateByID(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(int64(testData.ID), 1))
 	h.MockDao.SQLMock.ExpectCommit()
 
-	client := httpcli.New()
+	client := gohttp.New()
 	result := make(map[string]interface{})
 	resp, err := client.Request(context.Background()).
 		SetBody(testData).
@@ -234,7 +234,7 @@ func Test_userExampleHandler_GetByID(t *testing.T) {
 		WithArgs(testData.ID).
 		WillReturnRows(rows)
 
-	client := httpcli.New()
+	client := gohttp.New()
 	result := make(map[string]interface{})
 	resp, err := client.Request(context.Background()).
 		SetResult(&result).
@@ -270,7 +270,7 @@ func Test_userExampleHandler_List(t *testing.T) {
 
 	h.MockDao.SQLMock.ExpectQuery("SELECT .*").WillReturnRows(rows)
 
-	client := httpcli.New()
+	client := gohttp.New()
 	result := make(map[string]interface{})
 	resp, err := client.Request(context.Background()).
 		SetBody(&types.ListUserExamplesRequest{query.Params{

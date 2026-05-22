@@ -136,8 +136,8 @@ func TestGetHello(t *testing.T) {
 		WithArgs(testData.ID).
 		WillReturnRows(rows)
 
-	result := &httpcli.StdResult{}
-	err := httpcli.Get(result, h.GetRequestURL("GetByID", testData.ID))
+	result := &gohttp.StdResult{}
+	err := gohttp.Get(result, h.GetRequestURL("GetByID", testData.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

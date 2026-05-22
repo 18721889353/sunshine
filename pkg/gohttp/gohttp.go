@@ -39,11 +39,11 @@ const (
 
 var (
 	// ErrEmptyBaseURL 基础URL为空的错误
-	ErrEmptyBaseURL = errors.New("httpcli: base URL cannot be empty")
+	ErrEmptyBaseURL = errors.New("gohttp: base URL cannot be empty")
 	// ErrSSRFBlocked SSRF防护阻断的错误
-	ErrSSRFBlocked = errors.New("httpcli: request blocked due to SSRF protection")
+	ErrSSRFBlocked = errors.New("gohttp: request blocked due to SSRF protection")
 	// ErrCircuitBreakerOpen 熔断器打开的错误
-	ErrCircuitBreakerOpen = errors.New("httpcli: circuit breaker is open")
+	ErrCircuitBreakerOpen = errors.New("gohttp: circuit breaker is open")
 )
 
 // contextKey 类型定义，用于避免基本类型作为 context key 的问题
@@ -90,7 +90,7 @@ type ErrorResponse struct {
 }
 
 func (e *ErrorResponse) Error() string {
-	return fmt.Sprintf("httpcli: request failed with status code %d, message: %s", e.StatusCode, e.Message)
+	return fmt.Sprintf("gohttp: request failed with status code %d, message: %s", e.StatusCode, e.Message)
 }
 
 // Option 客户端配置选项
@@ -125,7 +125,7 @@ func New(opts ...Option) *Client {
 			enableCircuitBreaker:    false,
 			circuitBreakerThreshold: 5,
 		},
-		tracer: otel.Tracer("httpcli"), // 初始化 tracer
+		tracer: otel.Tracer("gohttp"), // 初始化 tracer
 	}
 
 	// 2. 默认高可用重试与超时配置
@@ -197,7 +197,7 @@ func (c *Client) setupMiddlewares() {
 			req.SetHeader("X-Trace-ID", traceID)
 		}
 
-		req.SetHeader("User-Agent", "Golang-HttpCli-Enterprise/v2.0")
+		req.SetHeader("User-Agent", "Golang-GoHttp-Enterprise/v2.0")
 		return nil
 	})
 
@@ -247,7 +247,7 @@ func (c *Client) Request(ctx context.Context) *Request {
 	// 引入 Panic 安全恢复防护，防止因极端响应引发核心进程中断
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "[httpcli Panic Recovered]: %v\n%s", r, string(debug.Stack()))
+			fmt.Fprintf(os.Stderr, "[gohttp Panic Recovered]: %v\n%s", r, string(debug.Stack()))
 		}
 	}()
 	return &Request{req: c.cli.R().SetContext(ctx)}
@@ -311,7 +311,7 @@ func (r *Request) Patch(requestURL string) (*Response, error) { return r.do("PAT
 func (r *Request) do(method, requestURL string) (*Response, error) {
 	resp, err := r.req.Execute(method, requestURL)
 	if err != nil {
-		return nil, fmt.Errorf("httpcli: transport layer execution failed: %w", err)
+		return nil, fmt.Errorf("gohttp: transport layer execution failed: %w", err)
 	}
 
 	// 统一拦截非 2xx 业务错误，将其包装为强类型结构返回
@@ -397,7 +397,7 @@ func WithRootCA(caPath string) Option {
 	return func(c *Client) {
 		pemCerts, err := os.ReadFile(caPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[httpcli Config Error] failed to read root CA file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[gohttp Config Error] failed to read root CA file: %v\n", err)
 			return
 		}
 		cp := x509.NewCertPool()
@@ -415,7 +415,7 @@ func WithClientCert(certPath, keyPath string) Option {
 	return func(c *Client) {
 		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[httpcli Config Error] failed to load client key pair: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[gohttp Config Error] failed to load client key pair: %v\n", err)
 			return
 		}
 		if c.transport.TLSClientConfig == nil {

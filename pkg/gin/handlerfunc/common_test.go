@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/18721889353/sunshine/pkg/httpcli"
+	"github.com/18721889353/sunshine/pkg/gohttp"
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
@@ -55,7 +55,7 @@ func TestBrowserRefresh(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	req := httpcli.New()
+	req := gohttp.New()
 	_, err = req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
 	assert.NoError(t, err)
 }
@@ -73,7 +73,7 @@ func TestBrowserRefresh2(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 200)
 
-	req := httpcli.New()
+	req := gohttp.New()
 	_, err := req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
 	// 文件不存在，应该返回 404 错误
 	assert.Error(t, err)
@@ -98,7 +98,7 @@ func TestBrowserRefreshFS(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 
-	req := httpcli.New()
+	req := gohttp.New()
 	_, err = req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
 	assert.NoError(t, err)
 }
@@ -116,7 +116,7 @@ func TestBrowserRefreshFS2(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 200)
 
-	req := httpcli.New()
+	req := gohttp.New()
 	_, err := req.Request(nil).SetHeader("Accept", "text/html").Get(requestAddr + "/notfound")
 	// 文件不存在，应该返回 404 错误
 	assert.Error(t, err)
