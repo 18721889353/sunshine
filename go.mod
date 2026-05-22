@@ -10,6 +10,7 @@ require (
 	github.com/alibabacloud-go/dm-20151123 v1.0.4
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/aliyun/aliyun-log-go-sdk v0.1.117
+	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/bojand/ghz v0.120.0
 	github.com/bwmarrin/snowflake v0.3.0
 	github.com/elastic/go-elasticsearch/v7 v7.17.10
@@ -63,6 +64,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.102
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/ses v1.3.86
+	github.com/tencentyun/cos-go-sdk-v5 v0.7.73
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/tjfoc/gmsm v1.4.1
@@ -91,7 +93,12 @@ require (
 	gorm.io/plugin/dbresolver v1.6.2
 )
 
-require github.com/alibabacloud-go/darabonba-openapi v0.1.18 // indirect
+require (
+	github.com/alibabacloud-go/darabonba-openapi v0.1.18 // indirect
+	github.com/clbanning/mxj v1.8.4 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/mozillazg/go-httpheader v0.2.1 // indirect
+)
 
 require (
 	cel.dev/expr v0.25.1 // indirect
