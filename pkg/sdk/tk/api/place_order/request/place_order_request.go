@@ -40,23 +40,6 @@ func New() *PlaceOrderRequest {
 	return request
 }
 
-// Execute 执行下单请求
-func (c *PlaceOrderRequest) Execute(accessToken string) (*placeorderresponse.PlaceOrderResponse, error) {
-	if err := c.Param.Validate(); err != nil {
-		return nil, err
-	}
-	responseJSON, err := c.GetClient().Request(c, accessToken)
-	if err != nil {
-		return nil, err
-	}
-	response := &placeorderresponse.PlaceOrderResponse{}
-	err = json.Unmarshal([]byte(responseJSON), response)
-	if err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
 // ExecuteWithContext 带上下文执行下单请求
 func (c *PlaceOrderRequest) ExecuteWithContext(ctx context.Context, accessToken string) (*placeorderresponse.PlaceOrderResponse, error) {
 	if err := c.Param.Validate(); err != nil {

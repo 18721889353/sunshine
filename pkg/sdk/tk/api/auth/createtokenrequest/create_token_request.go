@@ -7,7 +7,7 @@ import (
 
 	createtokenresponse "github.com/18721889353/sunshine/pkg/sdk/tk/api/auth/createtokenresponse"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/core"
-	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
+	"github.com/18721889353/sunshine/pkg/sdk/tk/tkerrors"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/utils"
 )
 
@@ -25,20 +25,6 @@ func (r *CreateTokenRequest) GetParamObject() interface{} {
 // GetParams 获取参数
 func (r *CreateTokenRequest) GetParams() *CreateTokenParam {
 	return r.param
-}
-
-// Execute 执行创建令牌请求
-func (r *CreateTokenRequest) Execute(accessToken string) (*createtokenresponse.CreateTokenResponse, error) {
-	responseJSON, err := r.GetClient().Request(r, accessToken)
-	if err != nil {
-		return nil, err
-	}
-	resp := &createtokenresponse.CreateTokenResponse{}
-	err = json.Unmarshal([]byte(responseJSON), resp)
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
 }
 
 // ExecuteWithContext 带上下文执行创建令牌请求
@@ -83,27 +69,6 @@ type GetAccessTokenParam struct {
 	AppSecret string
 }
 
-// GetAccessToken 获取访问令牌
-func GetAccessToken(param *GetAccessTokenParam) (string, error) {
-	req := NewCreateTokenRequest()
-	req.GetParams().AppID = param.AppID
-	req.GetParams().AppSecret = param.AppSecret
-
-	if param.Config != nil {
-		req.SetConfig(param.Config)
-	}
-
-	resp, err := req.Execute("")
-	if err != nil {
-		return "", err
-	}
-
-	if resp.Code == 0 && resp.Data.Token != "" {
-		return resp.Data.Token, nil
-	}
-	return "", errors.NewTkErrorWithMessage(errors.GetTokenError, utils.MarshalNoErr(resp))
-}
-
 // GetAccessTokenWithContext 带上下文获取访问令牌
 func GetAccessTokenWithContext(ctx context.Context, param *GetAccessTokenParam) (string, error) {
 	req := NewCreateTokenRequest()
@@ -122,5 +87,5 @@ func GetAccessTokenWithContext(ctx context.Context, param *GetAccessTokenParam) 
 	if resp.Code == 0 && resp.Data.Token != "" {
 		return resp.Data.Token, nil
 	}
-	return "", errors.NewTkErrorWithMessage(errors.GetTokenError, utils.MarshalNoErr(resp))
+	return "", tkerrors.NewTkErrorWithMessage(tkerrors.GetTokenError, utils.MarshalNoErr(resp))
 }

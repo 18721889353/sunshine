@@ -38,20 +38,6 @@ func New() *GetCouponInfoRequest {
 	return request
 }
 
-// Execute 执行获取优惠券信息请求
-func (c *GetCouponInfoRequest) Execute(accessToken string) (*getcouponinforesponse.GetCouponInfoResponse, error) {
-	responseJSON, err := c.GetClient().Request(c, accessToken)
-	if err != nil {
-		return nil, err
-	}
-	response := &getcouponinforesponse.GetCouponInfoResponse{}
-	err = json.Unmarshal([]byte(responseJSON), response)
-	if err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
 // ExecuteWithContext 带上下文执行获取优惠券信息请求
 func (c *GetCouponInfoRequest) ExecuteWithContext(ctx context.Context, accessToken string) (*getcouponinforesponse.GetCouponInfoResponse, error) {
 	responseJSON, err := c.GetClient().RequestWithContext(ctx, c, accessToken)

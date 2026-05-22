@@ -3,28 +3,27 @@ package core
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
+	"errors"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-
+	"github.com/18721889353/sunshine/pkg/gohttp"
 	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
+	"github.com/18721889353/sunshine/pkg/sdk/tk/tkerrors"
 )
 
-var clientMap sync.Map
+var (
+	// 全局单例客户端（推荐方式）
+	globalClient *gohttp.Client
+	httpOnce     sync.Once
+)
 
-// TkHTTPClient 途刻HTTP客户端
+// TkHTTPClient 途刻HTTP客户端（基于 gohttp 封装）
+// 注意：gohttp 已内置 OpenTelemetry 追踪，此处不再重复创建 Span
 type TkHTTPClient struct {
-	httpClient *http.Client
+	client *gohttp.Client
 }
 
 // TkHTTPRequest HTTP请求结构
@@ -40,184 +39,104 @@ type TkHTTPResponse struct {
 	Body string
 }
 
-// Post 发送POST请求
-func (client *TkHTTPClient) Post(httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
-	u, err := url.Parse(httpRequest.URL)
-	if err != nil {
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
-	}
-	if len(httpRequest.Params) > 0 {
-		query := u.Query()
-		for k, v := range httpRequest.Params {
-			query.Add(k, v)
-		}
-		u.RawQuery = query.Encode()
-	}
-	req, err := http.NewRequest("POST", u.String(), bytes.NewBufferString(httpRequest.Body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	if len(httpRequest.Headers) > 0 {
-		for k, v := range httpRequest.Headers {
-			req.Header.Set(k, v)
-		}
-	}
-	httpResp, err := client.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
-	}
-
-	if httpResp.StatusCode != http.StatusOK {
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, fmt.Sprintf("http code = %d", httpResp.StatusCode))
-	}
-	bs, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
-	}
-
-	return &TkHTTPResponse{Body: string(bs)}, nil
-}
-
-// PostWithContext 带上下文发送POST请求
+// PostWithContext 带上下文发送POST请求（推荐使用）
+// 注意：底层 gohttp 已内置完整的 OpenTelemetry 追踪，包括：
+// - 自动创建 HTTP Client Span
+// - 自动注入 W3C Trace Context
+// - 自动记录请求/响应指标
+// 因此此处不再重复创建 Span，避免追踪冗余
 func (client *TkHTTPClient) PostWithContext(ctx context.Context, httpRequest *TkHTTPRequest) (*TkHTTPResponse, error) {
-	// 创建链路追踪 span
-	spanName := fmt.Sprintf("HttpPost:%s", httpRequest.URL)
-	ctx, span := otel.Tracer("tk-http-client").Start(ctx, spanName)
-	defer span.End()
+	// 构建请求
+	req := client.client.Request(ctx).
+		SetHeader("Content-Type", "application/json")
 
-	// 添加请求信息到 span
-	span.SetAttributes(
-		attribute.String("http.url", httpRequest.URL),
-		attribute.String("http.method", "POST"),
-		attribute.String("http.request.body", httpRequest.Body),
-	)
-
-	u, err := url.Parse(httpRequest.URL)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
-	}
-	if len(httpRequest.Params) > 0 {
-		query := u.Query()
-		for k, v := range httpRequest.Params {
-			query.Add(k, v)
-		}
-		u.RawQuery = query.Encode()
-	}
-
-	// 更新 span 中的 URL 信息
-	span.SetAttributes(attribute.String("http.url", u.String()))
-
-	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewBufferString(httpRequest.Body))
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	// 添加自定义 Headers
 	if len(httpRequest.Headers) > 0 {
-		for k, v := range httpRequest.Headers {
-			req.Header.Set(k, v)
-		}
+		req.SetHeaders(httpRequest.Headers)
 	}
 
-	httpResp, err := client.httpClient.Do(req)
+	// 添加查询参数
+	if len(httpRequest.Params) > 0 {
+		req.SetQueryParams(httpRequest.Params)
+	}
+
+	// 设置请求体
+	if httpRequest.Body != "" {
+		req.SetBody(bytes.NewBufferString(httpRequest.Body))
+	}
+
+	// 发起 POST 请求（gohttp 会自动处理追踪）
+	resp, err := req.Post(httpRequest.URL)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
-	}
-	defer func() {
-		if httpResp != nil && httpResp.Body != nil {
-			if closeErr := httpResp.Body.Close(); closeErr != nil {
-				logger.WarnWithCtx(ctx, "close response body error", logger.Err(closeErr))
-			}
+		// 判断是否为业务错误
+		var httpErr *gohttp.ErrorResponse
+		if errors.As(err, &httpErr) {
+			logger.WarnWithCtx(ctx, "[tk http client] HTTP request failed",
+				logger.String("url", httpRequest.URL),
+				logger.Int("status_code", httpErr.StatusCode),
+				logger.Err(httpErr))
+			return nil, tkerrors.NewTkErrorWithMessage(tkerrors.HTTPError,
+				fmt.Sprintf("http code = %d, message: %s", httpErr.StatusCode, httpErr.Message))
 		}
-	}()
-
-	// 记录响应状态码
-	span.SetAttributes(attribute.Int("http.status_code", httpResp.StatusCode))
-
-	if httpResp.StatusCode != http.StatusOK {
-		errMsg := fmt.Sprintf("http code = %d", httpResp.StatusCode)
-		span.SetStatus(codes.Error, errMsg)
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, errMsg)
+		logger.ErrorWithCtx(ctx, "[tk http client] HTTP transport error",
+			logger.String("url", httpRequest.URL),
+			logger.Err(err))
+		return nil, tkerrors.NewTkErrorWithMessage(tkerrors.HTTPError, err.Error())
 	}
 
-	bs, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, errors.NewTkErrorWithMessage(errors.HTTPError, err.Error())
+	// 检查响应状态码
+	if resp.StatusCode() != http.StatusOK {
+		errMsg := fmt.Sprintf("http code = %d", resp.StatusCode())
+		logger.WarnWithCtx(ctx, "[tk http client] HTTP request non-200 status",
+			logger.String("url", httpRequest.URL),
+			logger.Int("status_code", resp.StatusCode()),
+			logger.String("body", resp.String()))
+		return nil, tkerrors.NewTkErrorWithMessage(tkerrors.HTTPError, errMsg)
 	}
 
-	span.SetAttributes(attribute.Int("http.response.size", len(bs)))
-
-	return &TkHTTPResponse{Body: string(bs)}, nil
+	return &TkHTTPResponse{Body: resp.String()}, nil
 }
 
-// GetHTTPClient 获取HTTP客户端实例
+// GetHTTPClient 获取HTTP客户端实例（单例模式，推荐使用）
 func GetHTTPClient() *TkHTTPClient {
-	// 使用 LoadOrStore 确保并发安全初始化
-	client, loaded := clientMap.LoadOrStore(GetTkConfig().HTTPReadTimeout, nil)
-	if !loaded || client == nil {
-		// 获取配置
+	httpOnce.Do(func() {
 		config := GetTkConfig()
-		newClient := &TkHTTPClient{
-			httpClient: &http.Client{
-				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: config.InsecureSkipVerify,
-						MinVersion:         tls.VersionTLS12,
-						RootCAs:            nil,
-						ClientAuth:         tls.NoClientCert,
-					},
-					DisableKeepAlives:     config.DisableKeepAlives,
-					MaxIdleConns:          config.MaxIdleCons,
-					MaxIdleConnsPerHost:   config.MaxIdleConsPerHost,
-					IdleConnTimeout:       config.IdleConnTimeout,
-					ResponseHeaderTimeout: config.ResponseHeaderTimeout,
-					DialContext: (&net.Dialer{
-						Timeout:   config.DialTimeout,
-						KeepAlive: config.DialKeepAlive,
-					}).DialContext,
-				},
-				Timeout: time.Duration(config.HTTPReadTimeout) * time.Millisecond,
-			},
+
+		// 构建 gohttp 客户端配置选项
+		opts := []gohttp.Option{
+			// 超时配置
+			gohttp.WithTimeout(time.Duration(config.HTTPReadTimeout) * time.Millisecond),
+
+			// 重试配置：智能退避重试（仅对网络故障和特定状态码重试）
+			gohttp.WithRetry(3, 1*time.Second, 5*time.Second),
 		}
-		clientMap.Store(GetTkConfig().HTTPReadTimeout, newClient)
-		return newClient
-	}
-	tkClient, ok := client.(*TkHTTPClient)
-	if !ok {
-		// 如果类型断言失败，创建新的客户端
-		config := GetTkConfig()
-		tkClient = &TkHTTPClient{
-			httpClient: &http.Client{
-				Transport: &http.Transport{
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: config.InsecureSkipVerify,
-						MinVersion:         tls.VersionTLS12,
-						RootCAs:            nil,
-						ClientAuth:         tls.NoClientCert,
-					},
-					DisableKeepAlives:     config.DisableKeepAlives,
-					MaxIdleConns:          config.MaxIdleCons,
-					MaxIdleConnsPerHost:   config.MaxIdleConsPerHost,
-					IdleConnTimeout:       config.IdleConnTimeout,
-					ResponseHeaderTimeout: config.ResponseHeaderTimeout,
-					DialContext: (&net.Dialer{
-						Timeout:   config.DialTimeout,
-						KeepAlive: config.DialKeepAlive,
-					}).DialContext,
-				},
-				Timeout: time.Duration(config.HTTPReadTimeout) * time.Millisecond,
-			},
+
+		// TLS 配置：根据配置决定是否跳过证书验证
+		if config.InsecureSkipVerify {
+			opts = append(opts, gohttp.WithInsecureSkipVerify())
+			logger.WarnWithCtx(context.Background(), "TkHTTPClient: InsecureSkipVerify is enabled (not recommended for production)")
 		}
-		clientMap.Store(GetTkConfig().HTTPReadTimeout, tkClient)
+
+		// SSRF 防护：防止访问内网地址（生产环境建议启用）
+		// opts = append(opts, gohttp.WithSSRFProtection())
+
+		// 使用 gohttp 创建企业级 HTTP 客户端
+		globalClient = gohttp.New(opts...)
+
+		logger.InfoWithCtx(context.Background(), "TkHTTPClient initialized with gohttp enterprise client",
+			logger.Int64("timeout", config.HTTPReadTimeout),
+			logger.Bool("insecure_skip_verify", config.InsecureSkipVerify))
+	})
+
+	return &TkHTTPClient{
+		client: globalClient,
 	}
-	return tkClient
+}
+
+// Close 优雅关闭客户端（在应用退出时调用）
+func Close() {
+	if globalClient != nil {
+		globalClient.Close()
+		logger.InfoWithCtx(context.Background(), "TkHTTPClient closed gracefully")
+	}
 }

@@ -1,5 +1,5 @@
-// Package errors provides error codes and types for the TK SDK.
-package errors
+// Package tkerrors provides error codes and types for the TK SDK.
+package tkerrors
 
 import "fmt"
 

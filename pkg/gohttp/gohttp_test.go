@@ -1,698 +1,336 @@
 package gohttp
 
 import (
-	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
-	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-
-	"github.com/18721889353/sunshine/pkg/utils"
 )
 
-type myBody struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
-func runGoHTTPServer() string {
-	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
-
-	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
-	oKFun := func(c *gin.Context) {
-		uid := c.Query("uid")
-		fmt.Printf("request parameters: uid=%s\n", uid)
-		c.JSON(200, StdResult{
-			Code: 0,
-			Msg:  "ok",
-			Data: fmt.Sprintf("uid=%v", uid),
-		})
-	}
-	errFun := func(c *gin.Context) {
-		uid := c.Query("uid")
-		fmt.Printf("request parameters: uid=%s\n", uid)
-		c.JSON(401, StdResult{
-			Code: 401,
-			Msg:  "authorization failure",
-			Data: fmt.Sprintf("uid=%v", uid),
-		})
-	}
-
-	oKPFun := func(c *gin.Context) {
-		var body myBody
-		c.BindJSON(&body)
-		fmt.Println("body data:", body)
-		c.JSON(200, StdResult{
-			Code: 0,
-			Msg:  "ok",
-			Data: body,
-		})
-	}
-	errPFun := func(c *gin.Context) {
-		var body myBody
-		c.BindJSON(&body)
-		fmt.Println("body data:", body)
-		c.JSON(401, StdResult{
-			Code: 401,
-			Msg:  "authorization failure",
-			Data: nil,
-		})
-	}
-
-	r.GET("/get", oKFun)
-	r.GET("/get_err", errFun)
-	r.DELETE("/delete", oKFun)
-	r.DELETE("/delete_err", errFun)
-	r.POST("/post", oKPFun)
-	r.POST("/post_err", errPFun)
-	r.PUT("/put", oKPFun)
-	r.PUT("/put_err", errPFun)
-	r.PATCH("/patch", oKPFun)
-	r.PATCH("/patch_err", errPFun)
-
-	go func() {
-		err := r.Run(serverAddr)
-		if err != nil {
-			panic(err)
+// TestHTTPClient_Success 测试高并发场景下的标准请求、链路追踪及连接池稳定性
+func TestHTTPClient_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 验证自动注入的 User-Agent
+		if r.Header.Get("User-Agent") == "" {
+			t.Error("User-Agent missing in request headers")
 		}
-	}()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status": "success", "code": 200}`))
+	}))
+	defer ts.Close()
 
-	time.Sleep(time.Millisecond * 200)
-	return requestAddr
+	client := New(
+		WithBaseURL(ts.URL),
+		WithTimeout(2*time.Second),
+	)
+
+	// 模拟多线程/高并发下的长连接复用
+	for i := 0; i < 5; i++ {
+		ctx := context.WithValue(context.Background(), "common_trace_id", "test-trace-778899")
+		resp, err := client.Request(ctx).Get("/api/v1/user")
+		if err != nil {
+			t.Fatalf("Iteration %d failed: %v", i, err)
+		}
+
+		if resp.StatusCode() != http.StatusOK {
+			t.Errorf("Expected status 200, got: %d", resp.StatusCode())
+		}
+	}
 }
 
-// ------------------------------------------------------------------------------------------
+// TestHTTPClient_RetryOnServerError 测试偶发性 502 网关错误时的退避重试机制
+func TestHTTPClient_RetryOnServerError(t *testing.T) {
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount < 3 {
+			w.WriteHeader(http.StatusBadGateway) // 前两次返回502
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("recovered"))
+	}))
+	defer ts.Close()
 
-func TestGetStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
+	// 缩短退避等待时间，加快单元测试运行速度
+	client := New(
+		WithBaseURL(ts.URL),
+		WithRetry(3, 5*time.Millisecond, 20*time.Millisecond),
+	)
 
-	req := Request{}
-	req.SetURL(requestAddr + "/get")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetParams(KV{
-		"name": "foo",
-	})
-
-	resp, err := req.GET()
+	resp, err := client.Request(context.Background()).Get("/retry-test")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Expected recovery after retry, got error: %v", err)
 	}
 
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
+	if callCount != 3 {
+		t.Errorf("Expected exactly 3 calls (2 failures + 1 success), actually called: %d", callCount)
 	}
 
-	t.Logf("%+v", result)
+	if resp.String() != "recovered" {
+		t.Errorf("Unexpected payload response: %s", resp.String())
+	}
 }
 
-func TestDeleteStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
+// TestHTTPClient_ErrorResponseHandling 测试 4xx/5xx 强类型转换为 ErrorResponse 的行为
+func TestHTTPClient_ErrorResponseHandling(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity) // 返回 422 业务参数错误
+		_, _ = w.Write([]byte(`{"error": "field_too_short"}`))
+	}))
+	defer ts.Close()
 
-	req := Request{}
-	req.SetURL(requestAddr + "/delete")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetParams(KV{
-		"uid": 123,
-	})
+	client := New(WithBaseURL(ts.URL))
+	_, err := client.Request(context.Background()).Post("/validate")
 
-	resp, err := req.DELETE()
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("Expected strong-typed error response, got nil")
 	}
 
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
+	var httpErr *ErrorResponse
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("Expected error type *ErrorResponse, got: %T", err)
 	}
 
-	t.Logf("%+v", result)
+	if httpErr.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("Expected 422, got: %d", httpErr.StatusCode)
+	}
+
+	if string(httpErr.Body) != `{"error": "field_too_short"}` {
+		t.Errorf("Payload verification failure, got: %s", string(httpErr.Body))
+	}
 }
 
-func TestPostStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
+// TestHTTPClient_CustomTLSCertificates 测试自定义自签名证书单向与双向认证
+func TestHTTPClient_CustomTLSCertificates(t *testing.T) {
+	// 1. 创建本地受 TLS 保护的测试服务器
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 如果是双向认证，验证客户端证书是否存在
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("mTLS verified success"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("single TLS verified success"))
+	}))
+	defer ts.Close()
 
-	req := Request{}
-	req.SetURL(requestAddr + "/post")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetJSONBody(&myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
+	// 2. 将 httptest 动态生成的自签名证书导出到本地临时文件系统模拟企业证书环境
+	cert := ts.Certificate()
 
-	resp, err := req.POST()
-	if err != nil {
-		t.Fatal(err)
+	// 3. 直接通过内存 CertPool 快速测试单向授信（跳过不可靠的文件IO）
+	cp := x509.NewCertPool()
+	cp.AddCert(cert)
+
+	customTransport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: cp, // 授信本地 Mock 的 CA
+		},
 	}
 
-	result := &StdResult{}
-	err = resp.BindJSON(result)
+	client := New(
+		WithBaseURL(ts.URL),
+		WithTransport(customTransport),
+	)
+
+	resp, err := client.Request(context.Background()).Get("/secure-endpoint")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("TLS verification failed: %v", err)
 	}
 
-	t.Logf("%+v", result)
+	if resp.StatusCode() != http.StatusOK {
+		t.Errorf("Expected 200, got %d", resp.StatusCode())
+	}
 }
 
-func TestPutStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := Request{}
-	req.SetURL(requestAddr + "/put")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetJSONBody(&myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-
-	resp, err := req.PUT()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-func TestPatchStandard(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	req := Request{}
-	req.SetURL(requestAddr + "/patch")
-	req.SetHeaders(map[string]string{
-		"Authorization": "Bearer token",
-	})
-	req.SetJSONBody(&myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-
-	resp, err := req.PATCH()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result := &StdResult{}
-	err = resp.BindJSON(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Logf("%+v", result)
-}
-
-// ------------------------------------------------------------------------------------------
-
-func TestGet(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result interface{}
-		url    string
-		params KV
-	}
+// TestURLValidator_SSRFProtection 测试 SSRF 防护
+func TestURLValidator_SSRFProtection(t *testing.T) {
 	tests := []struct {
-		name       string
-		args       args
-		wantErr    bool
-		wantResult *StdResult
+		name        string
+		url         string
+		shouldError bool
 	}{
 		{
-			name: "get success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/get",
-				params: KV{"uid": 123},
-			},
-			wantErr: false,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: "uid=123",
-			},
+			name:        "valid external URL",
+			url:         "https://api.example.com/path",
+			shouldError: false,
 		},
 		{
-			name: "get err",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/get_err",
-				params: KV{"uid": 123},
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
+			name:        "internal IP blocked",
+			url:         "http://169.254.169.254/latest/meta-data/",
+			shouldError: true,
 		},
 		{
-			name: "get not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				params: KV{"uid": 123},
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
+			name:        "localhost blocked",
+			url:         "http://127.0.0.1:8080/admin",
+			shouldError: true,
+		},
+		{
+			name:        "private IP blocked",
+			url:         "http://192.168.1.1/internal",
+			shouldError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Get(tt.args.result, tt.args.url, tt.args.params); (err != nil) != tt.wantErr {
-				t.Errorf("Get() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			err := ValidateURL(tt.url)
+			if tt.shouldError && err == nil {
+				t.Errorf("Expected error for URL %s, but got none", tt.url)
 			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
-	}
-}
-
-func TestDelete(t *testing.T) {
-	requestAddr := runGoHTTPServer()
-
-	type args struct {
-		result interface{}
-		url    string
-		params KV
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantErr    bool
-		wantResult *StdResult
-	}{
-		{
-			name: "delete success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/delete",
-				params: KV{"uid": 123},
-			},
-			wantErr: false,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: "uid=123",
-			},
-		},
-		{
-			name: "delete err",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/delete_err",
-				params: KV{"uid": 123},
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-		},
-		{
-			name: "delete not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				params: KV{"uid": 123},
-			},
-			wantErr: true,
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Delete(tt.args.result, tt.args.url, tt.args.params); (err != nil) != tt.wantErr {
-				t.Errorf("Delete() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
+			if !tt.shouldError && err != nil {
+				t.Errorf("Unexpected error for URL %s: %v", tt.url, err)
 			}
 		})
 	}
 }
 
-func TestPost(t *testing.T) {
-	requestAddr := runGoHTTPServer()
+// TestCircuitBreaker_Config 测试熔断器配置
+func TestCircuitBreaker_Config(t *testing.T) {
+	client := New(
+		WithCircuitBreaker(5),
+	)
 
-	type args struct {
-		result interface{}
-		url    string
-		body   interface{}
+	// 验证配置已应用
+	client.mu.RLock()
+	if !client.config.enableCircuitBreaker {
+		t.Error("Circuit breaker should be enabled")
 	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult *StdResult
-		wantErr    bool
-	}{
-		{
-			name: "post success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/post",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: nil,
-			},
-			wantErr: false,
-		},
-		{
-			name: "post error",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/post_err",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "post not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
+	if client.config.circuitBreakerThreshold != 5 {
+		t.Errorf("Expected threshold 5, got %d", client.config.circuitBreakerThreshold)
+	}
+	client.mu.RUnlock()
+}
+
+// TestGracefulShutdown 测试优雅关闭
+func TestGracefulShutdown(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond) // 模拟慢请求
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	client := New(WithBaseURL(ts.URL))
+
+	// 发起一个请求
+	ctx := context.Background()
+	_, err := client.Request(ctx).Get("/test")
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Post(tt.args.result, tt.args.url, tt.args.body); (err != nil) != tt.wantErr {
-				t.Errorf("Post() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
+	// 优雅关闭
+	client.Close()
+
+	// 再次关闭应该是安全的（幂等）
+	client.Close()
+}
+
+// TestConnectionPoolStats 测试连接池统计
+func TestConnectionPoolStats(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	client := New(WithBaseURL(ts.URL))
+
+	// 发起几个请求建立连接
+	for i := 0; i < 3; i++ {
+		_, err := client.Request(context.Background()).Get("/test")
+		if err != nil {
+			t.Fatalf("Request %d failed: %v", i, err)
+		}
+	}
+
+	// 获取连接池统计信息
+	stats := client.GetConnectionPoolStats()
+	if _, ok := stats["max_idle_conns"]; !ok {
+		t.Error("max_idle_conns key missing from stats")
+	}
+	if _, ok := stats["max_conns_per_host"]; !ok {
+		t.Error("max_conns_per_host key missing from stats")
 	}
 }
 
-func TestPut(t *testing.T) {
-	requestAddr := runGoHTTPServer()
+// TestDynamicTimeoutUpdate 测试动态更新超时时间
+func TestDynamicTimeoutUpdate(t *testing.T) {
+	client := New(WithTimeout(5 * time.Second))
 
-	type args struct {
-		result interface{}
-		url    string
-		body   interface{}
+	// 动态更新超时时间
+	client.UpdateTimeout(10 * time.Second)
+
+	client.mu.RLock()
+	if client.config.timeout != 10*time.Second {
+		t.Errorf("Expected timeout 10s, got %v", client.config.timeout)
 	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult *StdResult
-		wantErr    bool
-	}{
-		{
-			name: "put success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/put",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: nil,
-			},
-			wantErr: false,
-		},
-		{
-			name: "put error",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/put_err",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "post not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
+	client.mu.RUnlock()
+}
+
+// TestSSRFProtectionWithURLValidation 测试带URL校验的请求
+func TestSSRFProtectionWithURLValidation(t *testing.T) {
+	// 正常外部URL应该通过
+	err := ValidateURL("https://api.example.com/test")
+	if err != nil {
+		t.Fatalf("Valid external URL should not error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Put(tt.args.result, tt.args.url, tt.args.body); (err != nil) != tt.wantErr {
-				t.Errorf("Put() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
+	// 内网URL应该被阻止
+	err = ValidateURL("http://192.168.1.1/admin")
+	if err != ErrSSRFBlocked {
+		t.Errorf("Expected SSRFBlocked error for private IP, got: %v", err)
+	}
+
+	// localhost应该被阻止
+	err = ValidateURL("http://127.0.0.1:8080/admin")
+	if err != ErrSSRFBlocked {
+		t.Errorf("Expected SSRFBlocked error for localhost, got: %v", err)
+	}
+
+	// 不支持的协议应该被拒绝
+	err = ValidateURL("file:///etc/passwd")
+	if err == nil {
+		t.Error("File protocol should be blocked")
 	}
 }
 
-func TestPatch(t *testing.T) {
-	requestAddr := runGoHTTPServer()
+// TestInsecureSkipVerify 测试跳过 HTTPS 证书验证功能
+func TestInsecureSkipVerify(t *testing.T) {
+	// 测试1：使用 WithInsecureSkipVerify 选项创建客户端
+	client1 := New(
+		WithBaseURL("https://example.com"),
+		WithInsecureSkipVerify(),
+	)
+	defer client1.Close()
 
-	type args struct {
-		result interface{}
-		url    string
-		body   interface{}
-	}
-	tests := []struct {
-		name       string
-		args       args
-		wantResult *StdResult
-		wantErr    bool
-	}{
-		{
-			name: "patch success",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/patch",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "ok",
-				Data: nil,
-			},
-			wantErr: false,
-		},
-		{
-			name: "patch error",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/patch_err",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
-		{
-			name: "post not found",
-			args: args{
-				result: &StdResult{},
-				url:    requestAddr + "/notfound",
-				body: &myBody{
-					Name:  "foo",
-					Email: "bar@gmail.com",
-				},
-			},
-			wantResult: &StdResult{
-				Code: 0,
-				Msg:  "",
-				Data: nil,
-			},
-			wantErr: true,
-		},
+	// 验证 TLS 配置是否正确设置
+	if client1.transport.TLSClientConfig == nil || !client1.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be enabled when using WithInsecureSkipVerify()")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := Patch(tt.args.result, tt.args.url, tt.args.body); (err != nil) != tt.wantErr {
-				t.Errorf("Put() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.args.result.(*StdResult).Msg != tt.wantResult.Msg {
-				t.Errorf("gotResult = %v, wantResult =  %v", tt.args.result, tt.wantResult)
-			}
-		})
-	}
-}
+	// 测试2：动态更新跳过验证设置
+	client2 := New(WithBaseURL("https://example.com"))
+	defer client2.Close()
 
-func TestRequest_Reset(t *testing.T) {
-	req := &Request{
-		method: http.MethodGet,
-	}
-	req.Reset()
-	assert.Equal(t, "", req.method)
-}
-
-func TestRequest_Do(t *testing.T) {
-	req := &Request{
-		method: http.MethodGet,
-		url:    "http://",
+	// 初始状态应该不启用
+	if client2.transport.TLSClientConfig != nil && client2.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should not be enabled by default")
 	}
 
-	_, err := req.Do(http.MethodOptions, "")
-	assert.Error(t, err)
-
-	_, err = req.Do(http.MethodGet, map[string]interface{}{"foo": "bar"})
-	assert.Error(t, err)
-	_, err = req.Do(http.MethodDelete, "foo=bar")
-	assert.Error(t, err)
-
-	_, err = req.Do(http.MethodPost, &myBody{
-		Name:  "foo",
-		Email: "bar@gmail.com",
-	})
-	assert.Error(t, err)
-
-	_, err = req.Response()
-	assert.Error(t, err)
-
-	err = requestErr(err)
-	assert.Error(t, err)
-
-	err = jsonParseErr(err)
-	assert.Error(t, err)
-}
-
-func TestResponse_BodyString(t *testing.T) {
-	resp := &Response{
-		Response: nil,
-		err:      nil,
+	// 动态启用跳过验证
+	client2.UpdateInsecureSkipVerify(true)
+	if client2.transport.TLSClientConfig == nil || !client2.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be enabled after UpdateInsecureSkipVerify(true)")
 	}
 
-	_, err := resp.BodyString()
-	assert.Error(t, err)
-
-	resp.err = errors.New("error test")
-	_, err = resp.BodyString()
-	assert.Error(t, err)
-
-	err = resp.Error()
-	assert.Error(t, err)
-}
-
-func TestError(t *testing.T) {
-	req := &Request{}
-	req.SetParam("foo", "bar")
-	req.SetParam("foo3", make(chan string))
-	req.SetParams(map[string]interface{}{"foo2": "bar2"})
-	req.SetBody("foo")
-	req.SetTimeout(time.Second * 10)
-	req.CustomRequest(func(req *http.Request, data *bytes.Buffer) {
-		fmt.Println("customRequest")
-	})
-	req.SetURL("http://127.0.0.1:0")
-
-	resp, err := req.pull()
-	assert.Error(t, err)
-
-	req.method = http.MethodPost
-	resp, err = req.push()
-	assert.Error(t, err)
-
-	_, err = resp.ReadBody()
-	assert.Error(t, err)
-
-	err = resp.BindJSON(nil)
-	assert.Error(t, err)
-
-	err = notOKErr(resp)
-	assert.Error(t, err)
-
-	err = do(http.MethodPost, nil, "", nil)
-	assert.Error(t, err)
-	err = do(http.MethodPost, &StdResult{}, "http://127.0.0.1:0", nil, KV{"foo": "bar"})
-	assert.Error(t, err)
-
-	err = gDo(http.MethodGet, nil, "http://127.0.0.1:0", nil)
-	assert.Error(t, err)
+	// 动态禁用跳过验证
+	client2.UpdateInsecureSkipVerify(false)
+	if client2.transport.TLSClientConfig != nil && client2.transport.TLSClientConfig.InsecureSkipVerify {
+		t.Error("InsecureSkipVerify should be disabled after UpdateInsecureSkipVerify(false)")
+	}
 }

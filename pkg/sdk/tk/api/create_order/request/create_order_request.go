@@ -40,23 +40,6 @@ func New() *CreateOrderRequest {
 	return request
 }
 
-// Execute 执行创建订单请求
-func (c *CreateOrderRequest) Execute(accessToken string) (*createorderresponse.CreateOrderResponse, error) {
-	if err := c.Param.Validate(); err != nil {
-		return nil, err
-	}
-	responseJSON, err := c.GetClient().Request(c, accessToken)
-	if err != nil {
-		return nil, err
-	}
-	response := &createorderresponse.CreateOrderResponse{}
-	err = json.Unmarshal([]byte(responseJSON), response)
-	if err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
 // ExecuteWithContext 带上下文执行创建订单请求
 func (c *CreateOrderRequest) ExecuteWithContext(ctx context.Context, accessToken string) (*createorderresponse.CreateOrderResponse, error) {
 	if err := c.Param.Validate(); err != nil {

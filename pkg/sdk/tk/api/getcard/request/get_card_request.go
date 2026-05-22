@@ -36,23 +36,6 @@ func New() *GetCardRequest {
 	return request
 }
 
-// Execute 执行获取卡片请求
-func (c *GetCardRequest) Execute(accessToken string) (*getcardresponse.GetCardResponse, error) {
-	if err := c.Param.Validate(); err != nil {
-		return nil, err
-	}
-	responseJSON, err := c.GetClient().Request(c, accessToken)
-	if err != nil {
-		return nil, err
-	}
-	response := &getcardresponse.GetCardResponse{}
-	err = json.Unmarshal([]byte(responseJSON), response)
-	if err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
 // ExecuteWithContext 带上下文执行获取卡片请求
 func (c *GetCardRequest) ExecuteWithContext(ctx context.Context, accessToken string) (*getcardresponse.GetCardResponse, error) {
 	if err := c.Param.Validate(); err != nil {

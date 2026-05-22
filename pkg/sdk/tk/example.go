@@ -18,15 +18,12 @@ func main() {
 		//core.WithSignFunc(func(params map[string]any, appSecret string) string {
 		//	return ""
 		//}),
+		core.WithInsecureSkipVerify(true),
 		core.WithOpenRequestURL("https://new-test.tongkask.com"),
 		//core.WithHttpReadTimeout(10000),
 	)
-	//accessToken, err := core.GetAccessToken(&core.GetAccessTokenParam{
-	//	Config:    tkConfig,
-	//	AppId:     tkConfig.AppId,
-	//	AppSecret: tkConfig.AppSecret,
-	//})
-	accessToken, err := createtokenrequest.GetAccessTokenWithContext(context.Background(), &createtokenrequest.GetAccessTokenParam{
+	ctx := context.Background()
+	accessToken, err := createtokenrequest.GetAccessTokenWithContext(ctx, &createtokenrequest.GetAccessTokenParam{
 		Config:    tkConfig,
 		AppID:     tkConfig.AppID,
 		AppSecret: tkConfig.AppSecret,
@@ -63,7 +60,7 @@ func main() {
 	//param.OutMobile = "18888888888"
 	//param.ExpireTime = 1
 	//param.OutUserSn = "20230401"
-	//res, err := request.Execute(accessToken)
+	//res, err := request.ExecuteWithContext(ctx,accessToken)
 	//if err != nil {
 	//	panic(err)
 	//}
@@ -71,7 +68,7 @@ func main() {
 	request := getcardrequest.New()
 	param := request.GetParams()
 	param.OrderSn = "2507291705389285325512"
-	res, err := request.Execute(accessToken)
+	res, err := request.ExecuteWithContext(ctx, accessToken)
 	if err != nil {
 		panic(err)
 	}

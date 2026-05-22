@@ -3,108 +3,96 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
-	"github.com/18721889353/sunshine/pkg/sdk/tk/errors"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/sdk/tk/tkerrors"
 	"github.com/18721889353/sunshine/pkg/sdk/tk/utils"
 )
 
 // TkAPIClient 途刻API客户端
-type TkAPIClient struct{}
+type TkAPIClient struct {
+	tracer trace.Tracer // OpenTelemetry tracer for reuse
+}
 
 // NewTkAPIClient 创建新的API客户端实例
 func NewTkAPIClient() *TkAPIClient {
-	return &TkAPIClient{}
+	return &TkAPIClient{
+		tracer: otel.Tracer("tk-api-client"), // 初始化 tracer
+	}
 }
 
 // DefaultTkAPIClient 默认API客户端实例
 var DefaultTkAPIClient = NewTkAPIClient()
 
-// Request 发送API请求
-func (client *TkAPIClient) Request(request TkAPIRequest, accessToken string) (string, error) {
-	if request.GetConfig() == nil {
-		return "", errors.NewTkError(errors.ConfigIsNull)
-	}
-
-	appSecret := request.GetConfig().AppSecret
-	if len(appSecret) == 0 {
-		return "", errors.NewTkErrorWithMessage(errors.ParamError, "appSecret为空")
-	}
-	paramJSON := request.GetParamObject()
-	urlPath := request.GetURLPath()
-	if GetTkConfig().SignFunc == nil {
-		GetTkConfig().SignFunc = utils.Sign
-	}
-	paramJSONString := utils.Marshal(paramJSON, appSecret, GetTkConfig().SignFunc)
-	httpHeaderMap := map[string]string{
-		"from":     "sdk",
-		"sdk-type": "golang",
-	}
-	if accessToken != "" {
-		httpHeaderMap["Authorization"] = fmt.Sprintf("Bearer %s", accessToken)
-	}
-	if request.GetConfig() != nil {
-		for k, v := range request.GetConfig().Headers {
-			httpHeaderMap[k] = v
-		}
-	}
-
-	httpRequest := &TkHTTPRequest{
-		URL:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestURL, urlPath),
-		Headers: httpHeaderMap,
-		Body:    paramJSONString,
-	}
-
-	httpResponse, err := GetHTTPClient().Post(httpRequest)
-
-	if err != nil {
-		return "", err
-	}
-	return httpResponse.Body, nil
-}
-
-// RequestWithContext 带上下文发送API请求
+// RequestWithContext 带上下文发送API请求（推荐使用）
 func (client *TkAPIClient) RequestWithContext(ctx context.Context, request TkAPIRequest, accessToken string) (string, error) {
-	// 创建链路追踪 span
-	// 使用请求的 URL 路径作为 span 名称，便于区分不同接口
-	spanName := fmt.Sprintf("APIRequest:%s", request.GetURLPath())
-	ctx, span := otel.Tracer("tk-api-client").Start(ctx, spanName)
+	urlPath := request.GetURLPath()
+	spanName := fmt.Sprintf("TK.API.%s", urlPath)
+	ctx, span := client.tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
+	startTime := time.Now()
+
+	// 提取 Context 中的 RequestID（大厂标准：关联业务日志和 Trace）
+	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {
+		if reqIDStr, ok := reqID.(string); ok && reqIDStr != "" {
+			span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
+		}
+	}
+
+	// 验证配置
 	if request.GetConfig() == nil {
-		err := errors.NewTkError(errors.ConfigIsNull)
-		span.RecordError(err)
+		err := tkerrors.NewTkError(tkerrors.ConfigIsNull)
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "configuration-error"),
+				attribute.String("error.context", "config-validation"),
+			),
+		)
 		span.SetStatus(codes.Error, err.Error())
+		logger.WarnWithCtx(ctx, "[tk api client] config is null",
+			logger.String("url_path", urlPath))
 		return "", err
 	}
 
 	appSecret := request.GetConfig().AppSecret
 	if len(appSecret) == 0 {
-		err := errors.NewTkErrorWithMessage(errors.ParamError, "appSecret为空")
-		span.RecordError(err)
+		err := tkerrors.NewTkErrorWithMessage(tkerrors.ParamError, "appSecret为空")
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "parameter-error"),
+				attribute.String("error.context", "appsecret-validation"),
+			),
+		)
 		span.SetStatus(codes.Error, err.Error())
+		logger.WarnWithCtx(ctx, "[tk api client] appSecret is empty",
+			logger.String("url_path", urlPath))
 		return "", err
 	}
 
-	// 添加请求信息到 span
+	// 设置 OpenTelemetry 标准属性
 	span.SetAttributes(
-		attribute.String("api.url_path", request.GetURLPath()),
+		attribute.String("http.url_path", urlPath),
+		attribute.String("http.method", "POST"),
+		attribute.String("messaging.system", "tk-api"),
+		attribute.String("messaging.operation", "request"),
 	)
 
+	// 准备请求参数
 	paramJSON := request.GetParamObject()
-	urlPath := request.GetURLPath()
 	if GetTkConfig().SignFunc == nil {
 		GetTkConfig().SignFunc = utils.Sign
 	}
 	paramJSONString := utils.Marshal(paramJSON, appSecret, GetTkConfig().SignFunc)
-	// 记录请求参数到 span 中
-	span.SetAttributes(
-		attribute.String("request.body", paramJSONString),
-	)
 
+	// 构建 HTTP Headers
 	httpHeaderMap := map[string]string{
 		"from":     "sdk",
 		"sdk-type": "golang",
@@ -118,27 +106,91 @@ func (client *TkAPIClient) RequestWithContext(ctx context.Context, request TkAPI
 		}
 	}
 
+	// 注入 Trace Context 到 HTTP Headers（大厂标准做法）
+	// 使用 OpenTelemetry Propagator 自动注入标准 W3C Trace Context
+	headersMap := make(map[string]string)
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headersMap))
+
+	// 将自定义 headers 合并到 Trace headers
+	for k, v := range httpHeaderMap {
+		headersMap[k] = v
+	}
+
+	fullURL := fmt.Sprintf("%s%s", request.GetConfig().OpenRequestURL, urlPath)
+
+	// 记录请求信息到 span
+	span.SetAttributes(
+		attribute.String("http.url", fullURL),
+		attribute.String("http.request.body", paramJSONString),
+		attribute.Int("http.request.headers_count", len(headersMap)),
+	)
+
+	span.AddEvent("preparing API request",
+		trace.WithAttributes(
+			attribute.String("url", fullURL),
+			attribute.String("url_path", urlPath),
+			attribute.Int("body_size", len(paramJSONString)),
+			attribute.Int("headers_count", len(headersMap)),
+		))
+
 	httpRequest := &TkHTTPRequest{
-		URL:     fmt.Sprintf("%s%s", request.GetConfig().OpenRequestURL, urlPath),
-		Headers: httpHeaderMap,
+		URL:     fullURL,
+		Headers: headersMap, // 携带 Trace 信息
 		Body:    paramJSONString,
 	}
 
-	// 更新 span 中的 URL 信息
-	span.SetAttributes(
-		attribute.String("http.url", httpRequest.URL),
-		attribute.String("http.method", "POST"),
-	)
-
+	// 发起 HTTP 请求
 	httpResponse, err := GetHTTPClient().PostWithContext(ctx, httpRequest)
 
+	duration := time.Since(startTime)
+	span.SetAttributes(attribute.Float64("http.request.duration_ms", float64(duration.Milliseconds())))
+
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		errorMsg := fmt.Sprintf("API request failed: %v | url=%s | url_path=%s | duration_ms=%.2f",
+			err, fullURL, urlPath, float64(duration.Milliseconds()))
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", fmt.Sprintf("%T", err)),
+				attribute.String("error.context", "http-request-failed"),
+				attribute.String("error.url", fullURL),
+				attribute.String("error.url_path", urlPath),
+			),
+		)
+		span.SetStatus(codes.Error, errorMsg)
+		span.AddEvent("API request failed",
+			trace.WithAttributes(
+				attribute.String("error.message", err.Error()),
+				attribute.String("url", fullURL),
+				attribute.String("url_path", urlPath),
+				attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			))
+		logger.WarnWithCtx(ctx, "[tk api client] API request failed",
+			logger.Err(err),
+			logger.String("url", fullURL),
+			logger.String("url_path", urlPath),
+			logger.Float64("duration_ms", float64(duration.Milliseconds())))
 		return "", err
 	}
 
-	span.SetAttributes(attribute.String("response.body", httpResponse.Body))
+	// 记录响应信息
+	span.SetAttributes(
+		attribute.String("http.response.body", httpResponse.Body),
+		attribute.Int("http.response.body.size", len(httpResponse.Body)),
+	)
+
+	span.AddEvent("API request completed successfully",
+		trace.WithAttributes(
+			attribute.String("url", fullURL),
+			attribute.String("url_path", urlPath),
+			attribute.Int("response_size", len(httpResponse.Body)),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		))
+
+	logger.DebugWithCtx(ctx, "[tk api client] API request success",
+		logger.String("url", fullURL),
+		logger.String("url_path", urlPath),
+		logger.Int("response_size", len(httpResponse.Body)),
+		logger.Float64("duration_ms", float64(duration.Milliseconds())))
 
 	return httpResponse.Body, nil
 }
