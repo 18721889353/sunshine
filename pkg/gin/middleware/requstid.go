@@ -94,7 +94,7 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 		//
 		//// Create request id
 		//if requestID == "" {
-		//	requestID = krand.String(krand.R_All, 10)
+		//	requestID = krand.String(krand.RAll, 10)
 		//	c.Request.Header.Set(HeaderXRequestIDKey, requestID)
 		//}
 
@@ -102,7 +102,7 @@ func RequestID(opts ...RequestIDOption) gin.HandlerFunc {
 		if o.snow != nil {
 			requestID = o.snow.Generate().String()
 		} else {
-			requestID = krand.String(krand.R_All, 32)
+			requestID = krand.String(krand.RAll, 32)
 		}
 
 		// Expose it for use in the application

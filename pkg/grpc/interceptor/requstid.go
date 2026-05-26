@@ -74,7 +74,7 @@ func UnaryClientRequestID() grpc.UnaryClientInterceptor {
 		requestID := ClientCtxRequestID(ctx)
 		if requestID == "" {
 			// 如果 request_id 不存在，生成一个 32 位随机数字符串
-			requestID = krand.String(krand.R_NUM, 32)
+			requestID = krand.String(krand.RNum, 32)
 			ctx = metadata.AppendToOutgoingContext(ctx, string(logger.ContextKeyRequestID), requestID)
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
@@ -99,7 +99,7 @@ func StreamClientRequestID() grpc.StreamClientInterceptor {
 		requestID := ClientCtxRequestID(ctx)
 		if requestID == "" {
 			// 如果 request_id 不存在，生成一个 32 位随机数字符串
-			requestID = krand.String(krand.R_NUM, 32)
+			requestID = krand.String(krand.RNum, 32)
 			ctx = metadata.AppendToOutgoingContext(ctx, string(logger.ContextKeyRequestID), requestID)
 		}
 
@@ -180,7 +180,7 @@ func UnaryServerRequestID() grpc.UnaryServerInterceptor {
 		requestID := ServerCtxRequestID(ctx)
 		if requestID == "" {
 			// 如果 request_id 不存在，生成一个 32 位随机数字符串
-			requestID = krand.String(krand.R_NUM, 32)
+			requestID = krand.String(krand.RNum, 32)
 			ctx = metautils.ExtractIncoming(ctx).Add(string(logger.ContextKeyRequestID), requestID).ToIncoming(ctx)
 		}
 
@@ -204,7 +204,7 @@ func StreamServerRequestID() grpc.StreamServerInterceptor {
 		//ctx := stream.Context()
 		//requestID := ServerCtxRequestID(ctx)
 		//if requestID == "" {
-		//	requestID = krand.String(krand.R_NUM, 32)
+		//	requestID = krand.String(krand.RNum, 32)
 		//	ctx = metautils.ExtractIncoming(ctx).Add(ContextRequestIDKey, requestID).ToIncoming(ctx)
 		//}
 		return handler(srv, stream)

@@ -247,7 +247,7 @@ func copyThirdPartyProtoFiles(depProtoDir string) (string, error) {
 }
 
 func convertProtoToJSON(protoFile string, thirdPartyDir string) (string, error) {
-	dir := thirdPartyDir + "/" + krand.String(krand.R_All, 8)
+	dir := thirdPartyDir + "/" + krand.String(krand.RAll, 8)
 	err := os.Mkdir(dir, 0755)
 	if err != nil {
 		return "", err

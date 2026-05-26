@@ -334,7 +334,7 @@ func getSavePath() string {
 	if gofile.IsWindows() {
 		dir = strings.ReplaceAll(saveDir, "\\", "/")
 	}
-	dir += "/" + "s_" + krand.String(krand.R_NUM|krand.R_LOWER, 10)
+	dir += "/" + "s_" + krand.String(krand.RNum|krand.RLower, 10)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		if err := os.MkdirAll(dir, 0766); err != nil {
 			logger.WarnWithCtx(context.Background(), "创建目录失败", logger.String("dir", dir), logger.Err(err))
