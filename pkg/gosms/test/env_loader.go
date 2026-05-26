@@ -28,14 +28,13 @@ func loadEnvFromFile() error {
 
 	var envFile string
 	for _, path := range envPaths {
-		fmt.Printf("🔍 检查文件: %s ... ", path)
+		fmt.Printf(" 检查文件: %s ... ", path)
 		if _, statErr := os.Stat(path); statErr == nil {
 			envFile = path
 			fmt.Println("✅ 找到")
 			break
-		} else {
-			fmt.Println("❌ 不存在")
 		}
+		fmt.Println("❌ 不存在")
 	}
 
 	if envFile == "" {
@@ -87,34 +86,46 @@ func loadEnvFromFile() error {
 	return nil
 }
 
+// Config 短信测试配置
+type Config struct {
+	SecretID    string
+	SecretKey   string
+	AppID       string
+	SignName    string
+	TemplateID  string
+	PhoneNumber string
+}
+
 // LoadConfig 加载配置（先从.env文件，再从系统环境变量）
-func LoadConfig() (secretID, secretKey, appID, signName, templateID, phoneNumber string, err error) {
+func LoadConfig() (*Config, error) {
 	// 首先尝试从.env文件加载
 	if loadErr := loadEnvFromFile(); loadErr != nil {
 		fmt.Printf("Warning: failed to load .env file: %v\n", loadErr)
 	}
 
 	// 然后从环境变量获取
-	secretID = os.Getenv("TENCENT_SECRET_ID")
-	secretKey = os.Getenv("TENCENT_SECRET_KEY")
-	appID = os.Getenv("TENCENT_SMS_APP_ID")
-	signName = os.Getenv("SMS_SIGN_NAME")
-	templateID = os.Getenv("SMS_TEMPLATE_ID")
-	phoneNumber = os.Getenv("TEST_PHONE_NUMBER")
+	cfg := &Config{
+		SecretID:    os.Getenv("TENCENT_SECRET_ID"),
+		SecretKey:   os.Getenv("TENCENT_SECRET_KEY"),
+		AppID:       os.Getenv("TENCENT_SMS_APP_ID"),
+		SignName:    os.Getenv("SMS_SIGN_NAME"),
+		TemplateID:  os.Getenv("SMS_TEMPLATE_ID"),
+		PhoneNumber: os.Getenv("TEST_PHONE_NUMBER"),
+	}
 
 	// 如果没有设置测试手机号，使用默认值
-	if phoneNumber == "" {
-		phoneNumber = "+8613711112222"
+	if cfg.PhoneNumber == "" {
+		cfg.PhoneNumber = "+8613711112222"
 	}
 
 	// 调试信息：显示是否加载到了配置
-	if secretID == "" {
+	if cfg.SecretID == "" {
 		fmt.Println("⚠️  警告: 未找到 TENCENT_SECRET_ID")
 	} else {
-		fmt.Printf("✅ 已加载 TENCENT_SECRET_ID: %s...\n", secretID[:10])
+		fmt.Printf("✅ 已加载 TENCENT_SECRET_ID: %s...\n", cfg.SecretID[:10])
 	}
 
-	return secretID, secretKey, appID, signName, templateID, phoneNumber, nil
+	return cfg, nil
 }
 
 // MustAtoi 将字符串转换为整数，失败返回默认值
