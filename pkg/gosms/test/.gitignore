@@ -1,0 +1,12 @@
+# 忽略环境配置文件（包含敏感信息）
+.env
+
+# 忽略编译产物
+*.exe
+*.dll
+*.so
+sms_test
+sms_test.exe
+
+# 忽略日志文件
+*.log
