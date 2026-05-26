@@ -195,14 +195,24 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 		// 获取文件名(不含路径)
 		fileName := filepath.Base(sourceFile)
 
-		// 创建ZIP条目（可选加密）
+		// 创建统一的 FileHeader
+		header := &zip.FileHeader{
+			Name:   fileName,
+			Method: zip.Deflate,
+		}
+		// 关键点：设置UTF-8标志，解决中文文件名乱码问题
+		header.Flags |= 0x800
+
 		var writer io.Writer
 		var writeErr error
 
 		if options.Password != "" {
-			// 加密模式
-			encryptionMethod := getEncryptionMethod(options.Encryption)
-			writer, writeErr = zipWriter.Encrypt(fileName, options.Password, encryptionMethod)
+			// 加密模式：在 header 上设置密码和加密算法，并使用 CreateHeader 统一写入
+			header.SetPassword(options.Password)
+			// 注意：yeka/zip 内部使用的是方法 SetEncryptionMethod，而非结构体字段
+			header.SetEncryptionMethod(getEncryptionMethod(options.Encryption))
+
+			writer, writeErr = zipWriter.CreateHeader(header)
 			if writeErr != nil {
 				err = fmt.Errorf("创建加密ZIP条目失败 [%s]: %w", fileName, writeErr)
 				span.RecordError(err)
@@ -211,10 +221,6 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 			}
 		} else {
 			// 非加密模式
-			header := &zip.FileHeader{
-				Name:   fileName,
-				Method: zip.Deflate,
-			}
 			writer, writeErr = zipWriter.CreateHeader(header)
 			if writeErr != nil {
 				err = fmt.Errorf("创建ZIP条目失败 [%s]: %w", fileName, writeErr)
@@ -229,7 +235,7 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 			err = fmt.Errorf("写入ZIP文件内容失败 [%s]: %w", fileName, writeErr)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			return nil, err
+			return nil, writeErr
 		}
 
 		fileCount++

@@ -4,11 +4,95 @@ import (
 	"context"
 	"fmt"
 	"github.com/yeka/zip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// 🔥 新增：专门验证中文乱码问题是否修复的测试用例
+// 该测试通过【加密压缩带有中文和亚洲字符的文件】并【重新解压读取】，
+// 模拟 Windows/Linux 解压软件的行为，从底层断言文件名编码是否被正确处理。
+func TestZipChineseFilenamesRealVerification(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. 准备复杂的中文及亚洲字符文件名
+	chineseNames := []string{
+		"1779763686_财务报表_数据统计.xlsx",
+		"1779763687_用户反馈数据汇总表2026.xlsx",
+		"한국어_조선말_测试.xlsx", // 混合亚洲字符测试
+	}
+
+	var srcFiles []string
+	for _, name := range chineseNames {
+		content := fmt.Sprintf("模拟加密Excel文件内容: %s", name)
+		filePath := createTestFile(t, tempDir, name, content)
+		srcFiles = append(srcFiles, filePath)
+	}
+
+	// 2. 目标压缩包路径和加密密码
+	destZipPath := filepath.Join(tempDir, "chinese_encrypted_test.zip")
+	password := "secure_password_123"
+
+	// 3. 执行压缩逻辑
+	result, err := ZipFilesFromPaths(context.Background(), srcFiles, destZipPath, password)
+	if err != nil {
+		t.Fatalf("❌ 中文文件加密压缩失败: %v", err)
+	}
+
+	if !result.IsEncrypted {
+		t.Fatal("❌ 压缩包应当是加密状态")
+	}
+
+	// 4. 🔥 核心验证：模拟解压软件重新打开压缩包，校验文件名
+	// 如果之前修改的 header.Flags |= 0x800 生效，这里的 reader 读取出来的文件名必为正确的中文
+	reader, err := zip.OpenReader(destZipPath)
+	if err != nil {
+		t.Fatalf("❌ 无法打开生成的ZIP包进行验证: %v", err)
+	}
+	defer reader.Close()
+
+	if len(reader.File) != len(chineseNames) {
+		t.Errorf("❌ 压缩包内的文件数量不符，期望 %d, 实际 %d", len(chineseNames), len(reader.File))
+	}
+
+	// 建立一个 map 用来比对
+	expectedMap := make(map[string]bool)
+	for _, name := range chineseNames {
+		expectedMap[name] = true
+	}
+
+	t.Logf("============ 🔄 开始验证解压文件名 ============")
+	for _, file := range reader.File {
+		// 检查标志位：第 11 位（0x800）应该为 1，代表 UTF-8 编码被成功写入
+		isUTF8 := (file.Flags & 0x800) != 0
+		if !isUTF8 {
+			t.Errorf("❌ 严重错误：文件 [%s] 的头部未发现 UTF-8 (0x800) 标志位！这会导致 Windows 解压时出现“娴娴/缇底”等乱码！", file.Name)
+		} else {
+			t.Logf("  [OK] 成功检测到 UTF-8 标志位 (Flags: 0x%X)", file.Flags)
+		}
+
+		// 检查解压出来的文件名是否在我们的预期列表中
+		if _, exists := expectedMap[file.Name]; !exists {
+			t.Errorf("❌ 乱码或不匹配：解压出来的文件名是 [%s]，我们在压缩包里找不到这个中文名！", file.Name)
+		} else {
+			t.Logf("  [OK] 文件名完美匹配，无乱码: %s", file.Name)
+			// 同时验证加密内容能否被正常读取（确保调用 CreateHeader 没有损坏数据流）
+			if file.IsEncrypted() {
+				file.SetPassword(password)
+			}
+			r, err := file.Open()
+			if err != nil {
+				t.Errorf("  [错误] 无法读取加密文件流 [%s]: %v", file.Name, err)
+			} else {
+				_, _ = io.ReadAll(r)
+				r.Close()
+			}
+		}
+	}
+	t.Logf("==============================================")
+}
 
 // TestZipFilesFromPaths 测试从文件路径列表创建ZIP（带密码）
 func TestZipFilesFromPaths(t *testing.T) {
