@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -105,6 +106,7 @@ func sendSMS(ctx context.Context, client gosms.SMSClient, cfg *Config) *gosms.Se
 		SignName:     cfg.SignName,
 		TemplateParams: map[string]string{
 			"1": verifyCode,
+			"2": time.Now().Format(time.DateTime),
 		},
 	}
 
@@ -134,6 +136,11 @@ func sendSMS(ctx context.Context, client gosms.SMSClient, cfg *Config) *gosms.Se
 			fmt.Printf("   返回消息: %v\n", message)
 		}
 	}
+	marshal, err := json.Marshal(result)
+	if err != nil {
+		log.Printf(" 序列化结果失败: %v\n", err)
+	}
+	fmt.Printf("   完整结果: %s\n", string(marshal))
 	fmt.Println()
 
 	return result
@@ -144,6 +151,7 @@ func pollSMSStatus(ctx context.Context, client gosms.SMSClient, result *gosms.Se
 	fmt.Println(" 步骤2: 轮询查询短信发送状态...")
 	fmt.Println("   将每5秒查询一次，最多查询6次（30秒）")
 	fmt.Println()
+	time.Sleep(time.Second * 5)
 
 	maxRetries := 6
 	retryInterval := 5 * time.Second
@@ -165,6 +173,11 @@ func pollSMSStatus(ctx context.Context, client gosms.SMSClient, result *gosms.Se
 			time.Sleep(retryInterval)
 			continue
 		}
+		marshal, err := json.Marshal(statusResult)
+		if err != nil {
+			log.Printf(" 序列化结果失败: %v\n", err)
+		}
+		fmt.Printf("   完整结果: %s\n", string(marshal))
 
 		lastStatusResult = statusResult
 		fmt.Printf("   查询成功 (状态: %s)\n", statusResult.Status)
