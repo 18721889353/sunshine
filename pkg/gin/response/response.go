@@ -22,9 +22,9 @@ func newResp(code int, msg string, data interface{}) *Result {
 		Msg:  msg,
 	}
 
-	// ensure that the data field is not nil on return, note that it is not nil when resp.data=[]interface {}, it is serialized to null
+	// data 为 nil 时返回空数组 [] 而非 null 或 {}
 	if data == nil {
-		resp.Data = &struct{}{}
+		resp.Data = make([]any, 0)
 	} else {
 		resp.Data = data
 	}

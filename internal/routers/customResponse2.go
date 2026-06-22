@@ -21,6 +21,9 @@ func NewCustomResponse2() *CustomResponse2 {
 	return &CustomResponse2{}
 }
 func (r *CustomResponse2) response(c *gin.Context, code int, result, returnInfo interface{}) {
+	if returnInfo == nil {
+		returnInfo = make([]any, 0)
+	}
 	c.JSON(code, gin.H{
 		"result":     result,
 		"returnInfo": returnInfo,
@@ -62,7 +65,7 @@ func (r *CustomResponse2) Success(c *gin.Context, data interface{}) {
 	if len(result.ReturnInfo) > 0 {
 		r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
 	} else {
-		r.response(c, http.StatusOK, result.Result, nil)
+		r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
 	}
 }
 

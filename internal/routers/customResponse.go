@@ -19,6 +19,9 @@ func NewCustomResponse() *CustomResponse {
 	return &CustomResponse{}
 }
 func (r *CustomResponse) response(c *gin.Context, code int, customCode, msg string, data interface{}) {
+	if data == nil {
+		data = make([]any, 0)
+	}
 	c.JSON(code, gin.H{
 		"code": customCode,
 		"msg":  msg,
@@ -136,13 +139,13 @@ func (r *CustomResponse) Success2(_ *gin.Context, _, _ string, _ interface{}) {
 
 // ParamError handles parameter error response
 func (r *CustomResponse) ParamError(c *gin.Context, _ error) {
-	r.response(c, http.StatusOK, "1002", http.StatusText(http.StatusBadRequest), struct{}{})
+	r.response(c, http.StatusOK, "1002", http.StatusText(http.StatusBadRequest), nil)
 }
 
 func (r *CustomResponse) Error(c *gin.Context, err error) bool {
 	//r.response(c, http.StatusOK, "1001", "处理中", struct{}{})
 	////e := errcode.ParseError(err)
 	st, _ := status.FromError(err)
-	r.response(c, http.StatusOK, strconv.Itoa(int(st.Code())), st.Message(), struct{}{})
+	r.response(c, http.StatusOK, strconv.Itoa(int(st.Code())), st.Message(), nil)
 	return false
 }
