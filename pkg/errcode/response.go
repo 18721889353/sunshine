@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/cast"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -77,10 +77,13 @@ func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*R
 
 // response 统一构建 JSON 响应
 func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg string, data any) {
-	respData := map[string]any{
-		"code": code,
-		"data": data,
+	if data == nil {
+		data = make([]any, 0)
 	}
+
+	respData := make(map[string]any, 3)
+	respData["code"] = code
+	respData["data"] = data
 
 	if resp.isMessage {
 		respData["message"] = msg
@@ -103,9 +106,14 @@ func (resp *defaultResponse) Success2(c *gin.Context, code, msg string, data any
 	resp.response(c, http.StatusOK, code, msg, data)
 }
 
+// respondWithHTTPCode 统一的 HTTP 状态码响应，消除重复的 cast.ToString 和 getStatusTextOrDefault
+func (resp *defaultResponse) respondWithHTTPCode(c *gin.Context, httpCode int) {
+	resp.response(c, httpCode, cast.ToString(httpCode), getStatusTextOrDefault(httpCode), nil)
+}
+
 // ParamError 参数错误响应
 func (resp *defaultResponse) ParamError(c *gin.Context, _ error) {
-	resp.response(c, http.StatusOK, strconv.Itoa(InvalidParams.Code()), InvalidParams.Msg(), nil)
+	resp.response(c, http.StatusOK, cast.ToString(InvalidParams.Code()), InvalidParams.Msg(), nil)
 }
 
 // Error 错误响应
@@ -172,10 +180,11 @@ func (resp *defaultResponse) analyzeAndUnwrap(v reflect.Value, typ reflect.Type)
 			sliceCount++
 			if sliceCount == 1 {
 				firstSliceIdx = i
-				continue
 			}
-			// 发现超过一个切片，不符合拆包条件，直接停止
-			break
+			if sliceCount > 1 {
+				// 发现超过一个切片，不符合拆包条件，直接停止
+				break
+			}
 		}
 	}
 
@@ -200,43 +209,44 @@ func (resp *defaultResponse) analyzeAndUnwrap(v reflect.Value, typ reflect.Type)
 // handleRPCError 处理来自 gRPC 的错误
 func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	st, _ := status.FromError(err)
+	stCode := st.Code()
 
 	// 1. 处理 codes.Unknown (通常是自定义错误或 panic)
-	if st.Code() == codes.Unknown {
+	if stCode == codes.Unknown {
 		code, msg := parseCodeAndMsg(st.String())
 		if code == -1 {
 			resp.response(c, http.StatusOK, "-1", "unknown error", nil)
 		} else {
-			resp.response(c, http.StatusOK, strconv.Itoa(code), msg, nil)
+			resp.response(c, http.StatusOK, cast.ToString(code), msg, nil)
 		}
 		return false
 	}
 
 	// 2. 处理标准 gRPC 错误映射到 HTTP 状态码
-	switch st.Code() {
+	switch stCode {
 	case codes.Internal, StatusInternalServerError.status.Code():
-		resp.response(c, http.StatusInternalServerError, strconv.Itoa(http.StatusInternalServerError), http.StatusText(http.StatusInternalServerError), nil)
+		resp.respondWithHTTPCode(c, http.StatusInternalServerError)
 		return true
 	case codes.Unavailable, StatusServiceUnavailable.status.Code():
-		resp.response(c, http.StatusServiceUnavailable, strconv.Itoa(http.StatusServiceUnavailable), http.StatusText(http.StatusServiceUnavailable), nil)
+		resp.respondWithHTTPCode(c, http.StatusServiceUnavailable)
 		return true
 	}
 
 	// 3. 检查是否包含强制转换为 HTTP Code 的标签
 	if strings.Contains(st.Message(), ToHTTPCodeLabel) {
-		code := convertToHTTPCode(st.Code())
+		httpCode := convertToHTTPCode(stCode)
 		msg := strings.ReplaceAll(st.Message(), ToHTTPCodeLabel, "")
-		resp.response(c, code, strconv.Itoa(int(st.Code())), msg, nil)
+		resp.response(c, httpCode, cast.ToString(int(stCode)), msg, nil)
 		return true
 	}
 
 	// 4. 检查用户自定义的 RPC 错误映射
-	if resp.rpcStatus != nil && resp.isUserDefinedRPCErrorCode(c, int(st.Code())) {
+	if resp.rpcStatus != nil && resp.isUserDefinedRPCErrorCode(c, int(stCode)) {
 		return true
 	}
 
 	// 5. 默认行为：响应 200 OK，Body 中包含错误码
-	resp.response(c, http.StatusOK, strconv.Itoa(int(st.Code())), st.Message(), nil)
+	resp.response(c, http.StatusOK, cast.ToString(int(stCode)), st.Message(), nil)
 	return false
 }
 
@@ -247,17 +257,17 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	// 1. 处理标准 HTTP 错误
 	switch e.Code() {
 	case InternalServerError.Code(), http.StatusInternalServerError:
-		resp.response(c, http.StatusInternalServerError, strconv.Itoa(http.StatusInternalServerError), http.StatusText(http.StatusInternalServerError), nil)
+		resp.respondWithHTTPCode(c, http.StatusInternalServerError)
 		return true
 	case ServiceUnavailable.Code(), http.StatusServiceUnavailable:
-		resp.response(c, http.StatusServiceUnavailable, strconv.Itoa(http.StatusServiceUnavailable), http.StatusText(http.StatusServiceUnavailable), nil)
+		resp.respondWithHTTPCode(c, http.StatusServiceUnavailable)
 		return true
 	}
 
 	// 2. 用户请求返回标准 HTTP 代码
 	if e.needHTTPCode {
 		msg := strings.ReplaceAll(e.msg, ToHTTPCodeLabel, "")
-		resp.response(c, e.ToHTTPCode(), strconv.Itoa(e.code), msg, nil)
+		resp.response(c, e.ToHTTPCode(), cast.ToString(e.code), msg, nil)
 		return true
 	}
 
@@ -267,25 +277,25 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	}
 
 	// 4. 默认行为
-	resp.response(c, http.StatusOK, strconv.Itoa(e.code), e.msg, nil)
+	resp.response(c, http.StatusOK, cast.ToString(e.code), e.msg, nil)
 	return false
 }
 
+// isUserDefinedRPCErrorCode 检查用户自定义的 RPC 错误映射
+// 如果找到匹配的错误码，使用对应的 HTTP 状态码响应
 func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode int) bool {
 	if v, ok := resp.rpcStatus[errCode]; ok {
-		httpCode := ToHTTPErr(v.status).ToHTTPCode()
-		msg := getStatusTextOrDefault(httpCode)
-		resp.response(c, httpCode, strconv.Itoa(httpCode), msg, nil)
+		resp.respondWithHTTPCode(c, ToHTTPErr(v.status).ToHTTPCode())
 		return true
 	}
 	return false
 }
 
+// isUserDefinedHTTPErrorCode 检查用户自定义的 HTTP 错误映射
+// 如果找到匹配的错误码，使用对应的 HTTP 状态码响应
 func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode int) bool {
 	if v, ok := resp.httpErrors[errCode]; ok {
-		httpCode := v.ToHTTPCode()
-		msg := getStatusTextOrDefault(httpCode)
-		resp.response(c, httpCode, strconv.Itoa(httpCode), msg, nil)
+		resp.respondWithHTTPCode(c, v.ToHTTPCode())
 		return true
 	}
 	return false
@@ -300,9 +310,9 @@ func getStatusTextOrDefault(code int) string {
 	return msg
 }
 
-// ToHTTPErr 将 gRPC 状态转换为 HTTP 错误
+// ToHTTPErr 将 gRPC 状态转换为对应的 HTTP 错误
+// 它会匹配自定义业务错误码和标准 gRPC 状态码，返回对应的 *Error
 func ToHTTPErr(st *status.Status) *Error { //nolint
-	// 常见错误快速匹配
 	switch st.Code() {
 	case StatusSuccess.status.Code(), codes.OK:
 		return Success
@@ -322,10 +332,6 @@ func ToHTTPErr(st *status.Status) *Error { //nolint
 		return Conflict
 	case StatusUnauthorized.status.Code(), codes.Unauthenticated:
 		return Unauthorized
-	}
-
-	// 其他较少见的错误
-	switch st.Code() {
 	case StatusCanceled.status.Code(), codes.Canceled:
 		return Canceled
 	case StatusUnknown.status.Code(), codes.Unknown:
@@ -380,10 +386,8 @@ func parseCodeAndMsg(errStr string) (int, string) {
 		codeStr = strings.TrimPrefix(codeStr, "code = ")
 		codeStr = strings.TrimSuffix(codeStr, ", ")
 
-		code, err := strconv.Atoi(strings.TrimSpace(codeStr))
-		if err == nil {
-			return code, cm[1]
-		}
+		code := cast.ToInt(strings.TrimSpace(codeStr))
+		return code, cm[1]
 	}
 
 	return -1, errStr

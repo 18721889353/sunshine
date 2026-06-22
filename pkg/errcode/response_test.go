@@ -300,6 +300,168 @@ func TestParseCodeAndMsgError(t *testing.T) {
 	t.Log(st.Code(), st.Message())
 }
 
+func TestNilDataAsEmptySlice(t *testing.T) {
+	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
+
+	// data 为 nil 时默认返回 [] 而非 null
+	resp := NewResponser(false, false, nil, nil)
+
+	// 测试 data = nil
+	r.GET("/success_nil", func(c *gin.Context) {
+		resp.Success(c, nil)
+	})
+	// 测试 data = 非 nil 字符串
+	r.GET("/success_data", func(c *gin.Context) {
+		resp.Success(c, "hello")
+	})
+	// 测试 Success2 且 data = nil
+	r.GET("/success2_nil", func(c *gin.Context) {
+		resp.Success2(c, "0", "ok", nil)
+	})
+	// 测试错误响应（默认 data 传 nil）
+	r.GET("/error_params", func(c *gin.Context) {
+		resp.Error(c, InvalidParams.Err("test"))
+	})
+
+	go func() {
+		err := r.Run(serverAddr)
+		if err != nil {
+			panic(err)
+		}
+	}()
+	time.Sleep(time.Millisecond * 200)
+
+	// 验证 data = nil 时返回 []
+	result, err := http.Get(requestAddr + "/success_nil")
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, result.StatusCode)
+	body, _ := io.ReadAll(result.Body)
+	t.Log("success_nil:", string(body))
+	assert.Contains(t, string(body), `"data":[]`)
+	result.Body.Close()
+
+	// 验证正常数据不受影响
+	result, err = http.Get(requestAddr + "/success_data")
+	assert.NoError(t, err)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("success_data:", string(body))
+	assert.Contains(t, string(body), `"data":"hello"`)
+	result.Body.Close()
+
+	// 验证 Success2 且 data = nil 时返回 []
+	result, err = http.Get(requestAddr + "/success2_nil")
+	assert.NoError(t, err)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("success2_nil:", string(body))
+	assert.Contains(t, string(body), `"data":[]`)
+	result.Body.Close()
+
+	// 验证错误响应也返回 []
+	result, err = http.Get(requestAddr + "/error_params")
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, result.StatusCode)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("error_params:", string(body))
+	assert.Contains(t, string(body), `"data":[]`)
+	result.Body.Close()
+}
+
+func TestSuccessUnwrap(t *testing.T) {
+	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
+
+	resp := NewResponser(false, false, nil, nil)
+
+	// 定义测试用的结构体：仅有一个切片字段，应触发自动拆包
+	type Item struct {
+		Name string `json:"name"`
+	}
+	type Wrapper struct {
+		Items []Item `json:"items"`
+	}
+
+	// 多个切片字段的结构体，不触发拆包
+	type MultiSlice struct {
+		Items  []Item `json:"items"`
+		Others []int  `json:"others"`
+	}
+
+	// 指针类型结构体
+	type PtrWrapper struct {
+		List []string `json:"list"`
+	}
+
+	r.GET("/unwrap_match", func(c *gin.Context) {
+		resp.Success(c, Wrapper{Items: []Item{{Name: "a"}, {Name: "b"}}})
+	})
+	r.GET("/unwrap_nil_ptr", func(c *gin.Context) {
+		resp.Success(c, (*Wrapper)(nil))
+	})
+	r.GET("/unwrap_multi", func(c *gin.Context) {
+		resp.Success(c, MultiSlice{Items: []Item{{Name: "a"}}, Others: []int{1}})
+	})
+	r.GET("/unwrap_ptr", func(c *gin.Context) {
+		resp.Success(c, &PtrWrapper{List: []string{"x", "y"}})
+	})
+	r.GET("/unwrap_non_struct", func(c *gin.Context) {
+		resp.Success(c, "plain string")
+	})
+
+	go func() {
+		err := r.Run(serverAddr)
+		if err != nil {
+			panic(err)
+		}
+	}()
+	time.Sleep(time.Millisecond * 200)
+
+	// 单切片字段结构体应自动拆包，返回 items 数组
+	result, err := http.Get(requestAddr + "/unwrap_match")
+	assert.NoError(t, err)
+	body, _ := io.ReadAll(result.Body)
+	t.Log("unwrap_match:", string(body))
+	assert.Contains(t, string(body), `"data":[{"name":"a"},{"name":"b"}]`)
+	result.Body.Close()
+
+	// nil 指针或 nil data 统一返回 []
+	result, err = http.Get(requestAddr + "/unwrap_nil_ptr")
+	assert.NoError(t, err)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("unwrap_nil_ptr:", string(body))
+	assert.Contains(t, string(body), `"data":[]`)
+	result.Body.Close()
+
+	// 多切片字段不拆包，返回完整结构体
+	result, err = http.Get(requestAddr + "/unwrap_multi")
+	assert.NoError(t, err)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("unwrap_multi:", string(body))
+	assert.Contains(t, string(body), `"items"`)
+	assert.Contains(t, string(body), `"others"`)
+	result.Body.Close()
+
+	// 指针类型也应能正确拆包
+	result, err = http.Get(requestAddr + "/unwrap_ptr")
+	assert.NoError(t, err)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("unwrap_ptr:", string(body))
+	assert.Contains(t, string(body), `"data":["x","y"]`)
+	result.Body.Close()
+
+	// 非结构体类型直接返回原值
+	result, err = http.Get(requestAddr + "/unwrap_non_struct")
+	assert.NoError(t, err)
+	body, _ = io.ReadAll(result.Body)
+	t.Log("unwrap_non_struct:", string(body))
+	assert.Contains(t, string(body), `"data":"plain string"`)
+	result.Body.Close()
+}
+
 var mcReg = regexp.MustCompile(`code\s*=\s*(\d+),\s*msg\s*=\s*(.+)`)
 
 func parseCodeAndMsg2(errStr string) (int, string) {

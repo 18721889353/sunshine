@@ -237,7 +237,8 @@ require (
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	// prometheus v0.40.0 由 aliyun-log-go-sdk 间接引入，但未被实际使用
-	// GHSA-vffh-x6r8-xx99 (XSS漏洞) 不影响本项目，因为不暴露 Prometheus Web UI
+	// GHSA-vffh-x6r8-xx99 (XSS)、GHSA-8rm2-7qqf-34qm (snappy DoS)
+	// 均需暴露 Prometheus HTTP 端点才可被利用，本项目不启动 Prometheus 服务
 	github.com/prometheus/prometheus v0.40.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/redis/go-redis/extra/rediscmd/v9 v9.12.1 // indirect
