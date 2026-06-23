@@ -109,7 +109,7 @@ type ParamsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ParamsMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -215,7 +215,7 @@ type ColumnMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ColumnMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -348,7 +348,7 @@ type ConditionsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConditionsMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}

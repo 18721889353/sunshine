@@ -166,6 +166,8 @@ type RPCMethod struct {
 
 	CustomKind string
 	Selector   string
+
+	IsWebSocket bool
 	// 如果 Selector 是 [ctx], 则 IsPassGinContext 为 true
 	// 如果 Selector 是 [no_bind], 则 IsPassGinContext 和 IsIgnoreShouldBind 都为 true
 	IsPassGinContext bool
@@ -256,6 +258,11 @@ func (m *RPCMethod) checkCustomKind() {
 		m.Method = http.MethodTrace
 	case "connect":
 		m.Method = http.MethodConnect
+	case "websocket":
+		m.IsWebSocket = true
+		m.Method = http.MethodGet
+		m.IsPassGinContext = true
+		m.IsIgnoreShouldBind = true
 	default:
 		m.Method = http.MethodPost
 	}
@@ -263,6 +270,9 @@ func (m *RPCMethod) checkCustomKind() {
 
 // checkSelector 检查并设置选择器
 func (m *RPCMethod) checkSelector() {
+	if m.Selector == "" {
+		return
+	}
 	_, isPassGinContext, isIgnoreShouldBind := parseVariable(m.Selector)
 	m.IsPassGinContext = isPassGinContext
 	m.IsIgnoreShouldBind = isIgnoreShouldBind

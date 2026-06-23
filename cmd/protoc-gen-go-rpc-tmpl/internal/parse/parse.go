@@ -8,7 +8,9 @@ import (
 	"runtime"
 	"strings"
 
+	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/compiler/protogen"
+	"google.golang.org/protobuf/proto"
 )
 
 // ServiceMethod method fields
@@ -28,6 +30,8 @@ type ServiceMethod struct {
 	RequestImportPkgName string // e.g. userV1
 	ReplyImportPkgName   string // e.g. userV1
 	ProtoPkgName         string // e.g. userV1
+
+	IsWebSocket bool // 是否为 WebSocket 方法
 }
 
 // Field request fields
@@ -92,6 +96,26 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 			importPkgMap[replyImportPkgName] = replyImportPkgName + " " + m.Output.GoIdent.GoImportPath.String()
 		}
 
+		// 检测是否为 WebSocket 方法
+		isWebSocket := false
+		rule, ok := proto.GetExtension(m.Desc.Options(), annotations.E_Http).(*annotations.HttpRule)
+		if rule != nil && ok {
+			if custom, ok := rule.Pattern.(*annotations.HttpRule_Custom); ok {
+				if strings.ToLower(custom.Custom.Kind) == "websocket" {
+					isWebSocket = true
+				}
+			}
+			// 检查 additional_bindings
+			for _, bind := range rule.AdditionalBindings {
+				if custom, ok := bind.Pattern.(*annotations.HttpRule_Custom); ok {
+					if strings.ToLower(custom.Custom.Kind) == "websocket" {
+						isWebSocket = true
+						break
+					}
+				}
+			}
+		}
+
 		comment := getMethodComment(m)
 		methods = append(methods, &ServiceMethod{
 			MethodName:    m.GoName,
@@ -109,6 +133,8 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 			RequestImportPkgName: requestImportPkgName,
 			ReplyImportPkgName:   replyImportPkgName,
 			ProtoPkgName:         protoPkgName,
+
+			IsWebSocket: isWebSocket,
 		})
 	}
 

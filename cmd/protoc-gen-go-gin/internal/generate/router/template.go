@@ -33,8 +33,17 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/logger"
 
-	{{$.PackagePaths}}
+	{{if $.HasWebSocket}}"github.com/18721889353/sunshine/pkg/gows"
+	{{end}}{{$.PackagePaths}}
 )
+
+{{if $.HasWebSocket}}
+// WsConnKey 用于在 context 中存储 WebSocket 连接。
+var WsConnKey = "ws_conn"
+
+// WsTokenKey 用于在 context 中存储 WebSocket token（从 query 参数获取）。
+var WsTokenKey = "ws_token"
+{{end}}
 `
 
 	ginRouterTmpl    *template.Template
@@ -171,7 +180,31 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 }
 
 {{range .Methods}}
-{{if eq .InvokeType 0}}{{if .Path}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
+{{if eq .InvokeType 0}}{{if .Path}}
+{{if .IsWebSocket}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
+	 client, err := gows.Upgrade(c, gows.WithHeartbeat())
+	 if err != nil {
+		 logger.WarnWithCtx(c.Request.Context(), "websocket upgrade error", logger.Err(err), middleware.GCtxRequestIDField(c))
+		 return
+	 }
+	 defer client.Close()
+
+	 ctx := context.WithValue(c.Request.Context(), WsConnKey, client)
+
+	 // 如果 query 传入了 token，放入 context 供业务层鉴权使用
+	 if token := c.Request.URL.Query().Get("token"); token != "" {
+		 ctx = context.WithValue(ctx, WsTokenKey, token)
+	 }
+	 _, err = r.iLogic.{{.Name}}(ctx, &{{.RequestImportPkgName}}{{.Request}}{})
+	 if err != nil {
+		 if errors.Is(err, errcode.SkipResponse) {
+			 return
+		 }
+		 logger.WarnWithCtx(ctx, "websocket logic error", logger.Err(err))
+		 return
+	 }
+}
+{{else}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
 	req := &{{.RequestImportPkgName}}{{.Request}}{}
 {{if eq .IsIgnoreShouldBind false}}	var err error
 {{if .HasPathParams }}
@@ -223,9 +256,8 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		return
 	}
 
-	r.iResponse.Success(c, out)
-
-}{{end}}{{end}}
+{{if not .IsWebSocket}}	r.iResponse.Success(c, out)
 {{end}}
+}{{end}}{{end}}{{end}}{{end}}
 `
 )

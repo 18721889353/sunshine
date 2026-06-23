@@ -57,6 +57,8 @@ type ServiceMethod struct {
 	IsPassGinContext   bool // 是否传递 gin.Context
 	IsIgnoreShouldBind bool // 是否忽略 ShouldBindXXX
 
+	IsWebSocket bool // 是否是 WebSocket
+
 	RequestImportPkgName string // 请求消息的导入包名称，例如 userV1
 	ReplyImportPkgName   string // 响应消息的导入包名称，例如 userV1
 	ProtoPkgName         string // proto 文件的包名称，例如 userV1
@@ -140,9 +142,9 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 			Method: rpcMethod.Method,
 			Body:   rpcMethod.Body,
 
-			IsPassGinContext:   rpcMethod.IsPassGinContext,
-			IsIgnoreShouldBind: rpcMethod.IsIgnoreShouldBind,
-
+			IsPassGinContext:     rpcMethod.IsPassGinContext,
+			IsIgnoreShouldBind:   rpcMethod.IsIgnoreShouldBind,
+			IsWebSocket:          rpcMethod.IsWebSocket,
 			RequestImportPkgName: requestImportPkgName,
 			ReplyImportPkgName:   replyImportPkgName,
 			ProtoPkgName:         protoPkgName,
@@ -446,6 +448,7 @@ type HTTPPbService struct {
 
 	ImportPkgMap map[string]string // 导入包映射，例如 [userV1]:[userV1 "user/api/user/v1"]
 }
+
 
 // HTTPPbServices HTTP协议缓冲区服务列表
 type HTTPPbServices []*HTTPPbService

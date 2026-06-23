@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket 测试 - Greeter</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h2 { margin-bottom: 16px; }
+        .status { padding: 8px 16px; border-radius: 4px; margin-bottom: 16px; font-weight: bold; }
+        .disconnected { background: #ffebee; color: #c62828; }
+        .connected { background: #e8f5e9; color: #2e7d32; }
+        .panel { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+        .panel h3 { margin-bottom: 12px; font-size: 14px; color: #666; }
+        .btn { padding: 8px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; margin-right: 8px; }
+        .btn-primary { background: #1976d2; color: #fff; }
+        .btn-danger { background: #d32f2f; color: #fff; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        input, textarea { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 8px; }
+        textarea { font-family: "Consolas", monospace; height: 80px; resize: vertical; }
+        .log-box { background: #263238; color: #e0e0e0; border-radius: 4px; padding: 12px; height: 300px; overflow-y: auto; font-family: "Consolas", monospace; font-size: 13px; line-height: 1.6; }
+        .log-box .sent { color: #64b5f6; }
+        .log-box .recv { color: #81c784; }
+        .log-box .info { color: #ffb74d; }
+        .log-box .error { color: #e57373; }
+        .preset-btn { display: inline-block; padding: 4px 12px; margin: 2px; border: 1px solid #1976d2; border-radius: 12px; background: #e3f2fd; color: #1976d2; cursor: pointer; font-size: 12px; }
+        .preset-btn:hover { background: #bbdefb; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>🔌 WebSocket 测试 - Greeter</h2>
+    <div id="statusBar" class="status disconnected">⛔ 未连接</div>
+
+    <div class="panel">
+        <h3>连接</h3>
+        <input id="wsUrl" value="ws://localhost:8848/go-api/v1/greeter/hello" />
+        <input id="wsToken" placeholder="JWT Token（可选）" style="margin-top:8px" />
+        <button id="btnConnect" class="btn btn-primary">连接</button>
+        <button id="btnDisconnect" class="btn btn-danger" disabled>断开</button>
+    </div>
+
+    <div class="panel">
+        <h3>发送消息</h3>
+        <div style="margin-bottom:8px">
+            <span class="preset-btn" data-msg='{"type":"ping"}'>ping</span>
+            <span class="preset-btn" data-msg='{"type":"say_hello","name":"World"}'>say_hello World</span>
+            <span class="preset-btn" data-msg='{"type":"say_hello","name":"张三"}'>say_hello 张三</span>
+        </div>
+        <textarea id="msgInput">{"type":"say_hello","name":"World"}</textarea>
+        <button id="btnSend" class="btn btn-primary" disabled>发送</button>
+    </div>
+
+    <div class="panel">
+        <h3>日志</h3>
+        <div id="logBox" class="log-box"></div>
+        <button id="btnClear" class="btn" style="margin-top:8px">清除日志</button>
+    </div>
+</div>
+
+<script>
+    let ws = null;
+
+    const $ = id => document.getElementById(id);
+    const logBox = $("logBox");
+    const statusBar = $("statusBar");
+
+    function log(type, msg) {
+        const div = document.createElement("div");
+        div.className = type;
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logBox.appendChild(div);
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function setStatus(connected) {
+        if (connected) {
+            statusBar.className = "status connected";
+            statusBar.textContent = "✅ 已连接";
+            $("btnConnect").disabled = true;
+            $("btnDisconnect").disabled = false;
+            $("btnSend").disabled = false;
+        } else {
+            statusBar.className = "status disconnected";
+            statusBar.textContent = "⛔ 未连接";
+            $("btnConnect").disabled = false;
+            $("btnDisconnect").disabled = true;
+            $("btnSend").disabled = true;
+        }
+    }
+
+    function connect() {
+        if (ws) return;
+        const url = $("wsUrl").value;
+
+       try {
+            const token = $("wsToken").value;
+            const finalUrl = token ? url + "?token=" + encodeURIComponent(token) : url;
+            ws = new WebSocket(finalUrl);
+        } catch (e) {
+            log("error", "创建 WebSocket 失败: " + e.message);
+            return;
+        }
+
+        ws.onopen = () => {
+            log("info", "🟢 连接成功: " + url);
+            setStatus(true);
+        };
+
+        ws.onmessage = (e) => {
+            log("recv", "📩 " + e.data);
+        };
+
+        ws.onclose = (e) => {
+            log("info", `🔴 连接关闭 (code=${e.code}, reason=${e.reason})`);
+            setStatus(false);
+            ws = null;
+        };
+
+        ws.onerror = () => {
+            log("error", "❌ 连接错误");
+        };
+    }
+
+    function disconnect() {
+        if (ws) {
+            ws.close();
+            ws = null;
+        }
+    }
+
+    function send() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            log("error", "未连接");
+            return;
+        }
+        const msg = $("msgInput").value;
+        ws.send(msg);
+        log("sent", "📤 " + msg);
+    }
+
+    // 事件绑定
+    $("btnConnect").addEventListener("click", connect);
+    $("btnDisconnect").addEventListener("click", disconnect);
+    $("btnSend").addEventListener("click", send);
+    $("btnClear").addEventListener("click", () => logBox.innerHTML = "");
+
+    // 预设消息
+    document.querySelectorAll(".preset-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            $("msgInput").value = btn.dataset.msg;
+        });
+    });
+
+    // Enter 键发送
+    $("msgInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && e.ctrlKey) send();
+    });
+
+    log("info", "🟡 输入 WS 地址后点击「连接」");
+</script>
+</body>
+</html>
