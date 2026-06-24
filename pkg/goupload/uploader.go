@@ -13,7 +13,19 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
+
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("upload.request_id", reqID)
+		}
+	}
+	return attribute.String("upload.request_id", "")
+}
 
 // StorageType 存储类型
 type StorageType string
@@ -99,7 +111,10 @@ func (b *BaseUploader) GenerateFilePath(fileName string) string {
 // StartSpan 创建追踪Span
 func (b *BaseUploader) StartSpan(ctx context.Context, operation string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	ctx, span := b.tracer.Start(ctx, fmt.Sprintf("%s.%s", b.storageType, operation), opts...)
-	span.SetAttributes(attribute.String("storage.type", string(b.storageType)))
+	span.SetAttributes(
+		attribute.String("storage.type", string(b.storageType)),
+		requestIDAttr(ctx),
+	)
 	return ctx, span
 }
 

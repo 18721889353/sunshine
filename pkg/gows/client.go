@@ -63,7 +63,7 @@ type ClientOption func(*clientOptions)
 
 // clientOptions 客户端内部配置参数集合
 type clientOptions struct {
-	writeQueueSize int  // 写入队列缓冲区容量（默认 64）
+	writeQueueSize int   // 写入队列缓冲区容量（默认 64）
 	readLimit      int64 // 单条消息读取大小限制（默认 0=不限制）
 }
 
@@ -105,25 +105,25 @@ func WithReadLimit(limit int64) ClientOption {
 //   - 网络波动保护：写入失败时指数退避重试，Ping/Pong 协议级保活
 //   - 健康指标：记录读写时间与错误计数，支持 IsAlive 探测
 type Client struct {
-	conn        *websocket.Conn // 底层 WebSocket 连接，仅 writeLoop 协程直接写入
-	uid         string          // 用户唯一标识（从 JWT 中提取）
-	writeCh     chan []byte     // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
-	closeCh     chan struct{}   // 关闭信号通道，close 时触发所有监听协程退出
-	closed      int32           // 原子关闭标记，0=未关闭，1=已关闭
-	wg          sync.WaitGroup  // 等待 writeLoop 协程退出，保障 Close 语义确定性
-	onClose     func()          // 可选关闭回调钩子，Close 时在清理前调用
-	ctx         context.Context // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
+	conn        *websocket.Conn    // 底层 WebSocket 连接，仅 writeLoop 协程直接写入
+	uid         string             // 用户唯一标识（从 JWT 中提取）
+	writeCh     chan []byte        // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
+	closeCh     chan struct{}      // 关闭信号通道，close 时触发所有监听协程退出
+	closed      int32              // 原子关闭标记，0=未关闭，1=已关闭
+	wg          sync.WaitGroup     // 等待 writeLoop 协程退出，保障 Close 语义确定性
+	onClose     func()             // 可选关闭回调钩子，Close 时在清理前调用
+	ctx         context.Context    // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
 	ctxCancel   context.CancelFunc // 上下文取消函数，Close 时调用
-	remoteAddr  string          // 客户端远程地址（IP:Port），创建时从连接中提取
-	numSent     int64           // 原子计数: 已成功发送消息数
-	numReceived int64           // 原子计数: 已接收消息数
+	remoteAddr  string             // 客户端远程地址（IP:Port），创建时从连接中提取
+	numSent     int64              // 原子计数: 已成功发送消息数
+	numReceived int64              // 原子计数: 已接收消息数
 
 	// 网络波动容错与健康监控字段
-	lastWriteTime   time.Time     // 最后一次成功写入时间
-	lastReadTime    time.Time     // 最后一次成功读取时间
-	writeErrCount   int64         // 原子计数: 写入失败累计次数
-	lastWriteErr    atomic.Value  // 最近一次写入错误信息（string）
-	healthMu        sync.RWMutex  // 保护 lastWriteTime / lastReadTime 并发读写
+	lastWriteTime time.Time    // 最后一次成功写入时间
+	lastReadTime  time.Time    // 最后一次成功读取时间
+	writeErrCount int64        // 原子计数: 写入失败累计次数
+	lastWriteErr  atomic.Value // 最近一次写入错误信息（string）
+	healthMu      sync.RWMutex // 保护 lastWriteTime / lastReadTime 并发读写
 }
 
 // NewClient 创建并初始化一个新的 WebSocket 客户端连接。
@@ -163,8 +163,8 @@ func NewClient(conn *websocket.Conn, uid string, opts ...ClientOption) *Client {
 
 // writeLoopRetries 写入失败最大重试次数
 const (
-	writeLoopRetries  = 3            // 写入失败最大重试次数
-	writeDeadline     = 10 * time.Second // 单次写入超时时间
+	writeLoopRetries = 3                // 写入失败最大重试次数
+	writeDeadline    = 10 * time.Second // 单次写入超时时间
 )
 
 // writeLoop 内部写入循环 goroutine。
@@ -357,10 +357,10 @@ func (c *Client) Close() error {
 		if c.onClose != nil {
 			c.onClose()
 		}
-		c.ctxCancel()                // 取消连接上下文，通知依赖 ctx 的协程
-		close(c.closeCh)             // 通知监听 Done() 的所有协程退出
-		close(c.writeCh)             // 触发 writeLoop 的 ok=false 分支退出
-		c.wg.Wait()                  // 等待 writeLoop 完全退出，确保写入完毕或终止
+		c.ctxCancel()    // 取消连接上下文，通知依赖 ctx 的协程
+		close(c.closeCh) // 通知监听 Done() 的所有协程退出
+		close(c.writeCh) // 触发 writeLoop 的 ok=false 分支退出
+		c.wg.Wait()      // 等待 writeLoop 完全退出，确保写入完毕或终止
 		return c.conn.Close()
 	}
 	return nil
@@ -459,7 +459,12 @@ func (c *Client) Stats() ClientStats {
 	}
 	c.healthMu.RUnlock()
 
-	lastWriteErrStr, _ := c.lastWriteErr.Load().(string)
+	var lastWriteErrStr string
+	if v := c.lastWriteErr.Load(); v != nil {
+		if s, ok := v.(string); ok {
+			lastWriteErrStr = s
+		}
+	}
 
 	return ClientStats{
 		UID:            c.uid,

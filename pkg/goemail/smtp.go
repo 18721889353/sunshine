@@ -60,6 +60,7 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 		attribute.Int("email.bcc.count", len(req.Bcc)),
 		attribute.String("email.subject", req.Subject),
 		attribute.Bool("email.has_attachments", len(req.Attachments) > 0),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -154,6 +155,7 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 		duration := time.Since(startTime)
 		span.SetAttributes(
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &SendResult{
 			Status: "failed",
@@ -179,6 +181,7 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 	span.SetAttributes(
 		attribute.String("email.message_id", messageID),
 		attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "email sent successfully")
 
@@ -223,6 +226,7 @@ func (c *SMTPClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery
 	span.SetAttributes(
 		attribute.String("email.provider", "smtp"),
 		attribute.String("email.query.message_id", query.MessageID),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -236,6 +240,7 @@ func (c *SMTPClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery
 	duration := time.Since(startTime)
 	span.SetAttributes(
 		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "query completed with notice")
 

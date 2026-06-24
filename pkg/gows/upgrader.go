@@ -1,4 +1,4 @@
-// Package ws 提供 WebSocket 服务端封装，包含连接管理、消息读写、心跳保活和全局分发。
+// Package gows 提供 WebSocket 服务端封装，包含连接管理、消息读写、心跳保活和全局分发。
 //
 // 核心设计:
 //   - Upgrade: 从 gin.Context 将 HTTP 请求升级为 WebSocket 长连接，返回封装后的 Client
@@ -37,6 +37,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/18721889353/sunshine/pkg/logger"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -51,21 +53,21 @@ const (
 
 // defaultCheckOrigin 默认的跨域检查函数，允许所有来源。
 // 生产环境中建议显式配置 WithCheckOrigin 限制可信域名。
-var defaultCheckOrigin = func(r *http.Request) bool { return true }
+var defaultCheckOrigin = func(_ *http.Request) bool { return true }
 
 // upgradeOptions 内部升级配置参数集合
 type upgradeOptions struct {
-	checkOrigin       func(r *http.Request) bool // 跨域检查函数
-	readBufSize       int                        // 读取缓冲区大小，0 表示使用默认值 4096
-	writeBufSize      int                        // 写入缓冲区大小，0 表示使用默认值 4096
-	subprotocols      []string                   // 子协议协商列表
-	enableCompression bool                       // 是否启用压缩（默认 true）
-	enableHeart       bool                       // 是否自动启动心跳保活
-	heartbeatOpts     []HeartbeatOption          // 心跳高级配置（与 enableHeart 配合使用）
-	dispatcher        *Dispatcher                // 非 nil 时自动注册连接到此分发中心
-	clientUid         string                     // 客户端用户标识（可选，提供给 NewClient）
-	errorHandler      func(*gin.Context, error)  // 升级失败时的自定义错误处理
-	beforeUpgrade     func(*gin.Context) error   // 升级前钩子，返回 error 则中止升级
+	checkOrigin       func(r *http.Request) bool  // 跨域检查函数
+	readBufSize       int                         // 读取缓冲区大小，0 表示使用默认值 4096
+	writeBufSize      int                         // 写入缓冲区大小，0 表示使用默认值 4096
+	subprotocols      []string                    // 子协议协商列表
+	enableCompression bool                        // 是否启用压缩（默认 true）
+	enableHeart       bool                        // 是否自动启动心跳保活
+	heartbeatOpts     []HeartbeatOption           // 心跳高级配置（与 enableHeart 配合使用）
+	dispatcher        *Dispatcher                 // 非 nil 时自动注册连接到此分发中心
+	clientUID         string                      // 客户端用户标识（可选，提供给 NewClient）
+	errorHandler      func(*gin.Context, error)   // 升级失败时的自定义错误处理
+	beforeUpgrade     func(*gin.Context) error    // 升级前钩子，返回 error 则中止升级
 	afterUpgrade      func(*gin.Context, *Client) // 升级后钩子，可用于链路追踪注入等
 }
 
@@ -158,7 +160,7 @@ func WithDispatcher(d *Dispatcher) UpgradeOption {
 //   - uid: 用户唯一标识（如从 JWT 解析的 sub）
 func WithClientUID(uid string) UpgradeOption {
 	return func(o *upgradeOptions) {
-		o.clientUid = uid
+		o.clientUID = uid
 	}
 }
 
@@ -252,7 +254,7 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 	}
 
 	span.SetAttributes(
-		attribute.String("ws.client_uid", o.clientUid),
+		attribute.String("ws.client_uid", o.clientUID),
 		attribute.String("ws.remote_addr", c.Request.RemoteAddr),
 		requestID,
 	)
@@ -282,7 +284,7 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		return nil, fmt.Errorf("ws upgrade: %w", err)
 	}
 
-	client := NewClient(rawConn, o.clientUid)
+	client := NewClient(rawConn, o.clientUID)
 	// 使用带追踪的上下文替换 client 的默认上下文
 	client.SetContext(ctx)
 
@@ -304,7 +306,11 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 	if o.dispatcher != nil {
 		if err := o.dispatcher.Register(client); err != nil {
 			// 注册失败（如达到连接上限），立即清理并返回错误
-			client.Close()
+			if closeErr := client.Close(); closeErr != nil {
+				logger.WarnWithCtx(c.Request.Context(), "ws client close after register failed",
+					logger.Err(closeErr),
+				)
+			}
 			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("ws dispatcher register: %w", err)
 		}

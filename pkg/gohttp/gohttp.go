@@ -24,6 +24,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // 常量定义：定义符合大厂生产环境的最佳实践默认值
@@ -183,6 +185,7 @@ func (c *Client) setupMiddlewares() {
 				attribute.String("http.method", method),
 				attribute.String("http.url", urlStr),
 				attribute.String("http.scheme", "https"),
+				requestIDAttr(ctx),
 			),
 		)
 
@@ -554,6 +557,16 @@ func (c *Client) UpdateInsecureSkipVerify(insecure bool) {
 		c.transport.TLSClientConfig = &tls.Config{}
 	}
 	c.transport.TLSClientConfig.InsecureSkipVerify = insecure
+}
+
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("http.request_id", reqID)
+		}
+	}
+	return attribute.String("http.request_id", "")
 }
 
 // ValidateURL 校验URL合法性并防止重定向攻击

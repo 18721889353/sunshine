@@ -20,6 +20,16 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("gozip.request_id", reqID)
+		}
+	}
+	return attribute.String("gozip.request_id", "")
+}
+
 // ZipCompressionLevel ZIP压缩级别常量
 const (
 	ZipDefaultCompression = 0  // 默认压缩级别
@@ -117,6 +127,7 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 		attribute.Int("gozip.source_file_count", len(sourceFiles)),
 		attribute.String("gozip.dest_path", destPath),
 		attribute.Bool("gozip.is_encrypted", options != nil && options.Password != ""),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -144,7 +155,7 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 		destPath = filepath.Join(os.TempDir(), fmt.Sprintf("compress_%d.zip", getCurrentTimestamp()))
 	}
 
-	logger.InfoWithCtx(context.Background(), "开始ZIP压缩",
+	logger.InfoWithCtx(ctx, "开始ZIP压缩",
 		logger.String("dest_path", destPath),
 		logger.Int("file_count", len(sourceFiles)),
 		logger.Bool("is_encrypted", options.Password != ""))
@@ -158,7 +169,7 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 	}
 	defer func() {
 		if closeErr := zipFile.Close(); closeErr != nil {
-			logger.WarnWithCtx(context.Background(), "关闭ZIP文件失败", logger.Err(closeErr))
+			logger.WarnWithCtx(ctx, "关闭ZIP文件失败", logger.Err(closeErr))
 		}
 	}()
 
@@ -166,7 +177,7 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 	zipWriter := zip.NewWriter(zipFile)
 	defer func() {
 		if closeErr := zipWriter.Close(); closeErr != nil {
-			logger.WarnWithCtx(context.Background(), "关闭ZIP写入器失败", logger.Err(closeErr))
+			logger.WarnWithCtx(ctx, "关闭ZIP写入器失败", logger.Err(closeErr))
 		}
 	}()
 
@@ -281,6 +292,7 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 		attribute.Int64("gozip.total_original_size", totalSize),
 		attribute.Int64("gozip.compressed_size", fileInfo.Size()),
 		attribute.Float64("gozip.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "zip completed successfully")
 
@@ -331,6 +343,7 @@ func ZipDirectoryWithOptions(ctx context.Context, sourceDir string, destPath str
 		attribute.String("gozip.source_dir", sourceDir),
 		attribute.String("gozip.dest_path", destPath),
 		attribute.Bool("gozip.is_encrypted", options != nil && options.Password != ""),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -395,6 +408,7 @@ func ZipDirectoryWithOptions(ctx context.Context, sourceDir string, destPath str
 		attribute.Int("gozip.file_count", result.FileCount),
 		attribute.Int64("gozip.compressed_size", result.Size),
 		attribute.Float64("gozip.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "directory zip completed successfully")
 

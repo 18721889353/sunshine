@@ -48,6 +48,7 @@ func (l *LocalUploader) Upload(ctx context.Context, fileName string, reader io.R
 	span.SetAttributes(
 		attribute.String("file.name", fileName),
 		attribute.Int64("file.size", size),
+		requestIDAttr(ctx),
 	)
 
 	// 生成文件路径
@@ -91,6 +92,7 @@ func (l *LocalUploader) Upload(ctx context.Context, fileName string, reader io.R
 		attribute.String("file.path", fullPath),
 		attribute.String("file.url", url),
 		attribute.Int64("file.written", written),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "upload success")
 
@@ -120,7 +122,7 @@ func (l *LocalUploader) Delete(ctx context.Context, path string) error {
 	_, span := l.StartSpan(ctx, "delete")
 	defer span.End()
 
-	span.SetAttributes(attribute.String("file.path", path))
+	span.SetAttributes(attribute.String("file.path", path), requestIDAttr(ctx))
 
 	fullPath := filepath.Join(l.rootPath, path)
 	if err := os.Remove(fullPath); err != nil {

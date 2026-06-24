@@ -74,6 +74,7 @@ func (c *TencentSMSClient) SendSMS(ctx context.Context, req *SendRequest) (*Send
 		attribute.String("sms.provider", string(ProviderTypeTencentSMS)),
 		attribute.String("sms.template_id", req.TemplateID),
 		attribute.Int("sms.phone_count", len(req.PhoneNumbers)),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -197,6 +198,7 @@ func (c *TencentSMSClient) SendSMS(ctx context.Context, req *SendRequest) (*Send
 		attribute.String("sms.message_id", result.MessageID),
 		attribute.String("sms.status", result.Status),
 		attribute.Float64("sms.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "sms sent")
 
@@ -235,6 +237,7 @@ func (c *TencentSMSClient) GetSMSStatus(ctx context.Context, query *SMSStatusQue
 	span.SetAttributes(
 		attribute.String("sms.provider", string(ProviderTypeTencentSMS)),
 		attribute.String("sms.query_phone", query.PhoneNumber),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -315,6 +318,7 @@ func (c *TencentSMSClient) GetSMSStatus(ctx context.Context, query *SMSStatusQue
 	span.SetAttributes(
 		attribute.Int("sms.status_count", len(result.Data)),
 		attribute.Float64("sms.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "status queried")
 

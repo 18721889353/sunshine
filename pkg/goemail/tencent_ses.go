@@ -72,6 +72,7 @@ func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*Se
 		attribute.Int("email.to.count", len(req.To)),
 		attribute.String("email.subject", req.Subject),
 		attribute.Bool("email.has_attachments", len(req.Attachments) > 0),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -119,6 +120,7 @@ func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*Se
 		duration := time.Since(startTime)
 		span.SetAttributes(
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &SendResult{
 			Status: StatusFailed,
@@ -141,6 +143,7 @@ func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*Se
 	span.SetAttributes(
 		attribute.String("email.message_id", *response.Response.MessageId),
 		attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "email sent successfully")
 
@@ -185,6 +188,7 @@ func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatu
 		attribute.String("email.provider", "tencent_ses"),
 		attribute.String("email.query.message_id", query.MessageID),
 		attribute.String("email.query.to_address", query.ToAddress),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -221,6 +225,7 @@ func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatu
 		duration := time.Since(startTime)
 		span.SetAttributes(
 			attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &EmailStatusResult{
 			Status: StatusFailed,
@@ -289,6 +294,7 @@ func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatu
 	span.SetAttributes(
 		attribute.Int("email.status.count", len(emailStatuses)),
 		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "email status queried successfully")
 
@@ -427,6 +433,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 		attribute.Int("email.to.count", len(to)),
 		attribute.Int("email.template_id", int(templateID)),
 		attribute.String("email.subject", subject),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -500,6 +507,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 		duration := time.Since(startTime)
 		span.SetAttributes(
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &SendResult{
 			Status: StatusFailed,
@@ -523,6 +531,7 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 	span.SetAttributes(
 		attribute.String("email.message_id", *response.Response.MessageId),
 		attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "email sent successfully")
 

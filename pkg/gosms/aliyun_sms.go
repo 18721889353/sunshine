@@ -73,6 +73,7 @@ func (c *AliyunSMSClient) SendSMS(ctx context.Context, req *SendRequest) (*SendR
 		attribute.String("sms.provider", string(ProviderTypeAliyunSMS)),
 		attribute.String("sms.template_id", req.TemplateID),
 		attribute.Int("sms.phone_count", len(req.PhoneNumbers)),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -159,6 +160,7 @@ func (c *AliyunSMSClient) SendSMS(ctx context.Context, req *SendRequest) (*SendR
 		attribute.String("sms.message_id", result.MessageID),
 		attribute.String("sms.status", result.Status),
 		attribute.Float64("sms.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "sms sent")
 
@@ -197,6 +199,7 @@ func (c *AliyunSMSClient) GetSMSStatus(ctx context.Context, query *SMSStatusQuer
 	span.SetAttributes(
 		attribute.String("sms.provider", string(ProviderTypeAliyunSMS)),
 		attribute.String("sms.query_phone", query.PhoneNumber),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -299,6 +302,7 @@ func (c *AliyunSMSClient) GetSMSStatus(ctx context.Context, query *SMSStatusQuer
 	span.SetAttributes(
 		attribute.Int("sms.status_count", len(result.Data)),
 		attribute.Float64("sms.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "status queried")
 

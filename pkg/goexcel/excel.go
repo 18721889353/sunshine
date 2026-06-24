@@ -41,6 +41,16 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("excel.request_id", reqID)
+		}
+	}
+	return attribute.String("excel.request_id", "")
+}
+
 // maxCharCount Excel列名最大字符数（A-Z共26个字母）
 const maxCharCount = 26
 
@@ -89,6 +99,7 @@ func ExportExcel(ctx context.Context, sheetName string, headers []string, rows [
 		attribute.String("excel.sheet.name", sheetName),
 		attribute.Int("excel.headers.count", len(headers)),
 		attribute.Int("excel.rows.count", len(rows)),
+		requestIDAttr(ctx),
 	)
 
 	if sheetName == "" {
@@ -142,6 +153,7 @@ func ExportExcel(ctx context.Context, sheetName string, headers []string, rows [
 	duration := time.Since(startTime)
 	span.SetAttributes(
 		attribute.Float64("excel.export.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "excel exported successfully")
 
@@ -207,6 +219,7 @@ func ExportMultiSheetExcel(ctx context.Context, sheets []SheetData) (*excelize.F
 	// 设置追踪属性
 	span.SetAttributes(
 		attribute.Int("excel.sheets.count", len(sheets)),
+		requestIDAttr(ctx),
 	)
 
 	if len(sheets) == 0 {
@@ -280,6 +293,7 @@ func ExportMultiSheetExcel(ctx context.Context, sheets []SheetData) (*excelize.F
 	duration := time.Since(startTime)
 	span.SetAttributes(
 		attribute.Float64("excel.export.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "excel exported successfully")
 
@@ -353,6 +367,7 @@ func ExportLargeDataset(
 		attribute.String("excel.sheet.name", sheetName),
 		attribute.Int("excel.headers.count", len(headers)),
 		attribute.Int("excel.batch.size", batchSize),
+		requestIDAttr(ctx),
 	)
 
 	if sheetName == "" {
@@ -431,6 +446,7 @@ func ExportLargeDataset(
 	span.SetAttributes(
 		attribute.Float64("excel.export.duration_ms", float64(duration.Milliseconds())),
 		attribute.Int("excel.total.rows", totalRows),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "excel exported successfully")
 
@@ -477,6 +493,7 @@ func SplitIntoSheets(ctx context.Context, sheetNamePrefix string, headers []stri
 		attribute.String("excel.sheet_name_prefix", sheetNamePrefix),
 		attribute.Int("excel.total_rows", len(allRows)),
 		attribute.Int("excel.max_rows_per_sheet", maxRowsPerSheet),
+		requestIDAttr(ctx),
 	)
 
 	totalRows := len(allRows)
@@ -502,6 +519,7 @@ func SplitIntoSheets(ctx context.Context, sheetNamePrefix string, headers []stri
 	// 设置成功的追踪属性
 	span.SetAttributes(
 		attribute.Int("excel.resulting_sheet_count", sheetCount),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "split completed successfully")
 

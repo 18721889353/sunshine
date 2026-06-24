@@ -62,11 +62,7 @@ func (r *CustomResponse2) Success(c *gin.Context, data interface{}) {
 		ctx := middleware.WrapCtx(c)
 		logger.WarnWithCtx(ctx, "copier.Copy error", logger.Err(err))
 	}
-	if len(result.ReturnInfo) > 0 {
-		r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
-	} else {
-		r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
-	}
+	r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
 }
 
 // Success2 handles successful response version 2

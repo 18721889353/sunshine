@@ -135,6 +135,7 @@ func ValidatePhoneNumber(ctx context.Context, phoneNumber string) bool {
 	// 设置追踪属性
 	span.SetAttributes(
 		attribute.String("sms.phone_to_validate", phoneNumber),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -181,6 +182,7 @@ func ValidatePhoneNumber(ctx context.Context, phoneNumber string) bool {
 	span.SetAttributes(
 		attribute.Bool("sms.is_valid", true),
 		attribute.Float64("sms.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "validation completed")
 
@@ -229,6 +231,16 @@ func (r *SendRequest) Validate() error {
 	}
 
 	return nil
+}
+
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("sms.request_id", reqID)
+		}
+	}
+	return attribute.String("sms.request_id", "")
 }
 
 // getStringValue 安全获取字符串值（内部辅助函数）

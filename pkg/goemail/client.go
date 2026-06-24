@@ -138,6 +138,16 @@ func NewEmailClient(cfg *Config) (EmailClient, error) {
 	}
 }
 
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("email.request_id", reqID)
+		}
+	}
+	return attribute.String("email.request_id", "")
+}
+
 // ValidateEmail 验证邮箱地址格式
 func ValidateEmail(ctx context.Context, email string) bool {
 	// 链路追踪
@@ -152,6 +162,7 @@ func ValidateEmail(ctx context.Context, email string) bool {
 	// 设置追踪属性
 	span.SetAttributes(
 		attribute.String("email.to_validate", email),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -205,6 +216,7 @@ func ValidateEmail(ctx context.Context, email string) bool {
 	span.SetAttributes(
 		attribute.Bool("email.is_valid", hasDot),
 		attribute.Float64("email.validate.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "validation completed")
 
@@ -225,6 +237,7 @@ func ValidateEmails(ctx context.Context, emails []string) []string {
 	// 设置追踪属性
 	span.SetAttributes(
 		attribute.Int("email.count", len(emails)),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -241,6 +254,7 @@ func ValidateEmails(ctx context.Context, emails []string) []string {
 	span.SetAttributes(
 		attribute.Int("email.invalid_count", len(invalid)),
 		attribute.Float64("email.validate.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "validation completed")
 

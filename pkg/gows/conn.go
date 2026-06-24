@@ -84,9 +84,13 @@ func SetupPongHandler(conn *websocket.Conn, interval, pongTimeout time.Duration)
 	// readDeadline 必须大于 heartbeatInterval，避免 ticker 与 deadline 同频竞态
 	// 公式: interval + 2 × pongTimeout，默认值下 = 30 + 20 = 50s
 	readDeadline := interval + 2*pongTimeout
-	conn.SetReadDeadline(time.Now().Add(readDeadline))
+	if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
+		return // 连接可能已关闭，无需继续设置
+	}
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(readDeadline))
+		if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
+			return nil // 连接可能已关闭，忽略
+		}
 		return nil
 	})
 }

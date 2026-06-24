@@ -18,10 +18,10 @@ import (
 // 所有公开方法均为 goroutine 安全，适用于高并发业务场景。
 // 网络波动保护：Broadcast 系列方法自动清理已关闭的僵尸连接。
 type Dispatcher struct {
-	mu          sync.RWMutex
-	clients     map[*Client]struct{} // 全局在线客户端集合
-	maxConns    int32                // 最大连接数（0=不限制）
-	totalRejected int32              // 原子计数: 因达到上限被拒绝的连接数
+	mu            sync.RWMutex
+	clients       map[*Client]struct{} // 全局在线客户端集合
+	maxConns      int32                // 最大连接数（0=不限制）
+	totalRejected int32                // 原子计数: 因达到上限被拒绝的连接数
 }
 
 // DispatcherOption 分发中心配置选项函数类型
@@ -33,10 +33,10 @@ type DispatcherOption func(*Dispatcher)
 //     0 表示不限制（默认）。
 //
 // 大厂标准：生产环境必须设置合理上限防止内存泄漏。
-func WithMaxConnections(max int) DispatcherOption {
+func WithMaxConnections(n int) DispatcherOption {
 	return func(d *Dispatcher) {
-		if max > 0 {
-			atomic.StoreInt32(&d.maxConns, int32(max))
+		if n > 0 {
+			atomic.StoreInt32(&d.maxConns, int32(n))
 		}
 	}
 }
@@ -119,7 +119,12 @@ func (d *Dispatcher) BroadcastCtx(ctx context.Context, v any) {
 			deadClients = append(deadClients, client)
 			continue
 		}
-		_ = client.WriteJSON(v)
+		if err := client.WriteJSON(v); err != nil {
+			logger.WarnWithCtx(ctx, "ws broadcast write failed",
+				logger.String("uid", client.uid),
+				logger.Err(err),
+			)
+		}
 	}
 
 	// 批量清理已关闭的僵尸连接
@@ -162,7 +167,12 @@ func (d *Dispatcher) BroadcastFilterCtx(ctx context.Context, v any, filter func(
 			continue
 		}
 		if filter(client) {
-			_ = client.WriteJSON(v)
+			if err := client.WriteJSON(v); err != nil {
+				logger.WarnWithCtx(ctx, "ws broadcast_filter write failed",
+					logger.String("uid", client.uid),
+					logger.Err(err),
+				)
+			}
 		}
 	}
 
@@ -207,7 +217,12 @@ func (d *Dispatcher) SendToUIDCtx(ctx context.Context, uid string, v any) {
 			continue
 		}
 		if client.UID() == uid {
-			_ = client.WriteJSON(v)
+			if err := client.WriteJSON(v); err != nil {
+				logger.WarnWithCtx(ctx, "ws send_to_uid write failed",
+					logger.String("uid", client.uid),
+					logger.Err(err),
+				)
+			}
 			sentCount++
 		}
 	}

@@ -71,6 +71,7 @@ func (c *AliyunDMClient) SendEmail(ctx context.Context, req *SendRequest) (*Send
 		attribute.Int("email.to.count", len(req.To)),
 		attribute.String("email.subject", req.Subject),
 		attribute.Bool("email.has_attachments", len(req.Attachments) > 0),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -104,6 +105,7 @@ func (c *AliyunDMClient) SendEmail(ctx context.Context, req *SendRequest) (*Send
 		duration := time.Since(startTime)
 		span.SetAttributes(
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &SendResult{
 			Status: "failed",
@@ -126,6 +128,7 @@ func (c *AliyunDMClient) SendEmail(ctx context.Context, req *SendRequest) (*Send
 	span.SetAttributes(
 		attribute.String("email.message_id", tea.StringValue(response.Body.EnvId)),
 		attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "email sent successfully")
 
@@ -170,6 +173,8 @@ func (c *AliyunDMClient) GetEmailStatus(ctx context.Context, query *EmailStatusQ
 	span.SetAttributes(
 		attribute.String("email.provider", "aliyun_dm"),
 		attribute.String("email.query.message_id", query.MessageID),
+		attribute.String("email.query.to_address", query.ToAddress),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -189,6 +194,7 @@ func (c *AliyunDMClient) GetEmailStatus(ctx context.Context, query *EmailStatusQ
 	duration := time.Since(startTime)
 	span.SetAttributes(
 		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "query completed with notice")
 
@@ -221,6 +227,7 @@ func (c *AliyunDMClient) GetTrackList(ctx context.Context, accountName, tagName 
 		attribute.String("email.provider", "aliyun_dm"),
 		attribute.String("email.account_name", accountName),
 		attribute.String("email.tag_name", tagName),
+		requestIDAttr(ctx),
 	)
 
 	queryStartTime := time.Now()
@@ -240,6 +247,7 @@ func (c *AliyunDMClient) GetTrackList(ctx context.Context, accountName, tagName 
 		duration := time.Since(queryStartTime)
 		span.SetAttributes(
 			attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &EmailStatusResult{
 			Status: "failed",
@@ -251,6 +259,7 @@ func (c *AliyunDMClient) GetTrackList(ctx context.Context, accountName, tagName 
 	duration := time.Since(queryStartTime)
 	span.SetAttributes(
 		attribute.Float64("email.query.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "track list queried successfully")
 
@@ -327,6 +336,7 @@ func (c *AliyunDMClient) SendTemplateEmail(ctx context.Context, from string, to 
 		attribute.String("email.from", from),
 		attribute.Int("email.to.count", len(to)),
 		attribute.String("email.template_name", templateName),
+		requestIDAttr(ctx),
 	)
 
 	startTime := time.Now()
@@ -393,6 +403,7 @@ func (c *AliyunDMClient) SendTemplateEmail(ctx context.Context, from string, to 
 		duration := time.Since(startTime)
 		span.SetAttributes(
 			attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+			requestIDAttr(ctx),
 		)
 		return &SendResult{
 			Status: "failed",
@@ -416,6 +427,7 @@ func (c *AliyunDMClient) SendTemplateEmail(ctx context.Context, from string, to 
 	span.SetAttributes(
 		attribute.String("email.env_id", tea.StringValue(response.Body.EnvId)),
 		attribute.Float64("email.send.duration_ms", float64(duration.Milliseconds())),
+		requestIDAttr(ctx),
 	)
 	span.SetStatus(codes.Ok, "email sent successfully")
 
