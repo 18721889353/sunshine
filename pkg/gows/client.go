@@ -3,10 +3,18 @@ package gows
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 )
@@ -20,6 +28,17 @@ type Message struct {
 	Data any    `json:"data,omitempty"` // 附加业务数据（可选，任意类型）
 }
 
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+// 若上下文中不存在 request_id，返回空字符串值。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("ws.request_id", reqID)
+		}
+	}
+	return attribute.String("ws.request_id", "")
+}
+
 // ErrWriteQueueFull 写入队列已满，消息被丢弃的错误标识。
 // 当客户端写入缓冲区满载时 WriteJSON 返回此错误，
 // 发送方可根据此错误判断是否为短暂拥塞，决定是否降级处理。
@@ -28,6 +47,11 @@ var ErrWriteQueueFull = &writeQueueFullError{}
 // writeQueueFullError 写入队列满载的错误类型
 type writeQueueFullError struct{}
 
+// Error 实现 error 接口，返回写入队列已满的错误描述信息。
+// 当 WriteJSON 因写入通道满载而丢弃消息时，调用方可使用 errors.Is 判断
+// 此错误类型，以决定是否进行降级处理或重试。
+// 返回:
+//   - string: 错误描述文本 "write queue is full, message dropped"
 func (e *writeQueueFullError) Error() string {
 	return "write queue is full, message dropped"
 }
@@ -78,6 +102,8 @@ func WithReadLimit(limit int64) ClientOption {
 //   - writeLoop 后台 goroutine 串行化消费通道数据，规避锁竞争
 //   - 队列满载时自动丢弃消息，防止慢客户端拖慢整体吞吐
 //   - 原子 CAS 保证关闭幂等，关闭信号通知所有监听方优雅退出
+//   - 网络波动保护：写入失败时指数退避重试，Ping/Pong 协议级保活
+//   - 健康指标：记录读写时间与错误计数，支持 IsAlive 探测
 type Client struct {
 	conn        *websocket.Conn // 底层 WebSocket 连接，仅 writeLoop 协程直接写入
 	uid         string          // 用户唯一标识（从 JWT 中提取）
@@ -91,6 +117,13 @@ type Client struct {
 	remoteAddr  string          // 客户端远程地址（IP:Port），创建时从连接中提取
 	numSent     int64           // 原子计数: 已成功发送消息数
 	numReceived int64           // 原子计数: 已接收消息数
+
+	// 网络波动容错与健康监控字段
+	lastWriteTime   time.Time     // 最后一次成功写入时间
+	lastReadTime    time.Time     // 最后一次成功读取时间
+	writeErrCount   int64         // 原子计数: 写入失败累计次数
+	lastWriteErr    atomic.Value  // 最近一次写入错误信息（string）
+	healthMu        sync.RWMutex  // 保护 lastWriteTime / lastReadTime 并发读写
 }
 
 // NewClient 创建并初始化一个新的 WebSocket 客户端连接。
@@ -128,11 +161,22 @@ func NewClient(conn *websocket.Conn, uid string, opts ...ClientOption) *Client {
 	return c
 }
 
+// writeLoopRetries 写入失败最大重试次数
+const (
+	writeLoopRetries  = 3            // 写入失败最大重试次数
+	writeDeadline     = 10 * time.Second // 单次写入超时时间
+)
+
 // writeLoop 内部写入循环 goroutine。
 // 从 writeCh 中逐条消费数据并通过底层连接写入网络。
-// 通过 select 多路复用同时监听关闭信号，实现优雅退出。
-// 当网络写入失败时主动退出循环，由消息读取循环检测到错误后调用 Close 完成清理，
-// 避免 writeLoop 内部直接调用 Close 导致重入死锁。
+// 网络写入失败时进行最多 writeLoopRetries 次指数退避重试：
+//   - 第 1 次重试等待 100ms
+//   - 第 2 次重试等待 200ms
+//   - 第 3 次重试等待 400ms
+//
+// 全部重试失败后调用 forceCloseConn 关闭底层 TCP 连接，
+// 触发消息读取方 ReadMessage 返回错误，进而由调用方执行 Close 完整清理。
+// 使用 forceCloseConn 而非直接调用 Close 避免 writeLoop 自锁。
 func (c *Client) writeLoop() {
 	defer c.wg.Done()
 	for {
@@ -141,19 +185,76 @@ func (c *Client) writeLoop() {
 			if !ok {
 				return
 			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				logger.WarnWithCtx(c.ctx, "ws client write failed, client closed",
+			if err := c.writeWithRetry(data); err != nil {
+				logger.WarnWithCtx(c.ctx, "ws client write failed after retries, force closing",
 					logger.String("uid", c.uid),
 					logger.String("remote_addr", c.remoteAddr),
+					logger.Int("retries", writeLoopRetries),
 					logger.Err(err),
 				)
+				c.forceCloseConn()
 				return
 			}
 			atomic.AddInt64(&c.numSent, 1)
+			c.markLastWrite()
 		case <-c.closeCh:
 			return
 		}
 	}
+}
+
+// writeWithRetry 带指数退避重试的写入操作。
+// 每次写入前设置 10 秒 WriteDeadline，防止网络卡死。
+// 参数:
+//   - data: 待写入的序列化字节数据
+//
+// 返回:
+//   - error: 所有重试均失败时返回最后一次错误
+func (c *Client) writeWithRetry(data []byte) error {
+	var lastErr error
+	for attempt := 0; attempt <= writeLoopRetries; attempt++ {
+		if attempt > 0 {
+			// 指数退避：100ms, 200ms, 400ms
+			backoff := time.Duration(100*math.Pow(2, float64(attempt-1))) * time.Millisecond
+			time.Sleep(backoff)
+		}
+
+		// 设置写入超时，防止 TCP 半连接导致永久阻塞
+		// 若设置 deadline 失败，说明连接已不可用，直接进入重试
+		if err := c.conn.SetWriteDeadline(time.Now().Add(writeDeadline)); err != nil {
+			lastErr = err
+			c.recordWriteErr(err)
+			continue
+		}
+
+		if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			lastErr = err
+			c.recordWriteErr(err)
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("write failed after %d retries: %w", writeLoopRetries, lastErr)
+}
+
+// recordWriteErr 原子记录写入错误计数和最近一次错误信息
+func (c *Client) recordWriteErr(err error) {
+	atomic.AddInt64(&c.writeErrCount, 1)
+	c.lastWriteErr.Store(err.Error())
+}
+
+// markLastWrite 记录最后一次成功写入时间
+func (c *Client) markLastWrite() {
+	c.healthMu.Lock()
+	c.lastWriteTime = time.Now()
+	c.healthMu.Unlock()
+}
+
+// markLastRead 记录最后一次成功读取时间
+func (c *Client) markLastRead() {
+	c.healthMu.Lock()
+	c.lastReadTime = time.Now()
+	c.healthMu.Unlock()
 }
 
 // UID 返回当前连接关联的用户标识。
@@ -175,32 +276,64 @@ func (c *Client) UID() string {
 //     JSON 序列化失败时返回 json.Marshal 原始错误，
 //     成功返回 nil
 func (c *Client) WriteJSON(v any) error {
+	// 链路追踪
+	tracer := otel.Tracer("gows")
+	_, span := tracer.Start(c.ctx, "ws.write", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("ws.uid", c.uid),
+		attribute.String("ws.remote_addr", c.remoteAddr),
+		requestIDAttr(c.ctx),
+	)
+
 	if atomic.LoadInt32(&c.closed) == 1 {
+		span.SetAttributes(attribute.Bool("ws.closed", true))
+		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return err
 	}
 	select {
 	case c.writeCh <- data:
+		span.SetAttributes(attribute.Int("ws.write_queue_len", len(c.writeCh)))
+		span.SetStatus(codes.Ok, "message queued")
 		return nil
 	default:
+		span.SetAttributes(attribute.Bool("ws.write_queue_full", true))
+		span.SetStatus(codes.Error, "write queue full, message dropped")
 		return ErrWriteQueueFull
 	}
 }
 
 // ReadMessage 同步阻塞读取客户端发送的一条消息。
 // 直接委托给底层 websocket.Conn.ReadMessage。
-// 连接关闭、网络异常或读取超时时返回错误。
+// 配合 SetupPongHandler 设置的 ReadDeadline，当网络断开时返回超时错误。
 // 返回:
 //   - int: 消息类型（websocket.TextMessage=1 / websocket.BinaryMessage=2）
 //   - []byte: 消息原始字节内容
-//   - error: 读取失败或连接关闭时返回非 nil 错误
+//   - error: 读取失败、连接关闭或读取超时时返回非 nil 错误
 func (c *Client) ReadMessage() (int, []byte, error) {
+	// 链路追踪
+	tracer := otel.Tracer("gows")
+	_, span := tracer.Start(c.ctx, "ws.read", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("ws.uid", c.uid),
+		attribute.String("ws.remote_addr", c.remoteAddr),
+		requestIDAttr(c.ctx),
+	)
+
 	msgType, data, err := c.conn.ReadMessage()
 	if err == nil {
 		atomic.AddInt64(&c.numReceived, 1)
+		c.markLastRead()
+		span.SetAttributes(attribute.Int("ws.msg_type", msgType), attribute.Int("ws.msg_size", len(data)))
+		span.SetStatus(codes.Ok, "message received")
+	} else {
+		span.SetStatus(codes.Error, err.Error())
 	}
 	return msgType, data, err
 }
@@ -233,6 +366,21 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// forceCloseConn 强制关闭底层 TCP 连接，不等待 writeLoop 退出。
+// 由 writeLoop（写入重试全部失败后）或 StartHeartbeat（Ping 发送失败后）调用。
+// 关闭 TCP 连接后，消息读取方的 ReadMessage 会立即返回"use of closed network connection"错误，
+// 调用方感知错误后执行 Close() 完成完整清理流程（幂等安全）。
+// 此方法与 Close 分离设计，避免 writeLoop 自锁（Close 中 wg.Wait 等待 writeLoop 退出）。
+func (c *Client) forceCloseConn() {
+	if err := c.conn.Close(); err != nil {
+		logger.WarnWithCtx(c.ctx, "ws force close conn failed",
+			logger.String("uid", c.uid),
+			logger.String("remote_addr", c.remoteAddr),
+			logger.Err(err),
+		)
+	}
+}
+
 // RemoteAddr 返回客户端的远程网络地址（IP:Port）。
 func (c *Client) RemoteAddr() string {
 	return c.remoteAddr
@@ -250,6 +398,37 @@ func (c *Client) SetContext(ctx context.Context) {
 	c.ctx = ctx
 }
 
+// IsAlive 判断客户端连接是否处于健康状态。
+// 返回 false 的场景：
+//   - Close() 已调用
+//   - writeLoop 已因写入重试全部失败退出（forceCloseConn 已触发）
+//   - 超过 3 个心跳周期无成功写入（疑似僵尸连接）
+//
+// 注意：
+//   - 此方法返回 true 不代表底层网络一定可达，仅表示组件内部状态正常
+//   - 精确的活性检测依赖 Ping/Pong 协议级心跳 + ReadDeadline 联动
+func (c *Client) IsAlive() bool {
+	if atomic.LoadInt32(&c.closed) == 1 {
+		return false
+	}
+
+	c.healthMu.RLock()
+	lastWrite := c.lastWriteTime
+	c.healthMu.RUnlock()
+
+	// 如果从未写入过，视为存活（刚建立的连接）
+	if lastWrite.IsZero() {
+		return true
+	}
+
+	// 超过 3 个心跳周期无成功写入，标记为异常
+	if time.Since(lastWrite) > 3*defaultHeartbeatInterval {
+		return false
+	}
+
+	return true
+}
+
 // ClientStats 客户端连接统计信息。
 type ClientStats struct {
 	UID            string // 用户标识
@@ -259,11 +438,29 @@ type ClientStats struct {
 	WriteQueueSize int    // 写入队列容量
 	WriteQueueLen  int    // 写入队列当前长度
 	IsClosed       bool   // 是否已关闭
+	IsAlive        bool   // 是否健康（基于 IsAlive() 判断）
+	WriteErrCount  int64  // 写入失败累计次数
+	LastWriteErr   string // 最近一次写入错误信息
+	LastWriteTime  string // 最后一次成功写入时间（ISO8601）
+	LastReadTime   string // 最后一次成功读取时间（ISO8601）
 }
 
 // Stats 返回客户端连接的实时统计信息。
-// 各字段均为原子读取，goroutine 安全。
+// 各字段均为 goroutine 安全读取。
 func (c *Client) Stats() ClientStats {
+	c.healthMu.RLock()
+	lastWriteStr := ""
+	lastReadStr := ""
+	if !c.lastWriteTime.IsZero() {
+		lastWriteStr = c.lastWriteTime.Format(time.RFC3339Nano)
+	}
+	if !c.lastReadTime.IsZero() {
+		lastReadStr = c.lastReadTime.Format(time.RFC3339Nano)
+	}
+	c.healthMu.RUnlock()
+
+	lastWriteErrStr, _ := c.lastWriteErr.Load().(string)
+
 	return ClientStats{
 		UID:            c.uid,
 		RemoteAddr:     c.remoteAddr,
@@ -272,6 +469,11 @@ func (c *Client) Stats() ClientStats {
 		WriteQueueSize: cap(c.writeCh),
 		WriteQueueLen:  len(c.writeCh),
 		IsClosed:       atomic.LoadInt32(&c.closed) == 1,
+		IsAlive:        c.IsAlive(),
+		WriteErrCount:  atomic.LoadInt64(&c.writeErrCount),
+		LastWriteErr:   lastWriteErrStr,
+		LastWriteTime:  lastWriteStr,
+		LastReadTime:   lastReadStr,
 	}
 }
 

@@ -36,6 +36,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // 默认配置常量
@@ -230,6 +235,12 @@ func WithEnableCompression(enable bool) UpgradeOption {
 //
 // 调用方需负责 defer client.Close() 确保资源释放。
 func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
+	tracer := otel.Tracer("gows")
+	ctx, span := tracer.Start(c.Request.Context(), "ws.upgrade", trace.WithSpanKind(trace.SpanKindServer))
+	defer span.End()
+
+	requestID := requestIDAttr(c.Request.Context())
+
 	o := upgradeOptions{
 		checkOrigin:       defaultCheckOrigin,
 		readBufSize:       defaultReadBufferSize,
@@ -240,9 +251,16 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		opt(&o)
 	}
 
+	span.SetAttributes(
+		attribute.String("ws.client_uid", o.clientUid),
+		attribute.String("ws.remote_addr", c.Request.RemoteAddr),
+		requestID,
+	)
+
 	// 升级前钩子：可用于鉴权、限流等前置校验
 	if o.beforeUpgrade != nil {
 		if err := o.beforeUpgrade(c); err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("ws before upgrade: %w", err)
 		}
 	}
@@ -260,10 +278,13 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		if o.errorHandler != nil {
 			o.errorHandler(c, err)
 		}
+		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("ws upgrade: %w", err)
 	}
 
 	client := NewClient(rawConn, o.clientUid)
+	// 使用带追踪的上下文替换 client 的默认上下文
+	client.SetContext(ctx)
 
 	// 升级后钩子：可用于注入链路追踪、记录连接日志等
 	if o.afterUpgrade != nil {
@@ -281,11 +302,17 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 
 	// 全局分发注册
 	if o.dispatcher != nil {
-		o.dispatcher.Register(client)
+		if err := o.dispatcher.Register(client); err != nil {
+			// 注册失败（如达到连接上限），立即清理并返回错误
+			client.Close()
+			span.SetStatus(codes.Error, err.Error())
+			return nil, fmt.Errorf("ws dispatcher register: %w", err)
+		}
 		client.SetCloseHook(func() {
 			o.dispatcher.Unregister(client)
 		})
 	}
 
+	span.SetStatus(codes.Ok, "upgrade success")
 	return client, nil
 }

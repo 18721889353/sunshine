@@ -241,17 +241,14 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	    return nil, ecode.StatusInternalServerError.Err()
 	//	}
 	//
-	//	// ========== 从 context 取出 token 并解析 UID ==========
-	//	uid := ""
-	//	if token, ok := wsCtx.Value({{.RequestImportPkgName}}.WsTokenKey).(string); ok && token != "" {
-	//	    if parsedUID, parseErr := gows.ParseToken(token); parseErr == nil {
-	//	        uid = parsedUID
-	//	    }
-	//	}
+	//	// ========== UID 已在 router 层解析并传入 Client ==========
+	//	uid := client.UID()
 	//
 	//	// ========== 注册到全局分发中心 ==========
 	//	if uid != "" {
-	//	    gows.DefaultDispatcher.Register(client)
+	//	    if err := gows.DefaultDispatcher.Register(client); err != nil {
+	//	        return nil, ecode.StatusInternalServerError.Err()
+	//	    }
 	//	    defer gows.DefaultDispatcher.Unregister(client)
 	//	}
 	//	defer client.Close()

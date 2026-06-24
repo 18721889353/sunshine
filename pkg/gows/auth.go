@@ -1,9 +1,15 @@
 package gows
 
 import (
+	"context"
 	"errors"
 
 	"github.com/spf13/cast"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/18721889353/sunshine/pkg/jwt"
 )
@@ -35,9 +41,10 @@ func extractUID(claims *jwt.Claims) string {
 	return ""
 }
 
-// ParseToken 解析并验证 JWT token，返回用户标识。
+// ParseTokenCtx 解析并验证 JWT token，返回用户标识（带 context 的版本）。
 //
 // 参数:
+//   - ctx: 上下文，用于链路追踪传播（其中应包含 request_id）
 //   - tokenString: JWT token 字符串，支持带 "Bearer " 前缀或不带前缀两种格式
 //
 // 返回:
@@ -49,7 +56,13 @@ func extractUID(claims *jwt.Claims) string {
 //   - token 过期返回 jwt.ErrTokenExpired，调用方可用 errors.Is 判断
 //   - token 格式正确但缺少 uid 字段返回 ErrTokenInvalid
 //   - 自动去除 "Bearer " 前缀，兼容 Authorization header 传入的 token
-func ParseToken(tokenString string) (string, error) {
+func ParseTokenCtx(ctx context.Context, tokenString string) (string, error) {
+	// 链路追踪
+	tracer := otel.Tracer("gows")
+	_, span := tracer.Start(ctx, "ws.parse_token", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(requestIDAttr(ctx))
+
 	// 兼容 Authorization header 传入的 "Bearer " 前缀格式
 	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
 		tokenString = tokenString[7:]
@@ -57,13 +70,18 @@ func ParseToken(tokenString string) (string, error) {
 
 	claims, err := jwt.ParseToken(tokenString)
 	if err != nil {
+		span.SetAttributes(attribute.String("ws.token_error", err.Error()))
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
 	uid := extractUID(claims)
 	if uid != "" {
+		span.SetAttributes(attribute.String("ws.uid", uid))
+		span.SetStatus(codes.Ok, "token parsed")
 		return uid, nil
 	}
 
+	span.SetStatus(codes.Error, "token missing uid")
 	return "", ErrTokenInvalid
 }

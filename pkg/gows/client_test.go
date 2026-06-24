@@ -420,3 +420,55 @@ func BenchmarkWriteJSON(b *testing.B) {
 		_ = client.WriteJSON(msg)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// 网络波动容错测试
+// ---------------------------------------------------------------------------
+
+func TestClient_IsAlive_NewClient(t *testing.T) {
+	client, _ := newTestClientPair(t)
+	defer client.Close()
+
+	if !client.IsAlive() {
+		t.Error("new client should be alive")
+	}
+}
+
+func TestClient_IsAlive_AfterClose(t *testing.T) {
+	client, _ := newTestClientPair(t)
+	client.Close()
+
+	if client.IsAlive() {
+		t.Error("client should NOT be alive after Close()")
+	}
+}
+
+func TestClient_Stats_NewFields(t *testing.T) {
+	client, _ := newTestClientPair(t, WithWriteQueueSize(16))
+	defer client.Close()
+
+	// 执行一次写入，等待 writeLoop 异步消费后触发时间记录
+	_ = client.WriteJSON(Message{Type: "ping"})
+	time.Sleep(50 * time.Millisecond)
+
+	stats := client.Stats()
+
+	if !stats.IsAlive {
+		t.Error("Stats.IsAlive should be true for active client")
+	}
+	if stats.WriteErrCount != 0 {
+		t.Errorf("Stats.WriteErrCount = %d, want 0", stats.WriteErrCount)
+	}
+	if stats.LastWriteTime == "" {
+		t.Error("Stats.LastWriteTime should not be empty after write")
+	}
+
+	client.Close()
+	stats = client.Stats()
+	if stats.IsAlive {
+		t.Error("Stats.IsAlive should be false after Close()")
+	}
+	if !stats.IsClosed {
+		t.Error("Stats.IsClosed should be true after Close()")
+	}
+}

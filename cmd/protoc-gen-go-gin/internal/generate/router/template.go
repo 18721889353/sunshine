@@ -182,19 +182,30 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 {{range .Methods}}
 {{if eq .InvokeType 0}}{{if .Path}}
 {{if .IsWebSocket}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
-	 client, err := gows.Upgrade(c, gows.WithHeartbeat())
+	// 应用 wrapCtxFn 注入 gRPC metadata（含 request_id），与普通 HTTP 路径保持一致
+	 ctx := c.Request.Context()
+	 if r.wrapCtxFn != nil {
+		 ctx = r.wrapCtxFn(c)
+	 } else {
+		 ctx = middleware.WrapCtx(c)
+	 }
+
+	 // ========== router 层解析 JWT，提取 UID，传入 Client ==========
+	 uid := ""
+	 if token := c.Request.URL.Query().Get("token"); token != "" {
+		 if parsedUID, parseErr := gows.ParseTokenCtx(ctx, token); parseErr == nil {
+			 uid = parsedUID
+		 }
+	 }
+
+	 client, err := gows.Upgrade(c, gows.WithHeartbeat(), gows.WithClientUID(uid), gows.WithDispatcher(gows.DefaultDispatcher))
 	 if err != nil {
-		 logger.WarnWithCtx(c.Request.Context(), "websocket upgrade error", logger.Err(err), middleware.GCtxRequestIDField(c))
+		 logger.WarnWithCtx(ctx, "websocket upgrade error", logger.Err(err), middleware.GCtxRequestIDField(c))
 		 return
 	 }
 	 defer client.Close()
 
-	 ctx := context.WithValue(c.Request.Context(), WsConnKey, client)
-
-	 // 如果 query 传入了 token，放入 context 供业务层鉴权使用
-	 if token := c.Request.URL.Query().Get("token"); token != "" {
-		 ctx = context.WithValue(ctx, WsTokenKey, token)
-	 }
+	 ctx = context.WithValue(ctx, WsConnKey, client)
 	 _, err = r.iLogic.{{.Name}}(ctx, &{{.RequestImportPkgName}}{{.Request}}{})
 	 if err != nil {
 		 if errors.Is(err, errcode.SkipResponse) {

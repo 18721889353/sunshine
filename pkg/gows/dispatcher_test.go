@@ -1,6 +1,7 @@
 package gows
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 )
@@ -152,7 +153,7 @@ func TestBroadcast(t *testing.T) {
 	}
 
 	// Broadcast 发送消息，不应 panic
-	d.Broadcast(Message{Type: "broadcast", Msg: "hello all"})
+	d.BroadcastCtx(context.Background(), Message{Type: "broadcast", Msg: "hello all"})
 
 	for _, c := range clients {
 		c.Close()
@@ -170,7 +171,7 @@ func TestBroadcastFilter(t *testing.T) {
 		d.Register(c)
 	}
 
-	d.BroadcastFilter(Message{Type: "notice"}, func(c *Client) bool {
+	d.BroadcastFilterCtx(context.Background(), Message{Type: "notice"}, func(c *Client) bool {
 		// 所有 test client 都是 "test-uid"，4 个都满足条件
 		return c.UID() == "test-uid"
 	})
@@ -192,10 +193,10 @@ func TestSendToUID(t *testing.T) {
 	}
 
 	// 所有 client UID 都是 "test-uid"，应该发给所有 5 个
-	d.SendToUID("test-uid", Message{Type: "personal", Msg: "hi"})
+	d.SendToUIDCtx(context.Background(), "test-uid", Message{Type: "personal", Msg: "hi"})
 
 	// 发送给不存在的 UID，不应 panic
-	d.SendToUID("nonexistent", Message{Type: "ghost"})
+	d.SendToUIDCtx(context.Background(), "nonexistent", Message{Type: "ghost"})
 
 	for _, c := range clients {
 		c.Close()
@@ -279,7 +280,7 @@ func TestDispatcher_GoroutineSafe(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 100; i++ {
-			d.Broadcast(Message{Type: "ping"})
+			d.BroadcastCtx(context.Background(), Message{Type: "ping"})
 		}
 		done <- struct{}{}
 	}()
@@ -302,5 +303,77 @@ func TestDispatcher_GoroutineSafe(t *testing.T) {
 
 	for _, c := range clients {
 		c.Close()
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 网络波动容错测试 - Dispatcher
+// ---------------------------------------------------------------------------
+
+func TestDispatcher_MaxConnections(t *testing.T) {
+	d := NewDispatcher(WithMaxConnections(2))
+	clients := newDispatcherTestClients(t, 3)
+
+	// 前两个注册成功
+	if err := d.Register(clients[0]); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	if err := d.Register(clients[1]); err != nil {
+		t.Fatalf("second register: %v", err)
+	}
+	if d.Len() != 2 {
+		t.Errorf("Len = %d, want 2", d.Len())
+	}
+
+	// 第三个应被拒绝
+	if err := d.Register(clients[2]); err != ErrMaxConnections {
+		t.Errorf("third register: got %v, want ErrMaxConnections", err)
+	}
+	if d.Len() != 2 {
+		t.Errorf("after rejection Len = %d, want 2", d.Len())
+	}
+
+	// Stats 记录拒绝数
+	stats := d.Stats()
+	if stats.MaxConnections != 2 {
+		t.Errorf("MaxConnections = %d, want 2", stats.MaxConnections)
+	}
+	if stats.TotalRejected != 1 {
+		t.Errorf("TotalRejected = %d, want 1", stats.TotalRejected)
+	}
+
+	for _, c := range clients {
+		c.Close()
+	}
+}
+
+func TestDispatcher_CleanupDeadConns(t *testing.T) {
+	d := NewDispatcher()
+	clients := newDispatcherTestClients(t, 3)
+	for _, c := range clients {
+		d.Register(c)
+	}
+
+	// 关闭所有连接
+	for _, c := range clients {
+		c.Close()
+	}
+
+	// 清理死连接
+	cleaned := d.CleanupDeadConns()
+	if cleaned != 3 {
+		t.Errorf("CleanupDeadConns = %d, want 3", cleaned)
+	}
+	if d.Len() != 0 {
+		t.Errorf("after cleanup Len = %d, want 0", d.Len())
+	}
+}
+
+func TestDispatcher_Stats_NewFields(t *testing.T) {
+	d := NewDispatcher(WithMaxConnections(100))
+
+	stats := d.Stats()
+	if stats.MaxConnections != 100 {
+		t.Errorf("MaxConnections = %d, want 100", stats.MaxConnections)
 	}
 }
