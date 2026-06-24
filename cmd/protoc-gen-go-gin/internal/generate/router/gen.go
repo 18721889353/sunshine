@@ -10,7 +10,7 @@ import (
 )
 
 // GenerateFiles 生成 Gin 路由代码。
-func GenerateFiles(file *protogen.File) []byte {
+func GenerateFiles(file *protogen.File, moduleName string) []byte {
 	// 如果文件中没有服务定义，则返回空字节切片
 	if len(file.Services) == 0 {
 		return nil
@@ -19,11 +19,11 @@ func GenerateFiles(file *protogen.File) []byte {
 	// 解析 HTTP 服务定义
 	pss := parse.Services(file)
 	// 生成 Gin 路由文件内容
-	return genGinRouterFile(pss, string(file.GoPackageName))
+	return genGinRouterFile(pss, string(file.GoPackageName), moduleName)
 }
 
 // genGinRouterFile 生成 Gin 路由文件内容。
-func genGinRouterFile(services parse.HTTPPbServices, goPackageName string) []byte {
+func genGinRouterFile(services parse.HTTPPbServices, goPackageName string, moduleName string) []byte {
 	// 检查是否有 WebSocket 方法
 	hasWebSocket := false
 	for _, service := range services {
@@ -43,6 +43,7 @@ func genGinRouterFile(services parse.HTTPPbServices, goPackageName string) []byt
 		PackageName:  goPackageName,                 // 包名
 		PackagePaths: services.MergeImportPkgPath(), // 合并导入路径
 		HasWebSocket: hasWebSocket,                  // 是否包含 WebSocket 方法
+		ModuleName:   moduleName,                    // 模块名（用于导入 internal/config）
 	}
 	// 执行导入包模板，生成导入包部分的代码
 	content := pkg.execute()
@@ -60,6 +61,7 @@ type importPkg struct {
 	PackageName  string // 包名
 	PackagePaths string // 导入路径
 	HasWebSocket bool   // 是否包含 WebSocket 方法
+	ModuleName   string // 模块名（如 github.com/18721889353/sunshine）
 }
 
 // execute 执行导入包模板，生成对应的代码。

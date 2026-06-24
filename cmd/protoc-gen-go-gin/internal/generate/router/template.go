@@ -34,6 +34,10 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 
 	{{if $.HasWebSocket}}
+	"net/http"
+	"sync"
+	"time"
+	"{{.ModuleName}}/internal/config"
 	"github.com/18721889353/sunshine/pkg/gows"
 	{{end}}{{$.PackagePaths}}
 )
@@ -44,6 +48,27 @@ var WsConnKey = "ws_conn"
 
 // WsTokenKey 用于在 context 中存储 WebSocket token（从 query 参数获取）。
 var WsTokenKey = "ws_token"
+
+// wsBackendOnce 确保分布式 Dispatcher 只初始化一次。
+var wsBackendOnce sync.Once
+
+// initWSDispatcher 初始化分布式 Dispatcher。
+// 当 config.Get().Websocket.EnableDistributed=true 时，使用 RabbitMQ 作为 Backend
+// 替换默认的 DefaultDispatcher（单机模式），支持跨实例消息分发。
+func initWSDispatcher() {
+	wsBackendOnce.Do(func() {
+		if !config.Get().Websocket.EnableDistributed {
+			return
+		}
+		backend := gows.NewRabbitMQBackend(
+			config.Get().Rabbitmq.Pool.URL,
+			"ws:messages",
+		)
+		dd := gows.NewDispatcher(backend)
+		gows.DefaultDispatcher = dd
+		dd.Start(context.Background())
+	})
+}
 {{end}}
 `
 
@@ -128,6 +153,9 @@ func Register{{$.Name}}Router(
 		o.responser = errcode.NewResponser(o.isMessage,o.isFromRPC, o.httpErrors, o.rpcStatus)
 	}
 
+	// 初始化 WebSocket 分布式 Dispatcher（如启用）
+	initWSDispatcher()
+
 	r := &{{$.LowerName}}Router {
 		iRouter:               iRouter,
 		groupPathMiddlewares:  groupPathMiddlewares,
@@ -207,7 +235,27 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		return
 	}
 
-	client, err := gows.Upgrade(c, gows.WithHeartbeat(), gows.WithClientUID(uid), gows.WithDispatcher(gows.DefaultDispatcher))
+	// Upgrade: 将 HTTP 连接升级为 WebSocket 长连接
+	// CORS: 默认拒绝所有来源，必须显式配置 WithCheckOrigin。生产环境请根据实际域名限制。
+	// 限流/单 IP 限制从 config.Get().Websocket 读取，默认 0 表示不限制。
+	// 分布式模式（enableDistributed=true）时自动注册到 DefaultDispatcher。
+	upgradeOpts := []gows.UpgradeOption{
+		gows.WithCheckOrigin(func(r *http.Request) bool {
+			return config.Get().Websocket.Cors // 生产环境请根据实际域名限制 CORS
+		}),
+		gows.WithHeartbeatOptions(
+			gows.WithHeartbeatInterval(time.Duration(config.Get().Websocket.HeartbeatInterval)*time.Second),
+		),
+		gows.WithClientUID(uid),
+		gows.WithBufferSize(config.Get().Websocket.ReadBufferSize, config.Get().Websocket.WriteBufferSize),
+		gows.WithRateLimit(config.Get().Websocket.RateLimitRps, config.Get().Websocket.RateLimitBurst),
+		gows.WithMaxConnPerIP(config.Get().Websocket.MaxConnPerIP),
+		gows.WithReadTimeout(time.Duration(config.Get().Websocket.ReadTimeout)*time.Second), // 连接读超时（从配置读取，0=不限制）
+	}
+	if config.Get().Websocket.EnableDistributed {
+		upgradeOpts = append(upgradeOpts, gows.WithDispatcher(gows.DefaultDispatcher))
+	}
+	client, err := gows.Upgrade(c, upgradeOpts...)
 	if err != nil {
 		logger.WarnWithCtx(ctx, "websocket upgrade error", logger.Err(err), middleware.GCtxRequestIDField(c))
 		return

@@ -196,6 +196,29 @@ func TestReadMessage_Count(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestReadMessage_WithTimeout: 验证主动读超时
+// ---------------------------------------------------------------------------
+
+func TestReadMessage_WithTimeout(t *testing.T) {
+	client, _ := newTestClientPair(t, withClientReadTimeout(50*time.Millisecond))
+	defer client.Close()
+
+	// 不发送任何数据，ReadMessage 应在超时后返回 timeout 错误
+	start := time.Now()
+	_, _, err := client.ReadMessage()
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Fatal("ReadMessage should return timeout error when no data arrives")
+	}
+	// 验证超时大致在 50ms 附近（允许一定偏差）
+	if duration < 30*time.Millisecond || duration > 200*time.Millisecond {
+		t.Logf("ReadMessage timeout duration = %v (expected ~50ms)", duration)
+	}
+	t.Logf("✅ ReadMessage 超时正常: err=%v duration=%v", err, duration)
+}
+
+// ---------------------------------------------------------------------------
 // TestClose_Idempotent
 // ---------------------------------------------------------------------------
 

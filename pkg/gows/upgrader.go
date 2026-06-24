@@ -32,10 +32,16 @@ package gows
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
@@ -51,24 +57,102 @@ const (
 	defaultWriteBufferSize = 4096 // 默认写入缓冲区大小 (4KB)
 )
 
-// defaultCheckOrigin 默认的跨域检查函数，允许所有来源。
-// 生产环境中建议显式配置 WithCheckOrigin 限制可信域名。
-var defaultCheckOrigin = func(_ *http.Request) bool { return true }
+// defaultCheckOrigin 默认的跨域检查函数，拒绝所有来源。
+// 生产环境必须使用 WithCheckOrigin 显式设置允许的来源域名。
+var defaultCheckOrigin = func(_ *http.Request) bool { return false }
+
+// defaultCheckOriginWarned 确保 CORS 安全警告只打印一次
+var defaultCheckOriginWarned bool
+
+// checkOriginWarnOnce 首次使用默认 CheckOrigin 时打印安全警告
+func checkOriginWarnOnce() {
+	if !defaultCheckOriginWarned {
+		defaultCheckOriginWarned = true
+		logger.WarnWithCtx(nil, "[安全] gows: 默认 CheckOrigin 拒绝所有来源，" +
+			"请使用 gows.WithCheckOrigin(fn) 显式设置允许的来源域名，" +
+			"否则所有 WebSocket 连接将被拒绝")
+	}
+}
+
+// 全局限流状态
+var (
+	upgradeLimiter   *rate.Limiter // 全局升级速率限制器
+	upgradeLimiterMu sync.Mutex    // 保护限流器初始化
+
+	perIPConns   sync.Map // map[string]*ipConnCounter 单IP连接计数
+)
+
+// ipConnCounter 单 IP 连接计数器
+type ipConnCounter struct {
+	count int32
+}
+
+func (c *ipConnCounter) add(n int32) int32 {
+	return atomic.AddInt32(&c.count, n)
+}
+
+func (c *ipConnCounter) load() int32 {
+	return atomic.LoadInt32(&c.count)
+}
+
+// extractClientIP 从 gin.Context 中提取客户端真实 IP
+func extractClientIP(c *gin.Context) string {
+	// 优先取 X-Forwarded-For
+	if fwd := c.GetHeader("X-Forwarded-For"); fwd != "" {
+		if ip := strings.TrimSpace(strings.Split(fwd, ",")[0]); ip != "" {
+			return ip
+		}
+	}
+	// 其次 X-Real-IP
+	if realIP := c.GetHeader("X-Real-IP"); realIP != "" {
+		return strings.TrimSpace(realIP)
+	}
+	// 最后从 RemoteAddr 解析
+	if host, _, err := net.SplitHostPort(c.Request.RemoteAddr); err == nil {
+		return host
+	}
+	return c.Request.RemoteAddr
+}
+
+// ErrUpgradeRateLimited 全局升级速率达到上限的错误
+type ErrUpgradeRateLimited struct {
+	limit rate.Limit
+}
+
+func (e *ErrUpgradeRateLimited) Error() string {
+	return fmt.Sprintf("ws upgrade rate limited: %.2f rps", e.limit)
+}
+
+// ErrUpgradeMaxConnPerIP 单 IP 连接数达到上限的错误
+type ErrUpgradeMaxConnPerIP struct {
+	ip  string
+	max int32
+}
+
+func (e *ErrUpgradeMaxConnPerIP) Error() string {
+	return fmt.Sprintf("ws upgrade max connections per IP reached: ip=%s max=%d", e.ip, e.max)
+}
 
 // upgradeOptions 内部升级配置参数集合
 type upgradeOptions struct {
 	checkOrigin       func(r *http.Request) bool  // 跨域检查函数
+	checkOriginSet    bool                        // 用户是否显式设置了 CheckOrigin
 	readBufSize       int                         // 读取缓冲区大小，0 表示使用默认值 4096
 	writeBufSize      int                         // 写入缓冲区大小，0 表示使用默认值 4096
 	subprotocols      []string                    // 子协议协商列表
 	enableCompression bool                        // 是否启用压缩（默认 true）
 	enableHeart       bool                        // 是否自动启动心跳保活
 	heartbeatOpts     []HeartbeatOption           // 心跳高级配置（与 enableHeart 配合使用）
-	dispatcher        *Dispatcher                 // 非 nil 时自动注册连接到此分发中心
+	dispatcher        *DistributedDispatcher      // 非 nil 时自动注册连接到此分发中心
 	clientUID         string                      // 客户端用户标识（可选，提供给 NewClient）
 	errorHandler      func(*gin.Context, error)   // 升级失败时的自定义错误处理
 	beforeUpgrade     func(*gin.Context) error    // 升级前钩子，返回 error 则中止升级
 	afterUpgrade      func(*gin.Context, *Client) // 升级后钩子，可用于链路追踪注入等
+
+	// 限流配置（仅在 Upgrade 函数中读取，不存储在选项上）
+	enableRateLimit  bool  // 是否启用全局速率限制
+	maxConnPerIP     int32 // 单 IP 最大连接数（0=不限制）
+	readTimeout      time.Duration // 单次 ReadMessage 超时（0=由心跳管理）
 }
 
 // UpgradeOption 升级配置选项函数类型。
@@ -80,10 +164,58 @@ type UpgradeOption func(*upgradeOptions)
 // 参数:
 //   - fn: 接收 *http.Request，返回 true 表示允许该来源连接
 //
-// 默认允许所有来源。生产环境必须根据实际域名配置。
+// 默认拒绝所有来源。生产环境必须根据实际域名配置。
 func WithCheckOrigin(fn func(r *http.Request) bool) UpgradeOption {
 	return func(o *upgradeOptions) {
 		o.checkOrigin = fn
+		o.checkOriginSet = true
+	}
+}
+
+// WithRateLimit 设置全局 WebSocket 升级速率限制。
+// 参数:
+//   - rps: 每秒最大升级次数（如 100 表示每秒最多处理 100 次握手）
+//   - burst: 最大突发量（如 20 表示短时间内允许最多 20 个突发连接）
+//
+// 超出限制的 Upgrade 调用返回 ErrUpgradeRateLimited。
+// 默认不限制。
+func WithRateLimit(rps int, burst int) UpgradeOption {
+	return func(o *upgradeOptions) {
+		if rps > 0 && burst > 0 {
+			o.enableRateLimit = true
+			upgradeLimiterMu.Lock()
+			upgradeLimiter = rate.NewLimiter(rate.Limit(rps), burst)
+			upgradeLimiterMu.Unlock()
+		}
+	}
+}
+
+// WithMaxConnPerIP 设置单个 IP 的最大 WebSocket 连接数。
+// 参数:
+//   - n: 单 IP 最大连接数（如 10 表示每个 IP 最多建立 10 个连接）
+//
+// 超出限制的 Upgrade 调用返回 ErrUpgradeMaxConnPerIP。
+// 默认不限制。连接关闭时自动从计数器中移除。
+func WithMaxConnPerIP(n int) UpgradeOption {
+	return func(o *upgradeOptions) {
+		if n > 0 {
+			o.maxConnPerIP = int32(n)
+		}
+	}
+}
+
+// WithReadTimeout 设置单次 ReadMessage 的超时时间。
+// 参数:
+//   - timeout: 读取超时时间（如 60*time.Second）。超过此时间未收到消息，
+//     ReadMessage 返回超时错误，触发连接断开和重连。
+//
+// 此超时会在 Upgrade 内部自动传播到创建的 Client，无需额外传入 NewClient。
+// 默认 0 表示不设置主动超时，由心跳机制间接管理 ReadDeadline。
+func WithReadTimeout(timeout time.Duration) UpgradeOption {
+	return func(o *upgradeOptions) {
+		if timeout > 0 {
+			o.readTimeout = timeout
+		}
 	}
 }
 
@@ -149,7 +281,7 @@ func WithHeartbeatOptions(opts ...HeartbeatOption) UpgradeOption {
 //
 // 注册后可通过 Dispatcher 全局管理在线连接（如广播消息）。
 // 连接关闭时自动从 Dispatcher 注销。
-func WithDispatcher(d *Dispatcher) UpgradeOption {
+func WithDispatcher(d *DistributedDispatcher) UpgradeOption {
 	return func(o *upgradeOptions) {
 		o.dispatcher = d
 	}
@@ -235,6 +367,11 @@ func WithEnableCompression(enable bool) UpgradeOption {
 //  5. 用 *websocket.Conn 创建 *Client（含 writeLoop）
 //  6. 可选启动心跳、注册 Dispatcher
 //
+// 安全保护:
+//   - CORS: 默认拒绝所有来源，需显式调用 WithCheckOrigin
+//   - 限流: WithRateLimit 设置全局升级速率
+//   - 单IP限制: WithMaxConnPerIP 设置单IP最大连接数
+//
 // 调用方需负责 defer client.Close() 确保资源释放。
 func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 	tracer := otel.Tracer("gows")
@@ -253,13 +390,52 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		opt(&o)
 	}
 
+	clientIP := extractClientIP(c)
+
 	span.SetAttributes(
 		attribute.String("ws.client_uid", o.clientUID),
 		attribute.String("ws.remote_addr", c.Request.RemoteAddr),
+		attribute.String("ws.client_ip", clientIP),
 		requestID,
 	)
 
-	// 升级前钩子：可用于鉴权、限流等前置校验
+	// CORS 安全检查：默认 CheckOrigin 为拒绝所有来源，需显式配置
+	if !o.checkOriginSet {
+		checkOriginWarnOnce()
+		span.SetAttributes(attribute.Bool("ws.cors_rejected", true))
+		span.SetStatus(codes.Error, "CORS check rejected")
+		return nil, fmt.Errorf("ws upgrade: CORS check rejected, use gows.WithCheckOrigin() to allow origins")
+	}
+	if !o.checkOrigin(c.Request) {
+		span.SetAttributes(attribute.Bool("ws.cors_rejected", true))
+		span.SetStatus(codes.Error, "CORS check rejected")
+		return nil, fmt.Errorf("ws upgrade: CORS check rejected by CheckOrigin function")
+	}
+
+	// 全局速率限制检查
+	if o.enableRateLimit {
+		upgradeLimiterMu.Lock()
+		limiter := upgradeLimiter
+		upgradeLimiterMu.Unlock()
+		if limiter != nil && !limiter.Allow() {
+			span.SetAttributes(attribute.Bool("ws.rate_limited", true))
+			span.SetStatus(codes.Error, "rate limited")
+			return nil, &ErrUpgradeRateLimited{limit: limiter.Limit()}
+		}
+	}
+
+	// 单 IP 连接数检查
+	if o.maxConnPerIP > 0 {
+		actual, _ := perIPConns.LoadOrStore(clientIP, &ipConnCounter{})
+		counter := actual.(*ipConnCounter)
+		if counter.load() >= o.maxConnPerIP {
+			span.SetAttributes(attribute.Bool("ws.per_ip_limit_reached", true))
+			span.SetStatus(codes.Error, "per-IP max connections reached")
+			return nil, &ErrUpgradeMaxConnPerIP{ip: clientIP, max: o.maxConnPerIP}
+		}
+	}
+
+	// 升级前钩子：可用于鉴权等前置校验
 	if o.beforeUpgrade != nil {
 		if err := o.beforeUpgrade(c); err != nil {
 			span.SetStatus(codes.Error, err.Error())
@@ -284,9 +460,37 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		return nil, fmt.Errorf("ws upgrade: %w", err)
 	}
 
+	// 升级成功后，递增单 IP 连接计数
+	if o.maxConnPerIP > 0 {
+		actual, _ := perIPConns.LoadOrStore(clientIP, &ipConnCounter{})
+		counter := actual.(*ipConnCounter)
+		counter.add(1)
+	}
+
 	client := NewClient(rawConn, o.clientUID)
+	// 传播 readTimeout（UpgradeOption → Client）
+	if o.readTimeout > 0 {
+		client.readTimeout = o.readTimeout
+	}
 	// 使用带追踪的上下文替换 client 的默认上下文
 	client.SetContext(ctx)
+
+	// 注册 IP 连接清理钩子
+	if o.maxConnPerIP > 0 {
+		prevHook := client.onClose
+		client.SetCloseHook(func() {
+			if prevHook != nil {
+				prevHook()
+			}
+			// 递减 IP 计数
+			if actual, ok := perIPConns.Load(clientIP); ok {
+				counter := actual.(*ipConnCounter)
+				if counter.add(-1) <= 0 {
+					perIPConns.Delete(clientIP)
+				}
+			}
+		})
+	}
 
 	// 升级后钩子：可用于注入链路追踪、记录连接日志等
 	if o.afterUpgrade != nil {
@@ -315,6 +519,10 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 			return nil, fmt.Errorf("ws dispatcher register: %w", err)
 		}
 		client.SetCloseHook(func() {
+			// 先执行之前的钩子（IP 清理等）
+			if prevHook := client.onClose; prevHook != nil {
+				prevHook()
+			}
 			o.dispatcher.Unregister(client)
 		})
 	}

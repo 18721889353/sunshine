@@ -45,6 +45,7 @@ type Config struct {
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
 	Sign          Sign          `yaml:"sign" json:"sign"`
 	Sls           Sls           `yaml:"sls" json:"sls"`
+	Websocket     Websocket     `yaml:"websocket" json:"websocket"`
 }
 
 type Email struct {
@@ -249,6 +250,18 @@ type DoingOrder struct {
 	NormalQueueDeclareOption NormalQueueDeclareOption `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
 	NormalQueueName          string                   `yaml:"normalQueueName" json:"normalQueueName"`
 	QueueType                string                   `yaml:"queueType" json:"queueType"`
+}
+
+type Websocket struct {
+	Cors              bool `yaml:"cors" json:"cors"`
+	EnableDistributed bool `yaml:"enableDistributed" json:"enableDistributed"`
+	HeartbeatInterval int  `yaml:"heartbeatInterval" json:"heartbeatInterval"`
+	MaxConnPerIP      int  `yaml:"maxConnPerIP" json:"maxConnPerIP"`
+	RateLimitBurst    int  `yaml:"rateLimitBurst" json:"rateLimitBurst"`
+	RateLimitRps      int  `yaml:"rateLimitRps" json:"rateLimitRps"`
+	ReadBufferSize    int  `yaml:"readBufferSize" json:"readBufferSize"`
+	ReadTimeout       int  `yaml:"readTimeout" json:"readTimeout"`
+	WriteBufferSize   int  `yaml:"writeBufferSize" json:"writeBufferSize"`
 }
 
 type Redis struct {

@@ -137,7 +137,7 @@ func main() {
 				return fmt.Errorf(`the proto file name (%s) suffix "_test" is not supported for code generation, please delete suffix "_test" or change it to another name. `, checkFilename)
 			}
 
-			if err := saveGinRouterFiles(f); err != nil {
+			if err := saveGinRouterFiles(f, moduleName); err != nil {
 				return err
 			}
 
@@ -157,8 +157,8 @@ func main() {
 	})
 }
 
-func saveGinRouterFiles(f *protogen.File) error {
-	ginRouterFileContent := router.GenerateFiles(f)
+func saveGinRouterFiles(f *protogen.File, moduleName string) error {
+	ginRouterFileContent := router.GenerateFiles(f, moduleName)
 	if !bytes.Contains(ginRouterFileContent, []byte("errors.")) {
 		ginRouterFileContent = bytes.Replace(ginRouterFileContent, []byte(`"errors"`), []byte(""), 1)
 	}

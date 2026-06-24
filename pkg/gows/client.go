@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,8 +64,9 @@ type ClientOption func(*clientOptions)
 
 // clientOptions 客户端内部配置参数集合
 type clientOptions struct {
-	writeQueueSize int   // 写入队列缓冲区容量（默认 64）
-	readLimit      int64 // 单条消息读取大小限制（默认 0=不限制）
+	writeQueueSize int           // 写入队列缓冲区容量（默认 64）
+	readLimit      int64         // 单条消息读取大小限制（默认 0=不限制）
+	readTimeout    time.Duration // 读取超时时间（默认 0=不限制，由心跳管理）
 }
 
 // WithWriteQueueSize 设置客户端写入队列缓冲区大小。
@@ -96,14 +98,25 @@ func WithReadLimit(limit int64) ClientOption {
 	}
 }
 
+// withClientReadTimeout 设置单次 ReadMessage 的超时时间（仅包内使用）。
+// Upgrade 场景请使用 WithReadTimeout (UpgradeOption)，该函数会自动传播此配置到 Client。
+func withClientReadTimeout(timeout time.Duration) ClientOption {
+	return func(o *clientOptions) {
+		if timeout > 0 {
+			o.readTimeout = timeout
+		}
+	}
+}
+
 // Client 代表一个 WebSocket 客户端连接。
 // 采用 Channel 驱动写入模型替代传统 Mutex 锁，核心设计原则:
 //   - writeCh 缓冲通道解耦业务协程和网络写入协程，发送方永不阻塞
 //   - writeLoop 后台 goroutine 串行化消费通道数据，规避锁竞争
 //   - 队列满载时自动丢弃消息，防止慢客户端拖慢整体吞吐
 //   - 原子 CAS 保证关闭幂等，关闭信号通知所有监听方优雅退出
-//   - 网络波动保护：写入失败时指数退避重试，Ping/Pong 协议级保活
+//   - 网络波动保护：写入失败时指数退避重试（含 jitter），Ping/Pong 协议级保活
 //   - 健康指标：记录读写时间与错误计数，支持 IsAlive 探测
+//   - 主动读超时：ReadMessage 支持独立超时，不依赖心跳机制
 type Client struct {
 	conn        *websocket.Conn    // 底层 WebSocket 连接，仅 writeLoop 协程直接写入
 	uid         string             // 用户唯一标识（从 JWT 中提取）
@@ -124,6 +137,9 @@ type Client struct {
 	writeErrCount int64        // 原子计数: 写入失败累计次数
 	lastWriteErr  atomic.Value // 最近一次写入错误信息（string）
 	healthMu      sync.RWMutex // 保护 lastWriteTime / lastReadTime 并发读写
+
+	// 主动读超时保护
+	readTimeout time.Duration // ReadMessage 超时时间（0=不限制）
 }
 
 // NewClient 创建并初始化一个新的 WebSocket 客户端连接。
@@ -143,13 +159,14 @@ func NewClient(conn *websocket.Conn, uid string, opts ...ClientOption) *Client {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Client{
-		conn:       conn,
-		uid:        uid,
-		writeCh:    make(chan []byte, o.writeQueueSize),
-		closeCh:    make(chan struct{}),
-		ctx:        ctx,
-		ctxCancel:  cancel,
-		remoteAddr: conn.RemoteAddr().String(),
+		conn:        conn,
+		uid:         uid,
+		writeCh:     make(chan []byte, o.writeQueueSize),
+		closeCh:     make(chan struct{}),
+		ctx:         ctx,
+		ctxCancel:   cancel,
+		remoteAddr:  conn.RemoteAddr().String(),
+		readTimeout: o.readTimeout,
 	}
 
 	if o.readLimit > 0 {
@@ -203,8 +220,10 @@ func (c *Client) writeLoop() {
 	}
 }
 
-// writeWithRetry 带指数退避重试的写入操作。
+// writeWithRetry 带指数退避 + 随机 jitter 的写入操作。
 // 每次写入前设置 10 秒 WriteDeadline，防止网络卡死。
+// 退避公式: baseDelay × 2^(attempt-1) + jitter(0~baseDelay)，
+// jitter 随机化防止惊群效应。
 // 参数:
 //   - data: 待写入的序列化字节数据
 //
@@ -215,8 +234,10 @@ func (c *Client) writeWithRetry(data []byte) error {
 	for attempt := 0; attempt <= writeLoopRetries; attempt++ {
 		if attempt > 0 {
 			// 指数退避：100ms, 200ms, 400ms
-			backoff := time.Duration(100*math.Pow(2, float64(attempt-1))) * time.Millisecond
-			time.Sleep(backoff)
+			baseDelay := time.Duration(100*math.Pow(2, float64(attempt-1))) * time.Millisecond
+			// 随机 jitter: [0, baseDelay) 范围，防止惊群效应
+			jitter := time.Duration(rand.Int64N(int64(baseDelay)))
+			time.Sleep(baseDelay + jitter)
 		}
 
 		// 设置写入超时，防止 TCP 半连接导致永久阻塞
@@ -315,6 +336,44 @@ func (c *Client) WriteJSON(v any) error {
 //   - int: 消息类型（websocket.TextMessage=1 / websocket.BinaryMessage=2）
 //   - []byte: 消息原始字节内容
 //   - error: 读取失败、连接关闭或读取超时时返回非 nil 错误
+
+// WriteRaw 直接写入预序列化的原始字节数据，跳过 JSON 序列化步骤。
+// 用于分布式场景中跨实例转发已序列化的消息，避免二次序列化。
+// 参数:
+//   - data: 已序列化的 JSON 字节数据
+//
+// 返回:
+//   - error: 与 WriteJSON 相同的错误语义
+func (c *Client) WriteRaw(data []byte) error {
+	// 链路追踪
+	tracer := otel.Tracer("gows")
+	_, span := tracer.Start(c.ctx, "ws.write_raw", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("ws.uid", c.uid),
+		attribute.String("ws.remote_addr", c.remoteAddr),
+		requestIDAttr(c.ctx),
+		attribute.Int("ws.data_size", len(data)),
+	)
+
+	if atomic.LoadInt32(&c.closed) == 1 {
+		span.SetAttributes(attribute.Bool("ws.closed", true))
+		span.SetStatus(codes.Error, "connection closed")
+		return websocket.ErrCloseSent
+	}
+
+	select {
+	case c.writeCh <- data:
+		span.SetAttributes(attribute.Int("ws.write_queue_len", len(c.writeCh)))
+		span.SetStatus(codes.Ok, "raw message queued")
+		return nil
+	default:
+		span.SetAttributes(attribute.Bool("ws.write_queue_full", true))
+		span.SetStatus(codes.Error, "write queue full, message dropped")
+		return ErrWriteQueueFull
+	}
+}
+
 func (c *Client) ReadMessage() (int, []byte, error) {
 	// 链路追踪
 	tracer := otel.Tracer("gows")
@@ -325,6 +384,13 @@ func (c *Client) ReadMessage() (int, []byte, error) {
 		attribute.String("ws.remote_addr", c.remoteAddr),
 		requestIDAttr(c.ctx),
 	)
+
+	// 主动读超时保护（独立于心跳，不依赖 PongHandler）
+	if c.readTimeout > 0 {
+		if err := c.conn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
+			span.SetAttributes(attribute.Bool("ws.read_deadline_error", true))
+		}
+	}
 
 	msgType, data, err := c.conn.ReadMessage()
 	if err == nil {

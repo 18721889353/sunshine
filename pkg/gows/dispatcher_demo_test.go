@@ -68,7 +68,7 @@ var _ = fmt.Sprintf
 
 // TestDemo_ViewConnections 演示如何查看 Dispatcher 中的所有在线连接。
 func TestDemo_ViewConnections(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 
 	// 注册 3 个不同 UID 的客户端
 	uidList := []string{"alice", "bob", "charlie"}
@@ -129,7 +129,7 @@ func TestDemo_ViewConnections(t *testing.T) {
 
 // TestDemo_SendToSingleUID 演示向指定 UID 发送消息。
 func TestDemo_SendToSingleUID(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 
 	// 创建 3 个不同用户
 	clients := make(map[string]*Client)
@@ -178,7 +178,7 @@ func TestDemo_SendToSingleUID(t *testing.T) {
 
 // TestDemo_SendToMultipleUIDs 演示使用 BroadcastFilterCtx 向多个指定用户发送消息。
 func TestDemo_SendToMultipleUIDs(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 
 	clients := make(map[string]*Client)
 	for _, uid := range []string{"alice", "bob", "charlie", "dave"} {
@@ -221,7 +221,7 @@ func TestDemo_SendToMultipleUIDs(t *testing.T) {
 
 // TestDemo_SendDifferentMessages 演示如何给每个用户发送不同的消息内容。
 func TestDemo_SendDifferentMessages(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 
 	scores := map[string]int{"alice": 95, "bob": 88, "charlie": 72}
 	clients := make([]*Client, 0, len(scores))
@@ -264,7 +264,7 @@ func TestDemo_SendDifferentMessages(t *testing.T) {
 
 // TestDemo_SameUIDMultiDevice 演示同一用户多个设备连接的场景。
 func TestDemo_SameUIDMultiDevice(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 
 	// 同一用户 "alice" 有 3 个设备连接
 	for i := 0; i < 3; i++ {
@@ -321,7 +321,7 @@ func TestDemo_SameUIDMultiDevice(t *testing.T) {
 
 // TestDemo_ClientStats 演示使用 Client.Stats() 获取单个连接的详情。
 func TestDemo_ClientStats(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 
 	// 创建客户端并发送/接收消息
 	c, testConn := newTestClientWithUID(t, "dave", WithWriteQueueSize(32))
@@ -364,8 +364,8 @@ func TestDemo_ClientStats(t *testing.T) {
 // TestDemo_UseCustomDispatcher 演示创建独立 Dispatcher（如按房间/频道隔离）。
 func TestDemo_UseCustomDispatcher(t *testing.T) {
 	// 创建两个独立的 Dispatcher
-	roomChat := NewDispatcher()
-	roomVoice := NewDispatcher()
+	roomChat := NewDispatcher(nil)
+	roomVoice := NewDispatcher(nil)
 
 	// 用户 alice 同时加入了聊天室和语音室
 	c1, _ := newTestClientWithUID(t, "alice")
@@ -397,7 +397,7 @@ func TestDemo_UseCustomDispatcher(t *testing.T) {
 
 // TestDemo_ConcurrentUsage 演示 Dispatcher 的并发安全性。
 func TestDemo_ConcurrentUsage(t *testing.T) {
-	d := NewDispatcher()
+	d := NewDispatcher(nil)
 	var clients []*Client
 
 	// 创建 5 个客户端

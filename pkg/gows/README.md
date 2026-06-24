@@ -4,13 +4,15 @@ Go 语言 WebSocket 服务端封装库，提供连接管理、消息读写、心
 
 ## ✨ 特性
 
-- 🚀 **生产级 Upgrader**：基于 gorilla/websocket，支持 Functional Options 模式
-- 🔒 **Channel 驱动写入模型**：非阻塞 WriteJSON，慢客户端自动丢弃消息
-- 📡 **全局 Dispatcher**：连接注册、广播、按 UID 发送、条件过滤
-- 💓 **可配置心跳**：自定义间隔、ping 消息、写入超时
+- 🔒 **Channel 驱动写入模型**：非阻塞 WriteJSON，慢客户端自动丢弃消息，指数退避 + 随机 jitter
+- 🛡️ **安全防护**：默认拒绝跨域、全局升级速率限制、单 IP 连接数限制
+- 📡 **分布式 Dispatcher**：连接注册、广播、按 UID 发送、条件过滤、跨实例消息分发
+- 🔗 **多种后端支持**：单机模式（无中间件）或 RabbitMQ 分布式模式（Producer 缓存池）
+- 💓 **可配置心跳**：自定义间隔、写入超时
 - 🔗 **链路追踪**：内置 OpenTelemetry
-- 📊 **连接统计**：收发计数、队列状态、远程地址
+- 📊 **连接统计**：收发计数、队列状态、远程地址、健康检测
 - 🪝 **生命周期钩子**：升级前鉴权、升级后注入、关闭回调
+- ⏱️ **主动读超时**：独立于心跳，防止 ReadMessage 永久阻塞
 
 ## 📦 安装
 
@@ -44,7 +46,11 @@ func main() {
 
     r.GET("/ws", func(c *gin.Context) {
         // 升级 HTTP 为 WebSocket 连接
-        client, err := gows.Upgrade(c)
+        client, err := gows.Upgrade(c,
+            gows.WithCheckOrigin(func(r *http.Request) bool {
+                return true // 生产环境请限制可信域名
+            }),
+        )
         if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
@@ -130,7 +136,7 @@ func main() {
 
     // 在其他地方广播消息
     go func() {
-        gows.DefaultDispatcher.Broadcast(gows.Message{
+        gows.DefaultDispatcher.BroadcastCtx(context.Background(), gows.Message{
             Type: "notice",
             Msg:  "系统公告",
         })
@@ -148,23 +154,28 @@ func main() {
 // 使用默认全局实例
 dispatcher := gows.DefaultDispatcher
 
-// 或创建独立实例
-dispatcher := gows.NewDispatcher()
+// 或创建独立实例（单机模式）
+dispatcher := gows.NewDispatcher(nil)
+
+// 或创建分布式实例（需 RabbitMQ）
+backend := gows.NewRabbitMQBackend("amqp://...", "ws:messages")
+dispatcher := gows.NewDispatcher(backend)
+dispatcher.Start(ctx)
 ```
 
 ### 发送消息
 
 ```go
 // 广播给所有连接
-dispatcher.Broadcast(gows.Message{Type: "notice", Msg: "全员通知"})
+dispatcher.BroadcastCtx(ctx, gows.Message{Type: "notice", Msg: "全员通知"})
 
 // 按条件过滤广播
-dispatcher.BroadcastFilter(msg, func(c *gows.Client) bool {
+dispatcher.BroadcastFilterCtx(ctx, msg, func(c *gows.Client) bool {
     return c.UID() == "vip-user"
 })
 
 // 按 UID 发送
-dispatcher.SendToUID("user-123", gows.Message{Type: "personal", Msg: "你好"})
+dispatcher.SendToUIDCtx(ctx, "user-123", gows.Message{Type: "personal", Msg: "你好"})
 ```
 
 ### 遍历与管理
@@ -189,9 +200,34 @@ for _, c := range clients {
 // 统计信息
 stats := dispatcher.Stats()
 log.Printf("当前在线: %d", stats.TotalConnections)
+
+// 分布式模式：启动后台接收
+// dispatcher.Start(ctx)
+// defer dispatcher.Stop()
 ```
 
 ## ⚙️ 高级配置
+
+### 分布式部署
+
+```go
+// 使用 RabbitMQ 后端，跨实例消息分发
+backend := gows.NewRabbitMQBackend(
+    "amqp://user:pass@host:5672/",
+    "ws:messages",
+)
+d := gows.NewDispatcher(backend, gows.WithMaxConnections(10000))
+d.Start(ctx)
+defer d.Stop()
+
+// 注册连接后，即可跨实例发送
+d.Register(client)
+d.SendToUIDCtx(ctx, "user-123", msg)
+d.BroadcastCtx(ctx, msg)
+
+// 查看在线统计
+log.Printf("在线: %d, 最大限制: %d", d.Len(), d.MaxConnections())
+```
 
 ### Upgrader 选项
 
@@ -247,6 +283,27 @@ client := gows.NewClient(rawConn, "uid",
     gows.WithWriteQueueSize(128),
     // 单条消息读取限制
     gows.WithReadLimit(4096),
+    // 主动读超时（独立于心跳）
+    gows.WithReadTimeout(60*time.Second),
+)
+```
+
+### Dispatcher 选项
+
+```go
+// 分布式模式：设置 WorkerPool 大小（默认 4）
+d := gows.NewDispatcher(backend,
+    gows.WithMaxConnections(10000),
+    gows.WithWorkerPool(8), // 消息投递 worker 数
+)
+```
+
+### RabbitMQ Backend 选项
+
+```go
+backend := gows.NewRabbitMQBackend("amqp://...", "ws:messages",
+    // Producer 缓存池大小（默认 4）
+    gows.WithProducerPoolSize(8),
 )
 ```
 
@@ -284,6 +341,7 @@ type Message struct {
 | 方法 | 说明 |
 |------|------|
 | `WriteJSON(v any) error` | 异步非阻塞发送 JSON 消息 |
+| `WriteRaw(data []byte) error` | 直接写入预序列化的原始字节 |
 | `ReadMessage() (int, []byte, error)` | 阻塞读取消息 |
 | `Close() error` | 优雅关闭（幂等） |
 | `UID() string` | 获取用户标识 |
@@ -300,19 +358,22 @@ type Message struct {
 |------|------|
 | `Register(client *Client)` | 注册连接 |
 | `Unregister(client *Client)` | 注销连接 |
-| `Broadcast(v any)` | 广播消息 |
-| `BroadcastFilter(v any, filter func(*Client) bool)` | 条件广播 |
-| `SendToUID(uid string, v any)` | 按 UID 发送 |
-| `Range(fn func(*Client) bool)` | 遍历连接 |
+| `BroadcastCtx(ctx, v)` | 广播消息 |
+| `BroadcastFilterCtx(ctx, v, filter)` | 条件广播 |
+| `SendToUIDCtx(ctx, uid, v)` | 按 UID 发送 |
+| `SendToMultiUIDCtx(ctx, uids, v)` | 按多 UID 发送 |
+| `Range(fn)` | 遍历连接 |
 | `Len() int` | 在线连接数 |
 | `Clients() []*Client` | 连接快照 |
 | `Stats() DispatcherStats` | 统计信息 |
+| `Start(ctx)` | 启动分布式后端（单机无需调用） |
+| `Stop()` | 停止分布式后端 |
 
 ### Upgrade 选项
 
 | 选项 | 说明 |
 |------|------|
-| `WithCheckOrigin(fn)` | 跨域检查 |
+| `WithCheckOrigin(fn)` | 跨域检查（默认拒绝所有） |
 | `WithBufferSize(read, write)` | 读写缓冲区大小 |
 | `WithSubprotocols(protocols...)` | 子协议协商 |
 | `WithHeartbeat()` | 启用心跳（30s） |
@@ -323,6 +384,8 @@ type Message struct {
 | `WithBeforeUpgrade(fn)` | 升级前钩子 |
 | `WithAfterUpgrade(fn)` | 升级后钩子 |
 | `WithEnableCompression(enable)` | 压缩开关 |
+| `WithRateLimit(rps, burst)` | 全局升级速率限制 |
+| `WithMaxConnPerIP(n)` | 单 IP 最大连接数 |
 
 ### Heartbeat 选项
 
@@ -372,14 +435,14 @@ go func() {
 
 ```go
 type ChatRoom struct {
-    dispatcher *gows.Dispatcher
+    dispatcher *gows.DistributedDispatcher
 }
 
 func (r *ChatRoom) Join(client *gows.Client) {
     r.dispatcher.Register(client)
     client.SetCloseHook(func() {
         r.dispatcher.Unregister(client)
-        r.dispatcher.Broadcast(gows.Message{
+        r.dispatcher.BroadcastCtx(context.Background(), gows.Message{
             Type: "system",
             Msg:  client.UID() + " 离开了房间",
         })
@@ -403,6 +466,8 @@ if err == gows.ErrWriteQueueFull {
 ## ⚠️ 注意事项
 
 - **资源释放**：`Upgrade` 返回的 `*Client` 必须调用 `Close()`，建议使用 `defer`
+- **跨域**：默认拒绝所有来源，必须使用 `WithCheckOrigin` 显式设置允许的来源
+- **限流**：生产环境建议设置 `WithRateLimit` 和 `WithMaxConnPerIP` 防止连接风暴
 - **写队列满**：`WriteJSON` 在队列满时返回 `ErrWriteQueueFull` 而非阻塞
 - **ReadLimit**：生产环境建议设置 `WithReadLimit()` 防止恶意大消息撑爆内存
-- **跨域**：默认允许所有来源，生产环境务必配置 `WithCheckOrigin` 限制可信域名
+- **ReadTimeout**：未启用心跳时建议设置 `WithReadTimeout()` 防止 ReadMessage 永久阻塞

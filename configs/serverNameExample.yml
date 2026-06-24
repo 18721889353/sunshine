@@ -311,3 +311,14 @@ email:
     port: 465
     username: "your_email@qq.com"
     password: "your_auth_code"
+
+websocket:
+  cors: false           # CORS 开关（false=拒绝所有来源）
+  readTimeout: 60       # 读超时（秒），0=不限制，建议 60
+  rateLimitRps: 0       # 全局升级速率限制（每秒请求数），0=不限制
+  rateLimitBurst: 0     # 限流突发量，0=不限制
+  maxConnPerIP: 0       # 单 IP 最大连接数，0=不限制
+  heartbeatInterval: 30 # 心跳间隔（秒），0=使用默认值 30
+  readBufferSize: 0     # 读缓冲区大小（字节），0=4096
+  writeBufferSize: 0    # 写缓冲区大小（字节），0=4096
+  enableDistributed: false # 是否启用分布式分发（false=单机模式，true=分布式模式）
