@@ -97,3 +97,5 @@ func (d *Dispatcher) Broadcast(v any)  // ❌ 已删除
 "go.opentelemetry.io/otel/codes"
 "go.opentelemetry.io/otel/trace"
 ```
+
+> 关于项目公共 lint 规则和开发公约，请参见 [project-conventions](../project-conventions/SKILL.md)
