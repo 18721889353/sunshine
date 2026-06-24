@@ -33,7 +33,8 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/logger"
 
-	{{if $.HasWebSocket}}"github.com/18721889353/sunshine/pkg/gows"
+	{{if $.HasWebSocket}}
+	"github.com/18721889353/sunshine/pkg/gows"
 	{{end}}{{$.PackagePaths}}
 )
 
@@ -183,37 +184,45 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 {{if eq .InvokeType 0}}{{if .Path}}
 {{if .IsWebSocket}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
 	// 应用 wrapCtxFn 注入 gRPC metadata（含 request_id），与普通 HTTP 路径保持一致
-	 ctx := c.Request.Context()
-	 if r.wrapCtxFn != nil {
-		 ctx = r.wrapCtxFn(c)
-	 } else {
-		 ctx = middleware.WrapCtx(c)
-	 }
+	ctx := c.Request.Context()
+	if r.wrapCtxFn != nil {
+		ctx = r.wrapCtxFn(c)
+	} else {
+		ctx = middleware.WrapCtx(c)
+	}
 
-	 // ========== router 层解析 JWT，提取 UID，传入 Client ==========
-	 uid := ""
-	 if token := c.Request.URL.Query().Get("token"); token != "" {
-		 if parsedUID, parseErr := gows.ParseTokenCtx(ctx, token); parseErr == nil {
-			 uid = parsedUID
-		 }
-	 }
+	// ========== router 层解析 JWT，提取 UID，传入 Client ==========
+	token := c.Request.URL.Query().Get("token")
+	if token == "" {
+		logger.WarnWithCtx(ctx, "websocket missing token")
+		return
+	}
+	uid, err := gows.ParseTokenCtx(ctx, token)
+	if err != nil {
+		logger.WarnWithCtx(ctx, "websocket parse token error", logger.Err(err))
+		return
+	}
+	if uid == "" {
+		logger.WarnWithCtx(ctx, "websocket parse token empty uid")
+		return
+	}
 
-	 client, err := gows.Upgrade(c, gows.WithHeartbeat(), gows.WithClientUID(uid), gows.WithDispatcher(gows.DefaultDispatcher))
-	 if err != nil {
-		 logger.WarnWithCtx(ctx, "websocket upgrade error", logger.Err(err), middleware.GCtxRequestIDField(c))
-		 return
-	 }
-	 defer client.Close()
+	client, err := gows.Upgrade(c, gows.WithHeartbeat(), gows.WithClientUID(uid), gows.WithDispatcher(gows.DefaultDispatcher))
+	if err != nil {
+		logger.WarnWithCtx(ctx, "websocket upgrade error", logger.Err(err), middleware.GCtxRequestIDField(c))
+		return
+	}
+	defer client.Close()
 
-	 ctx = context.WithValue(ctx, WsConnKey, client)
-	 _, err = r.iLogic.{{.Name}}(ctx, &{{.RequestImportPkgName}}{{.Request}}{})
-	 if err != nil {
-		 if errors.Is(err, errcode.SkipResponse) {
-			 return
-		 }
-		 logger.WarnWithCtx(ctx, "websocket logic error", logger.Err(err))
-		 return
-	 }
+	ctx = context.WithValue(ctx, WsConnKey, client)
+	_, err = r.iLogic.{{.Name}}(ctx, &{{.RequestImportPkgName}}{{.Request}}{})
+	if err != nil {
+		if errors.Is(err, errcode.SkipResponse) {
+			return
+		}
+		logger.WarnWithCtx(ctx, "websocket logic error", logger.Err(err))
+		return
+	}
 }
 {{else}}func (r *{{$.LowerName}}Router) {{ .HandlerName }} (c *gin.Context) {
 	req := &{{.RequestImportPkgName}}{{.Request}}{}

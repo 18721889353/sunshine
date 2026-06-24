@@ -73,17 +73,6 @@ func (c *{{.LowerServiceName}}Client) {{.MethodName}}(ctx context.Context, req *
 	//	    return nil, ecode.StatusInternalServerError.Err()
 	//	}
 	//
-	//	// ========== UID 已在 router 层解析并传入 Client ==========
-	//	uid := client.UID()
-	//
-	//	// ========== 注册到全局分发中心 ==========
-	//	if uid != "" {
-	//	    if err := gows.DefaultDispatcher.Register(client); err != nil {
-	//	        return nil, ecode.StatusInternalServerError.Err()
-	//	    }
-	//	    defer gows.DefaultDispatcher.Unregister(client)
-	//	}
-	//	defer client.Close()
 	//
 	//	// ========== 进入 WebSocket 读写循环（阻塞） ==========
 	//	for {
