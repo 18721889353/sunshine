@@ -29,11 +29,11 @@ func TestDistributedDispatcher_SendToUIDCtx(t *testing.T) {
 
 	// 实例 A 上有 alice，实例 B 上有 bob
 	alice, aliceConn := newTestClientWithUID(t, "alice")
-	_ = instanceA.Register(alice)
+	_ = instanceA.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 
 	bob, bobConn := newTestClientWithUID(t, "bob")
-	_ = instanceB.Register(bob)
+	_ = instanceB.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 
 	// 实例 A 发消息给 bob — 应跨实例投递到 B
@@ -83,7 +83,7 @@ func TestDistributedDispatcher_SendToMultiUIDCtx(t *testing.T) {
 	conns := map[string]*websocket.Conn{}
 	for _, uid := range []string{"alice", "bob", "charlie"} {
 		c, conn := newTestClientWithUID(t, uid)
-		_ = dd.Register(c)
+		_ = dd.RegisterCtx(context.Background(), c)
 		clients[uid] = c
 		conns[uid] = conn
 		defer c.Close()
@@ -136,11 +136,11 @@ func TestDistributedDispatcher_BroadcastCtx(t *testing.T) {
 
 	// 实例 A 有 alice，实例 B 有 bob
 	alice, aliceConn := newTestClientWithUID(t, "alice")
-	_ = instanceA.Register(alice)
+	_ = instanceA.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 
 	bob, bobConn := newTestClientWithUID(t, "bob")
-	_ = instanceB.Register(bob)
+	_ = instanceB.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 
 	// 实例 A 广播 — 两个实例都应收到
@@ -173,7 +173,7 @@ func TestDistributedDispatcher_SelfPublishAndReceive(t *testing.T) {
 
 	// 本地注册 alice
 	c, conn := newTestClientWithUID(t, "alice")
-	_ = dd.Register(c)
+	_ = dd.RegisterCtx(context.Background(), c)
 	defer c.Close()
 
 	// 发给 alice（alice 在当前实例）
@@ -224,7 +224,7 @@ func TestDistributedDispatcher_Integration(t *testing.T) {
 		c, conn := newTestClientWithUID(t, name)
 		uc.client = c
 		uc.conn = conn
-		_ = instances[uc.inst].Register(c)
+		_ = instances[uc.inst].RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
 
@@ -280,7 +280,7 @@ func TestDistributedDispatcher_Concurrent(t *testing.T) {
 	// 注册 5 个客户端
 	for i := 0; i < 5; i++ {
 		c, _ := newTestClientWithUID(t, "user")
-		_ = dd.Register(c)
+		_ = dd.RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
 
@@ -319,14 +319,14 @@ func TestDistributedDispatcher_ConnectedUIDs(t *testing.T) {
 	// 实例 A: alice(2 设备), bob(1 设备)
 	for _, uid := range []string{"alice", "alice", "bob"} {
 		c, _ := newTestClientWithUID(t, uid)
-		_ = instanceA.Register(c)
+		_ = instanceA.RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
 
 	// 实例 B: charlie(1 设备), dave(1 设备)
 	for _, uid := range []string{"charlie", "dave"} {
 		c, _ := newTestClientWithUID(t, uid)
-		_ = instanceB.Register(c)
+		_ = instanceB.RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
 

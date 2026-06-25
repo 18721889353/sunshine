@@ -79,11 +79,11 @@ func TestRabbitMQBackend_WithDispatcher(t *testing.T) {
 	defer instanceB.Stop()
 
 	alice, aliceConn := newTestClientWithUID(t, "alice")
-	_ = instanceA.Register(alice)
+	_ = instanceA.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 
 	bob, bobConn := newTestClientWithUID(t, "bob")
-	_ = instanceB.Register(bob)
+	_ = instanceB.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 
 	instanceA.SendToUIDCtx(ctx, "bob", Message{Type: "greeting", Msg: "hello from instanceA"})

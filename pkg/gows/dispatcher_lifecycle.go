@@ -71,12 +71,6 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	return nil
 }
 
-// Register 将客户端连接注册到 Dispatcher 全局列表，使用 context.Background()。
-// 如需自定义 tracing 上下文，请使用 RegisterCtx。
-func (dd *DistributedDispatcher) Register(client *Client) error {
-	return dd.RegisterCtx(context.Background(), client)
-}
-
 // UnregisterCtx 从 Dispatcher 全局列表中移除客户端连接（带自定义上下文）。
 // 分布式模式下自动向所有实例广播下线通知，ctx 中的 tracing 信息会随消息传播。
 // 若 ctx 已过期，回滚 map 删除并返回 ctx.Err()。
@@ -105,17 +99,6 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 	dd.publishClientEvent(ctx, "client_offline", client.uid)
 	dd.mu.Unlock()
 	return nil
-}
-
-// Unregister 从 Dispatcher 全局列表中移除客户端连接，使用 context.Background()。
-// 如需自定义 tracing 上下文，请使用 UnregisterCtx。
-func (dd *DistributedDispatcher) Unregister(client *Client) {
-	if err := dd.UnregisterCtx(context.Background(), client); err != nil {
-		logger.WarnWithCtx(context.Background(), "dispatcher unregister failed",
-			logger.String("uid", client.uid),
-			logger.Err(err),
-		)
-	}
 }
 
 // publishClientEvent 向 Backend 发布客户端上线/下线事件。

@@ -17,7 +17,7 @@ func TestDemo_SendToSingleUID(t *testing.T) {
 	clients := make(map[string]*Client)
 	for _, uid := range []string{"alice", "bob", "charlie"} {
 		c, conn := newTestClientWithUID(t, uid)
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register %s: %v", uid, err)
 		}
 		clients[uid] = c
@@ -59,7 +59,7 @@ func TestDemo_SendToMultipleUIDs(t *testing.T) {
 	clients := make(map[string]*Client)
 	for _, uid := range []string{"alice", "bob", "charlie", "dave"} {
 		c, _ := newTestClientWithUID(t, uid)
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register %s: %v", uid, err)
 		}
 		clients[uid] = c
@@ -98,7 +98,7 @@ func TestDemo_SendDifferentMessages(t *testing.T) {
 	clients := make([]*Client, 0, len(scores))
 	for uid := range scores {
 		c, _ := newTestClientWithUID(t, uid)
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register %s: %v", uid, err)
 		}
 		clients = append(clients, c)
@@ -135,7 +135,7 @@ func TestDemo_SameUIDMultiDevice(t *testing.T) {
 	// 同一用户 "alice" 有 3 个设备连接
 	for i := 0; i < 3; i++ {
 		c, _ := newTestClientWithUID(t, "alice")
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register alice device %d: %v", i, err)
 		}
 		defer c.Close()

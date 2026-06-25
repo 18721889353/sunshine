@@ -68,7 +68,7 @@ type DistributedDispatcher struct {
 // 示例（单机）:
 //
 //	d := gows.NewDispatcher(nil)
-//	d.Register(client)
+//	d.RegisterCtx(ctx, client)
 //
 // 示例（分布式）:
 //

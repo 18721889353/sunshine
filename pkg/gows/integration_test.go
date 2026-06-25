@@ -171,20 +171,20 @@ func TestIntegration_DistributedMessaging(t *testing.T) {
 
 	// 实例 A: alice, bob
 	alice, aliceConn := newTestClientWithUID(t, "alice")
-	_ = instanceA.Register(alice)
+	_ = instanceA.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 
 	bob, bobConn := newTestClientWithUID(t, "bob")
-	_ = instanceA.Register(bob)
+	_ = instanceA.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 
 	// 实例 B: charlie, dave
 	charlie, charlieConn := newTestClientWithUID(t, "charlie")
-	_ = instanceB.Register(charlie)
+	_ = instanceB.RegisterCtx(context.Background(), charlie)
 	defer charlie.Close()
 
 	dave, daveConn := newTestClientWithUID(t, "dave")
-	_ = instanceB.Register(dave)
+	_ = instanceB.RegisterCtx(context.Background(), dave)
 	defer dave.Close()
 
 	time.Sleep(150 * time.Millisecond)
@@ -260,7 +260,7 @@ func TestIntegration_ConcurrentSendAndStats(t *testing.T) {
 	var clients []*Client
 	for i := 0; i < 3; i++ {
 		c, _ := newTestClientWithUID(t, "user")
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register: %v", err)
 		}
 		clients = append(clients, c)

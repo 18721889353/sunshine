@@ -146,11 +146,11 @@ func TestRabbitMQ_SendToUIDCtx_WithMockBackend(t *testing.T) {
 	defer dd.Stop()
 
 	alice, aliceConn := newTestClientWithUID(t, "alice")
-	_ = dd.Register(alice)
+	_ = dd.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 
 	bob, bobConn := newTestClientWithUID(t, "bob")
-	_ = dd.Register(bob)
+	_ = dd.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 
 	dd.SendToUIDCtx(ctx, "bob", Message{Type: "mock", Msg: "to bob"})
@@ -186,11 +186,11 @@ func TestRabbitMQ_BroadcastCtx_WithMockBackend(t *testing.T) {
 	defer dd.Stop()
 
 	alice, aliceConn := newTestClientWithUID(t, "alice")
-	_ = dd.Register(alice)
+	_ = dd.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 
 	bob, bobConn := newTestClientWithUID(t, "bob")
-	_ = dd.Register(bob)
+	_ = dd.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 
 	dd.BroadcastCtx(ctx, Message{Type: "broadcast", Msg: "大家注意"})
@@ -217,7 +217,7 @@ func TestRabbitMQ_SendToMultiUIDCtx_WithMockBackend(t *testing.T) {
 	conns := map[string]*websocket.Conn{}
 	for _, uid := range []string{"alice", "bob", "charlie"} {
 		c, conn := newTestClientWithUID(t, uid)
-		_ = dd.Register(c)
+		_ = dd.RegisterCtx(context.Background(), c)
 		conns[uid] = conn
 		defer c.Close()
 	}

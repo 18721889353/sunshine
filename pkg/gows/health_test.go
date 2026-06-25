@@ -1,6 +1,7 @@
 package gows
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -116,7 +117,7 @@ func TestDemo_ClientStats(t *testing.T) {
 
 	// 创建客户端并发送/接收消息
 	c, testConn := newTestClientWithUID(t, "dave")
-	if err := d.Register(c); err != nil {
+	if err := d.RegisterCtx(context.Background(), c); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 	defer c.Close()

@@ -20,7 +20,7 @@ func TestDemo_ViewConnections(t *testing.T) {
 	clients := make([]*Client, 0, len(uidList))
 	for _, uid := range uidList {
 		c, _ := newTestClientWithUID(t, uid)
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register %s: %v", uid, err)
 		}
 		clients = append(clients, c)
@@ -75,13 +75,13 @@ func TestDemo_UseCustomDispatcher(t *testing.T) {
 
 	// 用户 alice 同时加入了聊天室和语音室
 	c1, _ := newTestClientWithUID(t, "alice")
-	_ = roomChat.Register(c1)
-	_ = roomVoice.Register(c1)
+	_ = roomChat.RegisterCtx(context.Background(), c1)
+	_ = roomVoice.RegisterCtx(context.Background(), c1)
 	defer c1.Close()
 
 	// 用户 bob 只加入了聊天室
 	c2, _ := newTestClientWithUID(t, "bob")
-	_ = roomChat.Register(c2)
+	_ = roomChat.RegisterCtx(context.Background(), c2)
 	defer c2.Close()
 
 	// 只在聊天室广播 — bob 能收到
@@ -104,7 +104,7 @@ func TestDemo_ConcurrentUsage(t *testing.T) {
 	// 创建 5 个客户端
 	for i := 0; i < 5; i++ {
 		c, _ := newTestClientWithUID(t, fmt.Sprintf("user-%d", i))
-		if err := d.Register(c); err != nil {
+		if err := d.RegisterCtx(context.Background(), c); err != nil {
 			t.Fatalf("register: %v", err)
 		}
 		clients = append(clients, c)
