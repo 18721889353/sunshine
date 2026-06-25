@@ -13,6 +13,8 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// HeartbeatOption / heartbeatOptions / WithHeartbeatInterval / WithPongTimeout / WithPingWriteWait 定义在 heartbeat_options.go
+
 const (
 	// defaultHeartbeatInterval 默认心跳间隔 30 秒
 	defaultHeartbeatInterval = 30 * time.Second
@@ -22,51 +24,6 @@ const (
 	// defaultPingWriteWait Ping 控制帧写入超时
 	defaultPingWriteWait = 5 * time.Second
 )
-
-// HeartbeatOption 心跳配置选项函数类型。
-// 采用 Functional Options 模式，支持可扩展的配置传递。
-type HeartbeatOption func(*heartbeatOptions)
-
-// heartbeatOptions 心跳内部配置参数集合
-type heartbeatOptions struct {
-	interval      time.Duration // 心跳发送间隔
-	pongTimeout   time.Duration // Pong 等待超时（默认 10s）
-	pingWriteWait time.Duration // Ping 控制帧写入超时（默认 5s）
-}
-
-// WithHeartbeatInterval 设置心跳发送间隔。
-// 参数:
-//   - interval: 间隔时间，建议 10~60 秒。<=0 时使用默认值 30 秒。
-func WithHeartbeatInterval(interval time.Duration) HeartbeatOption {
-	return func(o *heartbeatOptions) {
-		if interval > 0 {
-			o.interval = interval
-		}
-	}
-}
-
-// WithPongTimeout 设置 Pong 超时时间。
-// 参数:
-//   - timeout: 超过此时间未收到 Pong 响应帧，触发连接关闭。
-//     建议为心跳间隔的 1/3 ~ 1/2，默认 10 秒。
-func WithPongTimeout(timeout time.Duration) HeartbeatOption {
-	return func(o *heartbeatOptions) {
-		if timeout > 0 {
-			o.pongTimeout = timeout
-		}
-	}
-}
-
-// WithPingWriteWait 设置 Ping 控制帧的写入超时时间。
-// 参数:
-//   - timeout: 超过此时间 Ping 帧写入失败，认为连接异常。默认 5 秒。
-func WithPingWriteWait(timeout time.Duration) HeartbeatOption {
-	return func(o *heartbeatOptions) {
-		if timeout > 0 {
-			o.pingWriteWait = timeout
-		}
-	}
-}
 
 // SetupPongHandler 在底层 WebSocket 连接上设置 Pong 处理器和读取超时。
 //
@@ -108,14 +65,8 @@ func SetupPongHandler(conn *websocket.Conn, interval, pongTimeout time.Duration)
 //   - client: 需要保活的客户端连接
 //   - opts: 可选心跳配置（间隔、Pong 超时等）
 func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
-	o := heartbeatOptions{
-		interval:      defaultHeartbeatInterval,
-		pongTimeout:   defaultPongTimeout,
-		pingWriteWait: defaultPingWriteWait,
-	}
-	for _, opt := range opts {
-		opt(&o)
-	}
+	o := defaultHeartbeatOptions()
+	o.apply(opts...)
 
 	// 链路追踪：心跳协程生命周期
 	tracer := otel.Tracer("gows")

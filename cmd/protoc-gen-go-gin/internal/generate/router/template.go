@@ -53,18 +53,21 @@ var WsTokenKey = "ws_token"
 var wsBackendOnce sync.Once
 
 // initWSDispatcher 初始化分布式 Dispatcher。
-// 当 config.Get().Websocket.EnableDistributed=true 时，使用 RabbitMQ 作为 Backend
+// 当 config.Get().Websocket.Distributed.EnableDistributed=true 时，使用 RabbitMQ 作为 Backend
 // 替换默认的 DefaultDispatcher（单机模式），支持跨实例消息分发。
 func initWSDispatcher() {
 	wsBackendOnce.Do(func() {
-		if !config.Get().Websocket.EnableDistributed {
+		if !config.Get().Websocket.Distributed.EnableDistributed {
 			return
 		}
 		backend := gows.NewRabbitMQBackend(
-			config.Get().Rabbitmq.Pool.URL,
-			"ws:messages",
+			config.Get().Websocket.Distributed.RabbitmqURL,
+			config.Get().Websocket.Distributed.Exchange,
 		)
-		dd := gows.NewDispatcher(backend)
+		dd := gows.NewDispatcher(backend,
+			gows.WithWorkerPool(config.Get().Websocket.Distributed.WorkerPool),
+			gows.WithMaxConnections(config.Get().Websocket.Distributed.MaxConnections),
+		)
 		gows.DefaultDispatcher = dd
 		dd.Start(context.Background())
 	})
@@ -235,25 +238,97 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		return
 	}
 
-	// Upgrade: 将 HTTP 连接升级为 WebSocket 长连接
-	// CORS: 默认拒绝所有来源，必须显式配置 WithCheckOrigin。生产环境请根据实际域名限制。
-	// 限流/单 IP 限制从 config.Get().Websocket 读取，默认 0 表示不限制。
+	// ========== 构建 WebSocket 升级选项（全部从配置读取，0=不限制/默认值） ==========
+	// CORS: 默认拒绝所有来源，生产环境请根据实际域名限制。
+	// 限流/单 IP 限制从 config.Get().Websocket 读取。
 	// 分布式模式（enableDistributed=true）时自动注册到 DefaultDispatcher。
+	//
+	// 完整配置字段映射（configs/serverNameExample.yml → option）：
+	//
+	// 【CORS & 连接基础】
+	//   .Websocket.Cors.Cors             → gows.WithCheckOrigin()           CORS 开关
+	//   .Websocket.Cors.ReadBufferSize    → gows.WithBufferSize(read, 0)     读缓冲区大小（字节）
+	//   .Websocket.Cors.WriteBufferSize   → gows.WithBufferSize(0, write)    写缓冲区大小（字节）
+	//   .Websocket.Cors.EnableCompression → gows.WithEnableCompression()     WebSocket 压缩开关
+	//   .Websocket.Cors.Subprotocols      → gows.WithSubprotocols()          子协议列表（逗号分隔）
+	//
+	// 【限流与安全防护】
+	//   .Websocket.Limit.RateLimitRps      → gows.WithRateLimit(rps, burst)   全局升级速率（每秒请求数）
+	//   .Websocket.Limit.RateLimitBurst    → gows.WithRateLimit(rps, burst)   限流突发量
+	//   .Websocket.Limit.MaxConnPerIP      → gows.WithMaxConnPerIP()          单 IP 最大连接数
+	//   .Websocket.Limit.ReadLimit         → gows.WithReadLimit()             单条消息读取大小限制（字节）
+	//   .Websocket.Limit.WriteLimit        → gows.WithWriteLimit()            单条消息写入大小限制（字节）
+	//
+	// 【超时控制】
+	//   .Websocket.Timeout.ReadTimeout       → gows.WithReadTimeout()           读取超时（秒），0=不限制
+	//   .Websocket.Timeout.WriteTimeout      → gows.WithWriteTimeout()          写入超时（秒），0=默认10s
+	//
+	// 【心跳保活】
+	//   .Websocket.Heartbeat.HeartbeatInterval → gows.WithHeartbeatInterval()     心跳间隔（秒）
+	//   .Websocket.Heartbeat.PongTimeout       → gows.WithPongTimeout()           Pong 响应超时（秒）
+	//   .Websocket.Heartbeat.PingWriteWait     → gows.WithPingWriteWait()         Ping 控制帧写入超时（秒）
+	//
+	// 【客户端队列】
+	//   .Websocket.Queue.WriteQueueSize    → gows.WithQueueSize(write, read)  写入队列容量
+	//   .Websocket.Queue.ReadQueueSize     → gows.WithQueueSize(write, read)  读取队列容量
 	upgradeOpts := []gows.UpgradeOption{
+		// CORS: cors=false 拒绝所有来源；cors=true 时检查 allowedOrigins 白名单
+		//   allowedOrigins 为空列表时允许所有来源（向后兼容）
 		gows.WithCheckOrigin(func(r *http.Request) bool {
-			return config.Get().Websocket.Cors // 生产环境请根据实际域名限制 CORS
+			if !config.Get().Websocket.Cors.Cors {
+				return false
+			}
+			origins := config.Get().Websocket.Cors.AllowedOrigins
+			if len(origins) == 0 {
+				return true
+			}
+			origin := r.Header.Get("Origin")
+			for _, allowed := range origins {
+				if allowed == origin || allowed == "*" {
+					return true
+				}
+			}
+			return false
 		}),
-		gows.WithHeartbeatOptions(
-			gows.WithHeartbeatInterval(time.Duration(config.Get().Websocket.HeartbeatInterval)*time.Second),
-		),
+		// 心跳保活：从配置读取间隔、Pong 超时、Ping 写入超时（秒），0=使用默认值
+		// enableHeartbeat=true 时添加 WithHeartbeatOptions，否则不启用心跳
+		// 用户标识：从 JWT 解析的 uid 传入 Client，用于链路追踪
 		gows.WithClientUID(uid),
-		gows.WithBufferSize(config.Get().Websocket.ReadBufferSize, config.Get().Websocket.WriteBufferSize),
-		gows.WithRateLimit(config.Get().Websocket.RateLimitRps, config.Get().Websocket.RateLimitBurst),
-		gows.WithMaxConnPerIP(config.Get().Websocket.MaxConnPerIP),
-		gows.WithReadTimeout(time.Duration(config.Get().Websocket.ReadTimeout)*time.Second), // 连接读超时（从配置读取，0=不限制）
+		// 读写缓冲区大小（字节），0=使用 gorilla/websocket 默认值 4096
+		gows.WithBufferSize(config.Get().Websocket.Cors.ReadBufferSize, config.Get().Websocket.Cors.WriteBufferSize),
+		// 单 IP 连接数上限，0=不限制
+		gows.WithMaxConnPerIP(config.Get().Websocket.Limit.MaxConnPerIP),
+		// 读取超时：readLoop 在超时后返回错误，0=不限制（由心跳间接管理）
+		gows.WithReadTimeout(time.Duration(config.Get().Websocket.Timeout.ReadTimeout) * time.Second),
+		// 写入超时：writeWithRetry 在超时后重试，0=默认 10s
+		gows.WithWriteTimeout(time.Duration(config.Get().Websocket.Timeout.WriteTimeout) * time.Second),
+		// 单条消息读取大小限制（字节），0=不限制
+		gows.WithReadLimit(int64(config.Get().Websocket.Limit.ReadLimit)),
+		// 单条消息写入大小限制（字节），0=不限制
+		gows.WithWriteLimit(int64(config.Get().Websocket.Limit.WriteLimit)),
+		// WebSocket 压缩开关：true=启用（默认），false=禁用
+		gows.WithEnableCompression(config.Get().Websocket.Cors.EnableCompression),
+		// 子协议列表：从逗号分隔字符串解析，空字符串表示不协商
+		gows.WithSubprotocols(strings.Split(config.Get().Websocket.Cors.Subprotocols, ",")...),
+		// 客户端读写队列容量（0=默认 64），控制背压行为
+		gows.WithQueueSize(config.Get().Websocket.Queue.WriteQueueSize, config.Get().Websocket.Queue.ReadQueueSize),
 	}
-	if config.Get().Websocket.EnableDistributed {
-		upgradeOpts = append(upgradeOpts, gows.WithDispatcher(gows.DefaultDispatcher))
+	// 条件启用心跳（根据 enableHeartbeat 配置）
+	if config.Get().Websocket.Heartbeat.EnableHeartbeat {
+		upgradeOpts = append(upgradeOpts, gows.WithHeartbeatOptions(
+			gows.WithHeartbeatInterval(time.Duration(config.Get().Websocket.Heartbeat.HeartbeatInterval)*time.Second),
+			gows.WithPongTimeout(time.Duration(config.Get().Websocket.Heartbeat.PongTimeout)*time.Second),
+			gows.WithPingWriteWait(time.Duration(config.Get().Websocket.Heartbeat.PingWriteWait)*time.Second),
+		))
+	}
+	// 条件启用全局限流（根据 enableRateLimit 配置）
+	if config.Get().Websocket.Limit.EnableRateLimit {
+		upgradeOpts = append(upgradeOpts,
+			gows.WithRateLimit(config.Get().Websocket.Limit.RateLimitRps, config.Get().Websocket.Limit.RateLimitBurst),
+		)
+	}
+	if config.Get().Websocket.Distributed.EnableDistributed {
+		upgradeOpts = append(upgradeOpts, gows.WithEnableDistributed(true), gows.WithDispatcher(gows.DefaultDispatcher))
 	}
 	client, err := gows.Upgrade(c, upgradeOpts...)
 	if err != nil {

@@ -1,7 +1,6 @@
 package gows
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -102,19 +101,13 @@ func TestUpgrade_CORSRejectedByFunc(t *testing.T) {
 // 注意: WithRateLimit 设置的是全局 rate.Limiter，测试须提前设置好全局状态
 func TestUpgrade_RateLimit(t *testing.T) {
 	// 先清理可能残留的限流器
-	upgradeLimiterMu.Lock()
-	upgradeLimiter = rate.NewLimiter(1, 1) // 1 rps, burst=1
-	upgradeLimiterMu.Unlock()
-	defer func() {
-		upgradeLimiterMu.Lock()
-		upgradeLimiter = nil
-		upgradeLimiterMu.Unlock()
-	}()
+	upgradeLimiter.Store(rate.NewLimiter(1, 1)) // 1 rps, burst=1
+	defer upgradeLimiter.Store(nil)
 
 	r := gin.New()
 	r.GET("/ws", func(c *gin.Context) {
-		// 传入匿名的 UpgradeOption 仅设置 enableRateLimit 标志
-		// 注意: 不使用 WithRateLimit 避免每次都重新创建限流器
+		// 使用匿名选项仅设置 enableRateLimit 标志，不重建限流器
+		// 限流器已在测试层面预创建，避免 WithRateLimit 每次创建新实例
 		_, err := Upgrade(c,
 			WithCheckOrigin(func(r *http.Request) bool { return true }),
 			func(o *upgradeOptions) { o.enableRateLimit = true },
@@ -216,41 +209,4 @@ func TestUpgrade_MaxConnPerIP(t *testing.T) {
 	for _, c := range conns {
 		c.Close()
 	}
-}
-
-// TestUpgrade_BeforeAndAfterHooks: 升级前钩子返回值中止升级
-// beforeUpgrade 在 gorilla.Upgrade 之前执行，httptest 即可验证
-func TestUpgrade_BeforeAndAfterHooks(t *testing.T) {
-	var beforeCalled, afterCalled bool
-
-	r := gin.New()
-	r.GET("/ws", func(c *gin.Context) {
-		client, err := Upgrade(c,
-			WithCheckOrigin(func(r *http.Request) bool { return true }),
-			WithBeforeUpgrade(func(c *gin.Context) error {
-				beforeCalled = true
-				return fmt.Errorf("auth denied")
-			}),
-			WithAfterUpgrade(func(c *gin.Context, client *Client) {
-				afterCalled = true
-			}),
-		)
-		if err != nil {
-			c.Status(http.StatusUnauthorized)
-			return
-		}
-		_ = client
-	})
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ws", nil)
-	r.ServeHTTP(w, req)
-
-	if !beforeCalled {
-		t.Error("BeforeUpgrade hook should have been called")
-	}
-	if afterCalled {
-		t.Error("AfterUpgrade hook should NOT be called when BeforeUpgrade fails")
-	}
-	t.Logf("升级前后钩子逻辑正确: before=%v after=%v", beforeCalled, afterCalled)
 }

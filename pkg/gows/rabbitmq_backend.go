@@ -70,13 +70,13 @@ type RabbitMQBackend struct {
 	closeNoWait bool                 // 关闭时不等待消费者（用于测试快速退出）
 
 	// Producer 缓存池（避免高频场景创建/销毁 Channel）
-	producerPoolSize int                  // 池大小
+	producerPoolSize int                       // 池大小
 	producerPool     chan *gorabbitmq.Producer // Producer 缓存通道
-	poolOnce         sync.Once            // 确保池只初始化一次
+	poolOnce         sync.Once                 // 确保池只初始化一次
 
 	// 关闭状态机
-	closed    bool         // 是否已关闭
-	closeOnce sync.Once    // 确保 Close 只执行一次完整流程
+	closed    bool      // 是否已关闭
+	closeOnce sync.Once // 确保 Close 只执行一次完整流程
 }
 
 // NewRabbitMQBackend 创建基于 RabbitMQ Fanout 的分布式后端（通过 URL 创建连接）。
@@ -198,7 +198,11 @@ func (b *RabbitMQBackend) putProducer(p *gorabbitmq.Producer) {
 	select {
 	case b.producerPool <- p:
 	default:
-		p.Close()
+		if err := p.Close(); err != nil {
+			logger.WarnWithCtx(context.Background(), "rabbitmq put producer close failed",
+				logger.Err(err),
+			)
+		}
 	}
 }
 
@@ -231,7 +235,11 @@ func (b *RabbitMQBackend) Publish(ctx context.Context, msg *PubSubMessage) error
 
 	if err := producer.PublishFanout(ctx, data, ""); err != nil {
 		// 发送失败时关闭此 Producer（可能 channel 已损坏），下次创建新的
-		producer.Close()
+		if closeErr := producer.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "rabbitmq close failed producer on publish error",
+				logger.Err(closeErr),
+			)
+		}
 		return fmt.Errorf("rabbitmq publish: %w", err)
 	}
 
@@ -295,7 +303,7 @@ func (b *RabbitMQBackend) Receive(ctx context.Context) (<-chan *PubSubMessage, e
 	b.consumerWg.Add(1)
 	go func() {
 		defer b.consumerWg.Done()
-		consumer.Consume(ctx, func(cctx context.Context, data []byte, messageID, tagID string) error {
+		consumer.Consume(ctx, func(_ context.Context, data []byte, _ string, _ string) error {
 			b.handleMessage(data)
 			return nil
 		})
@@ -372,7 +380,11 @@ func (b *RabbitMQBackend) Close() error {
 		if pool != nil {
 			close(pool)
 			for p := range pool {
-				p.Close()
+				if err := p.Close(); err != nil {
+					logger.WarnWithCtx(context.Background(), "rabbitmq close producer pool item failed",
+						logger.Err(err),
+					)
+				}
 			}
 		}
 

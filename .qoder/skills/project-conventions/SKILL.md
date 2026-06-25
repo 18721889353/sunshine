@@ -157,7 +157,80 @@ if len(x) > 0 {
 return fn(a, b)
 ```
 
-## 九、OpenTelemetry span 操作规范
+## 九、revive context-as-argument — context.Context 必须是第一参数
+
+`context.Context` 必须是函数的第一个参数，这是 Go 社区惯例。放在后面不会触发编译器错误，但 `revive` 会报错：
+
+```go
+// ❌ 错误：ctx 不是第一参数
+func upgradeCORSCheck(o *upgradeOptions, c *gin.Context, span trace.Span, ctx context.Context) error {}
+
+// ✅ 正确：ctx 是第一参数
+func upgradeCORSCheck(ctx context.Context, o *upgradeOptions, c *gin.Context, span trace.Span) error {}
+```
+
+## 十、gocognit — 认知复杂度超限
+
+`.golangci.yml` 配置 `gocognit` 阈值 40。超过此值说明函数包含过多嵌套（if/for/switch 嵌套层次深）或过多布尔运算符。
+
+### 解决办法：提取子函数 + 条件前置
+
+把函数中独立的功能块提取为命名函数，并在调用处用`if o.field`模式前置条件判断，可有效降低主函数的认知复杂度：
+
+```go
+// ❌ 错误：函数认知复杂度 47，超过 40
+func Upgrade(...) (*Client, error) {
+    // 30 行 CORS 检查内联
+    // 15 行限流检查内联
+    // 25 行 IP 检查内联
+    // 40 行配置传播（6 个 if 块）
+    // 50 行分发注册+清理钩子
+}
+
+// ✅ 正确：提取子函数 + 条件前置后复杂度降至 < 40
+func Upgrade(...) (*Client, error) {
+    // CORS 简化内联（无需再提取）
+    if !o.checkOriginSet { ... return }
+    if !o.checkOrigin(c.Request) { ... return }
+
+    if o.enableRateLimit {                          // 条件前置
+        if limiter := upgradeLimiter.Load(); limiter != nil {
+            if !limiter.Allow() { return nil, err }  // 限流逻辑简单，保持内联
+        }
+    }
+    if o.maxConnPerIP > 0 {                         // 条件前置
+        if err := upgradePerIPCheck(clientIP, o.maxConnPerIP, span); err != nil { return nil, err }
+    }
+    client := NewClient(ctx, rawConn, o.clientUID, buildClientOpts(o)...)
+    if o.enableDistributed && o.dispatcher != nil { // 条件前置
+        if err := upgradeRegisterDispatcher(ctx, client, o, c); err != nil { return nil, err }
+    }
+}
+```
+
+### 提取收益参考表
+
+| 提取前 | 提取后 | 复杂度降幅 |
+|--------|--------|----------|
+| CORS 检查 30 行内联 | 简化内联 6 行（无需提取） | ~2 点 |
+| 限流检查 ~10 行内联 | 保持内联（逻辑简单，无需提取） | ~0 点 |
+| IP 检查 25 行内联 | `upgradePerIPCheck` 函数调用 | ~4 点 |
+| 6 个 Option 传播 + 字段赋值 | `buildClientOpts` + ClientOption 传入 | ~6 点 |
+| 分发注册+清理钩子 50 行 | `upgradeRegisterDispatcher` 函数调用 | ~6 点 |
+
+提取 2~3 个子函数通常可将复杂度从 47 降至 < 40。
+
+### 条件前置原则
+
+调用处用`if o.field`模式判断是否执行该子函数，**不在被调函数内部做冗余判断**。子函数假设"调用者已经保证需要执行我"，内部不做`if !o.enableXxx { return nil }`类的提前返回。
+
+Benefits:
+- 调用处清晰展示配置生效条件，一目了然
+- 子函数职责单一，不隐含"可能跳过"的逻辑分支
+- 条件变化时只改主函数调用处，不影响子函数
+- 避免内外两层 guard 的冗余嵌套
+
+## 十一、OpenTelemetry span 操作规范
 
 `span.SetAttributes` 是直接调用，`_ = span.SetAttributes(...)` 会被 `check-blank` 标记：
 
@@ -169,28 +242,52 @@ _ = span.SetAttributes(attribute.String("k", "v"))
 span.SetAttributes(attribute.String("k", "v"))
 ```
 
-## 十、经验教训总结
+## 十二、经验教训总结
 
-### 10.1 `SetupPongHandler` 中 SetReadDeadline 错误处理
+### 12.1 close hook 闭包避免递归
 
-`SetupPongHandler` 中如果 `SetReadDeadline` 失败，说明连接已关闭，应及早返回：
+`SetCloseHook` 的闭包中如果运行时读取 `c.onClose` 字段，会读到闭包自身（`SetCloseHook` 设置的新值），形成无限递归导致栈溢出：
 
 ```go
-func SetupPongHandler(conn *websocket.Conn, interval, pongTimeout time.Duration) {
-    readDeadline := interval + 2*pongTimeout
-    if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
-        return // 连接已关闭，无需继续
+// ❌ 错误：运行时读取 c.onClose，返回的是刚设置的新钩子自身
+client.SetCloseHook(func() {
+    if prevHook := client.onClose; prevHook != nil {  // → 闭包自身
+        prevHook()  // 递归调用！
     }
-    conn.SetPongHandler(func(string) error {
-        if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
-            return nil // 连接可能已关闭，忽略
-        }
-        return nil
-    })
-}
+})
+
+// ✅ 正确：在 SetCloseHook 调用前保存旧钩子
+prevHook := client.onClose
+client.SetCloseHook(func() {
+    if prevHook != nil {  // 指向旧钩子，安全
+        prevHook()
+    }
+})
 ```
 
-### 10.2 日志上下文传递
+**规则**：闭包需要引用对象的前值（如钩子链、计数器）时，必须在 `SetXxx`/`Register` 之前保存到局部变量，闭包中使用局部变量而非运行时读取实例字段。
+
+### 12.2 gocognit 超限的修复模式
+
+当 `gocognit` 报认知复杂度超限时，不要尝试在函数内部简化（inline if 改 switch 等小技巧效果有限），最佳方案是提取子函数：
+
+1. 找到函数中逻辑独立的代码块（配置传播、安全检查、资源注册等）
+2. 每个块提取为一个命名函数，参数显式传递依赖
+3. 主函数变为子函数调用的线性序列
+4. 每个提取操作通常降低 2~6 点认知复杂度
+
+```go
+// 提取前：6 个属性传播的 if 块散落在主函数中
+if o.readTimeout > 0 { client.readTimeout = o.readTimeout }
+if o.writeTimeout > 0 { client.writeTimeout = o.writeTimeout }
+if o.readLimit > 0 { client.readLimit = o.readLimit }
+// ...
+
+// 提取后：一行调用，降低 ~6 点
+buildClientOpts(o)  // buildClientOpts 在 NewClient 参数中调用
+```
+
+### 12.3 日志上下文传递
 
 `logger.Info(...)` 和 `logger.Warn(...)` 不带 context，无法输出 request_id。必须用带 `Ctx` 的版本：
 
@@ -202,32 +299,115 @@ logger.Warn("write failed", logger.Err(err))
 logger.WarnWithCtx(ctx, "write failed", logger.Err(err))
 ```
 
-### 10.3 广播类函数中 WriteJSON 错误
+### 12.4 批量操作中单点失败不中断整体
 
-批量发送场景（Broadcast/SendToUID）中，单个客户端写入失败不应中断其他客户端：
+批量处理场景（遍历列表、广播消息等）中，单个元素的处理失败不应中断其他元素：
 
 ```go
-// ✅ 错误只记录日志，继续处理其他客户端
-if err := client.WriteJSON(v); err != nil {
-    logger.WarnWithCtx(ctx, "write to client failed",
-        logger.String("uid", client.uid),
-        logger.Err(err),
-    )
+// ✅ 错误只记录日志，继续处理剩余元素
+for _, item := range items {
+    if err := process(item); err != nil {
+        logger.WarnWithCtx(ctx, "process item failed",
+            logger.String("item", item.ID()),
+            logger.Err(err),
+        )
+        continue // 继续处理下一个
+    }
 }
 ```
 
-### 10.4 升级失败时清理资源
+### 12.5 条件判断前置到调用处
 
-WebSocket 升级失败（如 Dispatcher 注册满）时，需关闭连接并记录日志：
+代码中涉及配置项的条件判断，统一采用`if o.field > 0` / `if o.field`模式在**调用处**判断是否执行，不在被调函数内部做冗余判断。
 
 ```go
-if err := o.dispatcher.Register(client); err != nil {
+// ❌ 错误：被调函数内部做 guard clause
+func upgradePerIPCheck(o *upgradeOptions, clientIP string, span trace.Span) error {
+    if o.maxConnPerIP <= 0 {
+        return nil  // 调用处已确保不会进入此函数，此处多余
+    }
+    // ... 实际检查逻辑
+}
+
+// ✅ 正确：调用处判断，被调函数只管执行
+if o.maxConnPerIP > 0 {
+    if err := upgradePerIPCheck(clientIP, o.maxConnPerIP, span); err != nil {
+        return nil, err
+    }
+}
+func upgradePerIPCheck(clientIP string, maxConnPerIP int32, span trace.Span) error {
+    // 调用者已保证 maxConnPerIP > 0，直接检查
+    // ...
+}
+```
+
+收益：
+1. **调用处即文档** — 扫一眼主函数就看清所有前置条件，无需翻看子函数实现
+2. **子函数纯净** — 不隐含"可能跳过"的逻辑分支，职责单一
+3. **条件变化影响最小** — 只改主函数调用处，所有子函数免修改
+4. **避免重复 guard** — 调用处和被调函数不会出现两层嵌套判断
+
+### 12.6 初始化/注册失败时清理已分配资源
+
+创建资源后如果后续步骤失败，必须先清理已分配的资源再返回错误：
+
+```go
+client := createClient()
+if err := register(client); err != nil {
     if closeErr := client.Close(); closeErr != nil {
-        logger.WarnWithCtx(c.Request.Context(), "close after register failed",
+        logger.WarnWithCtx(ctx, "close after register failed",
             logger.Err(closeErr),
         )
     }
-    span.SetStatus(codes.Error, err.Error())
     return nil, fmt.Errorf("register: %w", err)
 }
 ```
+
+### 12.7 全局变量优先用 atomic.Pointer
+
+全局单例指针（如限流器）优先使用 `atomic.Pointer[T]`，而非 `*T + sync.Mutex`：
+
+```go
+// ❌ 错误：mutex 保护读写，需要临时变量
+var (
+    limiter   *rate.Limiter
+    limiterMu sync.Mutex
+)
+
+func Upgrade() {
+    limiterMu.Lock()
+    l := limiter
+    limiterMu.Unlock()
+    if l != nil && !l.Allow() { ... }
+}
+
+// ✅ 正确：atomic.Pointer，无需锁和局部变量
+var limiter atomic.Pointer[rate.Limiter]
+
+func WithRateLimit(rps, burst int) {
+    limiter.Store(rate.NewLimiter(...))
+}
+
+func Upgrade() {
+    if l := limiter.Load(); l != nil {
+        if !l.Allow() { ... }
+    }
+}
+```
+
+### 12.8 纯字符串错误用 fmt.Errorf，不定义自定义类型
+
+如果错误类型从未被 `errors.Is`/`errors.As` 判断过，只是作为字符串返回给调用方，直接用 `fmt.Errorf`：
+
+```go
+// ❌ 错误：自定义类型 + Error() 方法，从未被判断过
+type ErrUpgradeRateLimited struct { limit rate.Limit }
+func (e *ErrUpgradeRateLimited) Error() string {
+    return fmt.Sprintf("rate limited: %.2f rps", e.limit)
+}
+
+// ✅ 正确：直接 fmt.Errorf
+return fmt.Errorf("ws upgrade rate limited: %.2f rps", limiter.Limit())
+```
+
+判断标准：全局搜索 `errors.Is` / `errors.As` + 类型名，没有任何使用即可删除。

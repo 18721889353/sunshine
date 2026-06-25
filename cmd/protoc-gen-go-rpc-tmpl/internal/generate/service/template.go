@@ -242,9 +242,9 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	}
 	//
 	//
-	//	// ========== 进入 WebSocket 读写循环（阻塞） ==========
+	//	// ========== 进入 WebSocket 读写循环（阻塞，使用 Ctx 变体进行链路追踪） ==========
 	//	for {
-	//	    _, message, readErr := client.ReadMessage()
+	//	    message, readErr := client.ReadMessageCtx(ctx)
 	//	    if readErr != nil {
 	//	        logger.WarnWithCtx(ctx, "ws read message error", logger.Err(readErr))
 	//	        break
@@ -254,16 +254,16 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	    // 解析消息
 	//		msg := &{{.RequestImportPkgName}}.HelloRequest{}
 	//	    if err := json.Unmarshal(message, &msg); err != nil {
-	//	        _ = client.WriteJSON(gows.Message{Type: "error", Msg: "invalid message format"})
+	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: "invalid message format"})
 	//	        continue
 	//	    }
 	//
 	//	    // 按 type 分发处理
 	//	    switch msg.Type {
 	//	    case "ping":
-	//	        _ = client.WriteJSON(gows.Message{Type: "pong"})
+	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "pong"})
 	//		case "say_hello":
-	//		_ = client.WriteJSON(gows.Message{
+	//		_ = client.WriteJSONCtx(ctx, gows.Message{
 	//			Type: "reply",
 	//			Msg:  "Hello, " + msg.Name,
 	//		})
@@ -271,10 +271,10 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	        // 调用 DAO 或 RPC 方法处理业务
 	//	        // reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{...})
 	//	        // if err != nil {
-	//	        //     _ = client.WriteJSON(gows.Message{Type: "error", Msg: err.Error()})
+	//	        //     _ = client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: err.Error()})
 	//	        //     continue
 	//	        // }
-	//	        _ = client.WriteJSON(gows.Message{Type: "reply", Data: msg.Name})
+	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "reply", Data: msg.Name})
 	//	    }
 	//	}
 	//	return nil, errcode.SkipResponse

@@ -1,3 +1,4 @@
+// Package gows 提供 WebSocket 服务端封装，包含连接管理、消息读写、心跳保活和全局分发。
 package gows
 
 import (
@@ -57,13 +58,11 @@ func extractUID(claims *jwt.Claims) string {
 //   - token 格式正确但缺少 uid 字段返回 ErrTokenInvalid
 //   - 自动去除 "Bearer " 前缀，兼容 Authorization header 传入的 token
 func ParseTokenCtx(ctx context.Context, tokenString string) (string, error) {
-	// 链路追踪
 	tracer := otel.Tracer("gows")
 	_, span := tracer.Start(ctx, "ws.parse_token", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(requestIDAttr(ctx))
 
-	// 兼容 Authorization header 传入的 "Bearer " 前缀格式
 	if len(tokenString) > 7 && tokenString[:7] == "Bearer " {
 		tokenString = tokenString[7:]
 	}
