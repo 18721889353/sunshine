@@ -82,7 +82,12 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 		if prevCloseHook != nil {
 			prevCloseHook()
 		}
-		o.dispatcher.Unregister(client)
+		if err := o.dispatcher.UnregisterCtx(client.ctx, client); err != nil {
+			logger.WarnWithCtx(client.ctx, "ws dispatcher unregister failed",
+				logger.String("uid", client.uid),
+				logger.Err(err),
+			)
+		}
 	})
 	return nil
 }

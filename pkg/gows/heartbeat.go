@@ -92,7 +92,13 @@ func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 			logger.String("remote_addr", client.remoteAddr),
 			logger.Err(err),
 		)
-		client.forceCloseConn()
+		if closeErr := client.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "ws close failed after initial ping failure",
+				logger.String("uid", client.uid),
+				logger.String("remote_addr", client.remoteAddr),
+				logger.Err(closeErr),
+			)
+		}
 		return
 	}
 
@@ -113,7 +119,13 @@ func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 					logger.String("remote_addr", client.remoteAddr),
 					logger.Err(err),
 				)
-				client.forceCloseConn()
+				if closeErr := client.Close(); closeErr != nil {
+					logger.WarnWithCtx(ctx, "ws close failed after ping failure",
+						logger.String("uid", client.uid),
+						logger.String("remote_addr", client.remoteAddr),
+						logger.Err(closeErr),
+					)
+				}
 				return
 			}
 
