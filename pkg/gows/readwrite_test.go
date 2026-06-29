@@ -1,6 +1,7 @@
 package gows
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -16,8 +17,8 @@ func TestWriteJSON_Success(t *testing.T) {
 	defer client.Close()
 
 	msg := Message{Type: "greeting", Msg: "hello"}
-	if err := client.WriteJSON(msg); err != nil {
-		t.Fatalf("WriteJSON: %v", err)
+	if err := client.WriteJSONCtx(context.Background(), msg); err != nil {
+		t.Fatalf("WriteJSONCtx: %v", err)
 	}
 
 	_, data, err := testConn.ReadMessage()
@@ -33,7 +34,7 @@ func TestWriteJSON_AfterClose(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	client.Close()
 
-	if err := client.WriteJSON(Message{Type: "ping"}); err != websocket.ErrCloseSent {
+	if err := client.WriteJSONCtx(context.Background(), Message{Type: "ping"}); err != websocket.ErrCloseSent {
 		t.Errorf("after close: got %v, want ErrCloseSent", err)
 	}
 }
@@ -45,7 +46,7 @@ func TestWriteJSON_QueueFull(t *testing.T) {
 
 	// 填充队列: 因为 writeLoop 协程会消费队列，所以需要在短时间内高速写入
 	for i := 0; i < 100; i++ {
-		err := client.WriteJSON(Message{Type: "ping", Data: i})
+		err := client.WriteJSONCtx(context.Background(), Message{Type: "ping", Data: i})
 		if err == ErrWriteQueueFull {
 			return // 期望的队列满错误
 		}
@@ -67,9 +68,9 @@ func TestReadMessage_Count(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		_ = testConn.WriteMessage(websocket.TextMessage, []byte("msg"))
-		_, err := client.ReadMessage()
+		_, err := client.ReadMessageCtx(context.Background())
 		if err != nil {
-			t.Fatalf("ReadMessage: %v", err)
+			t.Fatalf("ReadMessageCtx: %v", err)
 		}
 	}
 
@@ -93,6 +94,6 @@ func BenchmarkWriteJSON(b *testing.B) {
 	msg := Message{Type: "bench", Msg: "hello"}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = client.WriteJSON(msg)
+		_ = client.WriteJSONCtx(context.Background(), msg)
 	}
 }

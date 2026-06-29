@@ -1,6 +1,7 @@
 package gows
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,7 +35,7 @@ func TestNewClient(t *testing.T) {
 	}
 
 	_ = testConn.WriteMessage(websocket.TextMessage, []byte("hello"))
-	data, err := client.ReadMessage()
+	data, err := client.ReadMessageCtx(context.Background())
 	if err != nil {
 		t.Fatalf("ReadMessage: %v", err)
 	}

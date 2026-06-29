@@ -3,6 +3,7 @@ package gows
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -23,6 +24,15 @@ const (
 	writeLoopRetries = 3                // 写入失败最大重试次数
 	writeDeadline    = 10 * time.Second // 默认单次写入超时时间
 )
+
+// ErrWriteQueueFull 写入队列已满，消息被丢弃的错误标识。
+// 当客户端写入缓冲区满载时 WriteJSON 返回此错误，
+// 发送方可根据此错误判断是否为短暂拥塞，决定是否降级处理。
+var ErrWriteQueueFull = errors.New("write queue is full, message dropped")
+
+// ErrWriteLimitExceeded 单条消息大小超过写入限制的错误标识。
+// 当消息超过 WithWriteLimit 设置的字节数时 WriteJSON/WriteRaw 返回此错误。
+var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 
 // readLoop 内部读取循环 goroutine。
 // 持续从底层连接读取 WebSocket 消息并推入 readCh 供 ReadMessage 消费。
@@ -151,7 +161,7 @@ func (c *Client) checkWriteLimit(data []byte) error {
 	return nil
 }
 
-// WriteJSONCtx 异步非阻塞地向客户端发送 JSON 消息（带自定义上下文）。
+// WriteJSONCtx 异步非阻塞地向客户端发送 JSON 消息。
 // 参数:
 //   - ctx: 上下文，用于链路追踪。传入 nil 或非 tracing context 不影响功能。
 //   - v:   待发送的数据，会被序列化为 JSON 格式
@@ -198,13 +208,7 @@ func (c *Client) WriteJSONCtx(ctx context.Context, v any) error {
 	}
 }
 
-// WriteJSON 异步非阻塞地向客户端发送 JSON 消息，使用客户端默认上下文。
-// 如需自定义 tracing 上下文，请使用 WriteJSONCtx。
-func (c *Client) WriteJSON(v any) error {
-	return c.WriteJSONCtx(c.ctx, v)
-}
-
-// WriteRawCtx 直接写入预序列化的原始字节数据，跳过 JSON 序列化步骤（带自定义上下文）。
+// WriteRawCtx 直接写入预序列化的原始字节数据，跳过 JSON 序列化步骤。
 // 参数:
 //   - ctx:  上下文，用于链路追踪
 //   - data: 已序列化的 JSON 字节数据
@@ -248,13 +252,7 @@ func (c *Client) WriteRawCtx(ctx context.Context, data []byte) error {
 	}
 }
 
-// WriteRaw 直接写入预序列化的原始字节数据，使用客户端默认上下文。
-// 如需自定义 tracing 上下文，请使用 WriteRawCtx。
-func (c *Client) WriteRaw(data []byte) error {
-	return c.WriteRawCtx(c.ctx, data)
-}
-
-// ReadMessageCtx 同步阻塞读取客户端发送的一条消息（带自定义上下文）。
+// ReadMessageCtx 同步阻塞读取客户端发送的一条消息。
 // 参数:
 //   - ctx: 上下文，用于链路追踪
 //
@@ -289,10 +287,4 @@ func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 		span.SetStatus(codes.Error, "connection closed")
 		return nil, websocket.ErrCloseSent
 	}
-}
-
-// ReadMessage 同步阻塞读取客户端发送的一条消息，使用客户端默认上下文。
-// 如需自定义 tracing 上下文，请使用 ReadMessageCtx。
-func (c *Client) ReadMessage() ([]byte, error) {
-	return c.ReadMessageCtx(c.ctx)
 }

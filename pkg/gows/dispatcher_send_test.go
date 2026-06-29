@@ -112,7 +112,7 @@ func TestDemo_SendDifferentMessages(t *testing.T) {
 	// 根据 UID 给不同用户发送不同的成绩消息
 	d.Range(func(c *Client) bool {
 		if score, ok := scores[c.UID()]; ok {
-			c.WriteJSON(Message{
+			c.WriteJSONCtx(context.Background(), Message{
 				Type: "score_report",
 				Data: map[string]any{"uid": c.UID(), "score": score},
 			})
@@ -174,7 +174,7 @@ func TestDemo_SameUIDMultiDevice(t *testing.T) {
 		return true
 	})
 	if specificDevice != nil {
-		specificDevice.WriteJSON(Message{Type: "private", Msg: "仅此设备可见"})
+		specificDevice.WriteJSONCtx(context.Background(), Message{Type: "private", Msg: "仅此设备可见"})
 		time.Sleep(50 * time.Millisecond)
 		s := specificDevice.Stats()
 		t.Logf("✅ 指定设备单独发送完毕 (sent=%d)", s.NumSent)

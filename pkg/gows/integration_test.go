@@ -42,7 +42,7 @@ func TestIntegration_WebSocketFullLifecycle(t *testing.T) {
 
 		// 持续读取直至关闭
 		for {
-			_, err := client.ReadMessage()
+			_, err := client.ReadMessageCtx(context.Background())
 			if err != nil {
 				return
 			}

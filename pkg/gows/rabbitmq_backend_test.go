@@ -28,7 +28,7 @@ func TestRabbitMQBackend_New(t *testing.T) {
 	if b.exchange != "ws:test" {
 		t.Errorf("exchange = %q, want %q", b.exchange, "ws:test")
 	}
-	if b.conn != nil {
+	if b.conn.Load() != nil {
 		t.Error("conn should be nil before Start")
 	}
 	t.Log("✅ NewRabbitMQBackend 创建成功")
@@ -39,7 +39,7 @@ func TestRabbitMQBackend_NewFromConn(t *testing.T) {
 	if b == nil {
 		t.Fatal("NewRabbitMQBackendFromConn returned nil")
 	}
-	if b.conn != nil {
+	if b.conn.Load() != nil {
 		t.Error("conn should be nil since we passed nil")
 	}
 	if b.exchange != "ws:test" {

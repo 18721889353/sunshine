@@ -14,7 +14,7 @@ import (
 )
 
 // Message 定义在 message.go
-// ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 errors.go
+// ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 readwrite.go
 // ClientOption / clientOptions / With* / withClient* 定义在 client_options.go
 // healthState / IsAlive / ClientStats / Stats 定义在 health.go
 // readLoop / writeLoop / writeWithRetry / WriteJSON* / WriteRaw* / ReadMessage* 定义在 readwrite.go

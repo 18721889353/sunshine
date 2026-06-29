@@ -18,15 +18,15 @@ func TestClientStats(t *testing.T) {
 	defer client.Close()
 
 	// 发送几条消息
-	_ = client.WriteJSON(Message{Type: "ping"})
-	_ = client.WriteJSON(Message{Type: "pong"})
+	_ = client.WriteJSONCtx(context.Background(), Message{Type: "ping"})
+	_ = client.WriteJSONCtx(context.Background(), Message{Type: "pong"})
 
 	// 等 writeLoop 消费完
 	time.Sleep(50 * time.Millisecond)
 
 	// 读取几条消息
 	_ = testConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"hello"}`))
-	_, _ = client.ReadMessage()
+	_, _ = client.ReadMessageCtx(context.Background())
 
 	stats := client.Stats()
 	if stats.UID != "test-uid" {
@@ -83,7 +83,7 @@ func TestClient_Stats_NewFields(t *testing.T) {
 	defer client.Close()
 
 	// 执行一次写入，等待 writeLoop 异步消费后触发时间记录
-	_ = client.WriteJSON(Message{Type: "ping"})
+	_ = client.WriteJSONCtx(context.Background(), Message{Type: "ping"})
 	time.Sleep(50 * time.Millisecond)
 
 	stats := client.Stats()
@@ -123,12 +123,12 @@ func TestDemo_ClientStats(t *testing.T) {
 	defer c.Close()
 
 	// 发送消息
-	_ = c.WriteJSON(Message{Type: "ping"})
-	_ = c.WriteJSON(Message{Type: "pong"})
+	_ = c.WriteJSONCtx(context.Background(), Message{Type: "ping"})
+	_ = c.WriteJSONCtx(context.Background(), Message{Type: "pong"})
 
 	// 接收消息
 	_ = testConn.WriteMessage(websocket.TextMessage, []byte(`{"type":"hello"}`))
-	_, _ = c.ReadMessage()
+	_, _ = c.ReadMessageCtx(context.Background())
 
 	time.Sleep(50 * time.Millisecond)
 

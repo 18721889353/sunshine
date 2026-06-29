@@ -160,7 +160,7 @@ func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.
 			deadClients = append(deadClients, client)
 			continue
 		}
-		if err := client.WriteRaw(payload); err != nil {
+		if err := client.WriteRawCtx(client.ctx, payload); err != nil {
 			logger.WarnWithCtx(client.ctx, "ws distributed broadcast write failed",
 				logger.String("uid", client.uid),
 				logger.Err(err),
@@ -212,7 +212,7 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 			continue
 		}
 		if _, ok := uidSet[client.uid]; ok {
-			if err := client.WriteRaw(payload); err != nil {
+			if err := client.WriteRawCtx(client.ctx, payload); err != nil {
 				logger.WarnWithCtx(client.ctx, "ws distributed send_to_uid write failed",
 					logger.String("uid", client.uid),
 					logger.Err(err),
