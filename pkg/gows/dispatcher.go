@@ -40,14 +40,14 @@ import (
 type DistributedDispatcher struct {
 	mu            sync.RWMutex
 	clients       map[*Client]struct{} // 本地在线客户端集合
-	maxConns      int32                // 最大连接数（0=不限制）
-	totalRejected int32                // 原子计数: 因达到上限被拒绝的连接数
+	maxConns      atomic.Int32         // 最大连接数（0=不限制）
+	totalRejected atomic.Int32         // 原子计数: 因达到上限被拒绝的连接数
 
 	backend    Backend // 分布式后端（如 RabbitMQ Fanout，nil=单机模式）
 	instanceID string  // 本实例唯一标识，用于跳过自发布消息回环
 	done       chan struct{}
 	wg         sync.WaitGroup
-	started    int32 // 原子标记，确保 Start 只执行一次
+	started    atomic.Int32  // 原子标记，确保 Start 只执行一次
 
 	// 分布式客户端注册表：跨实例同步的在线 UID 集合
 	// uid → count（同一 UID 多设备连接）
@@ -57,7 +57,7 @@ type DistributedDispatcher struct {
 	workerNum     int32          // worker 协程数（默认 4）
 	workerCh      chan func()    // 投递任务通道
 	workerWg      sync.WaitGroup // 等待 worker 退出
-	workerStarted int32          // 原子标记
+	workerStarted atomic.Int32   // 原子标记
 }
 
 // NewDispatcher 创建并初始化一个新的消息分发中心。
@@ -84,9 +84,9 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 		backend:    backend,
 		done:       make(chan struct{}),
 		instanceID: fmt.Sprintf("%p", backend), // 默认以 backend 指针地址作为实例 ID
-		maxConns:   o.maxConns,
 		workerNum:  o.workerNum,
 	}
+	d.maxConns.Store(o.maxConns)
 	return d
 }
 
@@ -101,7 +101,7 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 	if dd.backend == nil {
 		return // 单机模式无需启动
 	}
-	if !atomic.CompareAndSwapInt32(&dd.started, 0, 1) {
+	if !dd.started.CompareAndSwap(0, 1) {
 		return
 	}
 
@@ -112,7 +112,7 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 			dd.workerWg.Add(1)
 			go dd.workerLoop()
 		}
-		atomic.StoreInt32(&dd.workerStarted, 1)
+		dd.workerStarted.Store(1)
 		logger.InfoWithCtx(ctx, "dispatcher worker pool started", logger.Int32("workers", n))
 	}
 
@@ -121,7 +121,7 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 		logger.WarnWithCtx(ctx, "dispatcher start receive failed",
 			logger.Err(err),
 		)
-		atomic.StoreInt32(&dd.started, 0)
+		dd.started.Store(0)
 		return
 	}
 
@@ -155,7 +155,7 @@ func (dd *DistributedDispatcher) Stop() {
 	dd.wg.Wait()
 
 	// 3. 关闭 WorkerPool
-	if atomic.LoadInt32(&dd.workerStarted) == 1 {
+	if dd.workerStarted.Load() == 1 {
 		close(dd.workerCh)
 		dd.workerWg.Wait()
 	}
@@ -177,12 +177,12 @@ func (dd *DistributedDispatcher) Len() int {
 
 // MaxConnections 返回最大连接数限制（0=不限制）。
 func (dd *DistributedDispatcher) MaxConnections() int {
-	return int(atomic.LoadInt32(&dd.maxConns))
+	return int(dd.maxConns.Load())
 }
 
 // TotalRejected 返回因达到连接上限被拒绝的累计连接数。
 func (dd *DistributedDispatcher) TotalRejected() int {
-	return int(atomic.LoadInt32(&dd.totalRejected))
+	return int(dd.totalRejected.Load())
 }
 
 // Clients 返回当前所有已注册客户端的快照切片。

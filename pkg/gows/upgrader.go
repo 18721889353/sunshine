@@ -67,10 +67,10 @@ func upgradePerIPDecrement(clientIP string) {
 
 // upgradeRegisterDispatcher 注册客户端到 Dispatcher 并设置关闭清理钩子。
 // 调用方需确保 o.enableDistributed && o.dispatcher != nil。
-func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOptions, c *gin.Context) error {
+func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOptions) error {
 	if err := o.dispatcher.RegisterCtx(ctx, client); err != nil {
 		if closeErr := client.Close(); closeErr != nil {
-			logger.WarnWithCtx(c.Request.Context(), "ws client close after register failed",
+			logger.WarnWithCtx(ctx, "ws client close after register failed",
 				logger.Err(closeErr),
 			)
 		}
@@ -242,7 +242,7 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 
 	// 全局分发注册
 	if o.enableDistributed && o.dispatcher != nil {
-		if err := upgradeRegisterDispatcher(ctx, client, o, c); err != nil {
+		if err := upgradeRegisterDispatcher(ctx, client, o); err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("ws dispatcher register: %w", err)
 		}

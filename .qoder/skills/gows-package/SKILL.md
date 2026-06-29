@@ -462,3 +462,4 @@ func newMockBackend(bufSize int) *mockBackend
 | **YAML 扁平不分组** | 所有配置项平铺在 `websocket:` 下，随着字段增多难以管理 | 按功能分为 6 组子键（CORS/Limit/Timeout/Heartbeat/Queue/Distributed），`make update-config` 自动生成嵌套结构体 |
 | **配置访问路径写死** | 模板中硬编码 `config.Get().Websocket.RateLimitRps`，分组变动后散落各处难以修改 | 模板中的路径映射集中在 `upgradeOpts` 注释表中方便对照，分组调整时只改注释表和配置读取代码 |
 | **Option 函数未设默认值保护** | `With*` 函数直接赋值，零值未被正确处理 | option 内部用 `> 0` 判断，零值表示"使用默认值"，不覆盖已有默认值
+| **裸 int32/int64 + 包函数** | 使用 `atomic.LoadInt32(&c.closed)` 等包函数风格，需取地址且易误传副本 | 改为 `atomic.Int32`/`atomic.Int64` 类型字段 + 方法调用（`c.closed.Load()`），无需取地址，IDE 自动补全友好

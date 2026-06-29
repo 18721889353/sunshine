@@ -12,8 +12,8 @@ import (
 type healthState struct {
 	lastWriteTime time.Time
 	lastReadTime  time.Time
-	writeErrCount int64
-	readErrCount  int64
+	writeErrCount atomic.Int64
+	readErrCount  atomic.Int64
 	lastWriteErr  atomic.Value
 	lastReadErr   atomic.Value
 	mu            sync.RWMutex
@@ -21,13 +21,13 @@ type healthState struct {
 
 // recordWriteErr 原子记录写入错误计数和最近一次错误信息
 func (c *Client) recordWriteErr(err error) {
-	atomic.AddInt64(&c.health.writeErrCount, 1)
+	c.health.writeErrCount.Add(1)
 	c.health.lastWriteErr.Store(err.Error())
 }
 
 // recordReadErr 原子记录读取错误计数和最近一次错误信息
 func (c *Client) recordReadErr(err error) {
-	atomic.AddInt64(&c.health.readErrCount, 1)
+	c.health.readErrCount.Add(1)
 	c.health.lastReadErr.Store(err.Error())
 }
 
@@ -65,7 +65,7 @@ func (c *Client) markLastRead() {
 //   - 此方法返回 true 不代表底层网络一定可达，仅表示组件内部状态正常
 //   - 精确的活性检测依赖 Ping/Pong 协议级心跳 + ReadDeadline 联动
 func (c *Client) IsAlive() bool {
-	if atomic.LoadInt32(&c.closed) == 1 {
+	if c.closed.Load() == 1 {
 		return false
 	}
 
@@ -135,16 +135,16 @@ func (c *Client) Stats() ClientStats {
 	return ClientStats{
 		UID:            c.uid,
 		RemoteAddr:     c.remoteAddr,
-		NumSent:        atomic.LoadInt64(&c.numSent),
-		NumReceived:    atomic.LoadInt64(&c.numReceived),
+		NumSent:        c.numSent.Load(),
+		NumReceived:    c.numReceived.Load(),
 		WriteQueueSize: cap(c.writeCh),
 		WriteQueueLen:  len(c.writeCh),
 		ReadQueueSize:  cap(c.readCh),
 		ReadQueueLen:   len(c.readCh),
-		IsClosed:       atomic.LoadInt32(&c.closed) == 1,
+		IsClosed:       c.closed.Load() == 1,
 		IsAlive:        c.IsAlive(),
-		WriteErrCount:  atomic.LoadInt64(&c.health.writeErrCount),
-		ReadErrCount:   atomic.LoadInt64(&c.health.readErrCount),
+		WriteErrCount:  c.health.writeErrCount.Load(),
+		ReadErrCount:   c.health.readErrCount.Load(),
 		LastWriteErr:   lastWriteErrStr,
 		LastReadErr:    lastReadErrStr,
 		LastWriteTime:  lastWriteStr,

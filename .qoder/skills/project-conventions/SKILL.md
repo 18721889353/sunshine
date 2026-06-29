@@ -411,3 +411,57 @@ return fmt.Errorf("ws upgrade rate limited: %.2f rps", limiter.Limit())
 ```
 
 判断标准：全局搜索 `errors.Is` / `errors.As` + 类型名，没有任何使用即可删除。
+
+## 十三、原子计数器优先使用 atomic.Int32/Int64 类型
+
+涉及并发写入的整型计数场景（跨 goroutine `Add`/`CAS`/`Store`+`Load`），优先使用标准库 `atomic.Int32` / `atomic.Int64` 结构体类型，而非裸 `int32`/`int64` + 包函数：
+
+```go
+// ❌ 旧风格：裸类型 + 包函数，需取地址 &，易错
+var count int32
+atomic.AddInt32(&count, 1)
+n := atomic.LoadInt32(&count)
+
+// ✅ 新风格：atomic.Int64 类型 + 方法调用，无需取地址
+var count atomic.Int64
+count.Add(1)
+n := count.Load()
+```
+
+### 判断标准
+
+| 需要改 | 不改 |
+|--------|------|
+| 多处并发写入（`Add`/`CAS`/`Store`）的字段 | 构造函数写一次、后续只读的字段（如 `readLimit`） |
+| 跨 goroutine 读写竞争的热点 | 仅在创建 goroutine 内使用的局部变量 |
+
+### 迁移示例
+
+```go
+// Before
+type Client struct {
+    closed      int32   // 原子关闭标记
+    numSent     int64   // 原子计数
+    numReceived int64   // 原子计数
+}
+
+func (c *Client) Close() error {
+    if atomic.CompareAndSwapInt32(&c.closed, 0, 1) { ... }
+}
+
+// After
+type Client struct {
+    closed      atomic.Int32  // 原子关闭标记
+    numSent     atomic.Int64  // 原子计数
+    numReceived atomic.Int64  // 原子计数
+}
+
+func (c *Client) Close() error {
+    if c.closed.CompareAndSwap(0, 1) { ... }
+}
+```
+
+### 注意事项
+
+- 结构体字面量中不能直接赋值 `maxConns: o.maxConns`（`atomic.Int32` 是结构体类型），需在构造后调用 `.Store()`
+- 不再需要 `sync/atomic` 导入的情况：文件中所有 `atomic.*` 包函数调用被替换为方法调用后，可删除导入

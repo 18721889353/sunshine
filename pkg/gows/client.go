@@ -36,14 +36,14 @@ type Client struct {
 	writeCh        chan []byte        // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
 	readCh         chan []byte        // 读取队列通道，readLoop 向其推送接收到的消息数据
 	closeCh        chan struct{}      // 关闭信号通道，close 时触发所有监听协程退出
-	closed         int32              // 原子关闭标记，0=未关闭，1=已关闭
-	wg             sync.WaitGroup     // 等待 writeLoop 和 readLoop 协程退出
-	onClose        func()             // 可选关闭回调钩子，Close 时在清理前调用
-	ctx            context.Context    // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
-	ctxCancel      context.CancelFunc // 上下文取消函数，Close 时调用
-	remoteAddr     string             // 客户端远程地址（IP:Port），创建时从连接中提取
-	numSent        int64              // 原子计数: 已成功发送消息数
-	numReceived    int64              // 原子计数: 已接收消息数
+	closed         atomic.Int32          // 原子关闭标记，0=未关闭，1=已关闭
+	wg             sync.WaitGroup       // 等待 writeLoop 和 readLoop 协程退出
+	onClose        func()               // 可选关闭回调钩子，Close 时在清理前调用
+	ctx            context.Context      // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
+	ctxCancel      context.CancelFunc   // 上下文取消函数，Close 时调用
+	remoteAddr     string               // 客户端远程地址（IP:Port），创建时从连接中提取
+	numSent        atomic.Int64         // 原子计数: 已成功发送消息数
+	numReceived    atomic.Int64         // 原子计数: 已接收消息数
 	health         healthState        // 健康监控（读写时间、错误计数）
 	readTimeout    time.Duration      // readLoop 读取超时时间（0=不限制）
 	writeTimeout   time.Duration      // writeWithRetry 写入超时时间（0=默认 10s）
@@ -115,7 +115,7 @@ func (c *Client) SetCloseHook(fn func()) {
 // 返回:
 //   - error: 首次关闭底层连接失败时返回 error，重复关闭返回 nil
 func (c *Client) Close() error {
-	if atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
+	if c.closed.CompareAndSwap(0, 1) {
 		if c.onClose != nil {
 			c.onClose()
 		}

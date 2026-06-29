@@ -3,7 +3,6 @@ package gows
 import (
 	"context"
 	"encoding/json"
-	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
@@ -35,7 +34,7 @@ func (dd *DistributedDispatcher) receiveLoop(ctx context.Context, msgCh <-chan *
 // dispatchMessage 将消息分发到 WorkerPool 或串行处理。
 // WorkerPool 可用时异步投递，否则串行降级（反压保护）。
 func (dd *DistributedDispatcher) dispatchMessage(ctx context.Context, tracer trace.Tracer, msg *PubSubMessage) {
-	if atomic.LoadInt32(&dd.workerStarted) == 1 {
+	if dd.workerStarted.Load() == 1 {
 		// WorkerPool 模式：尝试投递到 Worker 队列
 		task := func() {
 			dd.deliverMessage(ctx, tracer, msg)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -93,7 +92,7 @@ func (c *Client) writeLoop() {
 				c.forceCloseConn()
 				return
 			}
-			atomic.AddInt64(&c.numSent, 1)
+			c.numSent.Add(1)
 			c.markLastWrite()
 		case <-c.closeCh:
 			return
@@ -172,7 +171,7 @@ func (c *Client) WriteJSONCtx(ctx context.Context, v any) error {
 		requestIDAttr(ctx),
 	)
 
-	if atomic.LoadInt32(&c.closed) == 1 {
+	if c.closed.Load() == 1 {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
@@ -226,7 +225,7 @@ func (c *Client) WriteRawCtx(ctx context.Context, data []byte) error {
 		attribute.Int("ws.data_size", len(data)),
 	)
 
-	if atomic.LoadInt32(&c.closed) == 1 {
+	if c.closed.Load() == 1 {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
@@ -281,7 +280,7 @@ func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 			span.SetStatus(codes.Error, "connection closed")
 			return nil, c.getLastReadErr()
 		}
-		atomic.AddInt64(&c.numReceived, 1)
+		c.numReceived.Add(1)
 		c.markLastRead()
 		span.SetAttributes(attribute.Int("ws.msg_size", len(data)))
 		span.SetStatus(codes.Ok, "message received")

@@ -3,7 +3,6 @@ package gows
 import (
 	"context"
 	"encoding/json"
-	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 )
@@ -28,11 +27,11 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	default:
 	}
 
-	maxConns := atomic.LoadInt32(&dd.maxConns)
+	maxConns := dd.maxConns.Load()
 	if maxConns > 0 {
 		dd.mu.Lock()
 		if int32(len(dd.clients)) >= maxConns {
-			atomic.AddInt32(&dd.totalRejected, 1)
+			dd.totalRejected.Add(1)
 			dd.mu.Unlock()
 			logger.WarnWithCtx(client.ctx, "ws dispatcher max connections reached, rejecting",
 				logger.String("uid", client.uid),
