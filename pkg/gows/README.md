@@ -1,19 +1,20 @@
-验证# gows
+# gows
 
 Go 语言 WebSocket 服务端封装库，提供连接管理、消息读写、心跳保活和全局分发功能。
 
 ## ✨ 特性
 
-- 🔒 **Channel 驱动写入模型**：非阻塞 WriteJSON，慢客户端自动丢弃消息，指数退避 + 随机 jitter
+- 🔒 **Channel 驱动写入模型**：非阻塞 `WriteJSONCtx`，慢客户端自动丢弃消息，指数退避 + 随机 jitter
 - 🛡️ **安全防护**：默认拒绝跨域、全局升级速率限制、单 IP 连接数限制
 - 📡 **分布式 Dispatcher**：连接注册、广播、按 UID 发送、条件过滤、跨实例消息分发
 - 🔗 **多种后端支持**：单机模式（无中间件）或 RabbitMQ 分布式模式（Producer 缓存池）
-- 💓 **可配置心跳**：自定义间隔、写入超时
+- 💓 **可配置心跳**：自定义间隔、Pong 超时、Ping 消息内容
 - 🔗 **链路追踪**：内置 OpenTelemetry，所有读写方法提供 Ctx 变体（`WriteJSONCtx`/`ReadMessageCtx`）
-- 📊 **连接统计**：收发计数、队列状态、远程地址、健康检测（`IsAlive`）
-- 🪝 **生命周期钩子**：升级前鉴权、升级后注入、关闭回调
+- 📊 **连接统计**：收发计数、队列状态、错误计数、远程地址、健康检测（`IsAlive`）
+- 🪝 **生命周期钩子**：升级前鉴权（JWT）、升级后注入、关闭回调
 - ⏱️ **主动读超时**：独立于心跳，防止 ReadMessage 永久阻塞
 - 📏 **消息大小限制**：独立的读写大小限制（`readLimit`/`writeLimit`），防止恶意大消息
+- 🗂️ **Client 代理分发**：客户端自带 `SendToUIDCtx`/`BroadcastCtx` 方法，无需依赖全局 `DefaultDispatcher`
 
 ## 📦 安装
 
@@ -59,13 +60,13 @@ func main() {
 
         // 读写循环（使用 Ctx 变体进行链路追踪）
         for {
-            _, message, err := client.ReadMessageCtx(c.Request.Context())
+            data, err := client.ReadMessageCtx(c.Request.Context())
             if err != nil {
                 break
             }
             _ = client.WriteJSONCtx(c.Request.Context(), gows.Message{
                 Type: "reply",
-                Msg:  string(message),
+                Msg:  string(data),
             })
         }
     })
@@ -90,6 +91,10 @@ client, err := gows.Upgrade(c,
 )
 // 关闭时自动从 Dispatcher 注销
 defer client.Close()
+
+// 通过 Client 代理发送消息，无需直接引用 Dispatcher
+client.BroadcastCtx(ctx, gows.Message{Type: "notice", Msg: "系统公告"})
+client.SendToUIDCtx(ctx, "user-123", gows.Message{Type: "private", Msg: "你好"})
 ```
 
 ### 4️⃣ 完整示例
@@ -119,7 +124,7 @@ func main() {
         defer client.Close()
 
         for {
-            _, data, err := client.ReadMessageCtx(c.Request.Context())
+            data, err := client.ReadMessageCtx(c.Request.Context())
             if err != nil {
                 break
             }
@@ -131,13 +136,11 @@ func main() {
         }
     })
 
-    // 在其他地方广播消息
-    go func() {
-        gows.DefaultDispatcher.BroadcastCtx(c.Request.Context(), gows.Message{
-            Type: "notice",
-            Msg:  "系统公告",
-        })
-    }()
+    // 在其他地方广播消息（通过 Client 代理方法）
+    // client.BroadcastCtx(c.Request.Context(), gows.Message{
+    //     Type: "notice",
+    //     Msg:  "系统公告",
+    // })
 
     _ = r.Run(":8080")
 }
@@ -166,20 +169,41 @@ dispatcher.Start(ctx)
 // 广播给所有连接
 dispatcher.BroadcastCtx(ctx, gows.Message{Type: "notice", Msg: "全员通知"})
 
-// 按条件过滤广播
+// 按条件过滤广播（仅本地）
 dispatcher.BroadcastFilterCtx(ctx, msg, func(c *gows.Client) bool {
     return c.UID() == "vip-user"
 })
 
-// 按 UID 发送
+// 按 UID 发送（跨实例）
 dispatcher.SendToUIDCtx(ctx, "user-123", gows.Message{Type: "personal", Msg: "你好"})
+
+// 按多 UID 发送（跨实例）
+dispatcher.SendToMultiUIDCtx(ctx, []string{"uid1", "uid2"}, gows.Message{Type: "batch"})
+```
+
+### Client 代理方法
+
+当 Client 已通过 `WithDispatcher` 注册到分发中心后，可直接在 Client 上调用发送方法：
+
+```go
+// 向单个用户发送
+client.SendToUIDCtx(ctx, "target_uid", gows.Message{Type: "notify", Msg: "你有新消息"})
+
+// 向多个用户发送
+client.SendToMultiUIDCtx(ctx, []string{"uid1", "uid2"}, gows.Message{Type: "batch", Data: scores})
+
+// 向所有在线用户广播
+client.BroadcastCtx(ctx, gows.Message{Type: "announcement", Msg: "系统维护通知"})
 ```
 
 ### 遍历与管理
 
 ```go
-// 获取在线数量
+// 获取在线数量（本地 + 远端）
 count := dispatcher.Len()
+
+// 本地在线数
+local := dispatcher.LenLocal()
 
 // 遍历所有连接
 dispatcher.Range(func(c *gows.Client) bool {
@@ -196,7 +220,17 @@ for _, c := range clients {
 
 // 统计信息
 stats := dispatcher.Stats()
-log.Printf("当前在线: %d", stats.TotalConnections)
+log.Printf("当前在线: %d (本地: %d, 远端: %d)",
+    stats.TotalConnections, stats.LocalConnections, stats.RemoteUIDs)
+
+// 清理已关闭的僵尸连接
+cleaned := dispatcher.CleanupDeadConns()
+
+// 获取全局唯一 UID 列表
+uids := dispatcher.ConnectedUIDs()
+
+// 最大连接限制
+log.Printf("最大连接: %d, 已拒绝: %d", dispatcher.MaxConnections(), dispatcher.TotalRejected())
 
 // 分布式模式：启动后台接收
 // dispatcher.Start(ctx)
@@ -204,6 +238,40 @@ log.Printf("当前在线: %d", stats.TotalConnections)
 ```
 
 ## ⚙️ 高级配置
+
+### JWT Token 鉴权
+
+```go
+// 解析 JWT token（支持 Bearer 前缀），提取用户标识
+uid, err := gows.ParseTokenCtx(ctx, tokenString)
+if err != nil {
+    // token 过期: errors.Is(err, jwt.ErrTokenExpired)
+    // token 格式正确但缺 uid: errors.Is(err, gows.ErrTokenInvalid)
+    return
+}
+```
+
+在 Upgrade 前钩子中结合使用：
+
+```go
+r.GET("/ws", func(c *gin.Context) {
+    client, err := gows.Upgrade(c,
+        gows.WithBeforeUpgrade(func(c *gin.Context) error {
+            token := c.Query("token")
+            if token == "" {
+                return fmt.Errorf("missing token")
+            }
+            uid, err := gows.ParseTokenCtx(c.Request.Context(), token)
+            if err != nil {
+                return err
+            }
+            c.Set("uid", uid) // 后续可通过 WithClientUID 获取
+            return nil
+        }),
+        gows.WithClientUIDFromHeader("X-UID"),
+    )
+})
+```
 
 ### 分布式部署
 
@@ -218,12 +286,25 @@ d.Start(ctx)
 defer d.Stop()
 
 // 注册连接后，即可跨实例发送
-d.Register(client)
+d.RegisterCtx(ctx, client)
 d.SendToUIDCtx(ctx, "user-123", msg)
 d.BroadcastCtx(ctx, msg)
 
 // 查看在线统计
 log.Printf("在线: %d, 最大限制: %d", d.Len(), d.MaxConnections())
+```
+
+### 自定义 Backend
+
+```go
+// Backend 接口允许接入任何消息中间件
+type Backend interface {
+    Publish(ctx context.Context, msg *PubSubMessage) error
+    Receive(ctx context.Context) (<-chan *PubSubMessage, error)
+    Close() error
+}
+
+// 内置实现：RabbitMQ Fanout 交换机
 ```
 
 ### Upgrader 选项
@@ -247,12 +328,13 @@ client, err := gows.Upgrade(c,
     // 心跳高级配置
     gows.WithHeartbeatOptions(
         gows.WithHeartbeatInterval(15*time.Second),
-        gows.WithPingMessage(func() any {
-            return gows.Message{Type: "ping", Data: time.Now().Unix()}
-        }),
     ),
     // 全局分发
     gows.WithDispatcher(gows.DefaultDispatcher),
+    // 启用分布式注册
+    gows.WithEnableDistributed(true),
+    // 读写队列容量（默认 64）
+    gows.WithQueueSize(128, 128),
     // 升级前钩子（鉴权）
     gows.WithBeforeUpgrade(func(c *gin.Context) error {
         token := c.Query("token")
@@ -283,8 +365,7 @@ client := gows.NewClient(ctx, rawConn, "uid",
     gows.WithReadQueueSize(128),
 )
 
-// 单条消息大小限制通过 Upgrade 选项传播（Upgrade → Client）
-// 见上方 Upgrader 选项中的 WithReadLimit / WithWriteLimit / WithReadTimeout / WithWriteTimeout
+// 单条消息大小限制、读写超时等通过 Upgrade 选项自动传播（Upgrade → Client）
 ```
 
 ### Dispatcher 选项
@@ -300,10 +381,12 @@ d := gows.NewDispatcher(backend,
 ### RabbitMQ Backend 选项
 
 ```go
-backend := gows.NewRabbitMQBackend("amqp://...", "ws:messages",
-    // Producer 缓存池大小（默认 4）
-    gows.WithProducerPoolSize(8),
-)
+// 直接通过 URL 创建
+backend := gows.NewRabbitMQBackend("amqp://...", "ws:messages")
+
+// 或复用已有连接
+conn, _ := gorabbitmq.NewConnection(ctx, "amqp://...")
+backend := gows.NewRabbitMQBackendFromConn(conn, "ws:messages")
 ```
 
 ### Client 统计信息
@@ -316,29 +399,32 @@ fmt.Printf(`客户端状态:
   是否存活:       %v
   已发送:         %d
   已接收:         %d
-  队列容量:       %d
-  队列当前长度:   %d
+  写入队列容量:   %d
+  写入队列长度:   %d
+  读取队列容量:   %d
+  读取队列长度:   %d
   是否已关闭:     %v
   写入错误次数:   %d
+  读取错误次数:   %d
+  上次写入错误:   %s
+  上次读取错误:   %s
   上次写入时间:   %s
   上次读取时间:   %s
 `, stats.UID, stats.RemoteAddr, stats.IsAlive, stats.NumSent, stats.NumReceived,
-    stats.WriteQueueSize, stats.WriteQueueLen, stats.IsClosed,
-    stats.WriteErrCount, stats.LastWriteTime, stats.LastReadTime)
+    stats.WriteQueueSize, stats.WriteQueueLen, stats.ReadQueueSize, stats.ReadQueueLen,
+    stats.IsClosed, stats.WriteErrCount, stats.ReadErrCount, stats.LastWriteErr,
+    stats.LastReadErr, stats.LastWriteTime, stats.LastReadTime)
 
 // Dispatcher 统计
 dStats := dispatcher.Stats()
 fmt.Printf(`分发器状态:
   总连接数:       %d
   本地连接数:     %d
-  远程 UID 数:    %d
+  远端 UID 数:    %d
   最大连接限制:   %d
   被拒绝连接数:   %d
 `, dStats.TotalConnections, dStats.LocalConnections,
     dStats.RemoteUIDs, dStats.MaxConnections, dStats.TotalRejected)
-
-// 获取全局唯一 UID 列表
-_ = dispatcher.ConnectedUIDs()
 ```
 
 ## 📋 API 参考
@@ -352,18 +438,23 @@ type Message struct {
     Msg  string      `json:"msg,omitempty"`
     Data any         `json:"data,omitempty"`
 }
+
+// 分布式消息结构（Backend 传输用）
+type PubSubMessage struct {
+    InstanceID string          `json:"instance_id"`
+    Type       string          `json:"type"`       // "broadcast" | "send_to_uid"
+    UIDs       []string        `json:"uids,omitempty"`
+    Payload    json.RawMessage `json:"payload"`
+}
 ```
 
 ### Client 方法
 
 | 方法 | 说明 |
 |------|------|
-| `WriteJSON(v any) error` | 异步非阻塞发送 JSON 消息（委托 `WriteJSONCtx(c.ctx, v)`） |
-| `WriteJSONCtx(ctx, v) error` | 带链路追踪的 JSON 发送 |
-| `WriteRaw(data []byte) error` | 直接写入预序列化的原始字节 |
-| `WriteRawCtx(ctx, data) error` | 带链路追踪的原始数据发送 |
-| `ReadMessage() (int, []byte, error)` | 阻塞读取消息（委托 `ReadMessageCtx(c.ctx)`） |
-| `ReadMessageCtx(ctx) (int, []byte, error)` | 带链路追踪的消息读取 |
+| `WriteJSONCtx(ctx, v) error` | 异步非阻塞发送 JSON 消息（带链路追踪） |
+| `WriteRawCtx(ctx, data) error` | 直接写入预序列化的原始字节 |
+| `ReadMessageCtx(ctx) ([]byte, error)` | 带链路追踪的消息读取（阻塞） |
 | `Close() error` | 优雅关闭（幂等） |
 | `UID() string` | 获取用户标识 |
 | `RemoteAddr() string` | 获取远程地址 |
@@ -372,28 +463,62 @@ type Message struct {
 | `Done() <-chan struct{}` | 连接关闭信号 |
 | `SetCloseHook(fn func())` | 设置关闭钩子 |
 | `Stats() ClientStats` | 获取统计信息 |
+| `SendToUIDCtx(ctx, uid, v)` | 通过关联 Dispatcher 向指定 UID 发送（代理方法） |
+| `SendToMultiUIDCtx(ctx, uids, v)` | 通过关联 Dispatcher 向多 UID 发送（代理方法） |
+| `BroadcastCtx(ctx, v)` | 通过关联 Dispatcher 广播（代理方法） |
+
+### ClientStats 字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `UID` | `string` | 用户标识 |
+| `RemoteAddr` | `string` | 远程地址 |
+| `NumSent` | `int64` | 已发送消息数 |
+| `NumReceived` | `int64` | 已接收消息数 |
+| `WriteQueueSize` | `int` | 写入队列容量 |
+| `WriteQueueLen` | `int` | 写入队列当前长度 |
+| `ReadQueueSize` | `int` | 读取队列容量 |
+| `ReadQueueLen` | `int` | 读取队列当前长度 |
+| `IsClosed` | `bool` | 是否已关闭 |
+| `IsAlive` | `bool` | 是否健康存活 |
+| `WriteErrCount` | `int64` | 写入失败累计次数 |
+| `ReadErrCount` | `int64` | 读取失败累计次数 |
+| `LastWriteErr` | `string` | 最近一次写入错误信息 |
+| `LastReadErr` | `string` | 最近一次读取错误信息 |
+| `LastWriteTime` | `string` | 最后一次成功写入时间（ISO8601） |
+| `LastReadTime` | `string` | 最后一次成功读取时间（ISO8601） |
 
 ### Dispatcher 方法
 
 | 方法 | 说明 |
 |------|------|
-| `Register(client *Client) error` | 注册连接（委托 `RegisterCtx(context.Background(), client)`） |
-| `RegisterCtx(ctx, client) error` | 带链路追踪的注册 |
-| `Unregister(client *Client) error` | 注销连接 |
-| `UnregisterCtx(ctx, client) error` | 带链路追踪的注销 |
-| `BroadcastCtx(ctx, v)` | 广播消息 |
-| `BroadcastFilterCtx(ctx, v, filter)` | 条件广播 |
-| `SendToUIDCtx(ctx, uid, v)` | 按 UID 发送 |
-| `SendToMultiUIDCtx(ctx, uids, v)` | 按多 UID 发送 |
-| `Range(fn)` | 遍历连接 |
-| `Len() int` | 在线连接数 |
+| `RegisterCtx(ctx, client) error` | 注册连接（带链路追踪） |
+| `UnregisterCtx(ctx, client) error` | 注销连接（带链路追踪） |
+| `BroadcastCtx(ctx, v)` | 广播消息（跨实例） |
+| `BroadcastFilterCtx(ctx, v, filter)` | 条件广播（仅本地） |
+| `SendToUIDCtx(ctx, uid, v)` | 按 UID 发送（跨实例） |
+| `SendToMultiUIDCtx(ctx, uids, v)` | 按多 UID 发送（跨实例） |
+| `Range(fn)` | 遍历本地连接 |
+| `Len() int` | 全局在线连接数（本地 + 远端） |
 | `LenLocal() int` | 本地在线连接数 |
-| `Clients() []*Client` | 连接快照 |
-| `ConnectedUIDs() []string` | 全局唯一 UID 列表 |
+| `Clients() []*Client` | 本地连接快照 |
+| `ConnectedUIDs() []string` | 全局唯一 UID 列表（去重） |
 | `MaxConnections() int` | 最大连接数限制 |
+| `TotalRejected() int` | 因达到上限被拒绝的累计连接数 |
+| `CleanupDeadConns() int` | 清理已关闭的僵尸连接 |
 | `Stats() DispatcherStats` | 统计信息 |
 | `Start(ctx)` | 启动分布式后端（单机无需调用） |
 | `Stop()` | 停止分布式后端 |
+
+### DispatcherStats 字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `TotalConnections` | `int` | 当前在线连接总数（本地 + 远端） |
+| `LocalConnections` | `int` | 本地在线连接数 |
+| `RemoteUIDs` | `int` | 远端实例上的唯一 UID 数 |
+| `MaxConnections` | `int` | 最大连接数限制 |
+| `TotalRejected` | `int` | 因达到上限被拒绝的累计连接数 |
 
 ### Upgrade 选项
 
@@ -406,6 +531,7 @@ type Message struct {
 | `WithHeartbeat()` | 启用心跳（30s） |
 | `WithHeartbeatOptions(opts...)` | 心跳高级配置 |
 | `WithDispatcher(d)` | 注册到分发中心 |
+| `WithEnableDistributed(enabled)` | 启用分布式分发注册 |
 | `WithClientUID(uid)` | 设置用户标识 |
 | `WithErrorHandler(fn)` | 升级失败回调 |
 | `WithBeforeUpgrade(fn)` | 升级前钩子 |
@@ -416,6 +542,7 @@ type Message struct {
 | `WithWriteLimit(n)` | 单条消息写入大小限制 |
 | `WithReadTimeout(d)` | 读取超时（Upgrade → Client 传播） |
 | `WithWriteTimeout(d)` | 写入超时（Upgrade → Client 传播） |
+| `WithQueueSize(writeSize, readSize)` | 读写队列容量 |
 
 ### Heartbeat 选项
 
@@ -424,7 +551,27 @@ type Message struct {
 | `WithHeartbeatInterval(d)` | 心跳间隔 |
 | `WithPongTimeout(d)` | Pong 等待超时（默认 10s） |
 | `WithPingWriteWait(d)` | Ping 控制帧写入超时（默认 5s） |
-| `WithPingMessage(fn)` | 自定义 ping 消息（通过 HeartbeatOptions 传） |
+
+### 工具函数
+
+| 函数 | 说明 |
+|------|------|
+| `ParseTokenCtx(ctx, token) (string, error)` | 解析 JWT token 提取用户标识 |
+| `NewClient(ctx, conn, uid, opts...) *Client` | 直接创建客户端（非 Upgrade 场景） |
+| `NewDispatcher(backend, opts...) *DistributedDispatcher` | 创建分发中心 |
+| `NewRabbitMQBackend(url, exchange) *RabbitMQBackend` | 创建 RabbitMQ 分布式后端 |
+| `NewRabbitMQBackendFromConn(conn, exchange) *RabbitMQBackend` | 复用已有连接创建后端 |
+| `SetupPongHandler(conn, interval, timeout)` | 设置 Pong 处理器和 ReadDeadline |
+| `StartHeartbeat(client, opts...)` | 启动 Ping/Pong 心跳循环 |
+
+### 错误标识
+
+| 错误 | 说明 |
+|------|------|
+| `ErrWriteQueueFull` | 写入队列满，消息被丢弃 |
+| `ErrWriteLimitExceeded` | 单条消息超出写入大小限制 |
+| `ErrMaxConnections` | Dispatcher 达到最大连接数上限 |
+| `ErrTokenInvalid` | JWT token 缺少 uid 字段 |
 
 ## 💡 最佳实践
 
@@ -443,13 +590,13 @@ client.Context().Done() // 可用于 select 监听
 
 ### 2. 并发写入安全
 
-`WriteJSON` 是线程安全的，可以在多个 goroutine 中同时调用：
+`WriteJSONCtx` 是线程安全的，可以在多个 goroutine 中同时调用：
 
 ```go
 // 业务协程
 go func() {
     for {
-        client.WriteJSON(Message{Type: "heartbeat"})
+        client.WriteJSONCtx(ctx, Message{Type: "heartbeat"})
         time.Sleep(30 * time.Second)
     }
 }()
@@ -457,7 +604,7 @@ go func() {
 // 推送协程
 go func() {
     for msg := range msgCh {
-        client.WriteJSON(msg)
+        client.WriteJSONCtx(ctx, msg)
     }
 }()
 ```
@@ -475,8 +622,8 @@ func (r *ChatRoom) Join(ctx context.Context, client *gows.Client) {
         return
     }
     client.SetCloseHook(func() {
-        r.dispatcher.UnregisterCtx(ctx, client)
-        r.dispatcher.BroadcastCtx(context.Background(), gows.Message{
+        r.dispatcher.UnregisterCtx(client.Context(), client)
+        client.BroadcastCtx(context.Background(), gows.Message{
             Type: "system",
             Msg:  client.UID() + " 离开了房间",
         })
@@ -487,7 +634,7 @@ func (r *ChatRoom) Join(ctx context.Context, client *gows.Client) {
 ### 4. 错误处理
 
 ```go
-result, err := client.WriteJSON(msg)
+err := client.WriteJSONCtx(ctx, msg)
 if err == gows.ErrWriteQueueFull {
     // 队列满，消息被丢弃，可降级处理
     log.Warn("消息丢弃: 客户端消费过慢")
@@ -497,12 +644,28 @@ if err == gows.ErrWriteQueueFull {
 }
 ```
 
+### 5. 使用 Client 代理发送
+
+```go
+// 推荐: 通过 Client 代理方法发送，无需引用全局 Dispatcher
+client.SendToUIDCtx(ctx, "target_uid", msg)
+client.BroadcastCtx(ctx, msg)
+
+// 仅当需要遍历或管理连接时才直接操作 Dispatcher
+dispatcher.Range(func(c *gows.Client) bool {
+    log.Printf("在线: %s", c.UID())
+    return true
+})
+```
+
 ## ⚠️ 注意事项
 
 - **资源释放**：`Upgrade` 返回的 `*Client` 必须调用 `Close()`，建议使用 `defer`
 - **跨域**：默认拒绝所有来源，必须使用 `WithCheckOrigin` 显式设置允许的来源
 - **限流**：生产环境建议设置 `WithRateLimit` 和 `WithMaxConnPerIP` 防止连接风暴
 - **链路追踪**：优先使用 Ctx 变体（`WriteJSONCtx`/`ReadMessageCtx`），传递请求上下文以保留 request_id
-- **写队列满**：`WriteJSON` 在队列满时返回 `ErrWriteQueueFull` 而非阻塞
+- **写队列满**：`WriteJSONCtx` 在队列满时返回 `ErrWriteQueueFull` 而非阻塞
 - **消息大小限制**：生产环境建议设置 `WithReadLimit()` 和 `WithWriteLimit()` 防止恶意大消息
 - **ReadTimeout**：未启用心跳时建议设置 `WithReadTimeout()` 防止 ReadMessage 永久阻塞
+- **JWT 鉴权**：使用前需确保 `jwt.Init()` 已被调用，通常在应用启动时初始化
+- **Client 代理方法**：仅在 Client 已通过 `WithDispatcher` 注册后生效，未注册时静默跳过

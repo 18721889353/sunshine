@@ -113,6 +113,9 @@ func buildClientOpts(o *upgradeOptions) []ClientOption {
 	if o.writeLimit > 0 {
 		opts = append(opts, withClientWriteLimit(o.writeLimit))
 	}
+	if o.dispatcher != nil {
+		opts = append(opts, withClientDispatcher(o.dispatcher))
+	}
 	return opts
 }
 

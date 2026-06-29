@@ -38,7 +38,9 @@ var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 // 持续从底层连接读取 WebSocket 消息并推入 readCh 供 ReadMessage 消费。
 // 通过 select 监听 closeCh 实现优雅退出。
 // 当 readCh 满载时丢弃消息，防止背压阻塞影响关闭流程。
-// 读取失败时记录错误并退出循环，由 Close 负责完整清理。
+// 读取失败时记录错误、强制关闭底层连接并退出循环，
+// 触发 writeLoop 感知连接断开后也退出，由调用方执行 Close 完整清理。
+// 使用 forceCloseConn 而非直接调用 Close 避免 readLoop 自锁。
 func (c *Client) readLoop() {
 	defer func() {
 		close(c.readCh)
@@ -56,6 +58,7 @@ func (c *Client) readLoop() {
 		if c.readTimeout > 0 {
 			if err := c.conn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
 				c.recordReadErr(err)
+				c.forceCloseConn()
 				return
 			}
 		}
@@ -63,12 +66,15 @@ func (c *Client) readLoop() {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			c.recordReadErr(err)
+			c.forceCloseConn()
 			return
 		}
 
 		// 非阻塞推入 readCh，队列满时丢弃防止阻塞
 		select {
 		case c.readCh <- data:
+			c.numReceived.Add(1)
+			c.markLastRead()
 		default:
 		}
 	}
@@ -278,8 +284,6 @@ func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 			span.SetStatus(codes.Error, "connection closed")
 			return nil, c.getLastReadErr()
 		}
-		c.numReceived.Add(1)
-		c.markLastRead()
 		span.SetAttributes(attribute.Int("ws.msg_size", len(data)))
 		span.SetStatus(codes.Ok, "message received")
 		return data, nil

@@ -277,6 +277,24 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "reply", Data: msg.Name})
 	//	    }
 	//	}
+	//
+	//
+	//	// ========== 在读写循环外，通过 Client 的 Dispatcher 代理向指定用户推送消息 ==========
+	//	// 适用于其他 HTTP/gRPC 接口中触发的推送（此处仅作示例，不在读写循环内执行）
+	//	//
+	//	// 向单个用户发送:
+	//	//	client.SendToUIDCtx(ctx, "target_uid", gows.Message{Type: "notify", Msg: "你有新消息"})
+	//	//
+	//	// 向多个用户发送:
+	//	//	client.SendToMultiUIDCtx(ctx, []string{"uid1", "uid2"}, gows.Message{Type: "batch", Data: map[string]any{"scores": scores}})
+	//	//
+	//	// 向所有在线用户广播:
+	//	//	client.BroadcastCtx(ctx, gows.Message{Type: "announcement", Msg: "系统维护通知"})
+	//	//
+	//	// 注意: 分布式模式下（enableDistributed=true），以上调用会自动跨实例投递。
+	//	// 单机模式下同样可用，无需关心底层是否为分布式 Backend。
+	//
+	//	// ========== 读写循环结束，返回特殊错误跳过响应 ==========
 	//	return nil, errcode.SkipResponse
 {{else}}
 	

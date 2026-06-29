@@ -30,13 +30,15 @@ import (
 //   - 网络波动保护：写入失败时指数退避重试（含 jitter），Ping/Pong 协议级保活
 //   - 健康指标：记录读写时间与错误计数，支持 IsAlive 探测（定义在 health.go）
 //   - 读写超时：readLoop 和 writeWithRetry 均支持独立超时，不依赖心跳机制
+//   - dispatcher 字段用于代理 SendToUIDCtx / BroadcastCtx 等分发方法
 type Client struct {
-	conn           *websocket.Conn    // 底层 WebSocket 连接
-	uid            string             // 用户唯一标识（从 JWT 中提取）
-	writeCh        chan []byte        // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
-	readCh         chan []byte        // 读取队列通道，readLoop 向其推送接收到的消息数据
-	closeCh        chan struct{}      // 关闭信号通道，close 时触发所有监听协程退出
-	closed         atomic.Int32          // 原子关闭标记，0=未关闭，1=已关闭
+	conn           *websocket.Conn        // 底层 WebSocket 连接
+	uid            string                 // 用户唯一标识（从 JWT 中提取）
+	dispatcher     *DistributedDispatcher // 关联的分发中心，nil=未注册
+	writeCh        chan []byte            // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
+	readCh         chan []byte            // 读取队列通道，readLoop 向其推送接收到的消息数据
+	closeCh        chan struct{}          // 关闭信号通道，close 时触发所有监听协程退出
+	closed         atomic.Int32           // 原子关闭标记，0=未关闭，1=已关闭
 	wg             sync.WaitGroup       // 等待 writeLoop 和 readLoop 协程退出
 	onClose        func()               // 可选关闭回调钩子，Close 时在清理前调用
 	ctx            context.Context      // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
@@ -75,6 +77,7 @@ func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...Cl
 	c := &Client{
 		conn:           conn,
 		uid:            uid,
+		dispatcher:     o.dispatcher,
 		writeCh:        make(chan []byte, o.writeQueueSize),
 		readCh:         make(chan []byte, o.readQueueSize),
 		closeCh:        make(chan struct{}),
@@ -167,6 +170,37 @@ func (c *Client) Context() context.Context {
 //   - <-chan struct{}: 关闭信号接收通道，关闭时立即返回零值
 func (c *Client) Done() <-chan struct{} {
 	return c.closeCh
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher 代理方法
+// ---------------------------------------------------------------------------
+
+// SendToUIDCtx 通过关联的 Dispatcher 向指定 UID 的用户发送消息。
+// 仅在 Client 已注册到 Dispatcher 时有效（通过 Upgrade 传入 WithDispatcher）。
+func (c *Client) SendToUIDCtx(ctx context.Context, uid string, v any) {
+	if c.dispatcher == nil {
+		return
+	}
+	c.dispatcher.SendToUIDCtx(ctx, uid, v)
+}
+
+// SendToMultiUIDCtx 通过关联的 Dispatcher 向多个 UID 的用户发送消息。
+// 仅在 Client 已注册到 Dispatcher 时有效。
+func (c *Client) SendToMultiUIDCtx(ctx context.Context, uids []string, v any) {
+	if c.dispatcher == nil {
+		return
+	}
+	c.dispatcher.SendToMultiUIDCtx(ctx, uids, v)
+}
+
+// BroadcastCtx 通过关联的 Dispatcher 向所有在线客户端广播消息。
+// 仅在 Client 已注册到 Dispatcher 时有效。
+func (c *Client) BroadcastCtx(ctx context.Context, v any) {
+	if c.dispatcher == nil {
+		return
+	}
+	c.dispatcher.BroadcastCtx(ctx, v)
 }
 
 // requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。

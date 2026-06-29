@@ -9,12 +9,13 @@ type ClientOption func(*clientOptions)
 
 // clientOptions 客户端内部配置参数集合
 type clientOptions struct {
-	readQueueSize  int           // 读取队列缓冲区容量（默认 64）
-	writeQueueSize int           // 写入队列缓冲区容量（默认 64）
-	readTimeout    time.Duration // readLoop 读取超时时间
-	writeTimeout   time.Duration // writeWithRetry 写入超时时间
-	readLimit      int64         // 单条消息读取大小限制
-	writeLimit     int64         // 单条消息写入大小限制
+	readQueueSize  int                      // 读取队列缓冲区容量（默认 64）
+	writeQueueSize int                      // 写入队列缓冲区容量（默认 64）
+	readTimeout    time.Duration            // readLoop 读取超时时间
+	writeTimeout   time.Duration            // writeWithRetry 写入超时时间
+	readLimit      int64                    // 单条消息读取大小限制
+	writeLimit     int64                    // 单条消息写入大小限制
+	dispatcher     *DistributedDispatcher   // 关联的分发中心（nil=未注册）
 }
 
 func defaultClientOptions() *clientOptions {
@@ -82,6 +83,15 @@ func withClientWriteLimit(limit int64) ClientOption {
 	return func(o *clientOptions) {
 		if limit > 0 {
 			o.writeLimit = limit
+		}
+	}
+}
+
+// withClientDispatcher 内部 ClientOption，供 Upgrade 将 Dispatcher 传入 Client
+func withClientDispatcher(dd *DistributedDispatcher) ClientOption {
+	return func(o *clientOptions) {
+		if dd != nil {
+			o.dispatcher = dd
 		}
 	}
 }
