@@ -65,7 +65,7 @@ func (c *Client) markLastRead() {
 //   - 此方法返回 true 不代表底层网络一定可达，仅表示组件内部状态正常
 //   - 精确的活性检测依赖 Ping/Pong 协议级心跳 + ReadDeadline 联动
 func (c *Client) IsAlive() bool {
-	if c.closed.Load() == 1 {
+	if c.closed.Load() {
 		return false
 	}
 
@@ -141,7 +141,7 @@ func (c *Client) Stats() ClientStats {
 		WriteQueueLen:  len(c.writeCh),
 		ReadQueueSize:  cap(c.readCh),
 		ReadQueueLen:   len(c.readCh),
-		IsClosed:       c.closed.Load() == 1,
+		IsClosed:       c.closed.Load(),
 		IsAlive:        c.IsAlive(),
 		WriteErrCount:  c.health.writeErrCount.Load(),
 		ReadErrCount:   c.health.readErrCount.Load(),

@@ -15,12 +15,12 @@ import (
 // receiveLoop 后台协程：持续从后端接收跨实例消息并在本地投递。
 // 使用 WorkerPool 实现背压保护：当 Worker 全忙时，新消息降级为串行处理。
 func (dd *DistributedDispatcher) receiveLoop(ctx context.Context, msgCh <-chan *PubSubMessage) {
-	defer dd.wg.Done()
+	defer dd.receiveWg.Done()
 
 	tracer := otel.Tracer("gows")
 	for {
 		select {
-		case <-dd.done:
+		case <-dd.receiveStopCh:
 			return
 		case msg, ok := <-msgCh:
 			if !ok {
@@ -34,7 +34,7 @@ func (dd *DistributedDispatcher) receiveLoop(ctx context.Context, msgCh <-chan *
 // dispatchMessage 将消息分发到 WorkerPool 或串行处理。
 // WorkerPool 可用时异步投递，否则串行降级（反压保护）。
 func (dd *DistributedDispatcher) dispatchMessage(ctx context.Context, tracer trace.Tracer, msg *PubSubMessage) {
-	if dd.workerStarted.Load() == 1 {
+	if dd.workerStarted.Load() {
 		// WorkerPool 模式：尝试投递到 Worker 队列
 		task := func() {
 			dd.deliverMessage(ctx, tracer, msg)
@@ -160,8 +160,8 @@ func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.
 			deadClients = append(deadClients, client)
 			continue
 		}
-		if err := client.WriteRawCtx(client.ctx, payload); err != nil {
-			logger.WarnWithCtx(client.ctx, "ws distributed broadcast write failed",
+		if err := client.WriteRawCtx(client.clientCtx, payload); err != nil {
+			logger.WarnWithCtx(client.clientCtx, "ws distributed broadcast write failed",
 				logger.String("uid", client.uid),
 				logger.Err(err),
 			)
@@ -212,8 +212,8 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 			continue
 		}
 		if _, ok := uidSet[client.uid]; ok {
-			if err := client.WriteRawCtx(client.ctx, payload); err != nil {
-				logger.WarnWithCtx(client.ctx, "ws distributed send_to_uid write failed",
+			if err := client.WriteRawCtx(client.clientCtx, payload); err != nil {
+				logger.WarnWithCtx(client.clientCtx, "ws distributed send_to_uid write failed",
 					logger.String("uid", client.uid),
 					logger.Err(err),
 				)

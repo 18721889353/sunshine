@@ -38,16 +38,16 @@ import (
 //   - Broadcast 系列方法自动清理已关闭的僵尸连接
 //   - 连接管理使用 RWMutex，读多写少场景高性能
 type DistributedDispatcher struct {
-	mu            sync.RWMutex
+	mu            sync.RWMutex         // 保护 clients 的读写锁
 	clients       map[*Client]struct{} // 本地在线客户端集合
 	maxConns      atomic.Int32         // 最大连接数（0=不限制）
-	totalRejected atomic.Int32         // 原子计数: 因达到上限被拒绝的连接数
+	totalRejected atomic.Int32         // 因达到上限被拒绝的累计连接数
 
-	backend    Backend // 分布式后端（如 RabbitMQ Fanout，nil=单机模式）
-	instanceID string  // 本实例唯一标识，用于跳过自发布消息回环
-	done       chan struct{}
-	wg         sync.WaitGroup
-	started    atomic.Int32  // 原子标记，确保 Start 只执行一次
+	backend        Backend        // 分布式后端（如 RabbitMQ Fanout，nil=单机模式）
+	instanceID     string         // 本实例唯一标识，用于跳过自发布消息回环
+	receiveStopCh  chan struct{}  // 关闭时通知 receiveLoop 退出
+	receiveWg      sync.WaitGroup // 等待 receiveLoop goroutine 退出
+	receiveStarted atomic.Bool    // 是否已启动，确保 Start 幂等
 
 	// 分布式客户端注册表：跨实例同步的在线 UID 集合
 	// uid → count（同一 UID 多设备连接）
@@ -55,9 +55,9 @@ type DistributedDispatcher struct {
 
 	// WorkerPool 配置
 	workerNum     int32          // worker 协程数（默认 4）
-	workerCh      chan func()    // 投递任务通道
-	workerWg      sync.WaitGroup // 等待 worker 退出
-	workerStarted atomic.Int32   // 原子标记
+	workerCh      chan func()    // 投递任务通道，背压保护缓冲队列
+	workerWg      sync.WaitGroup // 等待所有 worker goroutine 退出
+	workerStarted atomic.Bool    // 是否已启动 WorkerPool
 }
 
 // NewDispatcher 创建并初始化一个新的消息分发中心。
@@ -80,11 +80,11 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 	o.apply(opts...)
 
 	d := &DistributedDispatcher{
-		clients:    make(map[*Client]struct{}),
-		backend:    backend,
-		done:       make(chan struct{}),
-		instanceID: fmt.Sprintf("%p", backend), // 默认以 backend 指针地址作为实例 ID
-		workerNum:  o.workerNum,
+		clients:       make(map[*Client]struct{}),
+		backend:       backend,
+		receiveStopCh: make(chan struct{}),
+		instanceID:    fmt.Sprintf("%p", backend), // 默认以 backend 指针地址作为实例 ID
+		workerNum:     o.workerNum,
 	}
 	d.maxConns.Store(o.maxConns)
 	return d
@@ -101,31 +101,31 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 	if dd.backend == nil {
 		return // 单机模式无需启动
 	}
-	if !dd.started.CompareAndSwap(0, 1) {
+	if !dd.receiveStarted.CompareAndSwap(false, true) {
 		return
 	}
 
-	// 启动 Worker Pool（背压保护）
+	// 1. 先连接后端，获取消息通道
+	msgCh, err := dd.backend.Receive(ctx)
+	if err != nil {
+		logger.WarnWithCtx(ctx, "dispatcher start receive failed", logger.Err(err))
+		dd.receiveStarted.Store(false)
+		return
+	}
+
+	// 2. 启动 Worker Pool（背压保护）
 	if n := atomic.LoadInt32(&dd.workerNum); n > 0 {
 		dd.workerCh = make(chan func(), n*2) // 缓冲队列为 worker 数的 2 倍
 		for i := int32(0); i < n; i++ {
 			dd.workerWg.Add(1)
 			go dd.workerLoop()
 		}
-		dd.workerStarted.Store(1)
+		dd.workerStarted.Store(true)
 		logger.InfoWithCtx(ctx, "dispatcher worker pool started", logger.Int32("workers", n))
 	}
 
-	msgCh, err := dd.backend.Receive(ctx)
-	if err != nil {
-		logger.WarnWithCtx(ctx, "dispatcher start receive failed",
-			logger.Err(err),
-		)
-		dd.started.Store(0)
-		return
-	}
-
-	dd.wg.Add(1)
+	// 3. 启动 receiveLoop
+	dd.receiveWg.Add(1)
 	go dd.receiveLoop(ctx, msgCh)
 	logger.InfoWithCtx(ctx, "distributed dispatcher started")
 }
@@ -151,11 +151,11 @@ func (dd *DistributedDispatcher) Stop() {
 	}
 
 	// 2. 关闭 receiveLoop
-	close(dd.done)
-	dd.wg.Wait()
+	close(dd.receiveStopCh)
+	dd.receiveWg.Wait()
 
 	// 3. 关闭 WorkerPool
-	if dd.workerStarted.Load() == 1 {
+	if dd.workerStarted.Load() {
 		close(dd.workerCh)
 		dd.workerWg.Wait()
 	}

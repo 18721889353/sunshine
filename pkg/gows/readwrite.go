@@ -35,47 +35,55 @@ var ErrWriteQueueFull = errors.New("write queue is full, message dropped")
 var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 
 // readLoop 内部读取循环 goroutine。
-// 持续从底层连接读取 WebSocket 消息并推入 readCh 供 ReadMessage 消费。
-// 通过 select 监听 closeCh 实现优雅退出。
-// 当 readCh 满载时丢弃消息，防止背压阻塞影响关闭流程。
-// 读取失败时记录错误、强制关闭底层连接并退出循环，
-// 触发 writeLoop 感知连接断开后也退出，由调用方执行 Close 完整清理。
-// 使用 forceCloseConn 而非直接调用 Close 避免 readLoop 自锁。
+// 持续从底层 WebSocket 连接读取消息并推入 readCh 供 ReadMessageCtx 消费。
+// 通过 readCh 缓冲通道解耦网络读取和业务处理，满队列时丢弃消息实现背压保护。
+// 支持主动读超时保护（独立于心跳），超时或读取失败时记录错误并强制关闭底层连接。
+//
+// 核心机制:
+//   - readTimeout > 0 时每次读前设置 SetReadDeadline，超时后 ReadMessage 返回 timeout 错误
+//   - 读取成功后阻塞推入 readCh，队列满时反压到 TCP 读取层，不丢弃消息
+//   - 读取失败后调用 forceCloseConn 关闭底层 TCP 连接（不自锁），不调用 Close
+//   - 退出时 defer 关闭 readCh，触发 ReadMessageCtx 的 <-c.readCh 返回 !ok
+//
+// 退出路径:
+//   - ReadMessage 返回错误（网络断开/超时/连接关闭）→ forceCloseConn → return
+//   - SetReadDeadline 失败（连接已不可用）→ forceCloseConn → return
+//   - closeSignalCh 被关闭（Close 调用）→ return（阻塞推入时响应）
+//
+// 注意:
+//   - 读取失败不重试，直接关闭连接由客户端发起重连
+//   - 使用 forceCloseConn 而非 Close 避免 writeLoop 自锁
 func (c *Client) readLoop() {
 	defer func() {
 		close(c.readCh)
-		c.wg.Done()
+		c.loopWg.Done()
 	}()
 
 	for {
-		select {
-		case <-c.closeCh:
-			return
-		default:
-		}
-
 		// 主动读超时保护（独立于心跳，不依赖 PongHandler）
 		if c.readTimeout > 0 {
-			if err := c.conn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
+			if err := c.wsConn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
 				c.recordReadErr(err)
 				c.forceCloseConn()
 				return
 			}
 		}
 
-		_, data, err := c.conn.ReadMessage()
+		_, data, err := c.wsConn.ReadMessage()
 		if err != nil {
 			c.recordReadErr(err)
 			c.forceCloseConn()
 			return
 		}
 
-		// 非阻塞推入 readCh，队列满时丢弃防止阻塞
+		// 阻塞推入 readCh，队列满时反压到 TCP 读取层，不丢弃消息
+		// 关闭时通过 closeSignalCh 退出，不永久阻塞
 		select {
 		case c.readCh <- data:
 			c.numReceived.Add(1)
 			c.markLastRead()
-		default:
+		case <-c.closeSignalCh:
+			return
 		}
 	}
 }
@@ -91,28 +99,25 @@ func (c *Client) readLoop() {
 // 触发消息读取方 ReadMessage 返回错误，进而由调用方执行 Close 完整清理。
 // 使用 forceCloseConn 而非直接调用 Close 避免 writeLoop 自锁。
 func (c *Client) writeLoop() {
-	defer c.wg.Done()
+	defer c.loopWg.Done()
+
 	for {
-		select {
-		case data, ok := <-c.writeCh:
-			if !ok {
-				return
-			}
-			if err := c.writeWithRetry(data); err != nil {
-				logger.WarnWithCtx(c.ctx, "ws client write failed after retries, force closing",
-					logger.String("uid", c.uid),
-					logger.String("remote_addr", c.remoteAddr),
-					logger.Int("retries", writeLoopRetries),
-					logger.Err(err),
-				)
-				c.forceCloseConn()
-				return
-			}
-			c.numSent.Add(1)
-			c.markLastWrite()
-		case <-c.closeCh:
+		data, ok := <-c.writeCh
+		if !ok {
 			return
 		}
+		if err := c.writeWithRetry(data); err != nil {
+			logger.WarnWithCtx(c.clientCtx, "ws client write failed after retries, force closing",
+				logger.String("uid", c.uid),
+				logger.String("remote_addr", c.remoteAddr),
+				logger.Int("retries", writeLoopRetries),
+				logger.Err(err),
+			)
+			c.forceCloseConn()
+			return
+		}
+		c.numSent.Add(1)
+		c.markLastWrite()
 	}
 }
 
@@ -143,13 +148,13 @@ func (c *Client) writeWithRetry(data []byte) error {
 		if timeout <= 0 {
 			timeout = writeDeadline
 		}
-		if err := c.conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		if err := c.wsConn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
 			lastErr = err
 			c.recordWriteErr(err)
 			continue
 		}
 
-		if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		if err := c.wsConn.WriteMessage(websocket.TextMessage, data); err != nil {
 			lastErr = err
 			c.recordWriteErr(err)
 			continue
@@ -176,7 +181,7 @@ func (c *Client) checkWriteLimit(data []byte) error {
 //   - error: 参见 WriteJSON 的错误语义
 func (c *Client) WriteJSONCtx(ctx context.Context, v any) error {
 	if ctx == nil {
-		ctx = c.ctx
+		ctx = c.clientCtx
 	}
 	tracer := otel.Tracer("gows")
 	_, span := tracer.Start(ctx, "ws.write", trace.WithSpanKind(trace.SpanKindInternal))
@@ -187,7 +192,7 @@ func (c *Client) WriteJSONCtx(ctx context.Context, v any) error {
 		requestIDAttr(ctx),
 	)
 
-	if c.closed.Load() == 1 {
+	if c.closed.Load() {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
@@ -223,7 +228,7 @@ func (c *Client) WriteJSONCtx(ctx context.Context, v any) error {
 //   - error: 与 WriteJSONCtx 相同的错误语义
 func (c *Client) WriteRawCtx(ctx context.Context, data []byte) error {
 	if ctx == nil {
-		ctx = c.ctx
+		ctx = c.clientCtx
 	}
 	tracer := otel.Tracer("gows")
 	_, span := tracer.Start(ctx, "ws.write_raw", trace.WithSpanKind(trace.SpanKindInternal))
@@ -235,7 +240,7 @@ func (c *Client) WriteRawCtx(ctx context.Context, data []byte) error {
 		attribute.Int("ws.data_size", len(data)),
 	)
 
-	if c.closed.Load() == 1 {
+	if c.closed.Load() {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
@@ -267,7 +272,7 @@ func (c *Client) WriteRawCtx(ctx context.Context, data []byte) error {
 //   - error:  读取失败、连接关闭或读取超时时返回非 nil 错误
 func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 	if ctx == nil {
-		ctx = c.ctx
+		ctx = c.clientCtx
 	}
 	tracer := otel.Tracer("gows")
 	_, span := tracer.Start(ctx, "ws.read", trace.WithSpanKind(trace.SpanKindInternal))
@@ -287,7 +292,7 @@ func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 		span.SetAttributes(attribute.Int("ws.msg_size", len(data)))
 		span.SetStatus(codes.Ok, "message received")
 		return data, nil
-	case <-c.closeCh:
+	case <-c.closeSignalCh:
 		span.SetStatus(codes.Error, "connection closed")
 		return nil, websocket.ErrCloseSent
 	}

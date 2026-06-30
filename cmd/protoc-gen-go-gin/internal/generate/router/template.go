@@ -52,9 +52,15 @@ var WsTokenKey = "ws_token"
 // wsBackendOnce 确保分布式 Dispatcher 只初始化一次。
 var wsBackendOnce sync.Once
 
+// wsDispatcher 分布式 Dispatcher 实例，由 initWSDispatcher 惰性创建。
+// 仅在 EnableDistributed=true 时非 nil，供 Upgrade 注册使用。
+// 不覆盖 gows.DefaultDispatcher，保持单机模式默认实例不受影响。
+var wsDispatcher *gows.DistributedDispatcher
+
 // initWSDispatcher 初始化分布式 Dispatcher。
 // 当 config.Get().Websocket.Distributed.EnableDistributed=true 时，使用 RabbitMQ 作为 Backend
-// 替换默认的 DefaultDispatcher（单机模式），支持跨实例消息分发。
+// 创建分布式 Dispatcher 实例，支持跨实例消息分发。
+// 将实例存入 wsDispatcher 供 Upgrade 使用，不修改 gows.DefaultDispatcher。
 func initWSDispatcher() {
 	wsBackendOnce.Do(func() {
 		if !config.Get().Websocket.Distributed.EnableDistributed {
@@ -68,7 +74,7 @@ func initWSDispatcher() {
 			gows.WithWorkerPool(config.Get().Websocket.Distributed.WorkerPool),
 			gows.WithMaxConnections(config.Get().Websocket.Distributed.MaxConnections),
 		)
-		gows.DefaultDispatcher = dd
+		wsDispatcher = dd
 		dd.Start(context.Background())
 	})
 }
@@ -328,7 +334,7 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		)
 	}
 	if config.Get().Websocket.Distributed.EnableDistributed {
-		upgradeOpts = append(upgradeOpts, gows.WithEnableDistributed(true), gows.WithDispatcher(gows.DefaultDispatcher))
+		upgradeOpts = append(upgradeOpts, gows.WithEnableDistributed(true), gows.WithDispatcher(wsDispatcher))
 	}
 	client, err := gows.Upgrade(c, upgradeOpts...)
 	if err != nil {

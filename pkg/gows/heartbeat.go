@@ -70,22 +70,22 @@ func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 
 	// 链路追踪：心跳协程生命周期
 	tracer := otel.Tracer("gows")
-	ctx, span := tracer.Start(client.ctx, "ws.heartbeat", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := tracer.Start(client.clientCtx, "ws.heartbeat", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("ws.uid", client.uid),
 		attribute.String("ws.remote_addr", client.remoteAddr),
 		attribute.String("ws.heartbeat_interval", o.interval.String()),
-		requestIDAttr(client.ctx),
+		requestIDAttr(client.clientCtx),
 	)
 
 	// 设置协议级 Pong 处理器 + ReadDeadline
 	// ReadDeadline 必须大于 heartbeatInterval，避免 ticker 与 deadline 同频竞态
-	SetupPongHandler(client.conn, o.interval, o.pongTimeout)
+	SetupPongHandler(client.wsConn, o.interval, o.pongTimeout)
 
 	// 立即发送一次 Ping，让 PongHandler 在首帧 tick 前刷新 ReadDeadline
 	// 避免 ReadDeadline 在首帧 Ping 发送前过期导致误判
-	if err := client.conn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(o.pingWriteWait)); err != nil {
+	if err := client.wsConn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(o.pingWriteWait)); err != nil {
 		span.SetAttributes(attribute.Bool("ws.initial_ping_failed", true))
 		logger.WarnWithCtx(ctx, "ws initial ping failed, connection dead",
 			logger.String("uid", client.uid),
@@ -111,7 +111,7 @@ func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 			// 发送 WebSocket 协议级 Ping 控制帧（连接活性探测）
 			// 对端协议栈自动回复 Pong，PongHandler 刷新 ReadDeadline
 			// 写入超时由 pingWriteWait 控制，防止 TCP 半连接导致卡死
-			if err := client.conn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(o.pingWriteWait)); err != nil {
+			if err := client.wsConn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(o.pingWriteWait)); err != nil {
 				span.SetAttributes(attribute.Int("ws.ping_fail_count", 1))
 				span.SetStatus(codes.Error, err.Error())
 				logger.WarnWithCtx(ctx, "ws protocol ping failed, connection dead",
