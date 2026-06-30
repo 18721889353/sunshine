@@ -24,8 +24,8 @@ type upgradeOptions struct {
 	errorHandler      func(*gin.Context, error)  // 升级失败时的自定义错误处理
 
 	// 客户端队列配置（Upgrade → Client 传播）
-	writeQueueSize int // 写入队列容量（0=默认 64）
-	readQueueSize  int // 读取队列容量（0=默认 64）
+	writeChSize int // 写入通道容量（0=默认 1024）
+	readChSize  int // 读取通道容量（0=默认 1024）
 
 	// 限流配置（仅在 Upgrade 函数中读取，不存储在选项上）
 	enableRateLimit bool          // 是否启用全局速率限制
@@ -266,18 +266,18 @@ func WithEnableCompression(enable bool) UpgradeOption {
 
 // WithQueueSize 设置客户端读写队列缓冲区容量。
 // 参数:
-//   - writeSize: 写入队列容量，<=0 时使用默认值 64。增大可减少高并发时的丢包，但占用更多内存。
-//   - readSize:  读取队列容量，<=0 时使用默认值 64。增大可应对消费速度跟不上生产速度的场景。
+//   - writeSize: 写入队列容量，<=0 时使用默认值 1024。增大可减少高并发时的丢包，但占用更多内存。
+//   - readSize:  读取队列容量，<=0 时使用默认值 1024。增大可应对消费速度跟不上生产速度的场景。
 //
 // 队列满载时新消息会被丢弃（写入）或丢失（读取），这是背压保护机制。
-// 建议根据业务峰值 QPS 和消息大小估算，通常在 64~256 之间。
+// 建议根据业务峰值 QPS 和消息大小估算，通常在 1024~4096 之间。
 func WithQueueSize(writeSize, readSize int) UpgradeOption {
 	return func(o *upgradeOptions) {
 		if writeSize > 0 {
-			o.writeQueueSize = writeSize
+			o.writeChSize = writeSize
 		}
 		if readSize > 0 {
-			o.readQueueSize = readSize
+			o.readChSize = readSize
 		}
 	}
 }

@@ -2,21 +2,19 @@ package gows
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// healthState 客户端连接健康状态，保护 lastWriteTime / lastReadTime 并发读写。
+// healthState 客户端连接健康状态，使用 atomic.Int64 无锁化时间戳。
 // 提取为独立结构体减少 Client 顶层字段数。
 type healthState struct {
-	lastWriteTime time.Time
-	lastReadTime  time.Time
+	lastWriteTime atomic.Int64 // unix nano 最后写入时间
+	lastReadTime  atomic.Int64 // unix nano 最后读取时间
 	writeErrCount atomic.Int64
 	readErrCount  atomic.Int64
 	lastWriteErr  atomic.Value
 	lastReadErr   atomic.Value
-	mu            sync.RWMutex
 }
 
 // recordWriteErr 原子记录写入错误计数和最近一次错误信息
@@ -43,16 +41,12 @@ func (c *Client) getLastReadErr() error {
 
 // markLastWrite 记录最后一次成功写入时间
 func (c *Client) markLastWrite() {
-	c.health.mu.Lock()
-	c.health.lastWriteTime = time.Now()
-	c.health.mu.Unlock()
+	c.health.lastWriteTime.Store(time.Now().UnixNano())
 }
 
 // markLastRead 记录最后一次成功读取时间
 func (c *Client) markLastRead() {
-	c.health.mu.Lock()
-	c.health.lastReadTime = time.Now()
-	c.health.mu.Unlock()
+	c.health.lastReadTime.Store(time.Now().UnixNano())
 }
 
 // IsAlive 判断客户端连接是否处于健康状态。
@@ -69,17 +63,15 @@ func (c *Client) IsAlive() bool {
 		return false
 	}
 
-	c.health.mu.RLock()
-	lastWrite := c.health.lastWriteTime
-	c.health.mu.RUnlock()
+	lastWriteNano := c.health.lastWriteTime.Load()
 
 	// 如果从未写入过，视为存活（刚建立的连接）
-	if lastWrite.IsZero() {
+	if lastWriteNano == 0 {
 		return true
 	}
 
 	// 超过 3 个心跳周期无成功写入，标记为异常
-	if time.Since(lastWrite) > 3*defaultHeartbeatInterval {
+	if time.Since(time.Unix(0, lastWriteNano)) > 3*defaultHeartbeatInterval {
 		return false
 	}
 
@@ -109,16 +101,16 @@ type ClientStats struct {
 // Stats 返回客户端连接的实时统计信息。
 // 各字段均为 goroutine 安全读取。
 func (c *Client) Stats() ClientStats {
-	c.health.mu.RLock()
-	lastWriteStr := ""
-	lastReadStr := ""
-	if !c.health.lastWriteTime.IsZero() {
-		lastWriteStr = c.health.lastWriteTime.Format(time.RFC3339Nano)
+	lastWriteNano := c.health.lastWriteTime.Load()
+	lastReadNano := c.health.lastReadTime.Load()
+
+	var lastWriteStr, lastReadStr string
+	if lastWriteNano != 0 {
+		lastWriteStr = time.Unix(0, lastWriteNano).Format(time.RFC3339Nano)
 	}
-	if !c.health.lastReadTime.IsZero() {
-		lastReadStr = c.health.lastReadTime.Format(time.RFC3339Nano)
+	if lastReadNano != 0 {
+		lastReadStr = time.Unix(0, lastReadNano).Format(time.RFC3339Nano)
 	}
-	c.health.mu.RUnlock()
 
 	var lastWriteErrStr, lastReadErrStr string
 	if v := c.health.lastWriteErr.Load(); v != nil {

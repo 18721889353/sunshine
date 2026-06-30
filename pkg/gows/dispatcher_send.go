@@ -157,12 +157,11 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 	defer span.End()
 	span.SetAttributes(requestIDAttr(ctx))
 
-	dd.mu.RLock()
-	clients := make([]*Client, 0, len(dd.clients))
-	for client := range dd.clients {
-		clients = append(clients, client)
-	}
-	dd.mu.RUnlock()
+	var clients []*Client
+	dd.clients.Range(func(key, _ any) bool {
+		clients = append(clients, key.(*Client))
+		return true
+	})
 
 	span.SetAttributes(attribute.Int("ws.broadcast_targets", len(clients)))
 
@@ -190,11 +189,11 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 
 	if len(deadClients) > 0 {
 		span.SetAttributes(attribute.Int("ws.dead_clients_cleaned", len(deadClients)))
-		dd.mu.Lock()
 		for _, client := range deadClients {
-			delete(dd.clients, client)
+			if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+				dd.clientCount.Add(-1)
+			}
 		}
-		dd.mu.Unlock()
 	}
 
 	span.SetStatus(codes.Ok, "broadcast_filter completed")

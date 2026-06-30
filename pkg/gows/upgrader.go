@@ -95,11 +95,11 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 // buildClientOpts 将 UpgradeOption 中的 Client 配置转换为 ClientOption 列表。
 func buildClientOpts(o *upgradeOptions) []ClientOption {
 	var opts []ClientOption
-	if o.writeQueueSize > 0 {
-		opts = append(opts, withWriteQueueSize(o.writeQueueSize))
+	if o.writeChSize > 0 {
+		opts = append(opts, withWriteChSize(o.writeChSize))
 	}
-	if o.readQueueSize > 0 {
-		opts = append(opts, withReadQueueSize(o.readQueueSize))
+	if o.readChSize > 0 {
+		opts = append(opts, withReadChSize(o.readChSize))
 	}
 	if o.readTimeout > 0 {
 		opts = append(opts, withClientReadTimeout(o.readTimeout))

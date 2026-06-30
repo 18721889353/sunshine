@@ -465,3 +465,111 @@ func (c *Client) Close() error {
 
 - 结构体字面量中不能直接赋值 `maxConns: o.maxConns`（`atomic.Int32` 是结构体类型），需在构造后调用 `.Store()`
 - 不再需要 `sync/atomic` 导入的情况：文件中所有 `atomic.*` 包函数调用被替换为方法调用后，可删除导入
+
+## 十四、sync.Map 操作规范 — 计数漂移保护
+
+### 问题场景
+
+`sync.Map` 允许多路径并发操作同一 key（如 `UnregisterCtx` / `CleanupDeadConns` / 消息投递中的僵尸清理同时删除同个 `*Client`）。无条件计数器递减会导致计数漂移。
+
+### 正确模式
+
+```go
+// ❌ 错误：无条件递减，并发删除时计数漂移
+dd.clients.Delete(client)
+dd.clientCount.Add(-1)
+
+// ✅ 正确：只有实际删除了才递减
+if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+    dd.clientCount.Add(-1)
+}
+```
+
+ctx 回滚时同样需条件判断：
+
+```go
+_, loaded := dd.clients.LoadAndDelete(client)
+if loaded {
+    dd.clientCount.Add(-1)
+}
+select {
+case <-ctx.Done():
+    if loaded {
+        dd.clients.Store(client, struct{}{})
+        dd.clientCount.Add(1)
+    }
+    return ctx.Err()
+default:
+}
+```
+
+### 应用场景
+
+| 操作 | 注意 |
+|------|------|
+| `RegisterCtx` | `Store(client, struct{}{})` + `Add(1)`，新注册 client 不会与其他路径并发，可不加 loaded 判断 |
+| `UnregisterCtx` | 必须用 `LoadAndDelete` + `if loaded`，可能与其他清理路径并发 |
+| `CleanupDeadConns` | Range 回调内必须用 `LoadAndDelete` + `if loaded { cleaned++ }`，再统一 `Add(-cleaned)` |
+| 消息投递中的僵尸清理 | 已用 `LoadAndDelete` + `if loaded`，正确 |
+
+### 规则
+
+| 规则 | 说明 |
+|------|------|
+| **并发删除用 LoadAndDelete** | 可能被多条路径并发删除的 map，必须用 `LoadAndDelete` + `if loaded` 保护计数器 |
+| **ctx 回滚一致** | 回滚操作的条件必须与删除操作一致 |
+| **Range 中删除用 CAS** | `sync.Map.Range` 回调内删除当前 key，使用 `LoadAndDelete` 确保操作原子性 |
+
+## 十四、sync.Map 操作规范 — 计数漂移保护
+
+### 问题场景
+
+`sync.Map` 允许多路径并发操作同一 key（如 `UnregisterCtx` / `CleanupDeadConns` / 消息投递中的僵尸清理同时删除同个 `*Client`）。无条件计数器递减会导致计数漂移。
+
+### 正确模式
+
+```go
+// ❌ 错误：无条件递减，并发删除时计数漂移
+dd.clients.Delete(client)
+dd.clientCount.Add(-1)
+
+// ✅ 正确：只有实际删除了才递减
+if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+    dd.clientCount.Add(-1)
+}
+```
+
+ctx 回滚时同样需条件判断：
+
+```go
+_, loaded := dd.clients.LoadAndDelete(client)
+if loaded {
+    dd.clientCount.Add(-1)
+}
+select {
+case <-ctx.Done():
+    if loaded {  // 只有实际删除了才回滚
+        dd.clients.Store(client, struct{}{})
+        dd.clientCount.Add(1)
+    }
+    return ctx.Err()
+default:
+}
+```
+
+### 应用场景
+
+| 操作 | 注意 |
+|------|------|
+| `RegisterCtx` | `Store(client, struct{}{})` + `Add(1)`，回滚用 `Delete`+`Add(-1)`。新注册 client 不会被其他路径并发删除（`IsAlive()=true`），可不加 loaded 判断 |
+| `UnregisterCtx` | 必须用 `LoadAndDelete` + `if loaded`，可能与其他清理路径并发 |
+| `CleanupDeadConns` | Range 回调内必须用 `LoadAndDelete` + `if loaded { cleaned++ }`，再统一 `Add(-cleaned)` |
+| 消息投递中的僵尸清理 | 已用 `LoadAndDelete` + `if loaded`，正确 |
+
+### 规则
+
+| 规则 | 说明 |
+|------|------|
+| **并发删除用 LoadAndDelete** | 可能被多条路径并发删除的 map，必须用 `LoadAndDelete` + `if loaded` 保护计数器 |
+| **ctx 回滚一致** | 回滚操作的条件必须与删除操作一致 |
+| **Range 中删除用 CAS** | `sync.Map.Range` 回调内删除当前 key，使用 `LoadAndDelete` 确保只看当前 key |

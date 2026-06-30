@@ -56,23 +56,26 @@ var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 func (c *Client) readLoop() {
 	defer func() {
 		close(c.readCh)
-		c.loopWg.Done()
+		c.readWg.Done()
 	}()
 
 	for {
 		// 主动读超时保护（独立于心跳，不依赖 PongHandler）
-		if c.readTimeout > 0 {
-			if err := c.wsConn.SetReadDeadline(time.Now().Add(c.readTimeout)); err != nil {
-				c.recordReadErr(err)
-				c.forceCloseConn()
-				return
-			}
+		// wsConnReadTimeout=0 表示清除 deadline（不限制）
+		var deadline time.Time
+		if c.wsConnReadTimeout > 0 {
+			deadline = time.Now().Add(c.wsConnReadTimeout)
+		}
+		if err := c.wsConn.SetReadDeadline(deadline); err != nil {
+			c.recordReadErr(err)
+			c.closeWsConn()
+			return
 		}
 
 		_, data, err := c.wsConn.ReadMessage()
 		if err != nil {
 			c.recordReadErr(err)
-			c.forceCloseConn()
+			c.closeWsConn()
 			return
 		}
 
@@ -82,7 +85,7 @@ func (c *Client) readLoop() {
 		case c.readCh <- data:
 			c.numReceived.Add(1)
 			c.markLastRead()
-		case <-c.closeSignalCh:
+		case <-c.readCloseCh:
 			return
 		}
 	}
@@ -95,11 +98,11 @@ func (c *Client) readLoop() {
 //   - 第 2 次重试等待 200ms
 //   - 第 3 次重试等待 400ms
 //
-// 全部重试失败后调用 forceCloseConn 关闭底层 TCP 连接，
+// 全部重试失败后调用 closeWsConn 关闭底层 TCP 连接，
 // 触发消息读取方 ReadMessage 返回错误，进而由调用方执行 Close 完整清理。
-// 使用 forceCloseConn 而非直接调用 Close 避免 writeLoop 自锁。
+// 使用 closeWsConn 而非直接调用 Close 避免 writeLoop 自锁。
 func (c *Client) writeLoop() {
-	defer c.loopWg.Done()
+	defer c.writeWg.Done()
 
 	for {
 		data, ok := <-c.writeCh
@@ -113,7 +116,7 @@ func (c *Client) writeLoop() {
 				logger.Int("retries", writeLoopRetries),
 				logger.Err(err),
 			)
-			c.forceCloseConn()
+			c.closeWsConn()
 			return
 		}
 		c.numSent.Add(1)
@@ -142,13 +145,8 @@ func (c *Client) writeWithRetry(data []byte) error {
 		}
 
 		// 设置写入超时，防止 TCP 半连接导致永久阻塞
-		// 若 c.writeTimeout 为 0，使用默认的 writeDeadline (10s)
-		// 若设置 deadline 失败，说明连接已不可用，直接进入重试
-		timeout := c.writeTimeout
-		if timeout <= 0 {
-			timeout = writeDeadline
-		}
-		if err := c.wsConn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		// NewClient 已确保 wsConnWriteTimeout > 0（默认 10s）
+		if err := c.wsConn.SetWriteDeadline(time.Now().Add(c.wsConnWriteTimeout)); err != nil {
 			lastErr = err
 			c.recordWriteErr(err)
 			continue
@@ -292,7 +290,7 @@ func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 		span.SetAttributes(attribute.Int("ws.msg_size", len(data)))
 		span.SetStatus(codes.Ok, "message received")
 		return data, nil
-	case <-c.closeSignalCh:
+	case <-c.readCloseCh:
 		span.SetStatus(codes.Error, "connection closed")
 		return nil, websocket.ErrCloseSent
 	}

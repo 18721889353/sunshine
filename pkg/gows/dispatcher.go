@@ -36,12 +36,12 @@ import (
 //
 // # 网络波动保护
 //   - Broadcast 系列方法自动清理已关闭的僵尸连接
-//   - 连接管理使用 RWMutex，读多写少场景高性能
+//   - 连接管理使用 sync.Map，无锁化高并发安全
 type DistributedDispatcher struct {
-	mu            sync.RWMutex         // 保护 clients 的读写锁
-	clients       map[*Client]struct{} // 本地在线客户端集合
-	maxConns      atomic.Int32         // 最大连接数（0=不限制）
-	totalRejected atomic.Int32         // 因达到上限被拒绝的累计连接数
+	clients       sync.Map     // *Client → struct{} 本地在线客户端集合
+	clientCount   atomic.Int32 // clients 中的客户端数量，优化 Len() 性能
+	maxConns      atomic.Int32 // 最大连接数（0=不限制）
+	totalRejected atomic.Int32 // 因达到上限被拒绝的累计连接数
 
 	backend        Backend        // 分布式后端（如 RabbitMQ Direct，nil=单机模式）
 	instanceID     string         // 本实例唯一标识，用于跳过自发布消息回环
@@ -50,8 +50,7 @@ type DistributedDispatcher struct {
 	receiveStarted atomic.Bool    // 是否已启动，确保 Start 幂等
 
 	// 按 UID 的消息订阅管理（Direct 模式）
-	uidSubs   map[string]chan struct{} // uid → 停止订阅信号
-	uidSubsMu sync.Mutex               // 保护 uidSubs
+	uidSubs sync.Map // uid → chan struct{} 停止订阅信号
 
 	// 分布式客户端注册表：跨实例同步的在线 UID 集合
 	// uid → count（同一 UID 多设备连接）
@@ -84,12 +83,10 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 	o.apply(opts...)
 
 	d := &DistributedDispatcher{
-		clients:       make(map[*Client]struct{}),
 		backend:       backend,
 		receiveStopCh: make(chan struct{}),
 		instanceID:    fmt.Sprintf("%p", backend), // 默认以 backend 指针地址作为实例 ID
 		workerNum:     o.workerNum,
-		uidSubs:       make(map[string]chan struct{}),
 	}
 	d.maxConns.Store(o.maxConns)
 	return d
@@ -147,12 +144,11 @@ func (dd *DistributedDispatcher) workerLoop() {
 // 关闭顺序: 关闭 Backend → 关闭 uidSubs → 关闭 receiveLoop → 关闭 WorkerPool。
 func (dd *DistributedDispatcher) Stop() {
 	// 1. 关闭所有 UID 订阅
-	dd.uidSubsMu.Lock()
-	for uid, stopCh := range dd.uidSubs {
-		close(stopCh)
-		delete(dd.uidSubs, uid)
-	}
-	dd.uidSubsMu.Unlock()
+	dd.uidSubs.Range(func(key, value any) bool {
+		close(value.(chan struct{}))
+		dd.uidSubs.Delete(key)
+		return true
+	})
 
 	// 2. 关闭后端，停止接收新消息
 	if dd.backend != nil {
@@ -176,9 +172,7 @@ func (dd *DistributedDispatcher) Stop() {
 
 // Len 返回全局在线连接数（本地 + 远端）。
 func (dd *DistributedDispatcher) Len() int {
-	dd.mu.RLock()
-	local := len(dd.clients)
-	dd.mu.RUnlock()
+	local := int(dd.clientCount.Load())
 
 	remote := 0
 	dd.remoteUIDs.Range(func(_, _ any) bool {
@@ -200,24 +194,22 @@ func (dd *DistributedDispatcher) TotalRejected() int {
 
 // Clients 返回当前所有已注册客户端的快照切片。
 func (dd *DistributedDispatcher) Clients() []*Client {
-	dd.mu.RLock()
-	defer dd.mu.RUnlock()
-	clients := make([]*Client, 0, len(dd.clients))
-	for client := range dd.clients {
-		clients = append(clients, client)
-	}
+	var clients []*Client
+	dd.clients.Range(func(key, _ any) bool {
+		clients = append(clients, key.(*Client))
+		return true
+	})
 	return clients
 }
 
 // Range 遍历所有已注册客户端。
 // 如果 fn 返回 false 则停止遍历。
 func (dd *DistributedDispatcher) Range(fn func(*Client) bool) {
-	dd.mu.RLock()
-	clients := make([]*Client, 0, len(dd.clients))
-	for client := range dd.clients {
-		clients = append(clients, client)
-	}
-	dd.mu.RUnlock()
+	var clients []*Client
+	dd.clients.Range(func(key, _ any) bool {
+		clients = append(clients, key.(*Client))
+		return true
+	})
 
 	for _, client := range clients {
 		if !fn(client) {
@@ -256,9 +248,7 @@ func (dd *DistributedDispatcher) Stats() DispatcherStats {
 
 // LenLocal 返回本地在线连接数。
 func (dd *DistributedDispatcher) LenLocal() int {
-	dd.mu.RLock()
-	defer dd.mu.RUnlock()
-	return len(dd.clients)
+	return int(dd.clientCount.Load())
 }
 
 // ConnectedUIDs 返回所有实例上的在线 UID 列表（去重）。
@@ -266,13 +256,13 @@ func (dd *DistributedDispatcher) ConnectedUIDs() []string {
 	seen := make(map[string]struct{})
 
 	// 1. 本地 UID
-	dd.mu.RLock()
-	for client := range dd.clients {
+	dd.clients.Range(func(key, _ any) bool {
+		client := key.(*Client)
 		if client.uid != "" {
 			seen[client.uid] = struct{}{}
 		}
-	}
-	dd.mu.RUnlock()
+		return true
+	})
 
 	// 2. 远端 UID
 	dd.remoteUIDs.Range(func(key, _ any) bool {
@@ -296,15 +286,16 @@ func (dd *DistributedDispatcher) ConnectedUIDs() []string {
 // CleanupDeadConns 清理所有已关闭的僵尸连接，释放 Dispatcher 内存。
 // 返回清理的连接数。
 func (dd *DistributedDispatcher) CleanupDeadConns() int {
-	dd.mu.Lock()
-	defer dd.mu.Unlock()
-
 	var cleaned int
-	for client := range dd.clients {
+	dd.clients.Range(func(key, _ any) bool {
+		client := key.(*Client)
 		if !client.IsAlive() {
-			delete(dd.clients, client)
-			cleaned++
+			if _, loaded := dd.clients.LoadAndDelete(key); loaded {
+				cleaned++
+			}
 		}
-	}
+		return true
+	})
+	dd.clientCount.Add(-int32(cleaned))
 	return cleaned
 }

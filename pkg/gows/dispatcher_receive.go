@@ -134,24 +134,24 @@ func (dd *DistributedDispatcher) handleRemoteOffline(uids []string) {
 
 // hasLocalUID 检查指定 UID 是否在本实例上有在线连接。
 func (dd *DistributedDispatcher) hasLocalUID(uid string) bool {
-	dd.mu.RLock()
-	defer dd.mu.RUnlock()
-	for client := range dd.clients {
-		if client.uid == uid {
-			return true
+	var found bool
+	dd.clients.Range(func(key, _ any) bool {
+		if key.(*Client).uid == uid {
+			found = true
+			return false
 		}
-	}
-	return false
+		return true
+	})
+	return found
 }
 
 // deliverBroadcast 向本地所有在线客户端广播消息。
 func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.RawMessage) {
-	dd.mu.RLock()
-	clients := make([]*Client, 0, len(dd.clients))
-	for client := range dd.clients {
-		clients = append(clients, client)
-	}
-	dd.mu.RUnlock()
+	var clients []*Client
+	dd.clients.Range(func(key, _ any) bool {
+		clients = append(clients, key.(*Client))
+		return true
+	})
 
 	var deadClients []*Client
 	var sentCount int
@@ -175,11 +175,11 @@ func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.
 	)
 
 	if len(deadClients) > 0 {
-		dd.mu.Lock()
 		for _, client := range deadClients {
-			delete(dd.clients, client)
+			if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+				dd.clientCount.Add(-1)
+			}
 		}
-		dd.mu.Unlock()
 	}
 
 	span.SetStatus(codes.Ok, "broadcast delivered")
@@ -197,12 +197,11 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 		uidSet[uid] = struct{}{}
 	}
 
-	dd.mu.RLock()
-	clients := make([]*Client, 0, len(dd.clients))
-	for client := range dd.clients {
-		clients = append(clients, client)
-	}
-	dd.mu.RUnlock()
+	var clients []*Client
+	dd.clients.Range(func(key, _ any) bool {
+		clients = append(clients, key.(*Client))
+		return true
+	})
 
 	var deadClients []*Client
 	var sentCount int
@@ -228,11 +227,11 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 	)
 
 	if len(deadClients) > 0 {
-		dd.mu.Lock()
 		for _, client := range deadClients {
-			delete(dd.clients, client)
+			if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+				dd.clientCount.Add(-1)
+			}
 		}
-		dd.mu.Unlock()
 	}
 
 	span.SetStatus(codes.Ok, "send_to_uid delivered")

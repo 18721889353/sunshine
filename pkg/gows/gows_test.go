@@ -255,7 +255,7 @@ func TestClientStats(t *testing.T) {
 	s := client.Stats()
 	if s.UID != "test-uid" { t.Errorf("UID=%q", s.UID) }
 	if s.RemoteAddr == "" { t.Error("RemoteAddr empty") }
-	if s.WriteQueueSize != 64 { t.Errorf("WriteQueueSize=%d", s.WriteQueueSize) }
+	if s.WriteQueueSize != 1024 { t.Errorf("WriteQueueSize=%d", s.WriteQueueSize) }
 	if s.NumReceived != 1 { t.Errorf("NumReceived=%d, want 1", s.NumReceived) }
 	if s.IsClosed { t.Error("IsClosed before Close()") }
 

@@ -62,9 +62,9 @@ func (s *Service) DoSomething(req *Request) (*Response, error) {
 | `auth.go` | `ParseTokenCtx`、`extractUID` | ~88 |
 | `upgrader.go` | `Upgrade` 函数、CORS/限流/IP 检查 | ~235 |
 | `upgrade_options.go` | `upgradeOptions`/`UpgradeOption`、`defaultUpgradeOptions`+`apply`、所有 `With*` (UpgradeOption) | ~280 |
-| `dispatcher.go` | `DistributedDispatcher` 结构体、`NewDispatcher`/`Start`/`Stop`、查询方法 | ~290 |
+| `dispatcher.go` | `DistributedDispatcher` 结构体、`NewDispatcher`/`Start`/`Stop`、查询方法 | ~302 |
 | `dispatcher_options.go` | `dispatcherOptions`/`DispatcherOption`、`defaultDispatcherOptions`+`apply`、`WithMaxConnections`、`WithWorkerPool`、`ErrMaxConnections` | ~60 |
-| `dispatcher_lifecycle.go` | `RegisterCtx`/`UnregisterCtx`/`Register`/`Unregister`、`publishClientEvent` | ~130 |
+| `dispatcher_lifecycle.go` | `RegisterCtx`/`UnregisterCtx`、`publishClientEvent`、`subscribeUID`/`unsubscribeUID` | ~180 |
 | `dispatcher_receive.go` | `receiveLoop`/`dispatchMessage`/`deliverMessage`、`handleRemoteOnline`/`Offline`、`deliverBroadcast`/`deliverToUIDs` | ~235 |
 | `dispatcher_send.go` | `SendToUIDCtx`/`SendToMultiUIDCtx`、`BroadcastCtx`/`BroadcastFilterCtx` | ~160 |
 | `backend.go` | `Backend` 接口、`PubSubMessage` 结构体 | ~35 |
@@ -427,6 +427,140 @@ func newMockBackend(bufSize int) *mockBackend
 
 ---
 
+## 模式六：无锁化并发控制
+
+### 问题场景
+
+高并发 WebSocket 场景下，Mutex/RWMutex 保护 map 或 time.Time 字段会成为性能瓶颈：
+
+- `map[*Client]struct{} + sync.RWMutex`：读多写少的连接管理，RWMutex 在数百并发下仍有锁争用
+- `time.Time + sync.RWMutex`：读写频繁的时间戳字段，每次操作都需加锁
+- `map[string]chan struct{} + sync.Mutex`：UID 订阅表，高并发注册/注销时锁竞争
+
+### 改造模式
+
+#### 1. 连接集合 map + RWMutex → sync.Map + atomic.Int32
+
+```go
+// Before
+mu      sync.RWMutex
+clients map[*Client]struct{}
+
+func (dd *DistributedDispatcher) Range(fn func(*Client) bool) {
+    dd.mu.RLock()
+    clients := make([]*Client, 0, len(dd.clients))
+    for client := range dd.clients { clients = append(clients, client) }
+    dd.mu.RUnlock()
+    for _, client := range clients { if !fn(client) { break } }
+}
+
+// After
+clients     sync.Map
+clientCount atomic.Int32
+
+func (dd *DistributedDispatcher) Range(fn func(*Client) bool) {
+    var clients []*Client
+    dd.clients.Range(func(key, _ any) bool {
+        clients = append(clients, key.(*Client))
+        return true
+    })
+    for _, client := range clients { if !fn(client) { break } }
+}
+```
+
+替代清单：
+
+| 原操作 | 替代 |
+|--------|------|
+| `dd.mu.RLock(); for c := range dd.clients {}; dd.mu.RUnlock()` | `dd.clients.Range(func(k, _ any) bool { ... })` |
+| `dd.mu.Lock(); dd.clients[c] = struct{}{}; dd.mu.Unlock()` | `dd.clients.Store(c, struct{}{})` + `clientCount.Add(1)` |
+| `dd.mu.Lock(); delete(dd.clients, c); dd.mu.Unlock()` | `dd.clients.Delete(c)` + `clientCount.Add(-1)` |
+| `len(dd.clients)` | `clientCount.Load()` |
+
+#### 2. 时间戳 + RWMutex → atomic.Int64 (UnixNano)
+
+```go
+// Before
+type healthState struct {
+    lastWriteTime time.Time
+    lastReadTime  time.Time
+    mu            sync.RWMutex
+}
+
+func (c *Client) markLastWrite() {
+    c.health.mu.Lock()
+    c.health.lastWriteTime = time.Now()
+    c.health.mu.Unlock()
+}
+
+// After
+type healthState struct {
+    lastWriteTime atomic.Int64 // unix nano
+    lastReadTime  atomic.Int64 // unix nano
+}
+
+func (c *Client) markLastWrite() {
+    c.health.lastWriteTime.Store(time.Now().UnixNano())
+}
+```
+
+#### 3. UID 订阅表 map[string]chan + Mutex → sync.Map
+
+```go
+// Before
+uidSubs   map[string]chan struct{}
+uidSubsMu sync.Mutex
+
+// After
+uidSubs sync.Map
+```
+
+### 关键陷阱：计数漂移保护
+
+`sync.Map` 允许多路径并发操作同个 key。当 `UnregisterCtx`、`CleanupDeadConns`、delivery 清理三条路径可能并发删除同个 `*Client` 时，计数器必须受保护：
+
+```go
+// ❌ 错误：并发删除时无条件减一，计数漂移
+dd.clients.Delete(client)
+dd.clientCount.Add(-1)
+
+// ✅ 正确：只有实际删除了才递减
+if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+    dd.clientCount.Add(-1)
+}
+```
+
+同样，ctx 回滚时也应条件执行：
+
+```go
+_, loaded := dd.clients.LoadAndDelete(client)
+if loaded {
+    dd.clientCount.Add(-1)
+}
+select {
+case <-ctx.Done():
+    if loaded {
+        dd.clients.Store(client, struct{}{})
+        dd.clientCount.Add(1)
+    }
+    return ctx.Err()
+default:
+}
+```
+
+### 规则
+
+| 规则 | 说明 |
+|------|------|
+| **能不用锁就不用** | 优先用 `sync.Map`/`atomic.*`/chan 替代 Mutex/RWMutex |
+| **LoadAndDelete 条件递减** | 并发删除同一 key 时，必须用 `LoadAndDelete` + `if loaded` 保护计数器 |
+| **ctx 回滚也需条件** | 回滚时同样判断 `loaded`，避免无删除却回滚添加 |
+| **RWMutex 保留场景** | 真正需要互斥语义的场景（如 RabbitMQ 连接初始化、消费者替换）仍用 Mutex |
+| **soft limit 可接受** | `maxConns` 检查从精确 Mutex 变为两阶段 `Load`+`Store`，高并发下超限少量可接受 |
+| **time.Time 用 UnixNano** | 原子化时间戳用 `atomic.Int64` 存纳秒，通过 `time.Unix(0, nano)`/`time.Now().UnixNano()` 转换 |
+
+---
+
 ## 常见陷阱
 
 | 陷阱 | 说明 | 解决 |
@@ -462,4 +596,5 @@ func newMockBackend(bufSize int) *mockBackend
 | **YAML 扁平不分组** | 所有配置项平铺在 `websocket:` 下，随着字段增多难以管理 | 按功能分为 6 组子键（CORS/Limit/Timeout/Heartbeat/Queue/Distributed），`make update-config` 自动生成嵌套结构体 |
 | **配置访问路径写死** | 模板中硬编码 `config.Get().Websocket.RateLimitRps`，分组变动后散落各处难以修改 | 模板中的路径映射集中在 `upgradeOpts` 注释表中方便对照，分组调整时只改注释表和配置读取代码 |
 | **Option 函数未设默认值保护** | `With*` 函数直接赋值，零值未被正确处理 | option 内部用 `> 0` 判断，零值表示"使用默认值"，不覆盖已有默认值
-| **裸 int32/int64 + 包函数** | 使用 `atomic.LoadInt32(&c.closed)` 等包函数风格，需取地址且易误传副本 | 改为 `atomic.Int32`/`atomic.Int64` 类型字段 + 方法调用（`c.closed.Load()`），无需取地址，IDE 自动补全友好
+| **裸 int32/int64 + 包函数** | 使用 `atomic.LoadInt32(&c.closed)` 等包函数风格，需取地址且易误传副本 | 改为 `atomic.Int32`/`atomic.Int64` 类型字段 + 方法调用（`c.closed.Load()`），无需取地址，IDE 自动补全友好 |
+| **计数器并发递减** | 多路径并发删除同个 client 时，无条件 `Delete` + `Add(-1)` 导致计数漂移 | 用 `LoadAndDelete` + `if loaded` 条件递减 |

@@ -45,6 +45,7 @@ type RabbitMQBackend struct {
 	broadcastCancel   context.CancelFunc   // 取消广播消费上下文的 cancel 函数
 	broadcastConsumer *gorabbitmq.Consumer // 广播消息的 AMQP 消费者实例
 	broadcastWg       sync.WaitGroup       // 等待广播消费 goroutine 退出
+	uidConsumerWg     sync.WaitGroup       // 等待所有 UID 消费者 goroutine 退出
 
 	// 按 UID 的消费者管理（Direct 模式，队列持久化，支持离线消息积压）
 	uidConsumers   map[string]*uidConsumerState // uid → 消费者状态，用于离线消息补推
@@ -347,9 +348,9 @@ func (b *RabbitMQBackend) Subscribe(ctx context.Context, uid string) (<-chan *Pu
 	b.uidConsumers[uid] = state
 	b.uidConsumersMu.Unlock()
 
-	b.broadcastWg.Add(1)
+	b.uidConsumerWg.Add(1)
 	go func() {
-		defer b.broadcastWg.Done()
+		defer b.uidConsumerWg.Done()
 		consumer.Consume(uidCtx, func(ctx context.Context, data []byte, messageId, tagID string) error {
 			var msg PubSubMessage
 			if err := json.Unmarshal(data, &msg); err != nil {
@@ -448,6 +449,19 @@ func (b *RabbitMQBackend) Close() error {
 			done := make(chan struct{}, 1)
 			go func() {
 				b.broadcastWg.Wait()
+				done <- struct{}{}
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+			}
+		}
+
+		// 4. 等待所有 UID 消费者退出
+		{
+			done := make(chan struct{}, 1)
+			go func() {
+				b.uidConsumerWg.Wait()
 				done <- struct{}{}
 			}()
 			select {

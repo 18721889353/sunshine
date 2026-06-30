@@ -14,14 +14,10 @@ func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
 		return
 	}
 
-	dd.uidSubsMu.Lock()
-	if _, ok := dd.uidSubs[uid]; ok {
-		dd.uidSubsMu.Unlock()
+	stopCh := make(chan struct{})
+	if _, loaded := dd.uidSubs.LoadOrStore(uid, stopCh); loaded {
 		return // 已订阅
 	}
-	stopCh := make(chan struct{})
-	dd.uidSubs[uid] = stopCh
-	dd.uidSubsMu.Unlock()
 
 	msgCh, err := dd.backend.Subscribe(ctx, uid)
 	if err != nil {
@@ -29,9 +25,7 @@ func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
 			logger.String("uid", uid),
 			logger.Err(err),
 		)
-		dd.uidSubsMu.Lock()
-		delete(dd.uidSubs, uid)
-		dd.uidSubsMu.Unlock()
+		dd.uidSubs.Delete(uid)
 		return
 	}
 
@@ -63,12 +57,9 @@ func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string)
 
 	_ = dd.backend.Unsubscribe(ctx, uid)
 
-	dd.uidSubsMu.Lock()
-	if stopCh, ok := dd.uidSubs[uid]; ok {
-		close(stopCh)
-		delete(dd.uidSubs, uid)
+	if stopCh, loaded := dd.uidSubs.LoadAndDelete(uid); loaded {
+		close(stopCh.(chan struct{}))
 	}
-	dd.uidSubsMu.Unlock()
 }
 
 // RegisterCtx 将客户端连接注册到 Dispatcher 全局列表（带自定义上下文）。
@@ -77,14 +68,13 @@ func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string)
 // 调用方应检查此错误并执行 client.Close() 释放连接资源。
 //
 // 注意:
-//   - 上线通知在锁内发布，确保其他实例收到通知时本实例的 clients 已可见
 //   - 若 ctx 已过期，返回 ctx.Err() 并回滚 map 修改
 func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	// 尝试获取锁前先检查 ctx 是否已取消
+	// 先检查 ctx 是否已取消
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -93,10 +83,9 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 
 	maxConns := dd.maxConns.Load()
 	if maxConns > 0 {
-		dd.mu.Lock()
-		if int32(len(dd.clients)) >= maxConns {
+		currentCount := dd.clientCount.Load()
+		if currentCount >= maxConns {
 			dd.totalRejected.Add(1)
-			dd.mu.Unlock()
 			logger.WarnWithCtx(client.clientCtx, "ws dispatcher max connections reached, rejecting",
 				logger.String("uid", client.uid),
 				logger.String("remote_addr", client.remoteAddr),
@@ -104,35 +93,19 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 			)
 			return ErrMaxConnections
 		}
-		dd.clients[client] = struct{}{}
-		// 更新 map 后再次检查 ctx，过期则回滚
-		select {
-		case <-ctx.Done():
-			delete(dd.clients, client)
-			dd.mu.Unlock()
-			return ctx.Err()
-		default:
-		}
-		dd.publishClientEvent(ctx, "client_online", client.uid)
-		dd.mu.Unlock()
-
-		// 订阅该 UID 的持久化队列（Direct 模式，支持离线消息）
-		dd.subscribeUID(ctx, client.uid)
-		return nil
 	}
 
-	dd.mu.Lock()
-	dd.clients[client] = struct{}{}
+	dd.clients.Store(client, struct{}{})
+	dd.clientCount.Add(1)
 	// 更新 map 后检查 ctx，过期则回滚
 	select {
 	case <-ctx.Done():
-		delete(dd.clients, client)
-		dd.mu.Unlock()
+		dd.clients.Delete(client)
+		dd.clientCount.Add(-1)
 		return ctx.Err()
 	default:
 	}
 	dd.publishClientEvent(ctx, "client_online", client.uid)
-	dd.mu.Unlock()
 
 	// 订阅该 UID 的持久化队列（Direct 模式，支持离线消息）
 	dd.subscribeUID(ctx, client.uid)
@@ -147,25 +120,28 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 		ctx = context.Background()
 	}
 
-	// 尝试获取锁前先检查 ctx 是否已取消
+	// 先检查 ctx 是否已取消
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
 
-	dd.mu.Lock()
-	delete(dd.clients, client)
-	// 删除后再次检查 ctx，过期则回滚
+	_, loaded := dd.clients.LoadAndDelete(client)
+	if loaded {
+		dd.clientCount.Add(-1)
+	}
+	// 删除后检查 ctx，过期则回滚
 	select {
 	case <-ctx.Done():
-		dd.clients[client] = struct{}{}
-		dd.mu.Unlock()
+		if loaded {
+			dd.clients.Store(client, struct{}{})
+			dd.clientCount.Add(1)
+		}
 		return ctx.Err()
 	default:
 	}
 	dd.publishClientEvent(ctx, "client_offline", client.uid)
-	dd.mu.Unlock()
 
 	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
 	if !dd.hasLocalUID(client.uid) {
