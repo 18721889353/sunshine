@@ -66,6 +66,10 @@ func (dd *DistributedDispatcher) SendToMultiUIDCtx(ctx context.Context, uids []s
 		return
 	}
 
+	// 1. 先投递本地客户端（立即送达，不走 MQ 回环）
+	dd.deliverToUIDs(span, uids, payload)
+
+	// 2. 再发布到 MQ 供远端实例消费（自发布消息由 subscribeUID 的 InstanceID 过滤跳过）
 	msg := &PubSubMessage{
 		InstanceID: dd.instanceID,
 		Type:       "send_to_uid",
@@ -85,6 +89,7 @@ func (dd *DistributedDispatcher) SendToMultiUIDCtx(ctx context.Context, uids []s
 }
 
 // BroadcastCtx 向所有在线客户端广播消息（跨实例）。
+// 广播使用临时队列（exclusive+auto-delete），不做持久化，重启后离线消息不保留。
 func (dd *DistributedDispatcher) BroadcastCtx(ctx context.Context, v any) {
 	if dd.backend == nil {
 		// 单机模式：直接本地广播
@@ -132,6 +137,17 @@ func (dd *DistributedDispatcher) BroadcastCtx(ctx context.Context, v any) {
 	}
 
 	span.SetStatus(codes.Ok, "published")
+}
+
+// BroadcastReliableCtx 可靠广播：转为按所有在线 UID 逐个下发。
+// 每条消息走 UID 持久化队列，自动支持离线积压和重连补推。
+// 适用于需要确保所有用户（含离线用户）最终能收到的广播场景。
+func (dd *DistributedDispatcher) BroadcastReliableCtx(ctx context.Context, v any) {
+	uids := dd.ConnectedUIDs()
+	if len(uids) == 0 {
+		return
+	}
+	dd.SendToMultiUIDCtx(ctx, uids, v)
 }
 
 // BroadcastFilterCtx 向满足 filter 条件的本地客户端广播消息（仅本地）。

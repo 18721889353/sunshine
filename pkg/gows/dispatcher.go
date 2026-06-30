@@ -43,11 +43,15 @@ type DistributedDispatcher struct {
 	maxConns      atomic.Int32         // 最大连接数（0=不限制）
 	totalRejected atomic.Int32         // 因达到上限被拒绝的累计连接数
 
-	backend        Backend        // 分布式后端（如 RabbitMQ Fanout，nil=单机模式）
+	backend        Backend        // 分布式后端（如 RabbitMQ Direct，nil=单机模式）
 	instanceID     string         // 本实例唯一标识，用于跳过自发布消息回环
 	receiveStopCh  chan struct{}  // 关闭时通知 receiveLoop 退出
 	receiveWg      sync.WaitGroup // 等待 receiveLoop goroutine 退出
 	receiveStarted atomic.Bool    // 是否已启动，确保 Start 幂等
+
+	// 按 UID 的消息订阅管理（Direct 模式）
+	uidSubs   map[string]chan struct{} // uid → 停止订阅信号
+	uidSubsMu sync.Mutex               // 保护 uidSubs
 
 	// 分布式客户端注册表：跨实例同步的在线 UID 集合
 	// uid → count（同一 UID 多设备连接）
@@ -85,6 +89,7 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 		receiveStopCh: make(chan struct{}),
 		instanceID:    fmt.Sprintf("%p", backend), // 默认以 backend 指针地址作为实例 ID
 		workerNum:     o.workerNum,
+		uidSubs:       make(map[string]chan struct{}),
 	}
 	d.maxConns.Store(o.maxConns)
 	return d
@@ -105,8 +110,8 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 		return
 	}
 
-	// 1. 先连接后端，获取消息通道
-	msgCh, err := dd.backend.Receive(ctx)
+	// 1. 先连接后端，获取广播消息通道
+	msgCh, err := dd.backend.ReceiveBroadcast(ctx)
 	if err != nil {
 		logger.WarnWithCtx(ctx, "dispatcher start receive failed", logger.Err(err))
 		dd.receiveStarted.Store(false)
@@ -139,9 +144,17 @@ func (dd *DistributedDispatcher) workerLoop() {
 }
 
 // Stop 停止后台接收协程，释放后端资源。
-// 关闭顺序: 关闭 Backend（停止接收新消息）→ 关闭 WorkerPool → 通知 receiveLoop 退出 → 等待所有协程结束。
+// 关闭顺序: 关闭 Backend → 关闭 uidSubs → 关闭 receiveLoop → 关闭 WorkerPool。
 func (dd *DistributedDispatcher) Stop() {
-	// 1. 先关闭后端，停止接收新消息
+	// 1. 关闭所有 UID 订阅
+	dd.uidSubsMu.Lock()
+	for uid, stopCh := range dd.uidSubs {
+		close(stopCh)
+		delete(dd.uidSubs, uid)
+	}
+	dd.uidSubsMu.Unlock()
+
+	// 2. 关闭后端，停止接收新消息
 	if dd.backend != nil {
 		if err := dd.backend.Close(); err != nil {
 			logger.WarnWithCtx(context.Background(), "dispatcher backend close failed",
@@ -150,11 +163,11 @@ func (dd *DistributedDispatcher) Stop() {
 		}
 	}
 
-	// 2. 关闭 receiveLoop
+	// 3. 关闭 receiveLoop
 	close(dd.receiveStopCh)
 	dd.receiveWg.Wait()
 
-	// 3. 关闭 WorkerPool
+	// 4. 关闭 WorkerPool
 	if dd.workerStarted.Load() {
 		close(dd.workerCh)
 		dd.workerWg.Wait()

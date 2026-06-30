@@ -88,12 +88,24 @@ func (m *mockBackend) Publish(_ context.Context, msg *PubSubMessage) error {
 	return nil
 }
 
-func (m *mockBackend) Receive(_ context.Context) (<-chan *PubSubMessage, error) {
+func (m *mockBackend) ReceiveBroadcast(_ context.Context) (<-chan *PubSubMessage, error) {
 	ch := make(chan *PubSubMessage, 64)
 	m.mu.Lock()
 	m.subscribers = append(m.subscribers, ch)
 	m.mu.Unlock()
 	return ch, nil
+}
+
+func (m *mockBackend) Subscribe(_ context.Context, uid string) (<-chan *PubSubMessage, error) {
+	ch := make(chan *PubSubMessage, 64)
+	m.mu.Lock()
+	m.subscribers = append(m.subscribers, ch)
+	m.mu.Unlock()
+	return ch, nil
+}
+
+func (m *mockBackend) Unsubscribe(_ context.Context, uid string) error {
+	return nil
 }
 
 func (m *mockBackend) Close() error {

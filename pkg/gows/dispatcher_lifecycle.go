@@ -7,6 +7,70 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// subscribeUID 订阅指定 UID 的队列消息，启动后台消费。
+// 用户断线后队列保留，重连后继续消费积压消息。
+func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
+	if dd.backend == nil || uid == "" {
+		return
+	}
+
+	dd.uidSubsMu.Lock()
+	if _, ok := dd.uidSubs[uid]; ok {
+		dd.uidSubsMu.Unlock()
+		return // 已订阅
+	}
+	stopCh := make(chan struct{})
+	dd.uidSubs[uid] = stopCh
+	dd.uidSubsMu.Unlock()
+
+	msgCh, err := dd.backend.Subscribe(ctx, uid)
+	if err != nil {
+		logger.WarnWithCtx(ctx, "subscribe uid failed",
+			logger.String("uid", uid),
+			logger.Err(err),
+		)
+		dd.uidSubsMu.Lock()
+		delete(dd.uidSubs, uid)
+		dd.uidSubsMu.Unlock()
+		return
+	}
+
+	go func() {
+		for {
+			select {
+			case <-stopCh:
+				return
+			case msg, ok := <-msgCh:
+				if !ok {
+					return
+				}
+				// 跳过自发布消息回环
+				if msg.InstanceID == dd.instanceID {
+					continue
+				}
+				// 投递到本地对应用户
+				dd.deliverToUIDs(nil, []string{uid}, msg.Payload)
+			}
+		}
+	}()
+}
+
+// unsubscribeUID 取消订阅指定 UID 的队列。
+func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string) {
+	if dd.backend == nil || uid == "" {
+		return
+	}
+
+	_ = dd.backend.Unsubscribe(ctx, uid)
+
+	dd.uidSubsMu.Lock()
+	if stopCh, ok := dd.uidSubs[uid]; ok {
+		close(stopCh)
+		delete(dd.uidSubs, uid)
+	}
+	dd.uidSubsMu.Unlock()
+}
+
 // RegisterCtx 将客户端连接注册到 Dispatcher 全局列表（带自定义上下文）。
 // 如果达到最大连接数上限，返回 ErrMaxConnections。
 // 分布式模式下自动向所有实例广播上线通知，ctx 中的 tracing 信息会随消息传播。
@@ -51,6 +115,9 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 		}
 		dd.publishClientEvent(ctx, "client_online", client.uid)
 		dd.mu.Unlock()
+
+		// 订阅该 UID 的持久化队列（Direct 模式，支持离线消息）
+		dd.subscribeUID(ctx, client.uid)
 		return nil
 	}
 
@@ -67,6 +134,8 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	dd.publishClientEvent(ctx, "client_online", client.uid)
 	dd.mu.Unlock()
 
+	// 订阅该 UID 的持久化队列（Direct 模式，支持离线消息）
+	dd.subscribeUID(ctx, client.uid)
 	return nil
 }
 
@@ -97,6 +166,11 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 	}
 	dd.publishClientEvent(ctx, "client_offline", client.uid)
 	dd.mu.Unlock()
+
+	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
+	if !dd.hasLocalUID(client.uid) {
+		dd.unsubscribeUID(ctx, client.uid)
+	}
 	return nil
 }
 

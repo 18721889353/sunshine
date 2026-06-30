@@ -291,6 +291,9 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	// 向所有在线用户广播:
 	//	//	client.BroadcastCtx(ctx, gows.Message{Type: "announcement", Msg: "系统维护通知"})
 	//	//
+	//	// 向所有在线用户可靠广播（转为按 UID 下发，支持离线积压）:
+	//	//	client.BroadcastReliableCtx(ctx, gows.Message{Type: "announcement", Msg: "重要通知"})
+	//	//
 	//	// 注意: 分布式模式下（enableDistributed=true），以上调用会自动跨实例投递。
 	//	// 单机模式下同样可用，无需关心底层是否为分布式 Backend。
 	//
