@@ -84,12 +84,6 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 	return nil
 }
 
-// buildClientOpts 从 upgradeOptions 中提取 clientConfig，供 NewClient 使用。
-// upgradeOptions 嵌入了 clientConfig，直接返回嵌入的配置即可。
-func buildClientOpts(o *upgradeOptions) *clientConfig {
-	return &o.clientConfig
-}
-
 // Upgrade 将 HTTP 请求升级为 WebSocket 长连接，并返回封装后的 Client。
 //
 // 参数:
@@ -195,7 +189,7 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 	}
 
 	// 将 UpgradeOption 中的 Client 配置通过 clientConfig 直接传入 NewClient
-	client := newClientWithConfig(ctx, rawConn, o.clientUID, buildClientOpts(o))
+	client := newClientWithConfig(ctx, rawConn, o.clientUID, &o.clientConfig)
 
 	// 注册 IP 连接清理钩子
 	if o.maxConnPerIP > 0 {

@@ -72,7 +72,7 @@ func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...Cl
 }
 
 // newClientWithConfig 内部构造函数，直接接收 *clientConfig 避免经过 ClientOption 中间层。
-// 由 Upgrade 内部调用（通过 buildClientOpts 提取嵌入的 clientConfig），
+// 由 Upgrade 内部调用（通过 &o.clientConfig 直接传入嵌入的 clientConfig），
 // 以及由 NewClient（将 ClientOption 转换为 clientConfig）调用。
 func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
 	// 使用 WithoutCancel 阻断上游 Gin 超时传递，Close 时手动取消

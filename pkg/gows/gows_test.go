@@ -2291,7 +2291,7 @@ func TestBuildClientOpts_All(t *testing.T) {
 	WithReadLimit(8192)(o)
 	WithWriteLimit(4096)(o)
 
-	cfg := buildClientOpts(o)
+	cfg := &o.clientConfig
 	if cfg == nil {
 		t.Fatal("cfg should not be nil")
 	}
@@ -2321,7 +2321,7 @@ func TestBuildClientOpts_WithDispatcher(t *testing.T) {
 	dd := NewDispatcher(nil)
 	WithDispatcher(dd)(o)
 
-	cfg := buildClientOpts(o)
+	cfg := &o.clientConfig
 	if cfg.dispatcher != dd {
 		t.Error("dispatcher should be propagated")
 	}
@@ -2329,7 +2329,7 @@ func TestBuildClientOpts_WithDispatcher(t *testing.T) {
 
 func TestBuildClientOpts_Empty(t *testing.T) {
 	o := defaultUpgradeOptions()
-	cfg := buildClientOpts(o)
+	cfg := &o.clientConfig
 	if cfg.writeChSize != 0 || cfg.readChSize != 0 {
 		t.Errorf("should be zero: writeCh=%d readCh=%d", cfg.writeChSize, cfg.readChSize)
 	}
