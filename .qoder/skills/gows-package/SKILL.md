@@ -17,24 +17,24 @@ description: Guides modification and extension of the gows WebSocket package, in
 | ~~`doc.go`~~ | ~~包文档和示例（已删除，包注释非必需）~~ |
 | `errors.go` | 错误类型 | ~10 |
 | `message.go` | `Message` 通用消息结构体 | ~11 |
-| `client_options.go` | `ClientOption`/`clientOptions`、`defaultClientOptions`+`apply`、`withClient*` 系列 | ~105 |
-| `client.go` | `Client` 结构体、`NewClient`、`Close`/`closeWsConn`、`UID`、`RemoteAddr`/`Context`/`Done`（返回 `clientCtx.Done()`）、`requestIDAttr` | ~170 |
-| `health.go` | `healthState`、`IsAlive`、`ClientStats`/`Stats`、读写错误记录 | ~160 |
-| `client_readwrite.go` | `msgFromWsToCh`/`msgFromChToWs`（含 drain）/`writeWithRetry`、`checkWriteLimit` | ~160 |
-| `client_local.go` | `WriteJSONCtx`/`WriteRawCtx`/`ReadMessageCtx`（含 `<-clientCtx.Done()` 兜底） | ~150 |
+| `client_options.go` | `ClientOption`/`clientConfig`、`defaultClientConfig`+`applyClientOptions`（含 `client_config.go` 合并内容） | ~40 |
+| `client.go` | `Client` 结构体（嵌入 `clientConfig`）、`NewClient`/`newClientWithConfig`、`Close`/`closeWsConn`、`UID`、`RemoteAddr`/`Context`/`Done`（返回 `clientCtx.Done()`）、`requestIDAttr` | ~183 |
+| `health.go` | `healthState`、`IsAlive`、`ClientStats`/`Stats`、读写错误记录 | ~145 |
+| `client_readwrite.go` | `msgFromWsToCh`/`msgFromChToWs`（含 drain）/`writeWithRetry`、`checkWriteLimit` | ~172 |
+| `client_local.go` | `WriteJSONCtx`/`WriteRawCtx`/`ReadMessageCtx`（含 `<-clientCtx.Done()` 兜底） | ~145 |
 | `heartbeat.go` | `SetupPongHandler`、`StartHeartbeat` | ~132 |
-| `heartbeat_options.go` | `HeartbeatOption`/`heartbeatOptions`、`defaultHeartbeatOptions`+`apply`、`WithHeartbeatInterval`、`WithPongTimeout`、`WithPingWriteWait` | ~63 |
-| `auth.go` | `ParseTokenCtx`、`extractUID` | ~88 |
-| `upgrader.go` | `Upgrade` 函数、CORS/限流/IP 检查 | ~235 |
-| `upgrade_options.go` | `upgradeOptions`/`UpgradeOption`、`defaultUpgradeOptions`+`apply`、所有 `With*` (UpgradeOption) | ~280 |
+| `heartbeat_options.go` | `HeartbeatOption`/`heartbeatOptions`、`defaultHeartbeatOptions`+`apply`、`WithHeartbeatInterval`、`WithPongTimeout`、`WithPingWriteWait` | ~62 |
+| `auth.go` | `ParseTokenCtx`、`extractUID` | ~86 |
+| `upgrader.go` | `Upgrade` 函数、CORS/限流/IP 检查、`buildClientOpts`（直接返回嵌入 `clientConfig`） | ~230 |
+| `upgrade_options.go` | `upgradeOptions`（嵌入 `clientConfig`）/`UpgradeOption`、`defaultUpgradeOptions`+`apply`、所有 `With*` (UpgradeOption) | ~276 |
 | `dispatcher.go` | `DistributedDispatcher` 结构体（含 `uidIndex`/`remoteUIDCount`）、`NewDispatcher`/`Start`/`Stop`、查询方法 | ~250 |
-| `dispatcher_options.go` | `dispatcherOptions`/`DispatcherOption`、`defaultDispatcherOptions`+`apply`、`WithMaxConnections`、`WithWorkerPool`、`ErrMaxConnections` | ~60 |
-| `dispatcher_lifecycle.go` | `RegisterCtx`/`UnregisterCtx`、`publishClientEvent`、`subscribeUID`/`unsubscribeUID` | ~180 |
-| `dispatcher_receive.go` | `receiveLoop`/`dispatchMessage`/`deliverMessage`、`handleRemoteOnline`/`Offline`（`*atomic.Int32` 简化 CAS）、`deliverBroadcast`/`deliverToUIDs`（Range 内联写入） | ~230 |
-| `dispatcher_send.go` | `SendToUIDCtx`/`SendToMultiUIDCtx`、`BroadcastCtx`/`BroadcastFilterCtx` | ~160 |
-| `client_distributed.go` | `SendToUIDCtx`/`SendToMultiUIDCtx`/`BroadcastCtx`/`BroadcastReliableCtx`（Client 代理 Dispatcher） | ~61 |
-| `backend.go` | `Backend` 接口、`PubSubMessage` 结构体 | ~35 |
-| `rabbitmq_backend.go` | `RabbitMQBackend` 实现（Publish/Receive/Close） | ~495 |
+| `dispatcher_options.go` | `dispatcherOptions`/`DispatcherOption`、`defaultDispatcherOptions`+`apply`、`WithMaxConnections`、`WithWorkerPool`、`ErrMaxConnections` | ~53 |
+| `dispatcher_lifecycle.go` | `RegisterCtx`/`UnregisterCtx`、`publishClientEvent`、`subscribeUID`/`unsubscribeUID` | ~202 |
+| `dispatcher_receive.go` | `receiveLoop`/`dispatchMessage`/`deliverMessage`、`handleRemoteOnline`/`Offline`（`*atomic.Int32` 简化 CAS）、`deliverBroadcast`/`deliverToUIDs`（Range 内联写入） | ~252 |
+| `dispatcher_send.go` | `SendToUIDCtx`/`SendToMultiUIDCtx`、`BroadcastCtx`/`BroadcastFilterCtx` | ~204 |
+| `client_distributed.go` | `SendToUIDCtx`/`SendToMultiUIDCtx`/`BroadcastCtx`/`BroadcastReliableCtx`（Client 代理 Dispatcher） | ~60 |
+| `backend.go` | `Backend` 接口、`PubSubMessage` 结构体 | ~56 |
+| `rabbitmq_backend.go` | `RabbitMQBackend` 实现（Publish/Receive/Close） | ~489 |
 | `test_helpers.go` | 共享测试工具：`newTestClientPair`/`newTestClientWithUID`/`newTestServer`/`mockBackend` | ~200 |
 | `integration_test.go` | 总测：全生命周期 + 分布式消息 + 并发 Stats 一致性 | ~306 |
 | `rabbitmq_backend_integration_test.go` | RabbitMQ 集成测试（需 `RABBITMQ_INTEGRATION=true`） | ~148 |
@@ -57,68 +57,117 @@ gows 的实践：`NewClient(ctx, conn, uid, opts...)` 使用 `context.WithoutCan
 通用模式请参考 **project-conventions → 十五、Option 配置传播模式**。
 
 gows 包内具体实现：
-- `clientOptions`（client_options.go）—— 客户端级别配置
-- `upgradeOptions`（upgrade_options.go）—— Upgrade 入口配置
+- `clientConfig`（client_options.go）—— 嵌入 `upgradeOptions` 和 `Client`，消除三处字段冗余
+- `upgradeOptions`（upgrade_options.go）—— 嵌入 `clientConfig`，Upgrade 入口配置直接传入 Client
 - `dispatcherOptions`（dispatcher_options.go）—— 分发器配置
 - `heartbeatOptions`（heartbeat_options.go）—— 心跳配置
 
-### gows 特有：Upgrade → Client 配置统一传递
+### gows 特有：共享配置嵌入（clientConfig）
 
-``go
-// Upgrade() 中通过 buildClientOpts 将配置转为 ClientOption 列表，统一传入 NewClient
-client := NewClient(ctx, rawConn, uid, buildClientOpts(o)...)
+重构前，`upgradeOptions`、`clientOptions`、`Client` 三个结构体重复声明 7 个相同字段，
+通过 `buildClientOpts` + 7 个 `withClient*` 辅助函数逐字段打包再解包。
 
-// buildClientOpts 将 upgradeOptions 中的 Client 字段批量转为 ClientOption
-func buildClientOpts(o *upgradeOptions) []ClientOption {
-    var opts []ClientOption
-    if o.writeChSize > 0  { opts = append(opts, withWriteChSize(o.writeChSize)) }
-    if o.readTimeout > 0  { opts = append(opts, withClientReadTimeout(o.readTimeout)) }
-    if o.writeTimeout > 0 { opts = append(opts, withClientWriteTimeout(o.writeTimeout)) }
-    if o.readLimit > 0    { opts = append(opts, withClientReadLimit(o.readLimit)) }
-    if o.writeLimit > 0   { opts = append(opts, withClientWriteLimit(o.writeLimit)) }
-    return opts
-}
+重构后，提取 `clientConfig` 共享结构体，嵌入到 `upgradeOptions` 和 `Client`：
+
+```go
+// client_options.go — 共享配置
+ type clientConfig struct {
+     writeChSize  int
+     readChSize   int
+     readTimeout  time.Duration
+     writeTimeout time.Duration
+     readLimit    int64
+     writeLimit   int64
+     dispatcher   *DistributedDispatcher
+ }
+
+// upgrade_options.go — 嵌入配置，UpgradeOption 配置直接传递
+ type upgradeOptions struct {
+     clientConfig           // ← 嵌入，字段自动提升
+     enableHeart bool
+     heartbeatOpts []HeartbeatOption
+     // ... 其他 Upgrade 独有字段
+ }
+
+// client.go — Client 同样嵌入，构造函数一行赋值
+ type Client struct {
+     clientConfig           // ← 嵌入，替代 7 个独立字段
+     wsConn  *websocket.Conn
+     uid     string
+     writeCh chan []byte
+     readCh  chan []byte
+     // ...
+ }
+
+// upgrader.go — buildClientOpts 直接从嵌入配置返回
+ func buildClientOpts(o *upgradeOptions) *clientConfig {
+     return &o.clientConfig
+ }
+
+// client.go — 构造函数接收 *clientConfig，嵌入赋值
+ func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
+     c := &Client{
+         clientConfig: *cfg,  // ← 一行替代 6 行手动拷贝
+         wsConn:  conn,
+         uid:     uid,
+         writeCh: make(chan []byte, cfg.writeChSize),
+         readCh:  make(chan []byte, cfg.readChSize),
+     }
+     // ...
+ }
 ```
 
-Benefits over direct field assignment:
-- NewClient 创建 channel 时直接使用正确容量
-- 配置传播链路清晰，所有 Client 配置统一经过 option 系统
-- 新增配置只需升级 buildClientOpts，无需修改 Upgrade 主函数
+Benefits:
+- 消除 7 个 `withClient*` 辅助函数（文件从 ~105 行减至 ~40 行）
+- `buildClientOpts` 从 25 行减至 4 行
+- Client 结构体字段数减少 ~30%
+- 新增配置只需改 `clientConfig` 一处，嵌入后自动传播
 
 ---
 
-## 模式三：配置结构对称性
+## 模式三：Embed 驱动的配置对称性
 
-### 问题场景
+### 优化后方案
 
-多个配置结构体（`clientOptions`、`Client`、`upgradeOptions`）描述同一组配置时，字段缺失导致配置永远无法传播到目标对象。
+通过 `clientConfig` 嵌入 `upgradeOptions` 和 `Client`，**自动保证字段对称**，无需手动对齐：
 
-### 检查清单
+```go
+// client_options.go — 唯一配置定义
+ type clientConfig struct {
+     readTimeout  time.Duration
+     writeTimeout time.Duration
+     readLimit    int64
+     writeLimit   int64
+ }
 
-修改配置相关字段时，检查以下结构体是否对称：
+// upgrade_options.go — 嵌入 upgradeOptions，自动拥有所有 clientConfig 字段
+ type upgradeOptions struct {
+     clientConfig
+     // Upgrade 独有字段...
+ }
 
-``go
-// 1. 入口 Option（如 clientOptions / upgradeOptions）
-type upgradeOptions struct {
-    readTimeout  time.Duration
-    writeTimeout time.Duration
-    readLimit    int64
-    writeLimit   int64
-}
+// client.go — 嵌入 Client，同样自动拥有
+ type Client struct {
+     clientConfig
+     // Client 独有字段...
+ }
 
-// 2. 目标结构体（如 Client）
-type Client struct {
-    readTimeout  time.Duration
-    writeTimeout time.Duration
-    readLimit    int64
-    writeLimit   int64
-}
+// upgrader.go — 传播只需一行
+ func buildClientOpts(o *upgradeOptions) *clientConfig {
+     return &o.clientConfig
+ }
 
-// 3. 配置传播段（Upgrade() / NewClient() 中）
-if o.readLimit > 0 {
-    client.readLimit = o.readLimit     // ← 两边都有才不会遗漏
-}
+// client.go — 构造函数也只需一行
+ func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
+     c := &Client{
+         clientConfig: *cfg,
+         // ...
+     }
+ }
 ```
+
+**优势**：新增配置只需改 `clientConfig` 一处，嵌入后自动传播到所有结构体，
+从"人工检查 3 个地方是否对称"变成"编译器保证对称"。
 
 ### YAML → Go Config 全链路
 
@@ -176,11 +225,13 @@ websocket:
 |---|------|------|
 | 1 | `configs/serverNameExample.yml` | 在对应分组下添加 YAML 字段（唯一数据源） |
 | 2 | `make update-config` | 自动生成 Go 结构体和字段，无需手动改 `internal/config/*.go` |
-| 3 | `gows/upgrade_options.go` | `upgradeOptions` 结构体添加字段 + `defaultUpgradeOptions()` 设默认值 |
-| 4 | `gows/upgrader.go` | `Upgrade()` 中添加字段传播到 `Client`（使用 `> 0` 判断） |
-| 5 | `gows/client.go` | `Client` 结构体添加字段（存储传播过来的值） |
-| 6 | `cmd/protoc-gen-go-gin/.../template.go` | 模板中读取 `config.Get().Websocket.Group.Field` 并调用对应 `With*` |
-| 7 | 编译验证 | `go build ./pkg/gows/...` + `./cmd/protoc-gen-go-gin/...` |
+| 3 | `gows/client_options.go` | `clientConfig` 结构体添加字段 + `defaultClientConfig()` 设默认值 |
+| 4 | `gows/upgrade_options.go` | 如果新增的是 Upgrade 独有字段，在 `upgradeOptions` 添加；如果属于通用客户端配置，嵌入 `clientConfig` 自动获得 |
+| 5 | `cmd/protoc-gen-go-gin/.../template.go` | 模板中读取 `config.Get().Websocket.Group.Field` 并调用对应 `With*` |
+| 6 | 编译验证 | `go build ./pkg/gows/...` + `./cmd/protoc-gen-go-gin/...` |
+
+**注意**：嵌入 `clientConfig` 后，Client 结构体和构造函数无需手动修改，
+新增的通用配置字段自动传播到位，检查清单从 7 步缩短为 6 步。
 
 ---
 
@@ -363,13 +414,14 @@ default:
 | **非错误类型混入 errors.go** | `Message` 结构体、`requestIDAttr` 工具函数与错误类型放在一起 | 拆出 `message.go`，工具函数归入对应的主文件 |
 | **基础属性查询放错文件** | `UID()` 放在 `health.go` 中，与健康监控无关 | `UID()` 归入 `client.go`，与 `RemoteAddr()`/`Context()` 等放一起 |
 | **Option 函数直接操作目标结构体** | `DispatcherOption func(*DistributedDispatcher)` 直接修改大结构体字段 | 引入独立的 `dispatcherOptions` 结构体，通过 `defaultDispatcherOptions` + `apply` 管理 |
-| **配置字段不对称** | 入口 Option 有字段但 Client 结构体没有，导致配置丢失 | 修改时对照检查清单逐个对齐 |
+| **配置字段不对称** | 入口 Option 有字段但 Client 结构体没有，导致配置丢失 | 提取 `clientConfig` 嵌入两方，编译器保证对称，消除人工对齐 |
 | **IP 计数器增量未条件判断** | `upgradePerIPIncrement` 无条件调用，即使 `maxConnPerIP=0` | 和 close 钩子一样放在 `if o.maxConnPerIP > 0` 内 |
-| **新增配置遗漏传播链路** | YAML 加了字段但 `Upgrade()` 中没传播到 `Client` | 按检查清单走 7 步：YAML → make → option → Upgrade → Client → 模板 → 编译 |
+| **新增配置遗漏传播链路** | YAML 加了字段但 `Upgrade()` 中没传播到 `Client` | 提取 `clientConfig` 嵌入后，新增通用配置只需改 `clientConfig` 一处，自动传播到 `Client`，不走 `Upgrade()` 传播；检查清单从 7 步减至 6 步 |
 | **YAML 扁平不分组** | 所有配置项平铺在 `websocket:` 下难以管理 | 按功能分为 6 组子键（CORS/Limit/Timeout/Heartbeat/Queue/Distributed） |
 | **配置访问路径写死** | 模板中硬编码 `config.Get().Websocket.RateLimitRps` | 模板中的路径映射集中在 `upgradeOpts` 注释表中，分组调整时只改注释表 |
 | **close hook 闭包捕获自身** | `SetCloseHook` 闭包读取 `c.onClose` 在运行时返回自身 | `SetCloseHook` 前保存 `prevHook := c.onClose`，闭包使用局部变量 |
 | **sync.Map 类型断言必须 comma-ok** | `key.(*Client)` / `value.(chan struct{})` 被 errcheck 标记 | 参考 **project-conventions 一→类型断言规范** |
 | **裸 int32/int64 + 包函数** | `atomic.LoadInt32(&c.closed)` 需取地址且易误传副本 | 改为 `atomic.Int32`/`atomic.Int64` 类型 + 方法调用 |
+| **Option 中间层冗余** | `upgradeOptions`→`clientOptions`→`Client` 三段结构体重复 7 个字段，每段都需 `with*` 辅助函数逐字段拷贝 | 提取 `clientConfig` 嵌入到 `upgradeOptions` 和 `Client`，删除 `clientOptions` 和 7 个 `with*` 函数；`buildClientOpts` 从 25 行降为 4 行；`client_options.go` 从 ~105 行减至 ~40 行 |
 | **deliverToUIDs nil span** | `deliverToUIDs` 从 `subscribeUID` 调用时传入 `nil`，直接 `span.SetStatus` 会 panic | 调用 `span` 前加 `if span != nil` 保护 |
 | **计数器并发递减** | 多路径并发删除同个 client，无条件 `Delete` + `Add(-1)` 导致计数漂移 | 用 `LoadAndDelete` + `if loaded` 条件递减，参考 **project-conventions 十三** |
