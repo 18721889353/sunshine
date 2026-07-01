@@ -84,31 +84,10 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 	return nil
 }
 
-// buildClientOpts 将 UpgradeOption 中的 Client 配置转换为 ClientOption 列表。
-func buildClientOpts(o *upgradeOptions) []ClientOption {
-	opts := make([]ClientOption, 0, 7) // 最多 7 个 Client 配置项
-	if o.writeChSize > 0 {
-		opts = append(opts, withClientWriteChSize(o.writeChSize))
-	}
-	if o.readChSize > 0 {
-		opts = append(opts, withClientReadChSize(o.readChSize))
-	}
-	if o.readTimeout > 0 {
-		opts = append(opts, withClientReadTimeout(o.readTimeout))
-	}
-	if o.writeTimeout > 0 {
-		opts = append(opts, withClientWriteTimeout(o.writeTimeout))
-	}
-	if o.readLimit > 0 {
-		opts = append(opts, withClientReadLimit(o.readLimit))
-	}
-	if o.writeLimit > 0 {
-		opts = append(opts, withClientWriteLimit(o.writeLimit))
-	}
-	if o.dispatcher != nil {
-		opts = append(opts, withClientDispatcher(o.dispatcher))
-	}
-	return opts
+// buildClientOpts 从 upgradeOptions 中提取 clientConfig，供 NewClient 使用。
+// upgradeOptions 嵌入了 clientConfig，直接返回嵌入的配置即可。
+func buildClientOpts(o *upgradeOptions) *clientConfig {
+	return &o.clientConfig
 }
 
 // Upgrade 将 HTTP 请求升级为 WebSocket 长连接，并返回封装后的 Client。
@@ -215,8 +194,8 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		}
 	}
 
-	// 将 UpgradeOption 中的 Client 配置统一通过 clientOpts 传入 NewClient
-	client := NewClient(ctx, rawConn, o.clientUID, buildClientOpts(o)...)
+	// 将 UpgradeOption 中的 Client 配置通过 clientConfig 直接传入 NewClient
+	client := newClientWithConfig(ctx, rawConn, o.clientUID, buildClientOpts(o))
 
 	// 注册 IP 连接清理钩子
 	if o.maxConnPerIP > 0 {

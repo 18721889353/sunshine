@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -15,7 +14,7 @@ import (
 
 // msgFromWsToCh / msgFromChToWs / writeWithRetry / checkWriteLimit / ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 client_readwrite.go
 // WriteJSONCtx / WriteRawCtx / ReadMessageCtx 定义在 client_local.go
-// ClientOption / clientOptions / With* / withClient* 定义在 client_options.go
+// ClientOption / clientConfig / applyClientOptions / defaultClientConfig 定义在 client_options.go
 // healthState / IsAlive / ClientStats / Stats 定义在 health.go
 
 // Client 代表一个 WebSocket 客户端连接。
@@ -30,29 +29,28 @@ import (
 //   - 健康指标：记录读写时间与错误计数，支持 IsAlive 探测（定义在 health.go）
 //   - 读写超时：msgFromWsToCh 和 msgFromChToWs 均支持独立超时，不依赖心跳机制
 //   - dispatcher 字段用于代理 SendToUIDCtx / BroadcastCtx 等分发方法
+//
+// clientConfig 以内嵌方式提供 dispatcher/readTimeout/writeTimeout/readLimit/writeLimit 配置，
+// 消除构造函数中逐字段手动拷贝的样板代码。writeChSize/readChSize 作为内嵌字段保留（由 clientConfig 提供），
+// 仅在 make(chan) 初始化时使用，运行时读取队列容量通过 cap(c.writeCh) 获取。
 type Client struct {
-	wsConn      *websocket.Conn        // 底层 WebSocket 连接
-	uid         string                 // 用户唯一标识（从 JWT 中提取）
-	dispatcher  *DistributedDispatcher // 关联的分发中心，nil=未注册
-	writeCh     chan []byte            // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
-	readCh      chan []byte            // 读取队列通道，msgFromWsToCh 向其推送接收到的消息数据
-	writeChSize int                    // 写入通道缓冲区容量（默认 1024）
-	readChSize  int                    // 读取通道缓冲区容量（默认 1024）
+	clientConfig // 嵌入通用客户端配置（dispatcher, readTimeout, writeTimeout, readLimit, writeLimit, writeChSize, readChSize）
 
-	closed             atomic.Bool        // 原子关闭标记，true=已关闭
-	readWg             sync.WaitGroup     // 等待 msgFromWsToCh 协程退出
-	writeWg            sync.WaitGroup     // 等待 msgFromChToWs 协程退出
-	onClose            func()             // 可选关闭回调钩子，Close 时在清理前调用
-	clientCtx          context.Context    // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
-	clientCtxCancel    context.CancelFunc // 取消 clientCtx，Close 时调用
-	remoteAddr         string             // 客户端远程地址（IP:Port），创建时从连接中提取
-	numSent            atomic.Int64       // 原子计数: 已成功发送消息数
-	numReceived        atomic.Int64       // 原子计数: 已接收消息数
-	health             healthState        // 健康监控（读写时间、错误计数）
-	wsConnReadTimeout  time.Duration      // msgFromWsToCh 读取超时时间（0=不限制）
-	wsConnWriteTimeout time.Duration      // msgFromChToWs 写入超时时间（0=默认 10s）
-	readLimit          int64              // 单条消息读取大小限制（0=不限制）
-	writeLimit         int64              // 单条消息写入大小限制（0=不限制）
+	wsConn  *websocket.Conn // 底层 WebSocket 连接
+	uid     string          // 用户唯一标识（从 JWT 中提取）
+	writeCh chan []byte     // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
+	readCh  chan []byte     // 读取队列通道，msgFromWsToCh 向其推送接收到的消息数据
+
+	closed          atomic.Bool        // 原子关闭标记，true=已关闭
+	readWg          sync.WaitGroup     // 等待 msgFromWsToCh 协程退出
+	writeWg         sync.WaitGroup     // 等待 msgFromChToWs 协程退出
+	onClose         func()             // 可选关闭回调钩子，Close 时在清理前调用
+	clientCtx       context.Context    // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
+	clientCtxCancel context.CancelFunc // 取消 clientCtx，Close 时调用
+	remoteAddr      string             // 客户端远程地址（IP:Port），创建时从连接中提取
+	numSent         atomic.Int64       // 原子计数: 已成功发送消息数
+	numReceived     atomic.Int64       // 原子计数: 已接收消息数
+	health          healthState        // 健康监控（读写时间、错误计数）
 
 }
 
@@ -65,41 +63,35 @@ type Client struct {
 //   - ctx:   上下文，用于链路追踪和生命周期管理。Close 时会取消其派生 context。
 //   - conn:  已建立的 WebSocket 底层连接
 //   - uid:   用户唯一标识（从 JWT 解析获取）
-//   - opts:  可选配置参数（内部选项，通过 Upgrade 传播）
+//   - opts:  可选配置参数
 //
 // 返回:
 //   - *Client: 具备非阻塞读写能力和自动关闭清理的客户端实例
 func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...ClientOption) *Client {
-	o := defaultClientOptions()
-	o.apply(opts...)
+	return newClientWithConfig(ctx, conn, uid, applyClientOptions(opts...))
+}
 
-	// 写入超时默认值
-	if o.writeTimeout <= 0 {
-		o.writeTimeout = writeDeadline
-	}
-
+// newClientWithConfig 内部构造函数，直接接收 *clientConfig 避免经过 ClientOption 中间层。
+// 由 Upgrade 内部调用（通过 buildClientOpts 提取嵌入的 clientConfig），
+// 以及由 NewClient（将 ClientOption 转换为 clientConfig）调用。
+func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
 	// 使用 WithoutCancel 阻断上游 Gin 超时传递，Close 时手动取消
 	clientCtx, clientCancel := context.WithCancel(context.WithoutCancel(ctx))
 	c := &Client{
-		wsConn:     conn,
-		uid:        uid,
-		dispatcher: o.dispatcher,
-		writeCh:    make(chan []byte, o.writeChSize),
-		readCh:     make(chan []byte, o.readChSize),
+		clientConfig: *cfg, // 嵌入赋值，自动获取 dispatcher/readTimeout/writeTimeout/readLimit/writeLimit
 
-		clientCtx:          clientCtx,
-		clientCtxCancel:    clientCancel,
-		remoteAddr:         conn.RemoteAddr().String(),
-		wsConnReadTimeout:  o.readTimeout,
-		wsConnWriteTimeout: o.writeTimeout,
-		readLimit:          o.readLimit,
-		writeLimit:         o.writeLimit,
-		writeChSize:        o.writeChSize,
-		readChSize:         o.readChSize,
+		wsConn:  conn,
+		uid:     uid,
+		writeCh: make(chan []byte, cfg.writeChSize),
+		readCh:  make(chan []byte, cfg.readChSize),
+
+		clientCtx:       clientCtx,
+		clientCtxCancel: clientCancel,
+		remoteAddr:      conn.RemoteAddr().String(),
 	}
 
 	// 设置读取大小限制（0=不限制，覆盖 gorilla/websocket 默认 4096 字节）
-	c.wsConn.SetReadLimit(o.readLimit)
+	c.wsConn.SetReadLimit(cfg.readLimit)
 
 	c.readWg.Add(1)
 	go c.msgFromWsToCh()

@@ -10,6 +10,8 @@ import (
 
 // upgradeOptions 内部升级配置参数集合
 type upgradeOptions struct {
+	clientConfig // 嵌入通用客户端配置，由 Upgrade 直接传入 NewClient
+
 	checkOrigin       func(r *http.Request) bool // 跨域检查函数
 	checkOriginSet    bool                       // 用户是否显式设置了 CheckOrigin
 	readBufSize       int                        // 读取缓冲区大小，0 表示使用默认值 4096
@@ -18,22 +20,13 @@ type upgradeOptions struct {
 	enableCompression bool                       // 是否启用压缩（默认 true）
 	enableHeart       bool                       // 是否自动启动心跳保活
 	heartbeatOpts     []HeartbeatOption          // 心跳高级配置（与 enableHeart 配合使用）
-	dispatcher        *DistributedDispatcher     // 非 nil 时自动注册连接到此分发中心
 	enableDistributed bool                       // 是否启用分布式分发注册
 	clientUID         string                     // 客户端用户标识（可选，提供给 NewClient）
 	errorHandler      func(*gin.Context, error)  // 升级失败时的自定义错误处理
 
-	// 客户端队列配置（Upgrade → Client 传播）
-	writeChSize int // 写入通道容量（0=默认 1024）
-	readChSize  int // 读取通道容量（0=默认 1024）
-
 	// 限流配置（仅在 Upgrade 函数中读取，不存储在选项上）
-	enableRateLimit bool          // 是否启用全局速率限制
-	maxConnPerIP    int32         // 单 IP 最大连接数（0=不限制）
-	readTimeout     time.Duration // 单次 ReadMessage 超时（0=由心跳管理）
-	writeTimeout    time.Duration // 单次写入超时（0=默认 10s）
-	readLimit       int64         // 单条消息读取大小限制（0=不限制）
-	writeLimit      int64         // 单条消息写入大小限制（0=不限制）
+	enableRateLimit bool  // 是否启用全局速率限制
+	maxConnPerIP    int32 // 单 IP 最大连接数（0=不限制）
 }
 
 func defaultUpgradeOptions() *upgradeOptions {

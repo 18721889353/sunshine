@@ -53,10 +53,10 @@ func (c *Client) msgFromWsToCh() {
 
 	for {
 		// 主动读超时保护（独立于心跳，不依赖 PongHandler）
-		// wsConnReadTimeout=0 表示清除 deadline（不限制）
+		// readTimeout=0 表示清除 deadline（不限制）
 		var deadline time.Time
-		if c.wsConnReadTimeout > 0 {
-			deadline = time.Now().Add(c.wsConnReadTimeout)
+		if c.readTimeout > 0 {
+			deadline = time.Now().Add(c.readTimeout)
 		}
 		if err := c.wsConn.SetReadDeadline(deadline); err != nil {
 			c.recordReadErr(err)
@@ -146,8 +146,8 @@ func (c *Client) writeWithRetry(data []byte) error {
 		}
 
 		// 设置写入超时，防止 TCP 半连接导致永久阻塞
-		// NewClient 已确保 wsConnWriteTimeout > 0（默认 10s）
-		if err := c.wsConn.SetWriteDeadline(time.Now().Add(c.wsConnWriteTimeout)); err != nil {
+		// NewClient 已确保 writeTimeout > 0（默认 10s）
+		if err := c.wsConn.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err != nil {
 			lastErr = err
 			c.recordWriteErr(err)
 			continue
