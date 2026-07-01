@@ -21,14 +21,14 @@ import (
 // 全局限流状态
 var (
 	upgradeLimiter atomic.Pointer[rate.Limiter] // 全局升级速率限制器
-	perIPConns     sync.Map                     // map[string]*atomic.Int32 单IP连接计数
+	ipConnCounts   sync.Map                     // map[string]*atomic.Int32 单IP连接计数
 )
 
 // upgradeOptions / UpgradeOption / With* 定义在 upgrade_options.go
 
 // upgradePerIPCheck 执行单 IP 连接数检查（只读，不创建计数器）。
 func upgradePerIPCheck(clientIP string, maxConnPerIP int32, span trace.Span) error {
-	actual, ok := perIPConns.Load(clientIP)
+	actual, ok := ipConnCounts.Load(clientIP)
 	if !ok {
 		return nil // 首次连接，无现有计数
 	}
@@ -44,15 +44,15 @@ func upgradePerIPCheck(clientIP string, maxConnPerIP int32, span trace.Span) err
 	return nil
 }
 
-// upgradePerIPDecrement 客户端关闭时递减单 IP 连接计数，计数归零时删除记录。
-func upgradePerIPDecrement(clientIP string) {
-	if actual, ok := perIPConns.Load(clientIP); ok {
+// ipConnCountDecrement 客户端关闭时递减单 IP 连接计数，计数归零时删除记录。
+func ipConnCountDecrement(clientIP string) {
+	if actual, ok := ipConnCounts.Load(clientIP); ok {
 		counter, ok := actual.(*atomic.Int32)
 		if !ok {
 			return
 		}
 		if counter.Add(-1) <= 0 {
-			perIPConns.Delete(clientIP)
+			ipConnCounts.Delete(clientIP)
 		}
 	}
 }
@@ -68,8 +68,8 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 		}
 		return err
 	}
-	// 先保存之前的钩子再设置新钩子，避免闭包中引用 client.onClose 自身导致递归
-	prevCloseHook := client.onClose
+	// 先保存之前的钩子再设置新钩子，避免闭包中引用 client.closeHook 自身导致递归
+	prevCloseHook := client.closeHook
 	client.SetCloseHook(func() {
 		if prevCloseHook != nil {
 			prevCloseHook()
@@ -171,7 +171,7 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		EnableCompression: o.enableCompression,
 	}
 
-	rawConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	wsConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		if o.errorHandler != nil {
 			o.errorHandler(c, err)
@@ -182,23 +182,24 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 
 	// 升级成功后，创建/确保计数器存在并递增
 	if o.maxConnPerIP > 0 {
-		actual, _ := perIPConns.LoadOrStore(clientIP, &atomic.Int32{})
+		actual, _ := ipConnCounts.LoadOrStore(clientIP, &atomic.Int32{})
 		if counter, ok := actual.(*atomic.Int32); ok {
 			counter.Add(1)
 		}
 	}
 
 	// 将 UpgradeOption 中的 Client 配置通过 clientConfig 直接传入 NewClient
-	client := newClientWithConfig(ctx, rawConn, o.clientUID, &o.clientConfig)
+	// 使用 WithoutCancel 阻断上游 Gin 超时传递，Close 时手动取消
+	client := newClientWithConfig(context.WithoutCancel(ctx), wsConn, o.clientUID, &o.clientConfig)
 
 	// 注册 IP 连接清理钩子
 	if o.maxConnPerIP > 0 {
-		prevHook := client.onClose
+		prevHook := client.closeHook
 		client.SetCloseHook(func() {
 			if prevHook != nil {
 				prevHook()
 			}
-			upgradePerIPDecrement(clientIP)
+			ipConnCountDecrement(clientIP)
 		})
 	}
 

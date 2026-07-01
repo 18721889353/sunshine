@@ -33,7 +33,7 @@ func (c *Client) WriteJSONCtx(ctx context.Context, v any) error {
 	span := c.startSpan(ctx, "ws.write")
 	defer span.End()
 
-	if c.closed.Load() {
+	if c.clientIsClosed.Load() {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
@@ -77,7 +77,7 @@ func (c *Client) WriteRawCtx(ctx context.Context, data []byte) error {
 	span := c.startSpan(ctx, "ws.write_raw", attribute.Int("ws.data_size", len(data)))
 	defer span.End()
 
-	if c.closed.Load() {
+	if c.clientIsClosed.Load() {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return websocket.ErrCloseSent
@@ -116,7 +116,7 @@ func (c *Client) ReadMessageCtx(ctx context.Context) ([]byte, error) {
 	span := c.startSpan(ctx, "ws.read")
 	defer span.End()
 
-	if c.closed.Load() {
+	if c.clientIsClosed.Load() {
 		span.SetAttributes(attribute.Bool("ws.closed", true))
 		span.SetStatus(codes.Error, "connection closed")
 		return nil, websocket.ErrCloseSent

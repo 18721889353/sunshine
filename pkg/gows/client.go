@@ -40,18 +40,17 @@ type Client struct {
 	uid     string          // 用户唯一标识（从 JWT 中提取）
 	writeCh chan []byte     // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
 	readCh  chan []byte     // 读取队列通道，msgFromWsToCh 向其推送接收到的消息数据
+	readWg  sync.WaitGroup  // 等待 msgFromWsToCh 协程退出
+	writeWg sync.WaitGroup  // 等待 msgFromChToWs 协程退出
 
-	closed          atomic.Bool        // 原子关闭标记，true=已关闭
-	readWg          sync.WaitGroup     // 等待 msgFromWsToCh 协程退出
-	writeWg         sync.WaitGroup     // 等待 msgFromChToWs 协程退出
-	onClose         func()             // 可选关闭回调钩子，Close 时在清理前调用
+	closeHook       func()             // 关闭钩子，由 SetCloseHook 设置，Close 时在清理前调用
 	clientCtx       context.Context    // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
 	clientCtxCancel context.CancelFunc // 取消 clientCtx，Close 时调用
 	remoteAddr      string             // 客户端远程地址（IP:Port），创建时从连接中提取
 	numSent         atomic.Int64       // 原子计数: 已成功发送消息数
 	numReceived     atomic.Int64       // 原子计数: 已接收消息数
 	health          healthState        // 健康监控（读写时间、错误计数）
-
+	clientIsClosed  atomic.Bool        // 关闭标记，Close() 使用 CAS 保证幂等
 }
 
 // NewClient 创建并初始化一个新的 WebSocket 客户端连接。
@@ -75,8 +74,8 @@ func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...Cl
 // 由 Upgrade 内部调用（通过 &o.clientConfig 直接传入嵌入的 clientConfig），
 // 以及由 NewClient（将 ClientOption 转换为 clientConfig）调用。
 func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
-	// 使用 WithoutCancel 阻断上游 Gin 超时传递，Close 时手动取消
-	clientCtx, clientCancel := context.WithCancel(context.WithoutCancel(ctx))
+	// 创建独立可取消的上下文，Close 时手动取消
+	clientCtx, clientCancel := context.WithCancel(ctx)
 	c := &Client{
 		clientConfig: *cfg, // 嵌入赋值，自动获取 dispatcher/readTimeout/writeTimeout/readLimit/writeLimit
 
@@ -105,7 +104,7 @@ func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, 
 // 参数:
 //   - fn: 回调函数，在底层连接关闭前执行
 func (c *Client) SetCloseHook(fn func()) {
-	c.onClose = fn
+	c.closeHook = fn
 }
 
 // Close 优雅关闭 WebSocket 连接，触发关闭信号并释放所有资源。
@@ -118,9 +117,9 @@ func (c *Client) SetCloseHook(fn func()) {
 // 返回:
 //   - error: 首次关闭底层连接失败时返回 error，重复关闭返回 nil
 func (c *Client) Close() error {
-	if c.closed.CompareAndSwap(false, true) {
-		if c.onClose != nil {
-			c.onClose()
+	if c.clientIsClosed.CompareAndSwap(false, true) {
+		if c.closeHook != nil {
+			c.closeHook()
 		}
 		c.clientCtxCancel()          // 取消 clientCtx，通知所有协程退出（msgFromChToWs drain 后退出）
 		c.writeWg.Wait()             // 等待所有排队消息写入完毕

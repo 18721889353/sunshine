@@ -799,17 +799,15 @@ func TestSetCloseHook(t *testing.T) {
 	}
 }
 
-func TestClientCtx_WithoutCancelIsolation(t *testing.T) {
-	ginCtx, ginCancel := context.WithTimeout(context.Background(), time.Millisecond)
+func TestClientCtx_CancelPropagation(t *testing.T) {
+	// newClientWithConfig 不再内部做 WithoutCancel，传入的 ctx 取消会传递到 clientCtx
+	ginCtx, ginCancel := context.WithCancel(context.Background())
 	defer ginCancel()
-	<-ginCtx.Done()
-	if ginCtx.Err() == nil {
-		t.Fatal("ginCtx should be expired")
-	}
+
 	serverCh := make(chan *Client, 1)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := (&websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}).Upgrade(w, r, nil)
-		client := NewClient(ginCtx, raw, "isolated")
+		client := NewClient(ginCtx, raw, "propagate")
 		serverCh <- client
 	}))
 	defer s.Close()
@@ -820,17 +818,17 @@ func TestClientCtx_WithoutCancelIsolation(t *testing.T) {
 	}
 	client := <-serverCh
 	defer client.Close()
-	select {
-	case <-client.Done():
-		t.Error("clientCtx should NOT be done after upstream ctx timeout")
-	default:
-	}
-	client.Close()
+
+	// 上游 ctx 取消后，clientCtx 也应被取消（WithoutCancel 不再由 NewClient 处理）
+	ginCancel()
 	select {
 	case <-client.Done():
 	case <-time.After(time.Second):
-		t.Error("clientCtx should be done after Close")
+		t.Error("clientCtx should be done after upstream ctx cancel")
 	}
+
+	// 验证 Close 仍然幂等安全
+	client.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -1861,7 +1859,7 @@ func TestDistributed_Integration(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUpgrade_PerIPLimit(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	var rejectedCount atomic.Int32
 	r := gin.New()
 	r.GET("/ws", func(c *gin.Context) {
@@ -1900,7 +1898,7 @@ func TestUpgrade_PerIPLimit(t *testing.T) {
 }
 
 func TestUpgrade_PerIPLimit_CloseHook(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	var conn1Closed atomic.Bool
 	r := gin.New()
 	r.GET("/ws", func(c *gin.Context) {
@@ -1927,10 +1925,10 @@ func TestUpgrade_PerIPLimit_CloseHook(t *testing.T) {
 	if !conn1Closed.Load() {
 		t.Error("server should have closed the connection")
 	}
-	if actual, ok := perIPConns.Load("127.0.0.1"); ok {
+	if actual, ok := ipConnCounts.Load("127.0.0.1"); ok {
 		if counter, ok := actual.(*atomic.Int32); ok {
 			if n := counter.Load(); n != 0 {
-				t.Errorf("perIPConns count=%d, want 0 after close", n)
+				t.Errorf("ipConnCounts count=%d, want 0 after close", n)
 			}
 		}
 	}
@@ -2417,7 +2415,7 @@ func TestUpgradeRateLimit_AllowDeny(t *testing.T) {
 }
 
 func TestUpgradePerIPCheck_NoExisting(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	_, span := otel.Tracer("test").Start(context.Background(), "test")
 	defer span.End()
 	err := upgradePerIPCheck("10.0.0.1", 5, span)
@@ -2427,10 +2425,10 @@ func TestUpgradePerIPCheck_NoExisting(t *testing.T) {
 }
 
 func TestUpgradePerIPCheck_AtLimit(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	counter := &atomic.Int32{}
 	counter.Store(5)
-	perIPConns.Store("10.0.0.1", counter)
+	ipConnCounts.Store("10.0.0.1", counter)
 
 	_, span := otel.Tracer("test").Start(context.Background(), "test")
 	defer span.End()
@@ -2442,10 +2440,10 @@ func TestUpgradePerIPCheck_AtLimit(t *testing.T) {
 }
 
 func TestUpgradePerIPCheck_UnderLimit(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	counter := &atomic.Int32{}
 	counter.Store(3)
-	perIPConns.Store("10.0.0.1", counter)
+	ipConnCounts.Store("10.0.0.1", counter)
 
 	_, span := otel.Tracer("test").Start(context.Background(), "test")
 	defer span.End()
@@ -2457,27 +2455,27 @@ func TestUpgradePerIPCheck_UnderLimit(t *testing.T) {
 }
 
 func TestUpgradePerIPDecrement_Existing(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	counter := &atomic.Int32{}
 	counter.Store(3)
-	perIPConns.Store("10.0.0.1", counter)
+	ipConnCounts.Store("10.0.0.1", counter)
 
-	upgradePerIPDecrement("10.0.0.1")
+	ipConnCountDecrement("10.0.0.1")
 	if n := counter.Load(); n != 2 {
 		t.Errorf("counter=%d, want 2", n)
 	}
 
-	upgradePerIPDecrement("10.0.0.1")
-	upgradePerIPDecrement("10.0.0.1")
-	if _, ok := perIPConns.Load("10.0.0.1"); ok {
+	ipConnCountDecrement("10.0.0.1")
+	ipConnCountDecrement("10.0.0.1")
+	if _, ok := ipConnCounts.Load("10.0.0.1"); ok {
 		t.Error("entry should be deleted when counter reaches 0")
 	}
 }
 
 func TestUpgradePerIPDecrement_NonExistent(t *testing.T) {
-	perIPConns = sync.Map{}
+	ipConnCounts = sync.Map{}
 	// 不应 panic
-	upgradePerIPDecrement("unknown")
+	ipConnCountDecrement("unknown")
 }
 
 func TestClientNew_WriteTimeoutDefault(t *testing.T) {
