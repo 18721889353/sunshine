@@ -5,11 +5,19 @@ import (
 	"encoding/json"
 )
 
+// PubSubMessage 的消息类型常量。
+const (
+	MsgTypeBroadcast     = "broadcast"
+	MsgTypeSendToUID     = "send_to_uid"
+	MsgTypeClientOnline  = "client_online"
+	MsgTypeClientOffline = "client_offline"
+)
+
 // PubSubMessage 跨实例分发的消息结构。
 // InstanceID 用于防止消息回环（自己发的消息自己不再重复处理）。
 type PubSubMessage struct {
 	InstanceID string          `json:"instance_id"`    // 发送方实例 ID
-	Type       string          `json:"type"`           // "broadcast" | "send_to_uid" | "client_online" | "client_offline"
+	Type       string          `json:"type"`           // MsgTypeBroadcast | MsgTypeSendToUID | MsgTypeClientOnline | MsgTypeClientOffline
 	UIDs       []string        `json:"uids,omitempty"` // send_to_uid 的目标 UID 列表
 	Payload    json.RawMessage `json:"payload"`        // JSON 序列化的业务消息
 }

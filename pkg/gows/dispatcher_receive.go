@@ -3,6 +3,7 @@ package gows
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
@@ -64,16 +65,16 @@ func (dd *DistributedDispatcher) deliverMessage(ctx context.Context, tracer trac
 	)
 
 	switch msg.Type {
-	case "broadcast":
+	case MsgTypeBroadcast:
 		dd.deliverBroadcast(span, msg.Payload)
 
-	case "send_to_uid":
+	case MsgTypeSendToUID:
 		dd.deliverToUIDs(span, msg.UIDs, msg.Payload)
 
-	case "client_online":
+	case MsgTypeClientOnline:
 		dd.handleRemoteOnline(msg.UIDs)
 
-	case "client_offline":
+	case MsgTypeClientOffline:
 		dd.handleRemoteOffline(msg.UIDs)
 
 	default:
@@ -92,16 +93,14 @@ func (dd *DistributedDispatcher) handleRemoteOnline(uids []string) {
 		if dd.hasLocalUID(uid) {
 			continue
 		}
-		// 递增计数
-		for {
-			val, _ := dd.remoteUIDs.LoadOrStore(uid, int32(0))
-			count, ok := val.(int32)
-			if !ok {
-				continue
-			}
-			if dd.remoteUIDs.CompareAndSwap(uid, count, count+1) {
-				break
-			}
+		// 使用 *atomic.Int32 指针原子递增，无 CAS 循环
+		actual, _ := dd.remoteUIDs.LoadOrStore(uid, &atomic.Int32{})
+		counter, ok := actual.(*atomic.Int32)
+		if !ok {
+			continue
+		}
+		if counter.Add(1) == 1 {
+			dd.remoteUIDCount.Add(1) // 新 UID 加入
 		}
 	}
 }
@@ -120,75 +119,78 @@ func (dd *DistributedDispatcher) handleRemoteOffline(uids []string) {
 		if !ok {
 			continue
 		}
-		count, ok := val.(int32)
+		counter, ok := val.(*atomic.Int32)
 		if !ok {
 			continue
 		}
-		if count <= 1 {
-			dd.remoteUIDs.Delete(uid)
-		} else {
-			dd.remoteUIDs.CompareAndSwap(uid, count, count-1)
+		if counter.Add(-1) <= 0 {
+			if _, loaded := dd.remoteUIDs.LoadAndDelete(uid); loaded {
+				dd.remoteUIDCount.Add(-1) // UID 移除
+			}
 		}
 	}
 }
 
-// hasLocalUID 检查指定 UID 是否在本实例上有在线连接。
+// hasLocalUID 检查指定 UID 是否在本实例上有在线连接（O(1) 查找）。
 func (dd *DistributedDispatcher) hasLocalUID(uid string) bool {
-	var found bool
-	dd.clients.Range(func(key, _ any) bool {
-		if key.(*Client).uid == uid {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
+	_, ok := dd.uidIndex.Load(uid)
+	return ok
 }
 
 // deliverBroadcast 向本地所有在线客户端广播消息。
 func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.RawMessage) {
-	var clients []*Client
-	dd.clients.Range(func(key, _ any) bool {
-		clients = append(clients, key.(*Client))
-		return true
-	})
-
 	var deadClients []*Client
-	var sentCount int
-	for _, client := range clients {
-		if !client.IsAlive() {
-			deadClients = append(deadClients, client)
-			continue
+	var sentCount, totalCount int
+	dd.clients.Range(func(key, _ any) bool {
+		c, ok := key.(*Client)
+		if !ok {
+			return true
 		}
-		if err := client.WriteRawCtx(client.clientCtx, payload); err != nil {
-			logger.WarnWithCtx(client.clientCtx, "ws distributed broadcast write failed",
-				logger.String("uid", client.uid),
+		totalCount++
+		if !c.IsAlive() {
+			deadClients = append(deadClients, c)
+			return true
+		}
+		if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
+			logger.WarnWithCtx(c.clientCtx, "ws distributed broadcast write failed",
+				logger.String("uid", c.uid),
 				logger.Err(err),
 			)
 		}
 		sentCount++
-	}
+		return true
+	})
 
 	span.SetAttributes(
 		attribute.Int("ws.local_sent", sentCount),
-		attribute.Int("ws.local_clients", len(clients)),
+		attribute.Int("ws.local_clients", totalCount),
 	)
 
 	if len(deadClients) > 0 {
-		for _, client := range deadClients {
-			if _, loaded := dd.clients.LoadAndDelete(client); loaded {
-				dd.clientCount.Add(-1)
-			}
-		}
+		dd.deleteDeadClients(deadClients)
 	}
 
 	span.SetStatus(codes.Ok, "broadcast delivered")
 }
 
+// deleteDeadClients 批量从 dispatcher 中删除已关闭的僵尸连接，递减 clientCount 和 uidIndex。
+func (dd *DistributedDispatcher) deleteDeadClients(clients []*Client) {
+	for _, client := range clients {
+		if _, loaded := dd.clients.LoadAndDelete(client); loaded {
+			dd.clientCount.Add(-1)
+			if client.uid != "" {
+				dd.decrementUIDIndex(client.uid)
+			}
+		}
+	}
+}
+
 // deliverToUIDs 向本地指定 UID 的客户端投递消息。
 func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, payload json.RawMessage) {
 	if len(uids) == 0 {
-		span.SetStatus(codes.Ok, "no target uids")
+		if span != nil {
+			span.SetStatus(codes.Ok, "no target uids")
+		}
 		return
 	}
 
@@ -197,42 +199,54 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 		uidSet[uid] = struct{}{}
 	}
 
-	var clients []*Client
-	dd.clients.Range(func(key, _ any) bool {
-		clients = append(clients, key.(*Client))
-		return true
-	})
-
 	var deadClients []*Client
-	var sentCount int
-	for _, client := range clients {
-		if !client.IsAlive() {
-			deadClients = append(deadClients, client)
-			continue
+	var sentCount, totalCount int
+	dd.clients.Range(func(key, _ any) bool {
+		c, ok := key.(*Client)
+		if !ok {
+			return true
 		}
-		if _, ok := uidSet[client.uid]; ok {
-			if err := client.WriteRawCtx(client.clientCtx, payload); err != nil {
-				logger.WarnWithCtx(client.clientCtx, "ws distributed send_to_uid write failed",
-					logger.String("uid", client.uid),
+		totalCount++
+		if !c.IsAlive() {
+			deadClients = append(deadClients, c)
+			return true
+		}
+		if _, ok := uidSet[c.uid]; ok {
+			if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
+				logger.WarnWithCtx(c.clientCtx, "ws distributed send_to_uid write failed",
+					logger.String("uid", c.uid),
 					logger.Err(err),
 				)
 			}
 			sentCount++
 		}
-	}
+		return true
+	})
 
-	span.SetAttributes(
-		attribute.Int("ws.local_sent", sentCount),
-		attribute.Int("ws.local_clients", len(clients)),
-	)
+	if span != nil {
+		span.SetAttributes(
+			attribute.Int("ws.local_sent", sentCount),
+			attribute.Int("ws.local_clients", totalCount),
+		)
+	}
 
 	if len(deadClients) > 0 {
-		for _, client := range deadClients {
-			if _, loaded := dd.clients.LoadAndDelete(client); loaded {
-				dd.clientCount.Add(-1)
-			}
-		}
+		dd.deleteDeadClients(deadClients)
 	}
 
-	span.SetStatus(codes.Ok, "send_to_uid delivered")
+	if span != nil {
+		span.SetStatus(codes.Ok, "send_to_uid delivered")
+	}
+}
+
+// decrementUIDIndex 原子递减本地 UID 索引计数器，归零时删除条目。
+func (dd *DistributedDispatcher) decrementUIDIndex(uid string) {
+	val, ok := dd.uidIndex.Load(uid)
+	if !ok {
+		return
+	}
+	counter, ok := val.(*atomic.Int32)
+	if ok && counter.Add(-1) <= 0 {
+		dd.uidIndex.Delete(uid)
+	}
 }

@@ -56,11 +56,15 @@ type DistributedDispatcher struct {
 	// uid → count（同一 UID 多设备连接）
 	remoteUIDs sync.Map
 
-	// WorkerPool 配置
-	workerNum     int32          // worker 协程数（默认 4）
-	workerCh      chan func()    // 投递任务通道，背压保护缓冲队列
-	workerWg      sync.WaitGroup // 等待所有 worker goroutine 退出
-	workerStarted atomic.Bool    // 是否已启动 WorkerPool
+	// 本地 UID 索引：uid → 连接计数，避免 hasLocalUID O(n) 扫描
+	uidIndex sync.Map // uid → int32
+
+	// 远端 UID 计数器：避免 Len()/Stats() O(n) 遍历 remoteUIDs
+	remoteUIDCount atomic.Int32
+	workerNum      atomic.Int32   // worker 协程数（默认 4）
+	workerCh       chan func()    // 投递任务通道，背压保护缓冲队列
+	workerWg       sync.WaitGroup // 等待所有 worker goroutine 退出
+	workerStarted  atomic.Bool    // 是否已启动 WorkerPool
 }
 
 // NewDispatcher 创建并初始化一个新的消息分发中心。
@@ -85,9 +89,14 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 	d := &DistributedDispatcher{
 		backend:       backend,
 		receiveStopCh: make(chan struct{}),
-		instanceID:    fmt.Sprintf("%p", backend), // 默认以 backend 指针地址作为实例 ID
-		workerNum:     o.workerNum,
 	}
+	// backend 为 nil（单机模式）时使用默认实例 ID
+	if backend != nil {
+		d.instanceID = fmt.Sprintf("%p", backend)
+	} else {
+		d.instanceID = "standalone"
+	}
+	d.workerNum.Store(o.workerNum)
 	d.maxConns.Store(o.maxConns)
 	return d
 }
@@ -116,7 +125,7 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 	}
 
 	// 2. 启动 Worker Pool（背压保护）
-	if n := atomic.LoadInt32(&dd.workerNum); n > 0 {
+	if n := dd.workerNum.Load(); n > 0 {
 		dd.workerCh = make(chan func(), n*2) // 缓冲队列为 worker 数的 2 倍
 		for i := int32(0); i < n; i++ {
 			dd.workerWg.Add(1)
@@ -141,11 +150,13 @@ func (dd *DistributedDispatcher) workerLoop() {
 }
 
 // Stop 停止后台接收协程，释放后端资源。
-// 关闭顺序: 关闭 Backend → 关闭 uidSubs → 关闭 receiveLoop → 关闭 WorkerPool。
+// 关闭顺序: 关闭 UID 订阅 → 关闭 Backend → 关闭 receiveLoop → 关闭 WorkerPool。
 func (dd *DistributedDispatcher) Stop() {
 	// 1. 关闭所有 UID 订阅
 	dd.uidSubs.Range(func(key, value any) bool {
-		close(value.(chan struct{}))
+		if ch, ok := value.(chan struct{}); ok {
+			close(ch)
+		}
 		dd.uidSubs.Delete(key)
 		return true
 	})
@@ -172,14 +183,7 @@ func (dd *DistributedDispatcher) Stop() {
 
 // Len 返回全局在线连接数（本地 + 远端）。
 func (dd *DistributedDispatcher) Len() int {
-	local := int(dd.clientCount.Load())
-
-	remote := 0
-	dd.remoteUIDs.Range(func(_, _ any) bool {
-		remote++
-		return true
-	})
-	return local + remote
+	return int(dd.clientCount.Load()) + int(dd.remoteUIDCount.Load())
 }
 
 // MaxConnections 返回最大连接数限制（0=不限制）。
@@ -196,7 +200,9 @@ func (dd *DistributedDispatcher) TotalRejected() int {
 func (dd *DistributedDispatcher) Clients() []*Client {
 	var clients []*Client
 	dd.clients.Range(func(key, _ any) bool {
-		clients = append(clients, key.(*Client))
+		if c, ok := key.(*Client); ok {
+			clients = append(clients, c)
+		}
 		return true
 	})
 	return clients
@@ -204,18 +210,16 @@ func (dd *DistributedDispatcher) Clients() []*Client {
 
 // Range 遍历所有已注册客户端。
 // 如果 fn 返回 false 则停止遍历。
+// 注意：fn 中调用 Delete 等修改操作是安全的，但可能导致遍历结果不一致。
+// 如需一致性快照，使用 Clients() 替代。
 func (dd *DistributedDispatcher) Range(fn func(*Client) bool) {
-	var clients []*Client
 	dd.clients.Range(func(key, _ any) bool {
-		clients = append(clients, key.(*Client))
-		return true
-	})
-
-	for _, client := range clients {
-		if !fn(client) {
-			break
+		c, ok := key.(*Client)
+		if !ok {
+			return true
 		}
-	}
+		return fn(c)
+	})
 }
 
 // DispatcherStats 分发中心统计信息。
@@ -230,12 +234,7 @@ type DispatcherStats struct {
 // Stats 返回分发中心的实时统计信息。
 func (dd *DistributedDispatcher) Stats() DispatcherStats {
 	local := dd.LenLocal()
-
-	remote := 0
-	dd.remoteUIDs.Range(func(_, _ any) bool {
-		remote++
-		return true
-	})
+	remote := int(dd.remoteUIDCount.Load())
 
 	return DispatcherStats{
 		TotalConnections: local + remote,
@@ -253,11 +252,15 @@ func (dd *DistributedDispatcher) LenLocal() int {
 
 // ConnectedUIDs 返回所有实例上的在线 UID 列表（去重）。
 func (dd *DistributedDispatcher) ConnectedUIDs() []string {
-	seen := make(map[string]struct{})
+	// 预分配 map 容量（本地连接数 + 远端 UID 数），减少 reallocation
+	seen := make(map[string]struct{}, dd.LenLocal()+int(dd.remoteUIDCount.Load()))
 
 	// 1. 本地 UID
 	dd.clients.Range(func(key, _ any) bool {
-		client := key.(*Client)
+		client, ok := key.(*Client)
+		if !ok {
+			return true
+		}
 		if client.uid != "" {
 			seen[client.uid] = struct{}{}
 		}
@@ -284,18 +287,25 @@ func (dd *DistributedDispatcher) ConnectedUIDs() []string {
 }
 
 // CleanupDeadConns 清理所有已关闭的僵尸连接，释放 Dispatcher 内存。
+// 同时递减 uidIndex 索引，确保 hasLocalUID 查询不漂移。
 // 返回清理的连接数。
 func (dd *DistributedDispatcher) CleanupDeadConns() int {
 	var cleaned int
 	dd.clients.Range(func(key, _ any) bool {
-		client := key.(*Client)
+		client, ok := key.(*Client)
+		if !ok {
+			return true
+		}
 		if !client.IsAlive() {
 			if _, loaded := dd.clients.LoadAndDelete(key); loaded {
 				cleaned++
+				dd.clientCount.Add(-1)
+				if client.uid != "" {
+					dd.decrementUIDIndex(client.uid)
+				}
 			}
 		}
 		return true
 	})
-	dd.clientCount.Add(-int32(cleaned))
 	return cleaned
 }

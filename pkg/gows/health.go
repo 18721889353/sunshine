@@ -52,7 +52,7 @@ func (c *Client) markLastRead() {
 // IsAlive 判断客户端连接是否处于健康状态。
 // 返回 false 的场景：
 //   - Close() 已调用
-//   - writeLoop 已因写入重试全部失败退出（forceCloseConn 已触发）
+//   - msgFromChToWs 已因写入重试全部失败退出（closeWsConn 已触发）
 //   - 超过 3 个心跳周期无成功写入（疑似僵尸连接）
 //
 // 注意：

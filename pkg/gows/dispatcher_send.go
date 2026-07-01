@@ -38,6 +38,7 @@ func (dd *DistributedDispatcher) SendToMultiUIDCtx(ctx context.Context, uids []s
 			trace.WithSpanKind(trace.SpanKindInternal),
 		)
 		defer span.End()
+		span.SetAttributes(requestIDAttr(ctx))
 		dd.deliverToUIDs(span, uids, payload)
 		return
 	}
@@ -72,7 +73,7 @@ func (dd *DistributedDispatcher) SendToMultiUIDCtx(ctx context.Context, uids []s
 	// 2. 再发布到 MQ 供远端实例消费（自发布消息由 subscribeUID 的 InstanceID 过滤跳过）
 	msg := &PubSubMessage{
 		InstanceID: dd.instanceID,
-		Type:       "send_to_uid",
+		Type:       MsgTypeSendToUID,
 		UIDs:       uids,
 		Payload:    payload,
 	}
@@ -103,6 +104,7 @@ func (dd *DistributedDispatcher) BroadcastCtx(ctx context.Context, v any) {
 			trace.WithSpanKind(trace.SpanKindInternal),
 		)
 		defer span.End()
+		span.SetAttributes(requestIDAttr(ctx))
 		dd.deliverBroadcast(span, payload)
 		return
 	}
@@ -125,7 +127,7 @@ func (dd *DistributedDispatcher) BroadcastCtx(ctx context.Context, v any) {
 
 	msg := &PubSubMessage{
 		InstanceID: dd.instanceID,
-		Type:       "broadcast",
+		Type:       MsgTypeBroadcast,
 		Payload:    payload,
 	}
 	if err := dd.backend.Publish(ctx, msg); err != nil {
@@ -157,43 +159,45 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 	defer span.End()
 	span.SetAttributes(requestIDAttr(ctx))
 
-	var clients []*Client
-	dd.clients.Range(func(key, _ any) bool {
-		clients = append(clients, key.(*Client))
-		return true
-	})
-
-	span.SetAttributes(attribute.Int("ws.broadcast_targets", len(clients)))
-
-	var deadClients []*Client
 	payload, err := json.Marshal(v)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		logger.WarnWithCtx(ctx, "ws broadcast_filter marshal failed", logger.Err(err))
 		return
 	}
-	for _, client := range clients {
-		if !client.IsAlive() {
-			deadClients = append(deadClients, client)
-			continue
+
+	var deadClients []*Client
+	var totalCount, sentCount int
+	dd.clients.Range(func(key, _ any) bool {
+		c, ok := key.(*Client)
+		if !ok {
+			return true
 		}
-		if filter(client) {
-			if err := client.WriteRawCtx(client.clientCtx, payload); err != nil {
+		totalCount++
+		if !c.IsAlive() {
+			deadClients = append(deadClients, c)
+			return true
+		}
+		if filter(c) {
+			if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
 				logger.WarnWithCtx(ctx, "ws broadcast_filter write failed",
-					logger.String("uid", client.uid),
+					logger.String("uid", c.uid),
 					logger.Err(err),
 				)
 			}
+			sentCount++
 		}
-	}
+		return true
+	})
+
+	span.SetAttributes(
+		attribute.Int("ws.broadcast_targets", totalCount),
+		attribute.Int("ws.broadcast_sent", sentCount),
+	)
 
 	if len(deadClients) > 0 {
 		span.SetAttributes(attribute.Int("ws.dead_clients_cleaned", len(deadClients)))
-		for _, client := range deadClients {
-			if _, loaded := dd.clients.LoadAndDelete(client); loaded {
-				dd.clientCount.Add(-1)
-			}
-		}
+		dd.deleteDeadClients(deadClients)
 	}
 
 	span.SetStatus(codes.Ok, "broadcast_filter completed")

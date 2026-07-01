@@ -3,6 +3,7 @@ package gows
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 )
@@ -55,10 +56,17 @@ func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string)
 		return
 	}
 
-	_ = dd.backend.Unsubscribe(ctx, uid)
+	if err := dd.backend.Unsubscribe(ctx, uid); err != nil {
+		logger.WarnWithCtx(ctx, "unsubscribe uid failed",
+			logger.String("uid", uid),
+			logger.Err(err),
+		)
+	}
 
 	if stopCh, loaded := dd.uidSubs.LoadAndDelete(uid); loaded {
-		close(stopCh.(chan struct{}))
+		if ch, ok := stopCh.(chan struct{}); ok {
+			close(ch)
+		}
 	}
 }
 
@@ -105,7 +113,17 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 		return ctx.Err()
 	default:
 	}
-	dd.publishClientEvent(ctx, "client_online", client.uid)
+
+	// 递增本地 UID 索引（确认注册后，不回滚）
+	if client.uid != "" {
+		actual, _ := dd.uidIndex.LoadOrStore(client.uid, &atomic.Int32{})
+		counter, ok := actual.(*atomic.Int32)
+		if ok {
+			counter.Add(1)
+		}
+	}
+
+	dd.publishClientEvent(ctx, MsgTypeClientOnline, client.uid)
 
 	// 订阅该 UID 的持久化队列（Direct 模式，支持离线消息）
 	dd.subscribeUID(ctx, client.uid)
@@ -141,7 +159,12 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 		return ctx.Err()
 	default:
 	}
-	dd.publishClientEvent(ctx, "client_offline", client.uid)
+	dd.publishClientEvent(ctx, MsgTypeClientOffline, client.uid)
+
+	// 递减本地 UID 索引（确认注销后，不回滚）
+	if client.uid != "" && loaded {
+		dd.decrementUIDIndex(client.uid)
+	}
 
 	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
 	if !dd.hasLocalUID(client.uid) {

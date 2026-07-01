@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -161,7 +162,9 @@ func (b *RabbitMQBackend) putProducer(p *gorabbitmq.Producer) {
 	select {
 	case b.producerPool <- p:
 	default:
-		_ = p.Close()
+		if err := p.Close(); err != nil {
+			logger.WarnWithCtx(context.Background(), "rabbitmq close producer failed", logger.Err(err))
+		}
 	}
 }
 
@@ -181,7 +184,7 @@ func (b *RabbitMQBackend) Publish(ctx context.Context, msg *PubSubMessage) error
 
 	b.initProducerPool(ctx)
 
-	if msg.Type == "send_to_uid" && len(msg.UIDs) > 0 {
+	if msg.Type == MsgTypeSendToUID && len(msg.UIDs) > 0 {
 		// 按 UID 分别发布到 Direct 交换机
 		for _, uid := range msg.UIDs {
 			if uid == "" {
@@ -205,7 +208,9 @@ func (b *RabbitMQBackend) publishWithRoutingKey(ctx context.Context, data []byte
 	}
 
 	if err := producer.PublishDirect(ctx, routingKey, data, uuid.New().String()); err != nil {
-		_ = producer.Close()
+		if closeErr := producer.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "rabbitmq close producer after publish failed", logger.Err(closeErr))
+		}
 		return fmt.Errorf("rabbitmq publish: %w", err)
 	}
 	b.putProducer(producer)
@@ -351,7 +356,7 @@ func (b *RabbitMQBackend) Subscribe(ctx context.Context, uid string) (<-chan *Pu
 	b.uidConsumerWg.Add(1)
 	go func() {
 		defer b.uidConsumerWg.Done()
-		consumer.Consume(uidCtx, func(ctx context.Context, data []byte, messageId, tagID string) error {
+		consumer.Consume(uidCtx, func(ctx context.Context, data []byte, _, _ string) error {
 			var msg PubSubMessage
 			if err := json.Unmarshal(data, &msg); err != nil {
 				logger.WarnWithCtx(ctx, "rabbitmq uid unmarshal failed",
@@ -390,7 +395,7 @@ func (b *RabbitMQBackend) Unsubscribe(_ context.Context, uid string) error {
 }
 
 // handleMessage 处理广播消息回调，反序列化后投递到广播输出通道。
-func (b *RabbitMQBackend) handleMessage(ctx context.Context, data []byte, messageId, tagID string) error {
+func (b *RabbitMQBackend) handleMessage(ctx context.Context, data []byte, messageID, tagID string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -399,7 +404,7 @@ func (b *RabbitMQBackend) handleMessage(ctx context.Context, data []byte, messag
 		logger.WarnWithCtx(ctx, "rabbitmq unmarshal failed",
 			logger.Err(err),
 			logger.Int("body_size", len(data)),
-			logger.String("message_id", messageId),
+			logger.String("message_id", messageID),
 			logger.String("tag_id", tagID),
 		)
 		return err
@@ -410,6 +415,19 @@ func (b *RabbitMQBackend) handleMessage(ctx context.Context, data []byte, messag
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+}
+
+// waitWithTimeout 等待 sync.WaitGroup 完成，超时后不再等待（best-effort 退出）。
+func waitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) {
+	done := make(chan struct{}, 1)
+	go func() {
+		wg.Wait()
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
 	}
 }
 
@@ -446,39 +464,23 @@ func (b *RabbitMQBackend) Close() error {
 			consumer.Close()
 		}
 		if broadcastStarted {
-			done := make(chan struct{}, 1)
-			go func() {
-				b.broadcastWg.Wait()
-				done <- struct{}{}
-			}()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-			}
+			waitWithTimeout(&b.broadcastWg, 5*time.Second)
 		}
 
 		// 4. 等待所有 UID 消费者退出
-		{
-			done := make(chan struct{}, 1)
-			go func() {
-				b.uidConsumerWg.Wait()
-				done <- struct{}{}
-			}()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-			}
-		}
+		waitWithTimeout(&b.uidConsumerWg, 5*time.Second)
 
-		// 4. 关闭 Producer 池
+		// 5. 关闭 Producer 池
 		if pool != nil {
 			close(pool)
 			for p := range pool {
-				_ = p.Close()
+				if err := p.Close(); err != nil {
+					logger.WarnWithCtx(context.Background(), "rabbitmq close producer pool failed", logger.Err(err))
+				}
 			}
 		}
 
-		// 5. 关闭连接
+		// 6. 关闭连接
 		if conn != nil {
 			conn.Close()
 		}

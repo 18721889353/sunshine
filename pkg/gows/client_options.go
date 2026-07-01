@@ -9,13 +9,13 @@ type ClientOption func(*clientOptions)
 
 // clientOptions 客户端内部配置参数集合
 type clientOptions struct {
-	readChSize     int                      // 读取通道缓冲区容量（默认 1024）
-	writeChSize    int                      // 写入通道缓冲区容量（默认 1024）
-	readTimeout    time.Duration            // readLoop 读取超时时间
-	writeTimeout   time.Duration            // writeWithRetry 写入超时时间
-	readLimit      int64                    // 单条消息读取大小限制
-	writeLimit     int64                    // 单条消息写入大小限制
-	dispatcher     *DistributedDispatcher   // 关联的分发中心（nil=未注册）
+	readChSize   int                    // 读取通道缓冲区容量（默认 1024）
+	writeChSize  int                    // 写入通道缓冲区容量（默认 1024）
+	readTimeout  time.Duration          // msgFromWsToCh 读取超时时间
+	writeTimeout time.Duration          // msgFromChToWs 写入超时时间
+	readLimit    int64                  // 单条消息读取大小限制
+	writeLimit   int64                  // 单条消息写入大小限制
+	dispatcher   *DistributedDispatcher // 关联的分发中心（nil=未注册）
 }
 
 func defaultClientOptions() *clientOptions {
@@ -33,8 +33,8 @@ func (o *clientOptions) apply(opts ...ClientOption) {
 
 // 队列容量通过 Upgrade 的 WithQueueSize 选项传播到 Client
 
-// withWriteChSize 内部 ClientOption，供 Upgrade 将通道大小传入 NewClient
-func withWriteChSize(n int) ClientOption {
+// withClientWriteChSize 内部 ClientOption，供 Upgrade 将写入通道大小传入 NewClient
+func withClientWriteChSize(n int) ClientOption {
 	return func(o *clientOptions) {
 		if n > 0 {
 			o.writeChSize = n
@@ -42,8 +42,8 @@ func withWriteChSize(n int) ClientOption {
 	}
 }
 
-// withReadChSize 内部 ClientOption，供 Upgrade 将通道大小传入 NewClient
-func withReadChSize(n int) ClientOption {
+// withClientReadChSize 内部 ClientOption，供 Upgrade 将读取通道大小传入 NewClient
+func withClientReadChSize(n int) ClientOption {
 	return func(o *clientOptions) {
 		if n > 0 {
 			o.readChSize = n

@@ -26,9 +26,12 @@ var (
 
 // upgradeOptions / UpgradeOption / With* 定义在 upgrade_options.go
 
-// upgradePerIPCheck 执行单 IP 连接数检查。
+// upgradePerIPCheck 执行单 IP 连接数检查（只读，不创建计数器）。
 func upgradePerIPCheck(clientIP string, maxConnPerIP int32, span trace.Span) error {
-	actual, _ := perIPConns.LoadOrStore(clientIP, &atomic.Int32{})
+	actual, ok := perIPConns.Load(clientIP)
+	if !ok {
+		return nil // 首次连接，无现有计数
+	}
 	counter, ok := actual.(*atomic.Int32)
 	if !ok {
 		return fmt.Errorf("ws upgrade: per-IP counter type assertion failed")
@@ -39,17 +42,6 @@ func upgradePerIPCheck(clientIP string, maxConnPerIP int32, span trace.Span) err
 		return fmt.Errorf("ws upgrade max connections per IP reached: ip=%s max=%d", clientIP, maxConnPerIP)
 	}
 	return nil
-}
-
-// upgradePerIPIncrement 升级成功后递增单 IP 连接计数。
-func upgradePerIPIncrement(clientIP string) {
-	if actual, ok := perIPConns.Load(clientIP); ok {
-		counter, ok := actual.(*atomic.Int32)
-		if !ok {
-			return
-		}
-		counter.Add(1)
-	}
 }
 
 // upgradePerIPDecrement 客户端关闭时递减单 IP 连接计数，计数归零时删除记录。
@@ -94,12 +86,12 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 
 // buildClientOpts 将 UpgradeOption 中的 Client 配置转换为 ClientOption 列表。
 func buildClientOpts(o *upgradeOptions) []ClientOption {
-	var opts []ClientOption
+	opts := make([]ClientOption, 0, 7) // 最多 7 个 Client 配置项
 	if o.writeChSize > 0 {
-		opts = append(opts, withWriteChSize(o.writeChSize))
+		opts = append(opts, withClientWriteChSize(o.writeChSize))
 	}
 	if o.readChSize > 0 {
-		opts = append(opts, withReadChSize(o.readChSize))
+		opts = append(opts, withClientReadChSize(o.readChSize))
 	}
 	if o.readTimeout > 0 {
 		opts = append(opts, withClientReadTimeout(o.readTimeout))
@@ -141,7 +133,7 @@ func buildClientOpts(o *upgradeOptions) []ClientOption {
 //  2. 创建 websocket.Upgrader 并应用配置
 //  3. 执行 HTTP→WebSocket 升级
 //  4. 执行升级后钩子（可选）
-//  5. 用 *websocket.Conn 创建 *Client（含 writeLoop）
+//  5. 用 *websocket.Conn 创建 *Client（含 msgFromChToWs）
 //  6. 可选启动心跳、注册 Dispatcher
 //
 // 安全保护:
@@ -215,9 +207,12 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		return nil, fmt.Errorf("ws upgrade: %w", err)
 	}
 
-	// 升级成功后，递增单 IP 连接计数
+	// 升级成功后，创建/确保计数器存在并递增
 	if o.maxConnPerIP > 0 {
-		upgradePerIPIncrement(clientIP)
+		actual, _ := perIPConns.LoadOrStore(clientIP, &atomic.Int32{})
+		if counter, ok := actual.(*atomic.Int32); ok {
+			counter.Add(1)
+		}
 	}
 
 	// 将 UpgradeOption 中的 Client 配置统一通过 clientOpts 传入 NewClient

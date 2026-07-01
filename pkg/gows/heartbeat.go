@@ -1,6 +1,7 @@
 package gows
 
 import (
+	"context"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -52,6 +53,24 @@ func SetupPongHandler(conn *websocket.Conn, interval, pongTimeout time.Duration)
 	})
 }
 
+// closeOnPingFailure Ping 发送失败后关闭连接并记录日志。
+func closeOnPingFailure(ctx context.Context, client *Client, err error, span trace.Span) {
+	span.SetAttributes(attribute.Int("ws.ping_fail_count", 1))
+	span.SetStatus(codes.Error, err.Error())
+	logger.WarnWithCtx(ctx, "ws protocol ping failed, connection dead",
+		logger.String("uid", client.uid),
+		logger.String("remote_addr", client.remoteAddr),
+		logger.Err(err),
+	)
+	if closeErr := client.Close(); closeErr != nil {
+		logger.WarnWithCtx(ctx, "ws close failed after ping failure",
+			logger.String("uid", client.uid),
+			logger.String("remote_addr", client.remoteAddr),
+			logger.Err(closeErr),
+		)
+	}
+}
+
 // StartHeartbeat 启动 WebSocket 协议级 Ping/Pong 心跳保活循环。
 //
 // 设计说明：
@@ -87,18 +106,7 @@ func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 	// 避免 ReadDeadline 在首帧 Ping 发送前过期导致误判
 	if err := client.wsConn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(o.pingWriteWait)); err != nil {
 		span.SetAttributes(attribute.Bool("ws.initial_ping_failed", true))
-		logger.WarnWithCtx(ctx, "ws initial ping failed, connection dead",
-			logger.String("uid", client.uid),
-			logger.String("remote_addr", client.remoteAddr),
-			logger.Err(err),
-		)
-		if closeErr := client.Close(); closeErr != nil {
-			logger.WarnWithCtx(ctx, "ws close failed after initial ping failure",
-				logger.String("uid", client.uid),
-				logger.String("remote_addr", client.remoteAddr),
-				logger.Err(closeErr),
-			)
-		}
+		closeOnPingFailure(ctx, client, err, span)
 		return
 	}
 
@@ -112,20 +120,7 @@ func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 			// 对端协议栈自动回复 Pong，PongHandler 刷新 ReadDeadline
 			// 写入超时由 pingWriteWait 控制，防止 TCP 半连接导致卡死
 			if err := client.wsConn.WriteControl(websocket.PingMessage, []byte("keepalive"), time.Now().Add(o.pingWriteWait)); err != nil {
-				span.SetAttributes(attribute.Int("ws.ping_fail_count", 1))
-				span.SetStatus(codes.Error, err.Error())
-				logger.WarnWithCtx(ctx, "ws protocol ping failed, connection dead",
-					logger.String("uid", client.uid),
-					logger.String("remote_addr", client.remoteAddr),
-					logger.Err(err),
-				)
-				if closeErr := client.Close(); closeErr != nil {
-					logger.WarnWithCtx(ctx, "ws close failed after ping failure",
-						logger.String("uid", client.uid),
-						logger.String("remote_addr", client.remoteAddr),
-						logger.Err(closeErr),
-					)
-				}
+				closeOnPingFailure(ctx, client, err, span)
 				return
 			}
 

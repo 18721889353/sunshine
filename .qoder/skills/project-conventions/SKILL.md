@@ -11,6 +11,27 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 - **禁止修改 `.golangci.yml`**：lint 配置是项目级统一标准，不为单点问题添加例外配置
 - **`make ci-lint` 必须通过**：提交前运行 `make ci-lint`（`gofmt -s -w .` + `golangci-lint run ./...`）
 
+## 目录
+
+| # | 内容 | 说明 |
+|---|------|------|
+| 一 | errcheck — 错误必须显式处理 | check-blank + check-type-assertions + 类型断言规范 + 清理场景 + shadow 陷阱 |
+| 二 | revive empty-block — 禁止空 if 块 | |
+| 三 | revive redefines-builtin-id — 禁止覆盖内置标识符 | |
+| 四 | revive unused-parameter — 未使用的参数用 `_` | |
+| 五 | revive var-naming — Go 命名约定 | |
+| 六 | revive package-comments — 包注释格式 | |
+| 七 | goimports — 本地包必须单独分组 | |
+| 八 | revive identical-branches — 禁止相同分支 | |
+| 九 | revive context-as-argument — context.Context 必须是第一参数 | |
+| 十 | gocognit — 认知复杂度超限 | 提取子函数 + 条件前置 |
+| 十一 | 经验教训总结 | 闭包递归 / gocognit 修复 / 日志 ctx / 批量不中断 / 条件前置 / 资源清理 / atomic.Pointer / 字符串错误 / 优雅关闭 |
+| 十二 | 原子计数器优先使用 atomic.Int32/Int64 | 指针替代 CAS 循环 |
+| 十三 | sync.Map 操作规范 — 计数漂移保护 | Range 内联 I/O 去中间切片 |
+| 十四 | Ctx 变体设计规范 | Ctx 变体 + 构造函数接收 Context |
+| 十五 | Option 配置传播模式 | defaultXxx+apply + 冲突处理 |
+| 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 |
+
 ## 一、errcheck — 错误必须显式处理
 
 `.golangci.yml` 开启了 `check-blank: true`（标记 `_ = func()`）和 `check-type-assertions: true`（标记类型断言）。以下写法都会被报错：
@@ -44,6 +65,94 @@ if s, ok := v.(string); ok {
 // ✅ 记录日志
 if closeErr := client.Close(); closeErr != nil {
     logger.WarnWithCtx(ctx, "close failed", logger.Err(closeErr))
+}
+```
+
+### 类型断言规范
+
+errcheck 开启了 `check-type-assertions: true`，**所有**类型断言都必须使用 comma-ok 双值形式，包括 `sync.Map.Range` 回调、`interface{}` 字段取值等场景。
+
+```go
+// ❌ 错误：单值类型断言被 errcheck 标记
+s := v.(string)
+close(value.(chan struct{}))
+if key.(*Client).uid == uid { }
+
+// ✅ 正确：双值 comma-ok
+if s, ok := v.(string); ok {
+    lastWriteErrStr = s
+}
+if ch, ok := value.(chan struct{}); ok {
+    close(ch)
+}
+if c, ok := key.(*Client); ok && c.uid == uid {
+    found = true
+}
+```
+
+#### sync.Map.Range 回调中的类型断言
+
+`sync.Map.Range` 回调接收 `key, value any`，类型断言时必须检查 `ok`，不可识别的 key 应跳过（`return true` 继续遍历）：
+
+```go
+// ❌ 错误：无条件断言，panic 风险 + errcheck 标记
+dd.clients.Range(func(key, _ any) bool {
+    clients = append(clients, key.(*Client))
+    return true
+})
+
+// ✅ 正确：双值接收，不可识别的 key 跳过
+var clients []*Client
+dd.clients.Range(func(key, _ any) bool {
+    if c, ok := key.(*Client); ok {
+        clients = append(clients, c)
+    }
+    return true
+})
+```
+
+需要提前返回的场景：
+
+```go
+// before: client := key.(*Client)
+// after:
+client, ok := key.(*Client)
+if !ok {
+    return true // 跳过不可识别的 key
+}
+```
+
+### 纯清理场景的规范处理
+
+纯清理场景（如缓存池满时关闭多余 Producer、关闭失败连接后的二次清理），Close 错误的无法恢复，但 errcheck 不允许忽略。必须用 `if err` 记录日志，不得使用 `//nolint:errcheck`：
+
+```go
+// ❌ 错误：禁止使用 nolint 绕过
+default:
+    _ = p.Close() //nolint:errcheck
+
+// ❌ 错误：空白赋值仍被 check-blank 标记
+default:
+    _ = p.Close()
+
+// ✅ 正确：用 if err 记录日志
+default:
+    if err := p.Close(); err != nil {
+        logger.WarnWithCtx(ctx, "close producer failed", logger.Err(err))
+    }
+```
+
+**无 ctx 场景**：传入 `context.Background()`
+
+```go
+func (b *RabbitMQBackend) putProducer(p *gorabbitmq.Producer) {
+    select {
+    case b.producerPool <- p:
+    default:
+        if err := p.Close(); err != nil {
+            logger.WarnWithCtx(context.Background(), "close producer failed", logger.Err(err))
+        }
+    }
 }
 ```
 
@@ -230,19 +339,7 @@ Benefits:
 - 条件变化时只改主函数调用处，不影响子函数
 - 避免内外两层 guard 的冗余嵌套
 
-## 十一、OpenTelemetry span 操作规范
-
-`span.SetAttributes` 是直接调用，`_ = span.SetAttributes(...)` 会被 `check-blank` 标记：
-
-```go
-// ❌ 错误
-_ = span.SetAttributes(attribute.String("k", "v"))
-
-// ✅ 正确
-span.SetAttributes(attribute.String("k", "v"))
-```
-
-## 十二、经验教训总结
+## 十一、经验教训总结
 
 ### 12.1 close hook 闭包避免递归
 
@@ -412,7 +509,41 @@ return fmt.Errorf("ws upgrade rate limited: %.2f rps", limiter.Limit())
 
 判断标准：全局搜索 `errors.Is` / `errors.As` + 类型名，没有任何使用即可删除。
 
-## 十三、原子计数器优先使用 atomic.Int32/Int64 类型
+### 12.9 优雅关闭：WithoutCancel + drain 保证零丢失
+
+长连接关闭时需保证已入队数据不丢失，核心三原则：
+
+1. **`context.WithoutCancel` 阻断上游超时** — 长连接独立于请求生命周期，上游 Gin ctx 超时不级联取消
+2. **永不 close 多生产者 channel** — 用 `ctx.Done()` 做统一退出信号，根除 send-on-closed-channel panic
+3. **关闭信号后先 drain 再退出** — 收到 ctx.Done() 后排空队列中剩余数据，确保不丢失
+
+```go
+// 构造函数中隔离上游
+clientCtx := context.WithCancel(context.WithoutCancel(ctx))
+
+// 消费协程：关闭信号后 drain
+case <-clientCtx.Done():
+    for len(ch) > 0 {
+        _ = process(<-ch) // best-effort 排空
+    }
+    return
+
+// 关闭时序：cancel → wait write (drain) → close TCP → wait read
+func (c *Client) Close() error {
+    if c.closed.CompareAndSwap(false, true) {
+        c.clientCtxCancel()
+        c.writeWg.Wait()              // drain + 退出
+        closeErr := c.wsConn.Close()  // unblock ReadMessage
+        c.readWg.Wait()
+        return closeErr
+    }
+    return nil
+}
+```
+
+**适用场景**：WebSocket 连接、消息队列消费者、任何需保证关闭时数据不丢失的并发写入系统。
+
+## 十二、原子计数器优先使用 atomic.Int32/Int64 类型
 
 涉及并发写入的整型计数场景（跨 goroutine `Add`/`CAS`/`Store`+`Load`），优先使用标准库 `atomic.Int32` / `atomic.Int64` 结构体类型，而非裸 `int32`/`int64` + 包函数：
 
@@ -466,7 +597,41 @@ func (c *Client) Close() error {
 - 结构体字面量中不能直接赋值 `maxConns: o.maxConns`（`atomic.Int32` 是结构体类型），需在构造后调用 `.Store()`
 - 不再需要 `sync/atomic` 导入的情况：文件中所有 `atomic.*` 包函数调用被替换为方法调用后，可删除导入
 
-## 十四、sync.Map 操作规范 — 计数漂移保护
+### `*atomic.Int32` 指针在 sync.Map 中的应用
+
+当 sync.Map 需要存储并递增计数器时，存储 `*atomic.Int32` 指针替代裸 `int32` CAS 循环：
+
+```go
+// ❌ 错误：MAP 级 CAS 循环，复杂且易错
+for {
+    val, _ := m.LoadOrStore(key, int32(0))
+    count := val.(int32)
+    if m.CompareAndSwap(key, count, count+1) {
+        break
+    }
+}
+
+// ✅ 正确：*atomic.Int32 指针，Add(1) 一行完成
+actual, _ := m.LoadOrStore(key, &atomic.Int32{})
+counter, ok := actual.(*atomic.Int32)
+if !ok { continue }  // comma-ok 类型断言
+counter.Add(1)
+```
+
+递减时配合 `LoadAndDelete` 安全移除 key：
+
+```go
+counter := val.(*atomic.Int32)
+if counter.Add(-1) <= 0 {
+    if _, loaded := m.LoadAndDelete(key); loaded {
+        totalCount.Add(-1)  // 只有实际移除了才递减总量
+    }
+}
+```
+
+**收益**：省去 CAS 循环，代码更简洁可读。适用于分布式连接管理、在线状态追踪等 sync.Map + 计数器组合场景。
+
+## 十三、sync.Map 操作规范 — 计数漂移保护
 
 ### 问题场景
 
@@ -520,56 +685,211 @@ default:
 | **ctx 回滚一致** | 回滚操作的条件必须与删除操作一致 |
 | **Range 中删除用 CAS** | `sync.Map.Range` 回调内删除当前 key，使用 `LoadAndDelete` 确保操作原子性 |
 
-## 十四、sync.Map 操作规范 — 计数漂移保护
+### Range 回调中直接执行业务逻辑
 
-### 问题场景
-
-`sync.Map` 允许多路径并发操作同一 key（如 `UnregisterCtx` / `CleanupDeadConns` / 消息投递中的僵尸清理同时删除同个 `*Client`）。无条件计数器递减会导致计数漂移。
-
-### 正确模式
+`sync.Map.Range` **不持有内部锁**，回调中可以直接执行网络写入等 I/O 操作，无需预拷贝全量切片：
 
 ```go
-// ❌ 错误：无条件递减，并发删除时计数漂移
-dd.clients.Delete(client)
-dd.clientCount.Add(-1)
-
-// ✅ 正确：只有实际删除了才递减
-if _, loaded := dd.clients.LoadAndDelete(client); loaded {
-    dd.clientCount.Add(-1)
-}
-```
-
-ctx 回滚时同样需条件判断：
-
-```go
-_, loaded := dd.clients.LoadAndDelete(client)
-if loaded {
-    dd.clientCount.Add(-1)
-}
-select {
-case <-ctx.Done():
-    if loaded {  // 只有实际删除了才回滚
-        dd.clients.Store(client, struct{}{})
-        dd.clientCount.Add(1)
+// ❌ 错误：先拷贝全量切片再遍历（额外分配 + 两步循环）
+var clients []*Client
+m.Range(func(key, _ any) bool {
+    if c, ok := key.(*Client); ok {
+        clients = append(clients, c)
     }
-    return ctx.Err()
-default:
+    return true
+})
+for _, c := range clients {
+    c.Write(data)
+}
+
+// ✅ 正确：Range 回调中直接写入，零中间分配
+m.Range(func(key, _ any) bool {
+    c, ok := key.(*Client)
+    if !ok { return true }
+    if !c.IsAlive() {
+        dead = append(dead, c)  // 异常元素延迟删除
+        return true
+    }
+    c.Write(data)
+    return true
+})
+// 遍历结束后统一清理
+for _, c := range dead {
+    m.LoadAndDelete(c)
 }
 ```
 
-### 应用场景
+**注意**：回调内部需先做条件过滤（如 IsAlive 检查），将无效元素暂存后延迟删除，避免在 Range 回调内部修改 map 影响遍历。
 
-| 操作 | 注意 |
-|------|------|
-| `RegisterCtx` | `Store(client, struct{}{})` + `Add(1)`，回滚用 `Delete`+`Add(-1)`。新注册 client 不会被其他路径并发删除（`IsAlive()=true`），可不加 loaded 判断 |
-| `UnregisterCtx` | 必须用 `LoadAndDelete` + `if loaded`，可能与其他清理路径并发 |
-| `CleanupDeadConns` | Range 回调内必须用 `LoadAndDelete` + `if loaded { cleaned++ }`，再统一 `Add(-cleaned)` |
-| 消息投递中的僵尸清理 | 已用 `LoadAndDelete` + `if loaded`，正确 |
+## 十四、Ctx 变体设计规范
+
+项目中涉及 I/O 操作、阻塞调用或创建 Span 的公共方法，均需提供带 `context.Context` 的 Ctx 变体，以满足链路追踪和超时控制需求。
+
+### 通用模式
+
+```go
+// Ctx 变体：接受外部 ctx，创建 Span 进行链路追踪
+func (s *Service) DoSomethingCtx(ctx context.Context, req *Request) (*Response, error) {
+    ctx, span := tracer.Start(ctx, "svc.doSomething", trace.WithSpanKind(trace.SpanKindInternal))
+    defer span.End()
+    // ... 业务逻辑
+}
+
+// 无参版本：委托给 Ctx 变体，使用内部默认 ctx
+func (s *Service) DoSomething(req *Request) (*Response, error) {
+    return s.DoSomethingCtx(s.ctx, req)
+}
+```
 
 ### 规则
 
 | 规则 | 说明 |
 |------|------|
-| **并发删除用 LoadAndDelete** | 可能被多条路径并发删除的 map，必须用 `LoadAndDelete` + `if loaded` 保护计数器 |
-| **ctx 回滚一致** | 回滚操作的条件必须与删除操作一致 |
-| **Range 中删除用 CAS** | `sync.Map.Range` 回调内删除当前 key，使用 `LoadAndDelete` 确保只看当前 key |
+| **Ctx 变体优先** | 先实现带 Ctx 的完整版本，无参版本只做委托 |
+| **nil 降级** | Ctx 变体遇到 `nil` 应降级使用内部默认 ctx |
+| **Span 创建** | Ctx 变体内部创建 `tracer.Start(ctx, ...)`，无参版本不重复创建 |
+
+### 构造函数接收 Context
+
+对象在初始化时就需要 context（用于生命周期管理和链路追踪），而不是创建后再通过 SetXxx 修补：
+
+```go
+// ✅ 正确：构造函数直接接收 ctx
+func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...Option) *Client {
+    clientCtx, cancel := context.WithCancel(ctx)
+    return &Client{ctx: clientCtx, ctxCancel: cancel}
+}
+
+// ❌ 反模式：SetContext 修补方案
+func NewClient(conn *websocket.Conn, uid string) *Client {
+    ctx, cancel := context.WithCancel(context.Background())
+    return &Client{ctx: ctx, ctxCancel: cancel}
+}
+func (c *Client) SetContext(ctx context.Context) {
+    c.ctx = ctx  // ctxCancel 脱钩！指向旧的 context
+}
+```
+
+**规则**：构造函数第一个参数应为 `ctx context.Context`，内部用 `WithCancel(ctx)` 派生子 context。`ctx` 和 `ctxCancel` 必须始终成对创建，禁止 SetContext。
+
+**上游超时隔离**：长连接场景下，构造函数需用 `context.WithoutCancel` 阻断上游超时传递，避免请求级 ctx 取消导致长连接误退出：
+
+```go
+// ✅ 长连接：隔离上游超时，ctx.Done() 仅在显式 Close 时触发
+clientCtx := context.WithCancel(context.WithoutCancel(ginCtx))
+
+// ❌ 短期操作：直接派生即可
+rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+```
+
+## 十五、Option 配置传播模式
+
+### defaultXxx + apply 统一模式
+
+所有 Options 结构体使用统一的 `defaultXxxOptions()` + `apply()` 模式：
+
+```go
+// 1. Options 结构体（内部）
+type clientOptions struct {
+    writeChSize int
+    readChSize  int
+}
+
+// 2. Option 函数类型
+type ClientOption func(*clientOptions)
+
+// 3. defaultXxxOptions() — 默认值集中管理
+func defaultClientOptions() *clientOptions {
+    return &clientOptions{
+        writeChSize: 1024,
+        readChSize:  1024,
+    }
+}
+
+// 4. apply() — 应用选项
+func (o *clientOptions) apply(opts ...ClientOption) {
+    for _, opt := range opts {
+        opt(o)
+    }
+}
+
+// 5. 入口函数简洁
+func NewClient(ctx context.Context, opts ...ClientOption) *Client {
+    o := defaultClientOptions()
+    o.apply(opts...)
+}
+```
+
+### 同包同名函数冲突处理
+
+当同一包内多个类型的 Options（如 `ClientOption` 和 `UpgradeOption`）需要相同的 `With*` 函数名时，包内使用小写前缀、导出使用大写：
+
+```go
+// 包内使用的小写 Option 函数
+func withClientReadLimit(limit int64) ClientOption {
+    return func(o *clientOptions) { o.readLimit = limit }
+}
+
+// 导出给外部使用的 UpgradeOption
+func WithReadLimit(limit int64) UpgradeOption {
+    return func(o *upgradeOptions) { o.readLimit = limit }
+}
+```
+
+### 规则
+
+| 规则 | 说明 |
+|------|------|
+| **defaultXxx + apply** | 所有 Options 必须包含 `defaultXxxOptions()`（默认值集中管理）和 `(o *xxxOptions) apply()` 方法 |
+| **文件对称命名** | 主文件 `xxx.go` + Options 文件 `xxx_options.go`，成对出现 |
+| **命名前缀** | 包内使用的 Option 函数以 `withClient*`/`withServer*` 为前缀（小写）；导出函数以 `With*` 为前缀（大写） |
+| **`> 0` 判断** | 零值表示"不设置"或"使用默认值"，option 内部判断 `> 0` 才生效 |
+| **条件前置到调用处** | 涉及配置项的条件判断在调用处用 `if o.field` 模式判断，不在被调函数内部做 guard clause |
+
+## 十六、测试文件组织
+
+### 标准结构
+
+```
+xxx.go               # 源文件
+xxx_test.go           # 对应测试
+
+xxx_options.go        # Options 源文件
+xxx_options_test.go   # 对应测试
+
+test_helpers.go       # 共享测试工具（newXxxPair、mockXxx、skipXxx）
+integration_test.go   # 总测：组合多个模块的集成场景
+xxx_integration_test.go # 需外部依赖的集成测试
+```
+
+### 规则
+
+| 规则 | 说明 |
+|------|------|
+| **一对一映射** | 每个源文件 `xxx.go` 有且仅有一个测试文件 `xxx_test.go` |
+| **命名对称** | Options 文件对应 `xxx_options_test.go`，集成测试后缀 `_integration_test.go` |
+| **共享工具集中** | `test_helpers.go` 存放跨文件共享的工具函数、mock 实现、跳过条件 |
+| **单元/集成分离** | 依赖外部服务的测试放 `_integration_test.go`，默认跳过（环境变量控制） |
+| **总测覆盖链路** | `integration_test.go` 覆盖完整业务流程的多个模块组合场景 |
+| **辅助方法首字母小写** | 测试辅助函数（`newTestPair`、`mockXxx`）首字母小写，限于包内使用 |
+
+### 反模式
+
+```go
+// ❌ 共享工具散落在各个文件中
+// client_test.go 定义了 newTestClientPair
+// dispatcher_test.go 又定义了 newTestClientPair（重复）
+
+// ✅ 统一放在 test_helpers.go
+func newTestClientPair(t testing.TB, opts ...Option) (*Client, *websocket.Conn)
+func newMockBackend(bufSize int) *mockBackend
+```
+
+```go
+// ❌ 单元测试和集成测试混在一起
+// rabbitmq_backend_test.go 既有构造函数测试又有真实 RabbitMQ 集成测试
+
+// ✅ 分离
+// rabbitmq_backend_test.go              — 单元测试（mock 模拟）
+// rabbitmq_backend_integration_test.go   — 集成测试（需真实服务，默认跳过）
+```

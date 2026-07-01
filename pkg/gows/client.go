@@ -13,54 +13,53 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// Message 定义在 message.go
-// ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 readwrite.go
+// msgFromWsToCh / msgFromChToWs / writeWithRetry / checkWriteLimit / ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 client_readwrite.go
+// WriteJSONCtx / WriteRawCtx / ReadMessageCtx 定义在 client_local.go
 // ClientOption / clientOptions / With* / withClient* 定义在 client_options.go
 // healthState / IsAlive / ClientStats / Stats 定义在 health.go
-// readLoop / writeLoop / writeWithRetry / WriteJSON* / WriteRaw* / ReadMessage* 定义在 readwrite.go
 
 // Client 代表一个 WebSocket 客户端连接。
 // 采用 Channel 驱动读写模型替代传统 Mutex 锁，核心设计原则:
 //   - writeCh 缓冲通道解耦业务协程和网络写入协程，发送方永不阻塞
-//   - writeLoop 后台 goroutine 串行化消费通道数据，规避锁竞争
+//   - msgFromChToWs 后台 goroutine 串行化消费通道数据，规避锁竞争
 //   - readCh 缓冲通道解耦底层连接和业务读取协程
-//   - readLoop 后台 goroutine 持续从底层连接读取消息并推入 readCh
+//   - msgFromWsToCh 后台 goroutine 持续从底层连接读取消息并推入 readCh
 //   - 队列满载时自动丢弃消息，防止慢客户端拖慢整体吞吐
 //   - 原子 CAS 保证关闭幂等，关闭信号通知所有监听协程优雅退出
 //   - 网络波动保护：写入失败时指数退避重试（含 jitter），Ping/Pong 协议级保活
 //   - 健康指标：记录读写时间与错误计数，支持 IsAlive 探测（定义在 health.go）
-//   - 读写超时：readLoop 和 writeWithRetry 均支持独立超时，不依赖心跳机制
+//   - 读写超时：msgFromWsToCh 和 msgFromChToWs 均支持独立超时，不依赖心跳机制
 //   - dispatcher 字段用于代理 SendToUIDCtx / BroadcastCtx 等分发方法
 type Client struct {
-	wsConn             *websocket.Conn        // 底层 WebSocket 连接
-	uid                string                 // 用户唯一标识（从 JWT 中提取）
-	dispatcher         *DistributedDispatcher // 关联的分发中心，nil=未注册
-	writeCh            chan []byte            // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
-	readCh             chan []byte            // 读取队列通道，readLoop 向其推送接收到的消息数据
-	writeChSize        int                    // 写入通道缓冲区容量（默认 1024）
-	readChSize         int                    // 读取通道缓冲区容量（默认 1024）
-	readCloseCh        chan struct{}          // Close 时关闭，通知 readLoop 等内部协程退出
-	closed             atomic.Bool            // 原子关闭标记，true=已关闭
-	readWg             sync.WaitGroup         // 等待 readLoop 协程退出
-	writeWg            sync.WaitGroup         // 等待 writeLoop 协程退出
-	onClose            func()                 // 可选关闭回调钩子，Close 时在清理前调用
-	clientCtx          context.Context        // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
-	clientCtxCancel    context.CancelFunc     // 取消 clientCtx，Close 时调用
-	remoteAddr         string                 // 客户端远程地址（IP:Port），创建时从连接中提取
-	numSent            atomic.Int64           // 原子计数: 已成功发送消息数
-	numReceived        atomic.Int64           // 原子计数: 已接收消息数
-	health             healthState            // 健康监控（读写时间、错误计数）
-	wsConnReadTimeout  time.Duration          // readLoop 读取超时时间（0=不限制）
-	wsConnWriteTimeout time.Duration          // writeWithRetry 写入超时时间（0=默认 10s）
-	readLimit          int64                  // 单条消息读取大小限制（0=不限制）
-	writeLimit         int64                  // 单条消息写入大小限制（0=不限制）
+	wsConn      *websocket.Conn        // 底层 WebSocket 连接
+	uid         string                 // 用户唯一标识（从 JWT 中提取）
+	dispatcher  *DistributedDispatcher // 关联的分发中心，nil=未注册
+	writeCh     chan []byte            // 写入队列通道，WriteJSON 向其非阻塞发送序列化数据
+	readCh      chan []byte            // 读取队列通道，msgFromWsToCh 向其推送接收到的消息数据
+	writeChSize int                    // 写入通道缓冲区容量（默认 1024）
+	readChSize  int                    // 读取通道缓冲区容量（默认 1024）
+
+	closed             atomic.Bool        // 原子关闭标记，true=已关闭
+	readWg             sync.WaitGroup     // 等待 msgFromWsToCh 协程退出
+	writeWg            sync.WaitGroup     // 等待 msgFromChToWs 协程退出
+	onClose            func()             // 可选关闭回调钩子，Close 时在清理前调用
+	clientCtx          context.Context    // 连接上下文，Close 时自动取消，用于传递超时和链路追踪
+	clientCtxCancel    context.CancelFunc // 取消 clientCtx，Close 时调用
+	remoteAddr         string             // 客户端远程地址（IP:Port），创建时从连接中提取
+	numSent            atomic.Int64       // 原子计数: 已成功发送消息数
+	numReceived        atomic.Int64       // 原子计数: 已接收消息数
+	health             healthState        // 健康监控（读写时间、错误计数）
+	wsConnReadTimeout  time.Duration      // msgFromWsToCh 读取超时时间（0=不限制）
+	wsConnWriteTimeout time.Duration      // msgFromChToWs 写入超时时间（0=默认 10s）
+	readLimit          int64              // 单条消息读取大小限制（0=不限制）
+	writeLimit         int64              // 单条消息写入大小限制（0=不限制）
 
 }
 
 // NewClient 创建并初始化一个新的 WebSocket 客户端连接。
-// 自动启动 writeLoop 和 readLoop 后台 goroutine:
-//   - writeLoop 负责串行化写入底层连接
-//   - readLoop 负责持续从底层连接读取消息并推入 readCh
+// 自动启动 msgFromChToWs 和 msgFromWsToCh 后台 goroutine:
+//   - msgFromChToWs 负责从 writeCh 获取消息并写入底层连接
+//   - msgFromWsToCh 负责从底层连接读取消息并推入 readCh
 //
 // 参数:
 //   - ctx:   上下文，用于链路追踪和生命周期管理。Close 时会取消其派生 context。
@@ -79,17 +78,17 @@ func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...Cl
 		o.writeTimeout = writeDeadline
 	}
 
-	// 从传入 ctx 派生可取消子 context，Close 时取消此子 context 不影响调用方
-	clientCtx, clientCancel := context.WithCancel(ctx)
+	// 使用 WithoutCancel 阻断上游 Gin 超时传递，Close 时手动取消
+	clientCtx, clientCancel := context.WithCancel(context.WithoutCancel(ctx))
 	c := &Client{
-		wsConn:             conn,
-		uid:                uid,
-		dispatcher:         o.dispatcher,
-		writeCh:            make(chan []byte, o.writeChSize),
-		readCh:             make(chan []byte, o.readChSize),
-		readCloseCh:        make(chan struct{}),
+		wsConn:     conn,
+		uid:        uid,
+		dispatcher: o.dispatcher,
+		writeCh:    make(chan []byte, o.writeChSize),
+		readCh:     make(chan []byte, o.readChSize),
+
 		clientCtx:          clientCtx,
-		clientCtxCancel:     clientCancel,
+		clientCtxCancel:    clientCancel,
 		remoteAddr:         conn.RemoteAddr().String(),
 		wsConnReadTimeout:  o.readTimeout,
 		wsConnWriteTimeout: o.writeTimeout,
@@ -103,9 +102,9 @@ func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...Cl
 	c.wsConn.SetReadLimit(o.readLimit)
 
 	c.readWg.Add(1)
-	go c.readLoop()
+	go c.msgFromWsToCh()
 	c.writeWg.Add(1)
-	go c.writeLoop()
+	go c.msgFromChToWs()
 	return c
 }
 
@@ -118,10 +117,10 @@ func (c *Client) SetCloseHook(fn func()) {
 }
 
 // Close 优雅关闭 WebSocket 连接，触发关闭信号并释放所有资源。
-// 关闭顺序: 执行关闭钩子 → 取消上下文 → 关闭 readCloseCh + writeCh
-// → 等待 writeLoop 完全退出(确保所有排队消息已写入)
-// → 关闭底层连接(触发 readLoop 的 ReadMessage 返回错误)
-// → 等待 readLoop 完全退出。
+// 关闭顺序: 执行关闭钩子 → 取消上下文 → 等待 msgFromChToWs 完全退出
+// (drain writeCh 剩余消息后退出，确保所有排队消息已写入)
+// → 关闭底层连接(触发 msgFromWsToCh 的 ReadMessage 返回错误)
+// → 等待 msgFromWsToCh 完全退出。
 // 通过 atomic.CompareAndSwap 保证幂等性，首次调用执行完整关闭流程，
 // 后续调用直接返回 nil。
 // 返回:
@@ -131,22 +130,20 @@ func (c *Client) Close() error {
 		if c.onClose != nil {
 			c.onClose()
 		}
-		c.clientCtxCancel()          // 取消 clientCtx，通知依赖 ctx 的协程
-		close(c.readCloseCh)         // 通知 readLoop 等内部协程退出
-		close(c.writeCh)             // 触发 writeLoop 退出
+		c.clientCtxCancel()          // 取消 clientCtx，通知所有协程退出（msgFromChToWs drain 后退出）
 		c.writeWg.Wait()             // 等待所有排队消息写入完毕
-		closeErr := c.wsConn.Close() // 关闭底层连接，触发 readLoop 的 ReadMessage 返回错误
-		c.readWg.Wait()              // 等待 readLoop 完全退出（defer 会关闭 readCh）
+		closeErr := c.wsConn.Close() // 关闭底层连接，触发 msgFromWsToCh 的 ReadMessage 返回错误
+		c.readWg.Wait()              // 等待 msgFromWsToCh 完全退出（defer 会关闭 readCh）
 		return closeErr
 	}
 	return nil
 }
 
-// closeWsConn 直接关闭底层 TCP 连接，不等待 writeLoop 退出。
-// 由 writeLoop（写入重试全部失败后）或 StartHeartbeat（Ping 发送失败后）调用。
+// closeWsConn 直接关闭底层 TCP 连接，不等待 msgFromChToWs 退出。
+// 由 msgFromChToWs（写入重试全部失败后）或 StartHeartbeat（Ping 发送失败后）调用。
 // 关闭 TCP 连接后，消息读取方的 ReadMessage 会立即返回"use of closed network connection"错误，
 // 调用方感知错误后执行 Close() 完成完整清理流程（幂等安全）。
-// 此方法与 Close 分离设计，避免 writeLoop 自锁（Close 中 wg.Wait 等待 writeLoop 退出）。
+// 此方法与 Close 分离设计，避免 msgFromChToWs 自锁（Close 中 wg.Wait 等待 msgFromChToWs 退出）。
 func (c *Client) closeWsConn() {
 	if err := c.wsConn.Close(); err != nil {
 		logger.WarnWithCtx(c.clientCtx, "ws force close conn failed",
@@ -179,62 +176,7 @@ func (c *Client) Context() context.Context {
 // 返回:
 //   - <-chan struct{}: 关闭信号接收通道，关闭时立即返回零值
 func (c *Client) Done() <-chan struct{} {
-	return c.readCloseCh
-}
-
-// ---------------------------------------------------------------------------
-// Dispatcher 代理方法
-// ---------------------------------------------------------------------------
-
-// SendToUIDCtx 通过关联的 Dispatcher 向指定 UID 的用户发送消息。
-// 发送者自身不会收到消息（自动过滤）。
-// 仅在 Client 已注册到 Dispatcher 时有效（通过 Upgrade 传入 WithDispatcher）。
-func (c *Client) SendToUIDCtx(ctx context.Context, uid string, v any) {
-	if c.dispatcher == nil {
-		return
-	}
-	if uid == c.uid {
-		return // 不发送给自己
-	}
-	c.dispatcher.SendToUIDCtx(ctx, uid, v)
-}
-
-// SendToMultiUIDCtx 通过关联的 Dispatcher 向多个 UID 的用户发送消息。
-// 发送者自身不会收到消息（自动过滤）。
-// 仅在 Client 已注册到 Dispatcher 时有效。
-func (c *Client) SendToMultiUIDCtx(ctx context.Context, uids []string, v any) {
-	if c.dispatcher == nil {
-		return
-	}
-	// 过滤掉发送者自己
-	filtered := make([]string, 0, len(uids))
-	for _, uid := range uids {
-		if uid != c.uid {
-			filtered = append(filtered, uid)
-		}
-	}
-	if len(filtered) == 0 {
-		return
-	}
-	c.dispatcher.SendToMultiUIDCtx(ctx, filtered, v)
-}
-
-// BroadcastCtx 通过关联的 Dispatcher 向所有在线客户端广播消息。
-// 仅在 Client 已注册到 Dispatcher 时有效。
-func (c *Client) BroadcastCtx(ctx context.Context, v any) {
-	if c.dispatcher == nil {
-		return
-	}
-	c.dispatcher.BroadcastCtx(ctx, v)
-}
-
-// BroadcastReliableCtx 通过关联的 Dispatcher 进行可靠广播（按 UID 下发）。
-// 仅在 Client 已注册到 Dispatcher 时有效。
-func (c *Client) BroadcastReliableCtx(ctx context.Context, v any) {
-	if c.dispatcher == nil {
-		return
-	}
-	c.dispatcher.BroadcastReliableCtx(ctx, v)
+	return c.clientCtx.Done()
 }
 
 // requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
