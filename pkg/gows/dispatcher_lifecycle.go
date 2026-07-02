@@ -103,6 +103,21 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 		}
 	}
 
+	// 单点登录：先踢旧连接，再注册新连接
+	if dd.enableSSO && client.uid != "" {
+		if oldClient, loaded := dd.ssoClients.Load(client.uid); loaded {
+			if prev, ok := oldClient.(*Client); ok {
+				// 从 Dispatcher 中移除旧连接，确保注册新连接前状态一致
+				dd.clients.Delete(prev)
+				dd.clientCount.Add(-1)
+				if prev.uid != "" {
+					dd.decrementUIDIndex(prev.uid)
+				}
+				prev.Close()
+			}
+		}
+	}
+
 	dd.clients.Store(client, struct{}{})
 	dd.clientCount.Add(1)
 	// 更新 map 后检查 ctx，过期则回滚
@@ -121,6 +136,11 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 		if ok {
 			counter.Add(1)
 		}
+	}
+
+	// 更新 SSO 映射（确认注册后）
+	if dd.enableSSO && client.uid != "" {
+		dd.ssoClients.Store(client.uid, client)
 	}
 
 	dd.publishClientEvent(ctx, MsgTypeClientOnline, client.uid)
@@ -160,6 +180,11 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 	default:
 	}
 	dd.publishClientEvent(ctx, MsgTypeClientOffline, client.uid)
+
+	// 清理 SSO 映射（仅当该客户端是当前映射值时）
+	if dd.enableSSO && client.uid != "" {
+		dd.ssoClients.CompareAndDelete(client.uid, client)
+	}
 
 	// 递减本地 UID 索引（确认注销后，不回滚）
 	if client.uid != "" && loaded {

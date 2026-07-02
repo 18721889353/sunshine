@@ -21,12 +21,15 @@ type upgradeOptions struct {
 	enableHeart       bool                       // 是否自动启动心跳保活
 	heartbeatOpts     []HeartbeatOption          // 心跳高级配置（与 enableHeart 配合使用）
 	enableDistributed bool                       // 是否启用分布式分发注册
-	clientUID         string                     // 客户端用户标识（可选，提供给 NewClient）
+	clientUID         string                     // 客户端用户标识（必选，提供给 NewClient）
 	errorHandler      func(*gin.Context, error)  // 升级失败时的自定义错误处理
 
 	// 限流配置（仅在 Upgrade 函数中读取，不存储在选项上）
-	enableRateLimit bool  // 是否启用全局速率限制
+	enableWsRateLimit bool  // 是否启用全局 WebSocket 速率限制
 	maxConnPerIP    int32 // 单 IP 最大连接数（0=不限制）
+
+	// 单点登录配置（仅在 Upgrade 函数中读取，不存储在选项上）
+	enableSSO bool // 是否启用单点登录（后登录踢前登录，同一 UID 仅保留一个连接）
 }
 
 func defaultUpgradeOptions() *upgradeOptions {
@@ -61,18 +64,18 @@ func WithCheckOrigin(fn func(r *http.Request) bool) UpgradeOption {
 	}
 }
 
-// WithRateLimit 设置全局 WebSocket 升级速率限制。
+// WithWsRateLimit 设置全局 WebSocket 升级速率限制。
 // 参数:
 //   - rps: 每秒最大升级次数（如 100 表示每秒最多处理 100 次握手）
 //   - burst: 最大突发量（如 20 表示短时间内允许最多 20 个突发连接）
 //
 // 超出限制的 Upgrade 调用返回 rate limited 错误。
 // 默认不限制。
-func WithRateLimit(rps int, burst int) UpgradeOption {
+func WithWsRateLimit(rps int, burst int) UpgradeOption {
 	return func(o *upgradeOptions) {
 		if rps > 0 && burst > 0 {
-			o.enableRateLimit = true
-			upgradeLimiter.Store(rate.NewLimiter(rate.Limit(rps), burst))
+			o.enableWsRateLimit = true
+			wsLimiter.Store(rate.NewLimiter(rate.Limit(rps), burst))
 		}
 	}
 }
@@ -230,6 +233,14 @@ func WithEnableDistributed(enabled bool) UpgradeOption {
 func WithClientUID(uid string) UpgradeOption {
 	return func(o *upgradeOptions) {
 		o.clientUID = uid
+	}
+}
+
+// WithSSO 启用单点登录模式，同一 UID 仅保留一个有效连接。
+// 当已在线用户再次建立连接时，旧连接会被自动关闭（后登录踢前登录）。
+func WithSSO() UpgradeOption {
+	return func(o *upgradeOptions) {
+		o.enableSSO = true
 	}
 }
 

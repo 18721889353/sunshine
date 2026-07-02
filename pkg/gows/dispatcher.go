@@ -61,6 +61,11 @@ type DistributedDispatcher struct {
 
 	// 远端 UID 计数器：避免 Len()/Stats() O(n) 遍历 remoteUIDs
 	remoteUIDCount atomic.Int32
+
+	// 单点登录：同一 UID 仅保留最新连接（后登录踢前登录）
+	enableSSO  bool       // 是否启用单点登录
+	ssoClients sync.Map   // uid → *Client 本地 SSO 映射
+
 	workerNum      atomic.Int32   // worker 协程数（默认 4）
 	workerCh       chan func()    // 投递任务通道，背压保护缓冲队列
 	workerWg       sync.WaitGroup // 等待所有 worker goroutine 退出

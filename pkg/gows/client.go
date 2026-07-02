@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -14,8 +15,19 @@ import (
 
 // msgFromWsToCh / msgFromChToWs / writeWithRetry / checkWriteLimit / ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 client_readwrite.go
 // WriteJSONCtx / WriteRawCtx / ReadMessageCtx 定义在 client_local.go
-// ClientOption / clientConfig / applyClientOptions / defaultClientConfig 定义在 client_options.go
 // healthState / IsAlive / ClientStats / Stats 定义在 health.go
+
+// clientConfig 客户端通用配置，在 Upgrade→Client 间直接传递。
+// 嵌入 upgradeOptions，在升级握手与 Client 初始化间共享配置字段。
+type clientConfig struct {
+	writeChSize  int                    // 写入通道缓冲区容量（默认 1024）
+	readChSize   int                    // 读取通道缓冲区容量（默认 1024）
+	readTimeout  time.Duration          // msgFromWsToCh 读取超时时间（0=不限制）
+	writeTimeout time.Duration          // msgFromChToWs 写入超时时间（0=默认 10s）
+	readLimit    int64                  // 单条消息读取大小限制（0=不限制）
+	writeLimit   int64                  // 单条消息写入大小限制（0=不限制）
+	dispatcher   *DistributedDispatcher // 关联的分发中心（nil=未注册）
+}
 
 // Client 代表一个 WebSocket 客户端连接。
 // 采用 Channel 驱动读写模型替代传统 Mutex 锁，核心设计原则:
@@ -53,26 +65,9 @@ type Client struct {
 	clientIsClosed  atomic.Bool        // 关闭标记，Close() 使用 CAS 保证幂等
 }
 
-// NewClient 创建并初始化一个新的 WebSocket 客户端连接。
-// 自动启动 msgFromChToWs 和 msgFromWsToCh 后台 goroutine:
-//   - msgFromChToWs 负责从 writeCh 获取消息并写入底层连接
-//   - msgFromWsToCh 负责从底层连接读取消息并推入 readCh
-//
-// 参数:
-//   - ctx:   上下文，用于链路追踪和生命周期管理。Close 时会取消其派生 context。
-//   - conn:  已建立的 WebSocket 底层连接
-//   - uid:   用户唯一标识（从 JWT 解析获取）
-//   - opts:  可选配置参数
-//
-// 返回:
-//   - *Client: 具备非阻塞读写能力和自动关闭清理的客户端实例
-func NewClient(ctx context.Context, conn *websocket.Conn, uid string, opts ...ClientOption) *Client {
-	return newClientWithConfig(ctx, conn, uid, applyClientOptions(opts...))
-}
-
 // newClientWithConfig 内部构造函数，直接接收 *clientConfig 避免经过 ClientOption 中间层。
-// 由 Upgrade 内部调用（通过 &o.clientConfig 直接传入嵌入的 clientConfig），
-// 以及由 NewClient（将 ClientOption 转换为 clientConfig）调用。
+// 由 Upgrade 内部调用（通过 &o.clientConfig 直接传入嵌入的 clientConfig）
+// 以及由测试代码直接调用。
 func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
 	// 创建独立可取消的上下文，Close 时手动取消
 	clientCtx, clientCancel := context.WithCancel(ctx)

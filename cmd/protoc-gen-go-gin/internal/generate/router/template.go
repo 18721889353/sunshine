@@ -259,8 +259,8 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	//   .Websocket.Cors.Subprotocols      → gows.WithSubprotocols()          子协议列表（逗号分隔）
 	//
 	// 【限流与安全防护】
-	//   .Websocket.Limit.RateLimitRps      → gows.WithRateLimit(rps, burst)   全局升级速率（每秒请求数）
-	//   .Websocket.Limit.RateLimitBurst    → gows.WithRateLimit(rps, burst)   限流突发量
+	//   .Websocket.Limit.RateLimitRps      → gows.WithWsRateLimit(rps, burst)   全局升级速率（每秒请求数）
+	//   .Websocket.Limit.RateLimitBurst    → gows.WithWsRateLimit(rps, burst)   限流突发量
 	//   .Websocket.Limit.MaxConnPerIP      → gows.WithMaxConnPerIP()          单 IP 最大连接数
 	//   .Websocket.Limit.ReadLimit         → gows.WithReadLimit()             单条消息读取大小限制（字节）
 	//   .Websocket.Limit.WriteLimit        → gows.WithWriteLimit()            单条消息写入大小限制（字节）
@@ -277,6 +277,9 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	// 【客户端队列】
 	//   .Websocket.Queue.WriteQueueSize    → gows.WithQueueSize(write, read)  写入队列容量
 	//   .Websocket.Queue.ReadQueueSize     → gows.WithQueueSize(write, read)  读取队列容量
+	//
+	// 【单点登录】
+	//   .Websocket.SSO.EnableSSO           → gows.WithSSO()                   后登录踢前登录
 	upgradeOpts := []gows.UpgradeOption{
 		// CORS: cors=false 拒绝所有来源；cors=true 时检查 allowedOrigins 白名单
 		//   allowedOrigins 为空列表时允许所有来源（向后兼容）
@@ -330,11 +333,15 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	// 条件启用全局限流（根据 enableRateLimit 配置）
 	if config.Get().Websocket.Limit.EnableRateLimit {
 		upgradeOpts = append(upgradeOpts,
-			gows.WithRateLimit(config.Get().Websocket.Limit.RateLimitRps, config.Get().Websocket.Limit.RateLimitBurst),
+			gows.WithWsRateLimit(config.Get().Websocket.Limit.RateLimitRps, config.Get().Websocket.Limit.RateLimitBurst),
 		)
 	}
 	if config.Get().Websocket.Distributed.EnableDistributed {
 		upgradeOpts = append(upgradeOpts, gows.WithEnableDistributed(true), gows.WithDispatcher(wsDispatcher))
+	}
+	// 条件启用单点登录（根据 enableSSO 配置）
+	if config.Get().Websocket.SSO.EnableSSO {
+		upgradeOpts = append(upgradeOpts, gows.WithSSO())
 	}
 	client, err := gows.Upgrade(c, upgradeOpts...)
 	if err != nil {

@@ -349,6 +349,10 @@ websocket:
     writeQueueSize: 64       # 写入队列容量，0=默认 64
     readQueueSize: 64        # 读取队列容量，0=默认 64
 
+  sso:
+    # ==================== 单点登录 ====================
+    enableSSO: false         # 是否启用单点登录（后登录踢前登录）
+
   distributed:
     # ==================== 分布式分发 ====================
     enableDistributed: true # 是否启用分布式分发（false=单机模式，true=分布式模式）

@@ -20,7 +20,7 @@ import (
 
 // 全局限流状态
 var (
-	upgradeLimiter atomic.Pointer[rate.Limiter] // 全局升级速率限制器
+	wsLimiter atomic.Pointer[rate.Limiter] // 全局 WebSocket 升级速率限制器
 	ipConnCounts   sync.Map                     // map[string]*atomic.Int32 单IP连接计数
 )
 
@@ -60,6 +60,10 @@ func ipConnCountDecrement(clientIP string) {
 // upgradeRegisterDispatcher 注册客户端到 Dispatcher 并设置关闭清理钩子。
 // 调用方需确保 o.enableDistributed && o.dispatcher != nil。
 func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOptions) error {
+	// 传播单点登录配置到 Dispatcher
+	if o.enableSSO {
+		o.dispatcher.enableSSO = true
+	}
 	if err := o.dispatcher.RegisterCtx(ctx, client); err != nil {
 		if closeErr := client.Close(); closeErr != nil {
 			logger.WarnWithCtx(ctx, "ws client close after register failed",
@@ -111,7 +115,7 @@ func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOp
 //
 // 安全保护:
 //   - CORS: 默认拒绝所有来源，需显式调用 WithCheckOrigin
-//   - 限流: WithRateLimit 设置全局升级速率
+//   - 限流: WithWsRateLimit 设置全局升级速率
 //   - 单IP限制: WithMaxConnPerIP 设置单IP最大连接数
 //
 // 调用方需负责 defer client.Close() 确保资源释放。
@@ -145,9 +149,9 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		span.SetStatus(codes.Error, "CORS check rejected")
 		return nil, fmt.Errorf("ws upgrade: CORS check rejected by CheckOrigin function")
 	}
-	if o.enableRateLimit {
+	if o.enableWsRateLimit {
 		// 全局速率限制检查
-		if limiter := upgradeLimiter.Load(); limiter != nil {
+		if limiter := wsLimiter.Load(); limiter != nil {
 			if !limiter.Allow() {
 				span.SetAttributes(attribute.Bool("ws.rate_limited", true))
 				span.SetStatus(codes.Error, "rate limited")

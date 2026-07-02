@@ -258,6 +258,7 @@ type Websocket struct {
 	Heartbeat   Heartbeat   `yaml:"heartbeat" json:"heartbeat"`
 	Limit       Limit       `yaml:"limit" json:"limit"`
 	Queue       Queue       `yaml:"queue" json:"queue"`
+	SSO         SSO         `yaml:"sso" json:"sso"`
 	Timeout     Timeout     `yaml:"timeout" json:"timeout"`
 }
 
@@ -299,6 +300,10 @@ type Distributed struct {
 	MaxConnections    int    `yaml:"maxConnections" json:"maxConnections"`
 	RabbitmqURL       string `yaml:"rabbitmqURL" json:"rabbitmqURL"`
 	WorkerPool        int    `yaml:"workerPool" json:"workerPool"`
+}
+
+type SSO struct {
+	EnableSSO bool `yaml:"enableSSO" json:"enableSSO"`
 }
 
 type Grpc struct {

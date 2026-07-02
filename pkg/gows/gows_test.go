@@ -27,7 +27,7 @@ func init() { gin.SetMode(gin.TestMode) }
 // 测试辅助
 // ---------------------------------------------------------------------------
 
-func newTestClientPair(t testing.TB, opts ...ClientOption) (*Client, *websocket.Conn) {
+func newTestClientPair(t testing.TB, opts ...func(*clientConfig)) (*Client, *websocket.Conn) {
 	t.Helper()
 	serverCh := make(chan *Client, 1)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -36,7 +36,7 @@ func newTestClientPair(t testing.TB, opts ...ClientOption) (*Client, *websocket.
 			serverCh <- nil
 			return
 		}
-		serverCh <- NewClient(context.Background(), raw, "test-uid", opts...)
+		serverCh <- newClientWithConfig(context.Background(), raw, "test-uid", testConfig(opts...))
 	}))
 	t.Cleanup(s.Close)
 	url := "ws" + strings.TrimPrefix(s.URL, "http")
@@ -52,10 +52,10 @@ func newTestClientPair(t testing.TB, opts ...ClientOption) (*Client, *websocket.
 	return client, testConn
 }
 
-func newTestClientWithUID(t testing.TB, uid string, opts ...ClientOption) (*Client, *websocket.Conn) {
+func newTestClientWithUID(t testing.TB, uid string, opts ...func(*clientConfig)) (*Client, *websocket.Conn) {
 	t.Helper()
 	serverCh := make(chan *Client, 1)
-	s := newTestServer(t, func(raw *websocket.Conn) { serverCh <- NewClient(context.Background(), raw, uid, opts...) })
+	s := newTestServer(t, func(raw *websocket.Conn) { serverCh <- newClientWithConfig(context.Background(), raw, uid, testConfig(opts...)) })
 	url := "ws" + strings.TrimPrefix(s.URL, "http")
 	testConn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -67,6 +67,18 @@ func newTestClientWithUID(t testing.TB, uid string, opts ...ClientOption) (*Clie
 		t.Fatal("server failed to create client")
 	}
 	return client, testConn
+}
+
+// testConfig 构建测试用的 clientConfig，应用可选的配置修改函数后返回。
+func testConfig(opts ...func(*clientConfig)) *clientConfig {
+	cfg := &clientConfig{writeChSize: 1024, readChSize: 1024}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	if cfg.writeTimeout <= 0 {
+		cfg.writeTimeout = writeDeadline
+	}
+	return cfg
 }
 
 func newTestServer(t testing.TB, handler func(*websocket.Conn)) *httptest.Server {
@@ -195,7 +207,7 @@ func TestMessageJSON(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestClientConfig_Defaults(t *testing.T) {
-	o := defaultClientConfig()
+	o := &clientConfig{writeChSize: 1024, readChSize: 1024}
 	if o.writeChSize != 1024 {
 		t.Errorf("writeChSize=%d, want 1024", o.writeChSize)
 	}
@@ -208,7 +220,7 @@ func TestClientConfig_Defaults(t *testing.T) {
 }
 
 func TestClientConfig_DirectSetFields(t *testing.T) {
-	o := defaultClientConfig()
+	o := &clientConfig{writeChSize: 1024, readChSize: 1024}
 	o.writeChSize = 2048
 	o.readChSize = 512
 	o.readTimeout = 30 * time.Second
@@ -237,7 +249,7 @@ func TestClientConfig_DirectSetFields(t *testing.T) {
 }
 
 func TestClientConfig_Dispatcher(t *testing.T) {
-	o := defaultClientConfig()
+	o := &clientConfig{writeChSize: 1024, readChSize: 1024}
 	dd := NewDispatcher(nil)
 	o.dispatcher = dd
 	if o.dispatcher != dd {
@@ -246,27 +258,11 @@ func TestClientConfig_Dispatcher(t *testing.T) {
 }
 
 func TestClientConfig_ZeroValuesPreserved(t *testing.T) {
-	o := defaultClientConfig()
+	o := &clientConfig{writeChSize: 1024, readChSize: 1024}
 	// 直接设 0 表示保持默认值不变
 	o.writeChSize = 0
 	if o.writeChSize != 0 {
 		t.Errorf("writeChSize should be 0, got %d", o.writeChSize)
-	}
-}
-
-func TestApplyClientOptions_WriteTimeoutDefault(t *testing.T) {
-	cfg := applyClientOptions()
-	if cfg.writeTimeout != writeDeadline {
-		t.Errorf("writeTimeout=%v, want %v", cfg.writeTimeout, writeDeadline)
-	}
-}
-
-func TestApplyClientOptions_WithOption(t *testing.T) {
-	cfg := applyClientOptions(func(o *clientConfig) {
-		o.readTimeout = 45 * time.Second
-	})
-	if cfg.readTimeout != 45*time.Second {
-		t.Errorf("readTimeout=%v, want 45s", cfg.readTimeout)
 	}
 }
 
@@ -470,6 +466,14 @@ func TestUpgradeOptions_ClientUID_Empty(t *testing.T) {
 	}
 }
 
+func TestUpgradeOptions_SSO(t *testing.T) {
+	o := defaultUpgradeOptions()
+	WithSSO()(o)
+	if !o.enableSSO {
+		t.Error("enableSSO should be true after WithSSO")
+	}
+}
+
 func TestUpgradeOptions_ErrorHandler(t *testing.T) {
 	o := defaultUpgradeOptions()
 	called := false
@@ -562,17 +566,17 @@ func TestUpgradeOptions_WriteTimeout_Zero(t *testing.T) {
 
 func TestUpgradeOptions_RateLimit(t *testing.T) {
 	// 保存原值恢复
-	oldLimiter := upgradeLimiter.Load()
-	defer upgradeLimiter.Store(oldLimiter)
+	oldLimiter := wsLimiter.Load()
+	defer wsLimiter.Store(oldLimiter)
 
 	o := defaultUpgradeOptions()
-	WithRateLimit(100, 20)(o)
-	if !o.enableRateLimit {
-		t.Error("enableRateLimit should be true")
+	WithWsRateLimit(100, 20)(o)
+	if !o.enableWsRateLimit {
+		t.Error("enableWsRateLimit should be true")
 	}
-	limiter := upgradeLimiter.Load()
+	limiter := wsLimiter.Load()
 	if limiter == nil {
-		t.Fatal("upgradeLimiter should be set")
+		t.Fatal("wsLimiter should be set")
 	}
 	if limiter.Limit() != 100 {
 		t.Errorf("limit=%.0f, want 100", limiter.Limit())
@@ -583,17 +587,17 @@ func TestUpgradeOptions_RateLimit(t *testing.T) {
 }
 
 func TestUpgradeOptions_RateLimit_ZeroValues(t *testing.T) {
-	oldLimiter := upgradeLimiter.Load()
-	defer upgradeLimiter.Store(oldLimiter)
+	oldLimiter := wsLimiter.Load()
+	defer wsLimiter.Store(oldLimiter)
 
 	o := defaultUpgradeOptions()
-	upgradeLimiter.Store(nil)
-	WithRateLimit(0, 0)(o)
-	if o.enableRateLimit {
-		t.Error("enableRateLimit should be false for zero values")
+	wsLimiter.Store(nil)
+	WithWsRateLimit(0, 0)(o)
+	if o.enableWsRateLimit {
+		t.Error("enableWsRateLimit should be false for zero values")
 	}
-	if upgradeLimiter.Load() != nil {
-		t.Error("upgradeLimiter should remain nil")
+	if wsLimiter.Load() != nil {
+		t.Error("wsLimiter should remain nil")
 	}
 }
 
@@ -807,7 +811,7 @@ func TestClientCtx_CancelPropagation(t *testing.T) {
 	serverCh := make(chan *Client, 1)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := (&websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}).Upgrade(w, r, nil)
-		client := NewClient(ginCtx, raw, "propagate")
+		client := newClientWithConfig(ginCtx, raw, "propagate", &clientConfig{writeChSize: 1024, readChSize: 1024})
 		serverCh <- client
 	}))
 	defer s.Close()
@@ -2377,29 +2381,175 @@ func TestUpgradeRegisterDispatcher_PropagatesRegisterError(t *testing.T) {
 	}
 }
 
-func TestUpgradeLimiter_GlobalState(t *testing.T) {
-	oldLimiter := upgradeLimiter.Load()
-	defer upgradeLimiter.Store(oldLimiter)
+// ---------------------------------------------------------------------------
+// 单点登录（SSO）
+// ---------------------------------------------------------------------------
 
-	upgradeLimiter.Store(nil)
-	if upgradeLimiter.Load() != nil {
+func TestDispatcher_SSO_KickOld(t *testing.T) {
+	d := NewDispatcher(nil)
+	d.enableSSO = true
+
+	alice, aliceConn := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	defer alice.Close()
+
+	if !alice.IsAlive() {
+		t.Error("first alice should be alive")
+	}
+
+	// 第二个相同 UID 的连接应踢掉第一个
+	alice2, _ := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice2); err != nil {
+		t.Fatalf("second register: %v", err)
+	}
+	defer alice2.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 旧连接应已被自动关闭
+	if alice.IsAlive() {
+		t.Error("first alice should be kicked by SSO")
+	}
+	// 新连接应存活
+	if !alice2.IsAlive() {
+		t.Error("second alice should be alive")
+	}
+	// 验证 Dispatcher 中只有新连接
+	if n := d.Len(); n != 1 {
+		t.Errorf("Len=%d, want 1 after SSO kick", n)
+	}
+
+	// 旧连接的底层连接应已被关闭
+	aliceConn.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
+	if _, _, err := aliceConn.ReadMessage(); err == nil {
+		t.Error("old alice conn should be closed")
+	}
+}
+
+func TestDispatcher_SSO_NoKickOnDifferentUID(t *testing.T) {
+	d := NewDispatcher(nil)
+	d.enableSSO = true
+
+	alice, _ := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice); err != nil {
+		t.Fatalf("register alice: %v", err)
+	}
+	defer alice.Close()
+
+	bob, _ := newTestClientWithUID(t, "bob")
+	if err := d.RegisterCtx(context.Background(), bob); err != nil {
+		t.Fatalf("register bob: %v", err)
+	}
+	defer bob.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 不同 UID 不应互相踢
+	if !alice.IsAlive() {
+		t.Error("alice should still be alive after bob registers")
+	}
+	if !bob.IsAlive() {
+		t.Error("bob should be alive")
+	}
+	if n := d.Len(); n != 2 {
+		t.Errorf("Len=%d, want 2 for different UIDs", n)
+	}
+}
+
+func TestDispatcher_SSO_CleanupOnClose(t *testing.T) {
+	d := NewDispatcher(nil)
+	d.enableSSO = true
+
+	alice, _ := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice); err != nil {
+		t.Fatalf("register alice: %v", err)
+	}
+	defer alice.Close()
+
+	// 验证 SSO 映射存在
+	if _, loaded := d.ssoClients.Load("alice"); !loaded {
+		t.Error("alice should be in ssoClients after register")
+	}
+
+	// 通过 UnregisterCtx 注销后，SSO 映射应清理
+	if err := d.UnregisterCtx(context.Background(), alice); err != nil {
+		t.Fatalf("unregister: %v", err)
+	}
+	if _, loaded := d.ssoClients.Load("alice"); loaded {
+		t.Error("alice should be removed from ssoClients after UnregisterCtx")
+	}
+}
+
+func TestDispatcher_SSO_KickReRegister(t *testing.T) {
+	d := NewDispatcher(nil)
+	d.enableSSO = true
+
+	// 注册第一个
+	alice1, _ := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice1); err != nil {
+		t.Fatalf("first register: %v", err)
+	}
+	defer alice1.Close()
+
+	// 注册第二个踢第一个
+	alice2, _ := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice2); err != nil {
+		t.Fatalf("second register: %v", err)
+	}
+	defer alice2.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 注册第三个踢第二个
+	alice3, _ := newTestClientWithUID(t, "alice")
+	if err := d.RegisterCtx(context.Background(), alice3); err != nil {
+		t.Fatalf("third register: %v", err)
+	}
+	defer alice3.Close()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// 只有第三个应存活
+	if alice1.IsAlive() || alice2.IsAlive() {
+		t.Error("alice1 and alice2 should be kicked")
+	}
+	if !alice3.IsAlive() {
+		t.Error("alice3 should be alive")
+	}
+	if n := d.Len(); n != 1 {
+		t.Errorf("Len=%d, want 1 after multiple SSO kicks", n)
+	}
+	// 验证 SSO 映射指向最新的客户端
+	if loaded, ok := d.ssoClients.Load("alice"); !ok || loaded != alice3 {
+		t.Error("ssoClients should point to the latest client")
+	}
+}
+
+func TestUpgradeLimiter_GlobalState(t *testing.T) {
+	oldLimiter := wsLimiter.Load()
+	defer wsLimiter.Store(oldLimiter)
+
+	wsLimiter.Store(nil)
+	if wsLimiter.Load() != nil {
 		t.Error("limiter should be nil initially")
 	}
 
 	o := defaultUpgradeOptions()
-	WithRateLimit(50, 10)(o)
-	if upgradeLimiter.Load() == nil {
-		t.Error("limiter should be set after WithRateLimit")
+	WithWsRateLimit(50, 10)(o)
+	if wsLimiter.Load() == nil {
+		t.Error("limiter should be set after WithWsRateLimit")
 	}
 }
 
 func TestUpgradeRateLimit_AllowDeny(t *testing.T) {
-	oldLimiter := upgradeLimiter.Load()
-	defer upgradeLimiter.Store(oldLimiter)
+	oldLimiter := wsLimiter.Load()
+	defer wsLimiter.Store(oldLimiter)
 
 	// 用极低速率模拟限制
-	WithRateLimit(1, 1)(defaultUpgradeOptions())
-	limiter := upgradeLimiter.Load()
+	WithWsRateLimit(1, 1)(defaultUpgradeOptions())
+	limiter := wsLimiter.Load()
 	if limiter == nil {
 		t.Fatal("limiter should be set")
 	}
