@@ -340,7 +340,7 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		upgradeOpts = append(upgradeOpts, gows.WithEnableDistributed(true), gows.WithDispatcher(wsDispatcher))
 	}
 	// 条件启用单点登录（根据 enableSSO 配置）
-	if config.Get().Websocket.SSO.EnableSSO {
+	if config.Get().Websocket.Sso.EnableSSO {
 		upgradeOpts = append(upgradeOpts, gows.WithSSO())
 	}
 	client, err := gows.Upgrade(c, upgradeOpts...)

@@ -110,6 +110,15 @@ type Jaeger struct {
 	Endpoint  string `yaml:"endpoint" json:"endpoint"`
 }
 
+type Cors struct {
+	AllowedOrigins    []interface{} `yaml:"allowedOrigins" json:"allowedOrigins"`
+	Cors              bool          `yaml:"cors" json:"cors"`
+	EnableCompression bool          `yaml:"enableCompression" json:"enableCompression"`
+	ReadBufferSize    int           `yaml:"readBufferSize" json:"readBufferSize"`
+	Subprotocols      string        `yaml:"subprotocols" json:"subprotocols"`
+	WriteBufferSize   int           `yaml:"writeBufferSize" json:"writeBufferSize"`
+}
+
 type Pool struct {
 	AntsCap           int    `yaml:"antsCap" json:"antsCap"`
 	DialTimeout       int    `yaml:"dialTimeout" json:"dialTimeout"`
@@ -258,17 +267,8 @@ type Websocket struct {
 	Heartbeat   Heartbeat   `yaml:"heartbeat" json:"heartbeat"`
 	Limit       Limit       `yaml:"limit" json:"limit"`
 	Queue       Queue       `yaml:"queue" json:"queue"`
-	SSO         SSO         `yaml:"sso" json:"sso"`
+	Sso         Sso         `yaml:"sso" json:"sso"`
 	Timeout     Timeout     `yaml:"timeout" json:"timeout"`
-}
-
-type Cors struct {
-	Cors              bool     `yaml:"cors" json:"cors"`
-	AllowedOrigins    []string `yaml:"allowedOrigins" json:"allowedOrigins"`
-	EnableCompression bool     `yaml:"enableCompression" json:"enableCompression"`
-	ReadBufferSize    int      `yaml:"readBufferSize" json:"readBufferSize"`
-	Subprotocols      string   `yaml:"subprotocols" json:"subprotocols"`
-	WriteBufferSize   int      `yaml:"writeBufferSize" json:"writeBufferSize"`
 }
 
 type Redis struct {
@@ -302,7 +302,23 @@ type Distributed struct {
 	WorkerPool        int    `yaml:"workerPool" json:"workerPool"`
 }
 
-type SSO struct {
+type Heartbeat struct {
+	EnableHeartbeat   bool `yaml:"enableHeartbeat" json:"enableHeartbeat"`
+	HeartbeatInterval int  `yaml:"heartbeatInterval" json:"heartbeatInterval"`
+	PingWriteWait     int  `yaml:"pingWriteWait" json:"pingWriteWait"`
+	PongTimeout       int  `yaml:"pongTimeout" json:"pongTimeout"`
+}
+
+type Limit struct {
+	EnableRateLimit bool `yaml:"enableRateLimit" json:"enableRateLimit"`
+	MaxConnPerIP    int  `yaml:"maxConnPerIP" json:"maxConnPerIP"`
+	RateLimitBurst  int  `yaml:"rateLimitBurst" json:"rateLimitBurst"`
+	RateLimitRps    int  `yaml:"rateLimitRps" json:"rateLimitRps"`
+	ReadLimit       int  `yaml:"readLimit" json:"readLimit"`
+	WriteLimit      int  `yaml:"writeLimit" json:"writeLimit"`
+}
+
+type Sso struct {
 	EnableSSO bool `yaml:"enableSSO" json:"enableSSO"`
 }
 
@@ -348,13 +364,6 @@ type IgnoreMethods struct {
 	HTTP []string `yaml:"http" json:"http"`
 }
 
-type Heartbeat struct {
-	EnableHeartbeat   bool `yaml:"enableHeartbeat" json:"enableHeartbeat"`
-	HeartbeatInterval int  `yaml:"heartbeatInterval" json:"heartbeatInterval"`
-	PongTimeout       int  `yaml:"pongTimeout" json:"pongTimeout"`
-	PingWriteWait     int  `yaml:"pingWriteWait" json:"pingWriteWait"`
-}
-
 type SMTP struct {
 	Host     string `yaml:"host" json:"host"`
 	Password string `yaml:"password" json:"password"`
@@ -368,22 +377,8 @@ type Sign struct {
 	SignKey         string        `yaml:"signKey" json:"signKey"`
 }
 
-type Limit struct {
-	EnableRateLimit bool `yaml:"enableRateLimit" json:"enableRateLimit"`
-	MaxConnPerIP    int  `yaml:"maxConnPerIP" json:"maxConnPerIP"`
-	RateLimitBurst  int  `yaml:"rateLimitBurst" json:"rateLimitBurst"`
-	RateLimitRps    int  `yaml:"rateLimitRps" json:"rateLimitRps"`
-	ReadLimit       int  `yaml:"readLimit" json:"readLimit"`
-	WriteLimit      int  `yaml:"writeLimit" json:"writeLimit"`
-}
-
 type DeadQueueBindOption struct {
 	NoWait bool `yaml:"noWait" json:"noWait"`
-}
-
-type Timeout struct {
-	ReadTimeout  int `yaml:"readTimeout" json:"readTimeout"`
-	WriteTimeout int `yaml:"writeTimeout" json:"writeTimeout"`
 }
 
 type HTTP struct {
@@ -394,6 +389,11 @@ type HTTP struct {
 type Queue struct {
 	ReadQueueSize  int `yaml:"readQueueSize" json:"readQueueSize"`
 	WriteQueueSize int `yaml:"writeQueueSize" json:"writeQueueSize"`
+}
+
+type Timeout struct {
+	ReadTimeout  int `yaml:"readTimeout" json:"readTimeout"`
+	WriteTimeout int `yaml:"writeTimeout" json:"writeTimeout"`
 }
 
 type Rules struct {

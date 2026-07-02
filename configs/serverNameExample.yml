@@ -210,7 +210,7 @@ sentinel:
 rabbitmq:
   enable: false                   # 是否启用rabbitmq
   pool: # 连接池配置
-    url: "amqp://user:password@host:5672/  # 连接URL
+    url: "amqp://user:password@host:5672/"  # 连接URL
     initialCap: 50                # 初始连接数
     maxCap: 100                   # 最大连接数
     healthCheckPeriod: 30         # 健康检查间隔(秒)
@@ -313,6 +313,10 @@ email:
     password: "your_auth_code"
 
 websocket:
+  sso:
+    # ==================== 单点登录 ====================
+    enableSSO: true         # 是否启用单点登录（后登录踢前登录）
+
   cors:
     # ==================== CORS & 连接基础 ====================
     cors: true              # CORS 总开关（false=拒绝所有来源）
@@ -348,10 +352,6 @@ websocket:
     # ==================== 客户端队列（影响背压行为） ====================
     writeQueueSize: 64       # 写入队列容量，0=默认 64
     readQueueSize: 64        # 读取队列容量，0=默认 64
-
-  sso:
-    # ==================== 单点登录 ====================
-    enableSSO: false         # 是否启用单点登录（后登录踢前登录）
 
   distributed:
     # ==================== 分布式分发 ====================
