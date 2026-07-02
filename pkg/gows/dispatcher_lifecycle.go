@@ -31,6 +31,14 @@ func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
 	}
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.WarnWithCtx(ctx, "ws dispatcher uidSub goroutine panic recovered",
+					logger.String("uid", uid),
+					logger.Any("panic", r),
+				)
+			}
+		}()
 		for {
 			select {
 			case <-stopCh:

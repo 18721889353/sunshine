@@ -20,8 +20,8 @@ import (
 // clientConfig 客户端通用配置，在 Upgrade→Client 间直接传递。
 // 嵌入 upgradeOptions，在升级握手与 Client 初始化间共享配置字段。
 type clientConfig struct {
-	writeChSize  int                    // 写入通道缓冲区容量（默认 1024）
-	readChSize   int                    // 读取通道缓冲区容量（默认 1024）
+	writeChSize  int                    // 写入通道缓冲区容量（defaultUpgradeOptions 默认 1024）
+	readChSize   int                    // 读取通道缓冲区容量（defaultUpgradeOptions 默认 1024）
 	readTimeout  time.Duration          // msgFromWsToCh 读取超时时间（0=不限制）
 	writeTimeout time.Duration          // msgFromChToWs 写入超时时间（0=默认 10s）
 	readLimit    int64                  // 单条消息读取大小限制（0=不限制）

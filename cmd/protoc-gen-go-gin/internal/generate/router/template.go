@@ -252,31 +252,29 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	// 完整配置字段映射（configs/serverNameExample.yml → option）：
 	//
 	// 【CORS & 连接基础】
-	//   .Websocket.Cors.Cors             → gows.WithCheckOrigin()           CORS 开关
-	//   .Websocket.Cors.ReadBufferSize    → gows.WithBufferSize(read, 0)     读缓冲区大小（字节）
-	//   .Websocket.Cors.WriteBufferSize   → gows.WithBufferSize(0, write)    写缓冲区大小（字节）
-	//   .Websocket.Cors.EnableCompression → gows.WithEnableCompression()     WebSocket 压缩开关
-	//   .Websocket.Cors.Subprotocols      → gows.WithSubprotocols()          子协议列表（逗号分隔）
+	//   .Websocket.Upgrade.Cors             → gows.WithCheckOrigin()           CORS 开关
+	//   .Websocket.Upgrade.ReadBufferSize    → gows.WithBufferSize(read, 0)     读缓冲区大小（字节）
+	//   .Websocket.Upgrade.WriteBufferSize   → gows.WithBufferSize(0, write)    写缓冲区大小（字节）
+	//   .Websocket.Upgrade.EnableCompression → gows.WithEnableCompression()     WebSocket 压缩开关
+	//   .Websocket.Upgrade.Subprotocols      → gows.WithSubprotocols()          子协议列表（逗号分隔）
 	//
 	// 【限流与安全防护】
 	//   .Websocket.Limit.RateLimitRps      → gows.WithWsRateLimit(rps, burst)   全局升级速率（每秒请求数）
 	//   .Websocket.Limit.RateLimitBurst    → gows.WithWsRateLimit(rps, burst)   限流突发量
 	//   .Websocket.Limit.MaxConnPerIP      → gows.WithMaxConnPerIP()          单 IP 最大连接数
-	//   .Websocket.Limit.ReadLimit         → gows.WithReadLimit()             单条消息读取大小限制（字节）
-	//   .Websocket.Limit.WriteLimit        → gows.WithWriteLimit()            单条消息写入大小限制（字节）
 	//
-	// 【超时控制】
-	//   .Websocket.Timeout.ReadTimeout       → gows.WithReadTimeout()           读取超时（秒），0=不限制
-	//   .Websocket.Timeout.WriteTimeout      → gows.WithWriteTimeout()          写入超时（秒），0=默认10s
+	// 【客户端队列 & 超时 & 消息限制】
+	//   .Websocket.Queue.WriteQueueSize    → gows.WithQueueSize(write, read)  写入队列容量
+	//   .Websocket.Queue.ReadQueueSize     → gows.WithQueueSize(write, read)  读取队列容量
+	//   .Websocket.Queue.ReadTimeout       → gows.WithReadTimeout()           读取超时（秒），0=不限制
+	//   .Websocket.Queue.WriteTimeout      → gows.WithWriteTimeout()          写入超时（秒），0=默认10s
+	//   .Websocket.Queue.ReadLimit         → gows.WithReadLimit()             单条消息读取大小限制（字节）
+	//   .Websocket.Queue.WriteLimit        → gows.WithWriteLimit()            单条消息写入大小限制（字节）
 	//
 	// 【心跳保活】
 	//   .Websocket.Heartbeat.HeartbeatInterval → gows.WithHeartbeatInterval()     心跳间隔（秒）
 	//   .Websocket.Heartbeat.PongTimeout       → gows.WithPongTimeout()           Pong 响应超时（秒）
 	//   .Websocket.Heartbeat.PingWriteWait     → gows.WithPingWriteWait()         Ping 控制帧写入超时（秒）
-	//
-	// 【客户端队列】
-	//   .Websocket.Queue.WriteQueueSize    → gows.WithQueueSize(write, read)  写入队列容量
-	//   .Websocket.Queue.ReadQueueSize     → gows.WithQueueSize(write, read)  读取队列容量
 	//
 	// 【单点登录】
 	//   .Websocket.SSO.EnableSSO           → gows.WithSSO()                   后登录踢前登录
@@ -284,10 +282,10 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		// CORS: cors=false 拒绝所有来源；cors=true 时检查 allowedOrigins 白名单
 		//   allowedOrigins 为空列表时允许所有来源（向后兼容）
 		gows.WithCheckOrigin(func(r *http.Request) bool {
-			if !config.Get().Websocket.Cors.Cors {
+			if !config.Get().Websocket.Upgrade.Cors {
 				return false
 			}
-			origins := config.Get().Websocket.Cors.AllowedOrigins
+			origins := config.Get().Websocket.Upgrade.AllowedOrigins
 			if len(origins) == 0 {
 				return true
 			}
@@ -304,22 +302,22 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		// 用户标识：从 JWT 解析的 uid 传入 Client，用于链路追踪
 		gows.WithClientUID(uid),
 		// 读写缓冲区大小（字节），0=使用 gorilla/websocket 默认值 4096
-		gows.WithBufferSize(config.Get().Websocket.Cors.ReadBufferSize, config.Get().Websocket.Cors.WriteBufferSize),
+		gows.WithBufferSize(config.Get().Websocket.Upgrade.ReadBufferSize, config.Get().Websocket.Upgrade.WriteBufferSize),
 		// 单 IP 连接数上限，0=不限制
 		gows.WithMaxConnPerIP(config.Get().Websocket.Limit.MaxConnPerIP),
 		// 读取超时：readLoop 在超时后返回错误，0=不限制（由心跳间接管理）
-		gows.WithReadTimeout(time.Duration(config.Get().Websocket.Timeout.ReadTimeout) * time.Second),
+		gows.WithReadTimeout(time.Duration(config.Get().Websocket.Queue.ReadTimeout) * time.Second),
 		// 写入超时：writeWithRetry 在超时后重试，0=默认 10s
-		gows.WithWriteTimeout(time.Duration(config.Get().Websocket.Timeout.WriteTimeout) * time.Second),
+		gows.WithWriteTimeout(time.Duration(config.Get().Websocket.Queue.WriteTimeout) * time.Second),
 		// 单条消息读取大小限制（字节），0=不限制
-		gows.WithReadLimit(int64(config.Get().Websocket.Limit.ReadLimit)),
+		gows.WithReadLimit(int64(config.Get().Websocket.Queue.ReadLimit)),
 		// 单条消息写入大小限制（字节），0=不限制
-		gows.WithWriteLimit(int64(config.Get().Websocket.Limit.WriteLimit)),
+		gows.WithWriteLimit(int64(config.Get().Websocket.Queue.WriteLimit)),
 		// WebSocket 压缩开关：true=启用（默认），false=禁用
-		gows.WithEnableCompression(config.Get().Websocket.Cors.EnableCompression),
+		gows.WithEnableCompression(config.Get().Websocket.Upgrade.EnableCompression),
 		// 子协议列表：从逗号分隔字符串解析，空字符串表示不协商
-		gows.WithSubprotocols(strings.Split(config.Get().Websocket.Cors.Subprotocols, ",")...),
-		// 客户端读写队列容量（0=默认 64），控制背压行为
+		gows.WithSubprotocols(strings.Split(config.Get().Websocket.Upgrade.Subprotocols, ",")...),
+		// 客户端读写队列容量（0=默认 1024），及读写超时配置
 		gows.WithQueueSize(config.Get().Websocket.Queue.WriteQueueSize, config.Get().Websocket.Queue.ReadQueueSize),
 	}
 	// 条件启用心跳（根据 enableHeartbeat 配置）

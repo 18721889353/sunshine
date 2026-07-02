@@ -317,9 +317,9 @@ websocket:
     # ==================== 单点登录 ====================
     enableSSO: true         # 是否启用单点登录（后登录踢前登录）
 
-  cors:
-    # ==================== CORS & 连接基础 ====================
-    cors: true              # CORS 总开关（false=拒绝所有来源）
+  upgrade:
+    # ==================== upgrade & 连接基础 ====================
+    cors: true              # upgrade 总开关（false=拒绝所有来源）
     allowedOrigins: []      # 允许的来源域名/IP 白名单，空列表且 cors=true 时允许所有
                             # 示例: ["http://localhost:8080","https://example.com","192.168.1.1"]
     readBufferSize: 0        # 读缓冲区大小（字节），0=4096
@@ -327,19 +327,14 @@ websocket:
     enableCompression: true  # WebSocket 压缩开关（true=启用，false=禁用）
     subprotocols: ""         # 子协议列表（逗号分隔），空字符串=不协商，如 "chat,v2"
 
-  limit:
-    # ==================== 限流与安全防护 ====================
-    enableRateLimit: false # 是否启用全局速率限制（false=禁用）
-    rateLimitRps: 0          # 全局升级速率限制（每秒请求数），0=不限制
-    rateLimitBurst: 0        # 限流突发量，0=不限制
-    maxConnPerIP: 0          # 单 IP 最大连接数，0=不限制
+  queue:
+    # ==================== 客户端队列 & 超时 & 消息限制（影响背压行为） ====================
+    writeQueueSize: 1024       # 写入队列容量，0=默认 1024
+    readQueueSize: 1024        # 读取队列容量，0=默认 1024
+    readTimeout: 60          # 读取超时（秒），0=不限制，建议 60
+    writeTimeout: 10         # 写入超时（秒），0=默认 10
     readLimit: 0             # 单条消息读取大小限制（字节），0=不限制
     writeLimit: 0            # 单条消息写入大小限制（字节），0=不限制
-
-  timeout:
-    # ==================== 超时控制 ====================
-    readTimeout: 60          # 读超时（秒），0=不限制，建议 60
-    writeTimeout: 10         # 写超时（秒），0=默认 10
 
   heartbeat:
     # ==================== 心跳保活 ====================
@@ -348,10 +343,12 @@ websocket:
     pongTimeout: 10          # Pong 响应超时（秒），0=默认 10
     pingWriteWait: 5         # Ping 控制帧写入超时（秒），0=默认 5
 
-  queue:
-    # ==================== 客户端队列（影响背压行为） ====================
-    writeQueueSize: 64       # 写入队列容量，0=默认 64
-    readQueueSize: 64        # 读取队列容量，0=默认 64
+  limit:
+    # ==================== 限流与安全防护 ====================
+    enableRateLimit: false # 是否启用全局速率限制（false=禁用）
+    rateLimitRps: 0          # 全局升级速率限制（每秒请求数），0=不限制
+    rateLimitBurst: 0        # 限流突发量，0=不限制
+    maxConnPerIP: 0          # 单 IP 最大连接数，0=不限制
 
   distributed:
     # ==================== 分布式分发 ====================

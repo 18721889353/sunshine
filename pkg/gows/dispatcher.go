@@ -147,10 +147,20 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 }
 
 // workerLoop Worker 协程：从 workerCh 取任务执行。
+// panic 恢复后继续处理下一个任务，防止单条消息导致 worker 全部退出。
 func (dd *DistributedDispatcher) workerLoop() {
 	defer dd.workerWg.Done()
 	for task := range dd.workerCh {
-		task()
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WarnWithCtx(context.Background(), "ws dispatcher worker panic recovered",
+						logger.Any("panic", r),
+					)
+				}
+			}()
+			task()
+		}()
 	}
 }
 

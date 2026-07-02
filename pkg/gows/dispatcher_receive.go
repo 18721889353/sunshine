@@ -20,15 +20,31 @@ func (dd *DistributedDispatcher) receiveLoop(ctx context.Context, msgCh <-chan *
 
 	tracer := otel.Tracer("gows")
 	for {
-		select {
-		case <-dd.receiveStopCh:
+		if dd.receiveOnce(ctx, tracer, msgCh) {
 			return
-		case msg, ok := <-msgCh:
-			if !ok {
-				return
-			}
-			dd.dispatchMessage(ctx, tracer, msg)
 		}
+	}
+}
+
+// receiveOnce 单次接收并处理一条消息，panic 恢复后返回 false 继续循环。
+func (dd *DistributedDispatcher) receiveOnce(ctx context.Context, tracer trace.Tracer, msgCh <-chan *PubSubMessage) (done bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WarnWithCtx(ctx, "ws dispatcher receiveOnce panic recovered",
+				logger.Any("panic", r),
+			)
+			done = false // 继续循环
+		}
+	}()
+	select {
+	case <-dd.receiveStopCh:
+		return true
+	case msg, ok := <-msgCh:
+		if !ok {
+			return true
+		}
+		dd.dispatchMessage(ctx, tracer, msg)
+		return false
 	}
 }
 

@@ -47,6 +47,14 @@ var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 //   - 使用 closeWsConn 而非 Close 避免 msgFromChToWs 自锁
 func (c *Client) msgFromWsToCh() {
 	defer func() {
+		if r := recover(); r != nil {
+			c.recordReadErr(fmt.Errorf("panic: %v", r))
+			logger.WarnWithCtx(c.clientCtx, "ws msgFromWsToCh panic recovered",
+				logger.String("uid", c.uid),
+				logger.String("remote_addr", c.remoteAddr),
+				logger.Any("panic", r),
+			)
+		}
 		close(c.readCh)
 		c.readWg.Done()
 	}()
@@ -93,7 +101,17 @@ func (c *Client) msgFromWsToCh() {
 // 触发消息读取方 ReadMessage 返回错误，进而由调用方执行 Close 完整清理。
 // 使用 closeWsConn 而非直接调用 Close 避免 msgFromChToWs 自锁。
 func (c *Client) msgFromChToWs() {
-	defer c.writeWg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			c.recordWriteErr(fmt.Errorf("panic: %v", r))
+			logger.WarnWithCtx(c.clientCtx, "ws msgFromChToWs panic recovered",
+				logger.String("uid", c.uid),
+				logger.String("remote_addr", c.remoteAddr),
+				logger.Any("panic", r),
+			)
+		}
+		c.writeWg.Done()
+	}()
 
 	for {
 		select {

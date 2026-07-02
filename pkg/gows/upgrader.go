@@ -177,9 +177,6 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 
 	wsConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		if o.errorHandler != nil {
-			o.errorHandler(c, err)
-		}
 		span.SetStatus(codes.Error, err.Error())
 		return nil, fmt.Errorf("ws upgrade: %w", err)
 	}

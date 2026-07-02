@@ -474,20 +474,6 @@ func TestUpgradeOptions_SSO(t *testing.T) {
 	}
 }
 
-func TestUpgradeOptions_ErrorHandler(t *testing.T) {
-	o := defaultUpgradeOptions()
-	called := false
-	handler := func(_ *gin.Context, _ error) { called = true }
-	WithErrorHandler(handler)(o)
-	if o.errorHandler == nil {
-		t.Fatal("errorHandler should not be nil")
-	}
-	o.errorHandler(nil, nil)
-	if !called {
-		t.Error("errorHandler was not called")
-	}
-}
-
 func TestUpgradeOptions_EnableCompression(t *testing.T) {
 	o := defaultUpgradeOptions()
 	WithEnableCompression(false)(o)
@@ -2332,8 +2318,11 @@ func TestBuildClientOpts_WithDispatcher(t *testing.T) {
 func TestBuildClientOpts_Empty(t *testing.T) {
 	o := defaultUpgradeOptions()
 	cfg := &o.clientConfig
-	if cfg.writeChSize != 0 || cfg.readChSize != 0 {
-		t.Errorf("should be zero: writeCh=%d readCh=%d", cfg.writeChSize, cfg.readChSize)
+	if cfg.writeChSize != 1024 {
+		t.Errorf("writeChSize=%d, want default 1024", cfg.writeChSize)
+	}
+	if cfg.readChSize != 1024 {
+		t.Errorf("readChSize=%d, want default 1024", cfg.readChSize)
 	}
 }
 

@@ -31,6 +31,7 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 十四 | Ctx 变体设计规范 | Ctx 变体 + 构造函数接收 Context |
 | 十五 | Option 配置传播模式 | defaultXxx+apply + 冲突处理 |
 | 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 |
+| 十七 | goroutine panic recover 策略 | 终止型退出清理 + 循环型继续执行 |
 
 ## 一、errcheck — 错误必须显式处理
 
@@ -892,4 +893,83 @@ func newMockBackend(bufSize int) *mockBackend
 // ✅ 分离
 // rabbitmq_backend_test.go              — 单元测试（mock 模拟）
 // rabbitmq_backend_integration_test.go   — 集成测试（需真实服务，默认跳过）
+
+## 十七、goroutine 必须添加 panic recover（两种策略）
+
+任何项目中启动 goroutine 必须添加 `defer recover()`，防止 panic 导致整个进程崩溃。根据 goroutine 的生命周期类型，采用不同恢复策略：
+
+### 策略一：终止型 — recover 后退出，确保清理
+
+适用于有明确生命周期的 goroutine（读写循环、心跳协程等），recover 后必须执行 `WaitGroup.Done()` 等清理操作，防止父协程永久阻塞：
+
+```go
+func (c *Client) msgFromWsToCh() {
+    defer func() {
+        if r := recover(); r != nil {
+            c.recordReadErr(fmt.Errorf("panic: %v", r))
+            logger.WarnWithCtx(c.clientCtx, "ws msgFromWsToCh panic recovered",
+                logger.String("uid", c.uid),
+                logger.Any("panic", r),
+            )
+        }
+        close(c.readCh)
+        c.readWg.Done()
+    }()
+    // ... 循环体
+}
+```
+
+### 策略二：循环型 — recover 后继续执行
+
+适用于持续运行的消息消费、WorkerPool 等循环 goroutine。recover 后**必须继续循环**，防止单条坏消息导致整个后台协程宕机：
+
+```go
+// workerLoop：每任务独立 recover，单次 panic 不影响下一个任务
+func (dd *DistributedDispatcher) workerLoop() {
+    defer dd.workerWg.Done()
+    for task := range dd.workerCh {
+        func() {  // 闭包隔离，panic 不影响外层循环
+            defer func() {
+                if r := recover(); r != nil {
+                    logger.WarnWithCtx(context.Background(), "worker panic recovered",
+                        logger.Any("panic", r),
+                    )
+                }
+            }()
+            task()
+        }()
+    }
+}
+
+// receiveOnce：提取为独立方法，通过 named return 控制循环
+func (dd *DistributedDispatcher) receiveOnce(ctx context.Context, msgCh <-chan *PubSubMessage) (done bool) {
+    defer func() {
+        if r := recover(); r != nil {
+            logger.WarnWithCtx(ctx, "receiveOnce panic recovered",
+                logger.Any("panic", r),
+            )
+            done = false // 返回 false 让上层继续循环
+        }
+    }()
+    // select...
+}
+```
+
+### 注意事项
+
+| 要点 | 说明 |
+|------|------|
+| **recover 必须在 defer 中** | 只有 defer 中的 recover 才能捕获 panic，其他位置无效 |
+| **defer 必须在 goroutine 入口** | 确保任何路径进入 goroutine 后都能被保护 |
+| **日志记录 panic 上下文** | 包含 uid/remoteAddr 等标识信息，方便问题追踪 |
+| **不使用 `logger.Warn`** | 带 `Ctx` 版本 `logger.WarnWithCtx` 才能输出 request_id |
+| **循环型 recover 包裹在闭包内** | 闭包隔离使单次 panic 不影响外层 for 循环的继续执行 |
+
+### 判断标准
+
+| goroutine 类型 | 示例 | recover 策略 |
+|----------------|------|-------------|
+| 读写/心跳循环 | `msgFromWsToCh`、`StartHeartbeat` | 终止型：recover → 清理 → 退出 |
+| 消息消费循环 | `receiveLoop`、worker 池、订阅协程 | 循环型：recover → 继续循环 |
+| 一次性任务 | `go func()` 执行单个异步操作 | 终止型：recover → 记录日志 |
 ```

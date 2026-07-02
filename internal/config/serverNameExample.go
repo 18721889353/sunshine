@@ -110,7 +110,7 @@ type Jaeger struct {
 	Endpoint  string `yaml:"endpoint" json:"endpoint"`
 }
 
-type Cors struct {
+type Upgrade struct {
 	AllowedOrigins    []interface{} `yaml:"allowedOrigins" json:"allowedOrigins"`
 	Cors              bool          `yaml:"cors" json:"cors"`
 	EnableCompression bool          `yaml:"enableCompression" json:"enableCompression"`
@@ -261,16 +261,6 @@ type DoingOrder struct {
 	QueueType                string                   `yaml:"queueType" json:"queueType"`
 }
 
-type Websocket struct {
-	Cors        Cors        `yaml:"cors" json:"cors"`
-	Distributed Distributed `yaml:"distributed" json:"distributed"`
-	Heartbeat   Heartbeat   `yaml:"heartbeat" json:"heartbeat"`
-	Limit       Limit       `yaml:"limit" json:"limit"`
-	Queue       Queue       `yaml:"queue" json:"queue"`
-	Sso         Sso         `yaml:"sso" json:"sso"`
-	Timeout     Timeout     `yaml:"timeout" json:"timeout"`
-}
-
 type Redis struct {
 	DialTimeout  int    `yaml:"dialTimeout" json:"dialTimeout"`
 	Dsn          string `yaml:"dsn" json:"dsn"`
@@ -281,6 +271,15 @@ type Redis struct {
 	PoolTimeout  int    `yaml:"poolTimeout" json:"poolTimeout"`
 	ReadTimeout  int    `yaml:"readTimeout" json:"readTimeout"`
 	WriteTimeout int    `yaml:"writeTimeout" json:"writeTimeout"`
+}
+
+type Websocket struct {
+	Distributed Distributed `yaml:"distributed" json:"distributed"`
+	Heartbeat   Heartbeat   `yaml:"heartbeat" json:"heartbeat"`
+	Limit       Limit       `yaml:"limit" json:"limit"`
+	Queue       Queue       `yaml:"queue" json:"queue"`
+	Sso         Sso         `yaml:"sso" json:"sso"`
+	Upgrade     Upgrade     `yaml:"upgrade" json:"upgrade"`
 }
 
 type Rabbitmq struct {
@@ -314,8 +313,6 @@ type Limit struct {
 	MaxConnPerIP    int  `yaml:"maxConnPerIP" json:"maxConnPerIP"`
 	RateLimitBurst  int  `yaml:"rateLimitBurst" json:"rateLimitBurst"`
 	RateLimitRps    int  `yaml:"rateLimitRps" json:"rateLimitRps"`
-	ReadLimit       int  `yaml:"readLimit" json:"readLimit"`
-	WriteLimit      int  `yaml:"writeLimit" json:"writeLimit"`
 }
 
 type Sso struct {
@@ -387,13 +384,12 @@ type HTTP struct {
 }
 
 type Queue struct {
+	ReadLimit      int `yaml:"readLimit" json:"readLimit"`
 	ReadQueueSize  int `yaml:"readQueueSize" json:"readQueueSize"`
+	ReadTimeout    int `yaml:"readTimeout" json:"readTimeout"`
+	WriteLimit     int `yaml:"writeLimit" json:"writeLimit"`
 	WriteQueueSize int `yaml:"writeQueueSize" json:"writeQueueSize"`
-}
-
-type Timeout struct {
-	ReadTimeout  int `yaml:"readTimeout" json:"readTimeout"`
-	WriteTimeout int `yaml:"writeTimeout" json:"writeTimeout"`
+	WriteTimeout   int `yaml:"writeTimeout" json:"writeTimeout"`
 }
 
 type Rules struct {

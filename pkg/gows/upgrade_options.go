@@ -4,40 +4,55 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 )
 
-// upgradeOptions 内部升级配置参数集合
-type upgradeOptions struct {
-	clientConfig // 嵌入通用客户端配置，由 Upgrade 直接传入 NewClient
-
+// upgraderConfig
+// 嵌入 upgradeOptions，作为 websocket.Upgrader 的配置载体。
+// 按大厂标准将 Upgrade 相关字段独立为嵌入结构体，与 clientConfig 模式一致。
+type upgraderConfig struct {
 	checkOrigin       func(r *http.Request) bool // 跨域检查函数
 	checkOriginSet    bool                       // 用户是否显式设置了 CheckOrigin
 	readBufSize       int                        // 读取缓冲区大小，0 表示使用默认值 4096
 	writeBufSize      int                        // 写入缓冲区大小，0 表示使用默认值 4096
 	subprotocols      []string                   // 子协议协商列表
 	enableCompression bool                       // 是否启用压缩（默认 true）
-	enableHeart       bool                       // 是否自动启动心跳保活
-	heartbeatOpts     []HeartbeatOption          // 心跳高级配置（与 enableHeart 配合使用）
-	enableDistributed bool                       // 是否启用分布式分发注册
-	clientUID         string                     // 客户端用户标识（必选，提供给 NewClient）
-	errorHandler      func(*gin.Context, error)  // 升级失败时的自定义错误处理
+}
 
-	// 限流配置（仅在 Upgrade 函数中读取，不存储在选项上）
-	enableWsRateLimit bool  // 是否启用全局 WebSocket 速率限制
-	maxConnPerIP    int32 // 单 IP 最大连接数（0=不限制）
-
+// upgradeOptions 内部升级配置参数集合
+type upgradeOptions struct {
 	// 单点登录配置（仅在 Upgrade 函数中读取，不存储在选项上）
 	enableSSO bool // 是否启用单点登录（后登录踢前登录，同一 UID 仅保留一个连接）
+
+	upgraderConfig // 嵌入升级器配置字段
+
+	clientConfig // 嵌入通用客户端配置，由 Upgrade 直接传入 NewClient
+
+	enableHeart   bool              // 是否自动启动心跳保活
+	heartbeatOpts []HeartbeatOption // 心跳高级配置（与 enableHeart 配合使用）
+
+	enableDistributed bool // 是否启用分布式分发注册
+
+	// 限流配置（仅在 Upgrade 函数中读取，不存储在选项上）
+	enableWsRateLimit bool // 是否启用全局 WebSocket 速率限制
+
+	clientUID    string // 客户端用户标识（传递给 NewClient）
+	maxConnPerIP int32  // 单 IP 最大连接数（0=不限制）
+
 }
 
 func defaultUpgradeOptions() *upgradeOptions {
 	return &upgradeOptions{
-		checkOrigin:       func(_ *http.Request) bool { return false },
-		readBufSize:       4096,
-		writeBufSize:      4096,
-		enableCompression: true,
+		clientConfig: clientConfig{
+			writeChSize: 1024,
+			readChSize:  1024,
+		},
+		upgraderConfig: upgraderConfig{
+			checkOrigin:       func(_ *http.Request) bool { return false },
+			readBufSize:       4096,
+			writeBufSize:      4096,
+			enableCompression: true,
+		},
 	}
 }
 
@@ -241,18 +256,6 @@ func WithClientUID(uid string) UpgradeOption {
 func WithSSO() UpgradeOption {
 	return func(o *upgradeOptions) {
 		o.enableSSO = true
-	}
-}
-
-// WithErrorHandler 设置 WebSocket 升级失败时的错误处理回调。
-// 参数:
-//   - fn: 接收 gin.Context 和错误信息，可在此进行自定义响应（如返回 JSON 错误体）
-//
-// 默认行为: Upgrade 返回 error 给调用方自行处理。
-// 设置后，在返回 error 的同时会额外调用此回调，方便统一错误处理。
-func WithErrorHandler(fn func(*gin.Context, error)) UpgradeOption {
-	return func(o *upgradeOptions) {
-		o.errorHandler = fn
 	}
 }
 

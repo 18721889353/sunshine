@@ -84,6 +84,16 @@ func closeOnPingFailure(ctx context.Context, client *Client, err error, span tra
 //   - client: 需要保活的客户端连接
 //   - opts: 可选心跳配置（间隔、Pong 超时等）
 func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.WarnWithCtx(client.clientCtx, "ws heartbeat panic recovered",
+				logger.String("uid", client.uid),
+				logger.String("remote_addr", client.remoteAddr),
+				logger.Any("panic", r),
+			)
+		}
+	}()
+
 	o := defaultHeartbeatOptions()
 	o.apply(opts...)
 
