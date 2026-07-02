@@ -189,9 +189,11 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 		}
 	}
 
+	// 隔离 Gin ctx 的取消信号，长生命周期操作（Client 读写循环、分发注册）依赖此 ctx
+	lifecycleCtx := context.WithoutCancel(ctx)
+
 	// 将 UpgradeOption 中的 Client 配置通过 clientConfig 直接传入 NewClient
-	// 使用 WithoutCancel 阻断上游 Gin 超时传递，Close 时手动取消
-	client := newClientWithConfig(context.WithoutCancel(ctx), wsConn, o.clientUID, &o.clientConfig)
+	client := newClientWithConfig(lifecycleCtx, wsConn, o.clientUID, &o.clientConfig)
 
 	// 注册 IP 连接清理钩子
 	if o.maxConnPerIP > 0 {
@@ -215,7 +217,7 @@ func Upgrade(c *gin.Context, opts ...UpgradeOption) (*Client, error) {
 
 	// 全局分发注册
 	if o.enableDistributed && o.dispatcher != nil {
-		if err := upgradeRegisterDispatcher(ctx, client, o); err != nil {
+		if err := upgradeRegisterDispatcher(lifecycleCtx, client, o); err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			return nil, fmt.Errorf("ws dispatcher register: %w", err)
 		}

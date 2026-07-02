@@ -124,7 +124,7 @@ func (m *mockBackend) Publish(_ context.Context, msg *PubSubMessage) error {
 	return nil
 }
 
-func (m *mockBackend) ReceiveBroadcast(_ context.Context) (<-chan *PubSubMessage, error) {
+func (m *mockBackend) CreateBroadcastConsumer(_ context.Context) (<-chan *PubSubMessage, error) {
 	ch := make(chan *PubSubMessage, 64)
 	m.mu.Lock()
 	m.subscribers = append(m.subscribers, ch)
@@ -281,8 +281,8 @@ func TestDispatcherOptions_WorkerPool(t *testing.T) {
 func TestDispatcherOptions_MaxConnections(t *testing.T) {
 	o := defaultDispatcherOptions()
 	WithMaxConnections(5000)(o)
-	if o.maxConns != 5000 {
-		t.Errorf("maxConns=%d, want 5000", o.maxConns)
+	if o.maxClientNum != 5000 {
+		t.Errorf("maxClientNum=%d, want 5000", o.maxClientNum)
 	}
 }
 
@@ -293,8 +293,8 @@ func TestDispatcherOptions_ZeroValues(t *testing.T) {
 	if o.workerNum != 4 {
 		t.Errorf("workerNum default 4, got %d", o.workerNum)
 	}
-	if o.maxConns != 0 {
-		t.Errorf("maxConns default 0, got %d", o.maxConns)
+	if o.maxClientNum != 0 {
+		t.Errorf("maxClientNum default 0, got %d", o.maxClientNum)
 	}
 }
 

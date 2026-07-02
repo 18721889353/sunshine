@@ -97,15 +97,15 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	default:
 	}
 
-	maxConns := dd.maxConns.Load()
-	if maxConns > 0 {
+	maxClientNum := dd.maxClientNum.Load()
+	if maxClientNum > 0 {
 		currentCount := dd.clientCount.Load()
-		if currentCount >= maxConns {
+		if currentCount >= maxClientNum {
 			dd.totalRejected.Add(1)
 			logger.WarnWithCtx(client.clientCtx, "ws dispatcher max connections reached, rejecting",
 				logger.String("uid", client.uid),
 				logger.String("remote_addr", client.remoteAddr),
-				logger.Int32("max", maxConns),
+				logger.Int32("max", maxClientNum),
 			)
 			return ErrMaxConnections
 		}

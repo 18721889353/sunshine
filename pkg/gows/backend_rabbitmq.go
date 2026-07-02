@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
 
@@ -15,8 +14,7 @@ import (
 )
 
 const (
-	defaultReceiveChanSize  = 1024 // 接收消息通道默认缓冲区大小
-	defaultProducerPoolSize = 8    // Producer 缓存池默认大小
+	defaultReceiveChanSize = 1024 // 接收消息通道默认缓冲区大小
 )
 
 // RabbitMQBackend 基于 RabbitMQ Direct 交换机的分布式后端实现。
@@ -34,30 +32,22 @@ type RabbitMQBackend struct {
 	url        string                                // RabbitMQ URL (amqp://user:pass@host:port/vhost)
 	exchange   string                                // Direct 交换机名称，所有消息通过此交换机路由
 	mqConn     atomic.Pointer[gorabbitmq.Connection] // 带自动重连的 RabbitMQ 连接
+	connMu     sync.Mutex                            // 保护 mqConn 初始化
 	mqConnOpts []gorabbitmq.ConnectionOption         // RabbitMQ 连接选项（如心跳间隔、重连策略）
 
-	directExchange atomic.Pointer[gorabbitmq.Exchange] // 缓存的 Direct Exchange 对象
+	directExchangeOnce sync.Once            // 确保 Direct Exchange 只创建一次
+	directExchangeVal  *gorabbitmq.Exchange // 缓存的 Direct Exchange 对象
 
-	lifecycleMu    sync.Mutex          // 保护生命周期操作（连接初始化/广播消费/关闭）的互斥锁
+	broadcastMu    sync.Mutex          // 保护广播消费生命周期
 	broadcastMsgCh chan *PubSubMessage // 广播消息输出通道，供 receiveLoop 消费
-
 	// 广播消费者（routing_key=""，接收所有 broadcast/client_online 类型的消息）
 	broadcastStarted  atomic.Bool          // 广播消费者是否已启动
 	broadcastCancel   context.CancelFunc   // 取消广播消费上下文的 cancel 函数
 	broadcastConsumer *gorabbitmq.Consumer // 广播消息的 AMQP 消费者实例
-	broadcastWg       sync.WaitGroup       // 等待广播消费 goroutine 退出
-	uidConsumerWg     sync.WaitGroup       // 等待所有 UID 消费者 goroutine 退出
-
 	// 按 UID 的消费者管理（Direct 模式，队列持久化，支持离线消息积压）
-	uidConsumers   map[string]*uidConsumerState // uid → 消费者状态，用于离线消息补推
-	uidConsumersMu sync.Mutex                   // 保护 uidConsumers 的互斥锁
+	uidConsumers sync.Map // uid → *uidConsumerState
 
-	// Producer 缓存池（避免高频场景下反复创建/销毁 AMQP Channel）
-	producerPool     chan *gorabbitmq.Producer // Producer 缓存通道
-	producerPoolSize int                       // 缓存池大小
-	producerPoolOnce sync.Once                 // 确保 producer 池只初始化一次
-
-	closeGuardOnce sync.Once // 确保 Close 只执行一次完整流程，支持重启
+	rabbitMQClosed atomic.Bool // 确保 Close 只执行一次，支持重启（CreateBroadcastConsumer 重置）
 }
 
 type uidConsumerState struct {
@@ -69,22 +59,18 @@ type uidConsumerState struct {
 // NewRabbitMQBackend 创建基于 RabbitMQ Direct 交换机的分布式后端。
 func NewRabbitMQBackend(url string, exchange string, connOpts ...gorabbitmq.ConnectionOption) *RabbitMQBackend {
 	return &RabbitMQBackend{
-		url:              url,
-		exchange:         exchange,
-		mqConnOpts:       connOpts,
-		producerPoolSize: defaultProducerPoolSize,
-		broadcastMsgCh:   make(chan *PubSubMessage, defaultReceiveChanSize),
-		uidConsumers:     make(map[string]*uidConsumerState),
+		url:            url,
+		exchange:       exchange,
+		mqConnOpts:     connOpts,
+		broadcastMsgCh: make(chan *PubSubMessage, defaultReceiveChanSize),
 	}
 }
 
 // NewRabbitMQBackendFromConn 使用已有连接创建后端。
 func NewRabbitMQBackendFromConn(conn *gorabbitmq.Connection, exchange string) *RabbitMQBackend {
 	b := &RabbitMQBackend{
-		exchange:         exchange,
-		producerPoolSize: defaultProducerPoolSize,
-		broadcastMsgCh:   make(chan *PubSubMessage, defaultReceiveChanSize),
-		uidConsumers:     make(map[string]*uidConsumerState),
+		exchange:       exchange,
+		broadcastMsgCh: make(chan *PubSubMessage, defaultReceiveChanSize),
 	}
 	b.mqConn.Store(conn)
 	return b
@@ -92,80 +78,28 @@ func NewRabbitMQBackendFromConn(conn *gorabbitmq.Connection, exchange string) *R
 
 // getDirectExchange 惰性创建并缓存 Direct Exchange 对象。
 func (b *RabbitMQBackend) getDirectExchange() *gorabbitmq.Exchange {
-	if v := b.directExchange.Load(); v != nil {
-		return v
-	}
-	v := gorabbitmq.NewDirectExchange(b.exchange, b.exchange)
-	b.directExchange.Store(v)
-	return v
+	b.directExchangeOnce.Do(func() {
+		b.directExchangeVal = gorabbitmq.NewDirectExchange(b.exchange, b.exchange)
+	})
+	return b.directExchangeVal
 }
 
-// ensureConn 惰性初始化 RabbitMQ 连接。
-func (b *RabbitMQBackend) ensureConn(ctx context.Context) error {
-	b.lifecycleMu.Lock()
-	defer b.lifecycleMu.Unlock()
-	if b.mqConn.Load() != nil {
-		return nil
+// getOrCreateConn 惰性初始化 RabbitMQ 连接，返回连接对象。
+func (b *RabbitMQBackend) getOrCreateConn(ctx context.Context) (*gorabbitmq.Connection, error) {
+	b.connMu.Lock()
+	defer b.connMu.Unlock()
+	if conn := b.mqConn.Load(); conn != nil {
+		return conn, nil
 	}
 	if b.url == "" {
-		return fmt.Errorf("rabbitmq: no URL provided")
+		return nil, fmt.Errorf("rabbitmq: no URL provided")
 	}
 	conn, err := gorabbitmq.NewConnection(ctx, b.url, b.mqConnOpts...)
 	if err != nil {
-		return fmt.Errorf("rabbitmq connection: %w", err)
+		return nil, fmt.Errorf("rabbitmq connection: %w", err)
 	}
 	b.mqConn.Store(conn)
-	return nil
-}
-
-// initProducerPool 惰性初始化 Producer 缓存池。
-func (b *RabbitMQBackend) initProducerPool(ctx context.Context) {
-	b.producerPoolOnce.Do(func() {
-		pool := make(chan *gorabbitmq.Producer, b.producerPoolSize)
-		for i := 0; i < b.producerPoolSize; i++ {
-			producer, err := gorabbitmq.NewProducer(ctx, b.getDirectExchange(), b.mqConn.Load(),
-				gorabbitmq.WithProducerMsgDurable(true),
-			)
-			if err != nil {
-				logger.WarnWithCtx(ctx, "rabbitmq init producer pool failed",
-					logger.Int("index", i),
-					logger.Err(err),
-				)
-				continue
-			}
-			pool <- producer
-		}
-		b.producerPool = pool
-	})
-}
-
-func (b *RabbitMQBackend) getProducer(ctx context.Context) *gorabbitmq.Producer {
-	select {
-	case p := <-b.producerPool:
-		return p
-	default:
-		producer, err := gorabbitmq.NewProducer(ctx, b.getDirectExchange(), b.mqConn.Load(),
-			gorabbitmq.WithProducerMsgDurable(true),
-		)
-		if err != nil {
-			logger.WarnWithCtx(ctx, "rabbitmq create temp producer failed", logger.Err(err))
-			return nil
-		}
-		return producer
-	}
-}
-
-func (b *RabbitMQBackend) putProducer(p *gorabbitmq.Producer) {
-	if p == nil {
-		return
-	}
-	select {
-	case b.producerPool <- p:
-	default:
-		if err := p.Close(); err != nil {
-			logger.WarnWithCtx(context.Background(), "rabbitmq close producer failed", logger.Err(err))
-		}
-	}
+	return conn, nil
 }
 
 // Publish 发布消息到 Direct 交换机。
@@ -173,7 +107,7 @@ func (b *RabbitMQBackend) putProducer(p *gorabbitmq.Producer) {
 //   - broadcast/client_online/client_offline: routing_key=""，广播到所有实例
 //   - send_to_uid: 为每个 UID 分别发布，routing_key=uid
 func (b *RabbitMQBackend) Publish(ctx context.Context, msg *PubSubMessage) error {
-	if err := b.ensureConn(ctx); err != nil {
+	if _, err := b.getOrCreateConn(ctx); err != nil {
 		return err
 	}
 
@@ -182,57 +116,68 @@ func (b *RabbitMQBackend) Publish(ctx context.Context, msg *PubSubMessage) error
 		return fmt.Errorf("rabbitmq marshal: %w", err)
 	}
 
-	b.initProducerPool(ctx)
-
-	if msg.Type == MsgTypeSendToUID && len(msg.UIDs) > 0 {
-		// 按 UID 分别发布到 Direct 交换机
+	// SendToUID 允许单条消息投递到多个 UID，每个 UID 独立发布到 Direct 交换机
+	if msg.Type == MsgTypeSendToUID {
+		// 没有目标 UID 时直接返回，避免落到广播路径造成透传
+		if len(msg.UIDs) == 0 {
+			return nil
+		}
 		for _, uid := range msg.UIDs {
 			if uid == "" {
 				continue
 			}
 			if err := b.publishWithRoutingKey(ctx, data, uid); err != nil {
-				return err
+				return fmt.Errorf("rabbitmq publish to uid %s: %w", uid, err)
 			}
 		}
 		return nil
 	}
 
-	// 广播消息：routing_key=""，所有实例的广播队列都会收到
-	return b.publishWithRoutingKey(ctx, data, "")
+	// 广播&协调消息：routing_key=""，所有实例的广播队列都会收到
+	switch msg.Type {
+	case MsgTypeBroadcast, MsgTypeClientOnline, MsgTypeClientOffline:
+		return b.publishWithRoutingKey(ctx, data, "")
+	default:
+		return fmt.Errorf("rabbitmq: unknown message type %q", msg.Type)
+	}
 }
 
 func (b *RabbitMQBackend) publishWithRoutingKey(ctx context.Context, data []byte, routingKey string) error {
-	producer := b.getProducer(ctx)
-	if producer == nil {
-		return fmt.Errorf("rabbitmq: failed to get producer")
+	producer, err := gorabbitmq.NewProducer(ctx, b.getDirectExchange(), b.mqConn.Load(),
+		gorabbitmq.WithProducerMsgDurable(true),
+	)
+	if err != nil {
+		return fmt.Errorf("rabbitmq create producer: %w", err)
 	}
+	defer func() {
+		if closeErr := producer.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "rabbitmq close producer failed", logger.Err(closeErr))
+		}
+	}()
 
 	if err := producer.PublishDirect(ctx, routingKey, data, uuid.New().String()); err != nil {
-		if closeErr := producer.Close(); closeErr != nil {
-			logger.WarnWithCtx(ctx, "rabbitmq close producer after publish failed", logger.Err(closeErr))
-		}
 		return fmt.Errorf("rabbitmq publish: %w", err)
 	}
-	b.putProducer(producer)
 	return nil
 }
 
-// ReceiveBroadcast 返回本实例的广播消息通道。
+// CreateBroadcastConsumer 创建并启动广播消费者，返回消息通道。
 // 创建独立队列绑定到 Direct 交换机（routing_key=""），接收所有广播消息。
-func (b *RabbitMQBackend) ReceiveBroadcast(ctx context.Context) (<-chan *PubSubMessage, error) {
-	b.lifecycleMu.Lock()
-	defer b.lifecycleMu.Unlock()
+func (b *RabbitMQBackend) CreateBroadcastConsumer(ctx context.Context) (<-chan *PubSubMessage, error) {
+	b.broadcastMu.Lock()
+	defer b.broadcastMu.Unlock()
 
 	if b.broadcastStarted.Load() {
 		return b.broadcastMsgCh, nil
 	}
 
-	ctx, b.broadcastCancel = context.WithCancel(ctx)
 	if b.broadcastMsgCh == nil {
 		b.broadcastMsgCh = make(chan *PubSubMessage, defaultReceiveChanSize)
 	}
-	b.closeGuardOnce = sync.Once{}
-	b.producerPoolOnce = sync.Once{}
+
+	b.rabbitMQClosed.Store(false)
+
+	ctx, b.broadcastCancel = context.WithCancel(ctx)
 
 	conn := b.mqConn.Load()
 	if conn == nil {
@@ -245,8 +190,10 @@ func (b *RabbitMQBackend) ReceiveBroadcast(ctx context.Context) (<-chan *PubSubM
 		b.mqConn.Store(conn)
 	}
 
-	// 固定广播队列名（exclusive+auto-delete，每个 connection 独占，不同实例互不干扰）
-	broadcastQueue := fmt.Sprintf("ws:%s:broadcast", b.exchange)
+	// 实例唯一广播队列名（exclusive+auto-delete），不同实例使用不同队列名，互不干扰。
+	// 使用后端对象地址作为实例标识，确保多实例部署时每个实例有自己的广播队列。
+	// 实例退出后队列自动删除，重启后使用新队列名重新声明。
+	broadcastQueue := fmt.Sprintf("ws:%s:broadcast:%p", b.exchange, b)
 	consumer, err := gorabbitmq.NewConsumer(
 		b.getDirectExchange(),
 		broadcastQueue,
@@ -275,13 +222,8 @@ func (b *RabbitMQBackend) ReceiveBroadcast(ctx context.Context) (<-chan *PubSubM
 	}
 
 	b.broadcastConsumer = consumer
-	b.broadcastWg.Add(1)
-	go func() {
-		defer b.broadcastWg.Done()
-		consumer.Consume(ctx, b.handleMessage)
-	}()
-
 	b.broadcastStarted.Store(true)
+	consumer.Consume(ctx, b.handleMessage)
 	return b.broadcastMsgCh, nil
 }
 
@@ -293,20 +235,19 @@ func (b *RabbitMQBackend) Subscribe(ctx context.Context, uid string) (<-chan *Pu
 		return nil, fmt.Errorf("rabbitmq: uid is empty")
 	}
 
-	b.uidConsumersMu.Lock()
-	if state, ok := b.uidConsumers[uid]; ok && state.started.Load() {
-		b.uidConsumersMu.Unlock()
-		return state.msgCh, nil
+	if v, ok := b.uidConsumers.Load(uid); ok {
+		state, ok := v.(*uidConsumerState)
+		if ok && state.started.Load() {
+			return state.msgCh, nil
+		}
 	}
-	b.uidConsumersMu.Unlock()
 
-	if err := b.ensureConn(ctx); err != nil {
+	conn, err := b.getOrCreateConn(ctx)
+	if err != nil {
 		return nil, err
 	}
-
-	conn := b.mqConn.Load()
 	ch := make(chan *PubSubMessage, defaultReceiveChanSize)
-	uidCtx, cancel := context.WithCancel(ctx)
+	subCtx, subCancel := context.WithCancel(ctx)
 
 	// UID 持久化队列：消息自动删除不可用（保留离线消息）
 	uidQueue := fmt.Sprintf("ws:%s:uid:%s", b.exchange, uid)
@@ -334,62 +275,38 @@ func (b *RabbitMQBackend) Subscribe(ctx context.Context, uid string) (<-chan *Pu
 		gorabbitmq.WithConsumerName(fmt.Sprintf("ws.uid.%s", uid)),
 	)
 	if err != nil {
-		cancel()
+		subCancel()
 		return nil, fmt.Errorf("rabbitmq subscribe uid %s: %w", uid, err)
 	}
 
+	// 关闭旧的同 UID 消费者（如果有）
+	if v, ok := b.uidConsumers.Load(uid); ok {
+		if state, ok := v.(*uidConsumerState); ok {
+			state.cancel()
+		}
+	}
+
 	state := &uidConsumerState{
-		cancel:  cancel,
+		cancel:  subCancel,
 		msgCh:   ch,
 		started: atomic.Bool{},
 	}
 	state.started.Store(true)
+	b.uidConsumers.Store(uid, state)
 
-	b.uidConsumersMu.Lock()
-	// 关闭旧的同 UID 消费者（如果有）
-	if old, ok := b.uidConsumers[uid]; ok {
-		old.cancel()
-	}
-	b.uidConsumers[uid] = state
-	b.uidConsumersMu.Unlock()
-
-	b.uidConsumerWg.Add(1)
-	go func() {
-		defer b.uidConsumerWg.Done()
-		consumer.Consume(uidCtx, func(ctx context.Context, data []byte, _, _ string) error {
-			var msg PubSubMessage
-			if err := json.Unmarshal(data, &msg); err != nil {
-				logger.WarnWithCtx(ctx, "rabbitmq uid unmarshal failed",
-					logger.Err(err),
-					logger.String("uid", uid),
-				)
-				return err
-			}
-			select {
-			case ch <- &msg:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-		state.started.Store(false)
-	}()
-
+	consumer.Consume(subCtx, func(ctx context.Context, data []byte, messageID, tagID string) error {
+		return b.handleUIDMessage(ctx, data, messageID, tagID, ch)
+	})
 	return ch, nil
 }
 
 // Unsubscribe 取消订阅指定 UID 的消息队列。
 // 关闭消费者但保留队列及消息，支持离线消息积压。
 func (b *RabbitMQBackend) Unsubscribe(_ context.Context, uid string) error {
-	b.uidConsumersMu.Lock()
-	state, ok := b.uidConsumers[uid]
-	if ok {
-		delete(b.uidConsumers, uid)
-	}
-	b.uidConsumersMu.Unlock()
-
-	if ok && state != nil {
-		state.cancel()
+	if v, ok := b.uidConsumers.LoadAndDelete(uid); ok {
+		if state, ok := v.(*uidConsumerState); ok {
+			state.cancel()
+		}
 	}
 	return nil
 }
@@ -418,72 +335,66 @@ func (b *RabbitMQBackend) handleMessage(ctx context.Context, data []byte, messag
 	}
 }
 
-// waitWithTimeout 等待 sync.WaitGroup 完成，超时后不再等待（best-effort 退出）。
-func waitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) {
-	done := make(chan struct{}, 1)
-	go func() {
-		wg.Wait()
-		done <- struct{}{}
-	}()
+func (b *RabbitMQBackend) handleUIDMessage(ctx context.Context, data []byte, messageID, tagID string, ch chan<- *PubSubMessage) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var msg PubSubMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		logger.WarnWithCtx(ctx, "rabbitmq uid unmarshal failed",
+			logger.Err(err),
+			logger.Int("body_size", len(data)),
+			logger.String("message_id", messageID),
+			logger.String("tag_id", tagID),
+		)
+		return err
+	}
 	select {
-	case <-done:
-	case <-time.After(timeout):
+	case ch <- &msg:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 // Close 关闭所有消费者、Producer 池和 AMQP 连接。
 func (b *RabbitMQBackend) Close() error {
-	b.closeGuardOnce.Do(func() {
-		// 1. 关闭所有 UID 订阅消费者
-		b.uidConsumersMu.Lock()
-		for uid, state := range b.uidConsumers {
+	if !b.rabbitMQClosed.CompareAndSwap(false, true) {
+		return nil
+	}
+	// 1. 关闭所有 UID 订阅消费者
+	b.uidConsumers.Range(func(key, value any) bool {
+		if state, ok := value.(*uidConsumerState); ok {
 			state.cancel()
-			delete(b.uidConsumers, uid)
 		}
-		b.uidConsumersMu.Unlock()
-
-		// 2. 取消广播消费上下文
-		b.lifecycleMu.Lock()
-		if b.broadcastCancel != nil {
-			b.broadcastCancel()
-			b.broadcastCancel = nil
-		}
-
-		consumer := b.broadcastConsumer
-		b.broadcastConsumer = nil
-		pool := b.producerPool
-		b.producerPool = nil
-		conn := b.mqConn.Load()
-		b.mqConn.Store(nil)
-		broadcastStarted := b.broadcastStarted.Swap(false)
-		b.broadcastMsgCh = nil
-		b.lifecycleMu.Unlock()
-
-		// 3. 关闭广播消费者
-		if consumer != nil {
-			consumer.Close()
-		}
-		if broadcastStarted {
-			waitWithTimeout(&b.broadcastWg, 5*time.Second)
-		}
-
-		// 4. 等待所有 UID 消费者退出
-		waitWithTimeout(&b.uidConsumerWg, 5*time.Second)
-
-		// 5. 关闭 Producer 池
-		if pool != nil {
-			close(pool)
-			for p := range pool {
-				if err := p.Close(); err != nil {
-					logger.WarnWithCtx(context.Background(), "rabbitmq close producer pool failed", logger.Err(err))
-				}
-			}
-		}
-
-		// 6. 关闭连接
-		if conn != nil {
-			conn.Close()
-		}
+		b.uidConsumers.Delete(key)
+		return true
 	})
+
+	// 2. 取消广播消费上下文
+	b.broadcastMu.Lock()
+	if b.broadcastCancel != nil {
+		b.broadcastCancel()
+		b.broadcastCancel = nil
+	}
+
+	consumer := b.broadcastConsumer
+	b.broadcastConsumer = nil
+
+	conn := b.mqConn.Load()
+	b.mqConn.Store(nil)
+	b.broadcastStarted.Store(false)
+	b.broadcastMsgCh = nil
+	b.broadcastMu.Unlock()
+
+	// 3. 关闭广播消费者
+	if consumer != nil {
+		consumer.Close()
+	}
+
+	// 4. 关闭连接
+	if conn != nil {
+		conn.Close()
+	}
 	return nil
 }

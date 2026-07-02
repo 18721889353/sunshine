@@ -37,10 +37,10 @@ type Backend interface {
 	//   - client_online/client_offline: 广播到所有实例
 	Publish(ctx context.Context, msg *PubSubMessage) error
 
-	// ReceiveBroadcast 返回本实例的广播消息通道。
+	// CreateBroadcastConsumer 创建并启动广播消费者，返回消息通道。
 	// 所有 broadcast/client_online/client_offline 类型消息通过此通道接收。
 	// ctx 取消时关闭通道并释放资源。
-	ReceiveBroadcast(ctx context.Context) (<-chan *PubSubMessage, error)
+	CreateBroadcastConsumer(ctx context.Context) (<-chan *PubSubMessage, error)
 
 	// Subscribe 订阅指定 UID 的消息队列。
 	// 为每个在线用户创建独立消费者，绑定到该 UID 的持久化队列。

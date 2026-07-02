@@ -40,7 +40,7 @@ import (
 type DistributedDispatcher struct {
 	clients       sync.Map     // *Client → struct{} 本地在线客户端集合
 	clientCount   atomic.Int32 // clients 中的客户端数量，优化 Len() 性能
-	maxConns      atomic.Int32 // 最大连接数（0=不限制）
+	maxClientNum  atomic.Int32 // 最大客户端数（0=不限制）
 	totalRejected atomic.Int32 // 因达到上限被拒绝的累计连接数
 
 	backend        Backend        // 分布式后端（如 RabbitMQ Direct，nil=单机模式）
@@ -102,7 +102,7 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 		d.instanceID = "standalone"
 	}
 	d.workerNum.Store(o.workerNum)
-	d.maxConns.Store(o.maxConns)
+	d.maxClientNum.Store(o.maxClientNum)
 	return d
 }
 
@@ -121,8 +121,11 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 		return
 	}
 
+	// 隔离上游 ctx 的取消信号（如 Gin 请求结束），保留 tracing 等 value 数据
+	lifecycleCtx := context.WithoutCancel(ctx)
+
 	// 1. 先连接后端，获取广播消息通道
-	msgCh, err := dd.backend.ReceiveBroadcast(ctx)
+	msgCh, err := dd.backend.CreateBroadcastConsumer(lifecycleCtx)
 	if err != nil {
 		logger.WarnWithCtx(ctx, "dispatcher start receive failed", logger.Err(err))
 		dd.receiveStarted.Store(false)
@@ -142,7 +145,7 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 
 	// 3. 启动 receiveLoop
 	dd.receiveWg.Add(1)
-	go dd.receiveLoop(ctx, msgCh)
+	go dd.receiveLoop(lifecycleCtx, msgCh)
 	logger.InfoWithCtx(ctx, "distributed dispatcher started")
 }
 
@@ -203,7 +206,7 @@ func (dd *DistributedDispatcher) Len() int {
 
 // MaxConnections 返回最大连接数限制（0=不限制）。
 func (dd *DistributedDispatcher) MaxConnections() int {
-	return int(dd.maxConns.Load())
+	return int(dd.maxClientNum.Load())
 }
 
 // TotalRejected 返回因达到连接上限被拒绝的累计连接数。

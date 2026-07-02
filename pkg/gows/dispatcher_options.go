@@ -6,7 +6,7 @@ import (
 
 // dispatcherOptions 分发中心内部配置参数集合
 type dispatcherOptions struct {
-	maxConns  int32 // 最大连接数（0=不限制）
+	maxClientNum int32 // 最大客户端数（0=不限制）
 	workerNum int32 // worker 协程数（默认 4）
 }
 
@@ -32,7 +32,7 @@ type DispatcherOption func(*dispatcherOptions)
 func WithMaxConnections(n int) DispatcherOption {
 	return func(o *dispatcherOptions) {
 		if n > 0 {
-			o.maxConns = int32(n)
+			o.maxClientNum = int32(n)
 		}
 	}
 }
