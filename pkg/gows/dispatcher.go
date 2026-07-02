@@ -32,17 +32,14 @@ import (
 //
 // # 背压保护
 //   - receiveLoop 使用 WorkerPool 异步处理消息，避免单条慢消息阻塞后续投递
-//   - WorkerPool 满时降级为串行处理（反压），防止内存溢出
+//   - WorkerPool 满时阻塞发送，天然反压到消息源
 //
 // # 网络波动保护
 //   - Broadcast 系列方法自动清理已关闭的僵尸连接
 //   - 连接管理使用 sync.Map，无锁化高并发安全
 type DistributedDispatcher struct {
-	clients       sync.Map     // *Client → struct{} 本地在线客户端集合
-	clientCount   atomic.Int32 // clients 中的客户端数量，优化 Len() 性能
-	maxClientNum  atomic.Int32 // 最大客户端数（0=不限制）
-	totalRejected atomic.Int32 // 因达到上限被拒绝的累计连接数
-
+	clients        sync.Map       // *Client → struct{} 本地在线客户端集合
+	maxClientNum   atomic.Int32   // 最大客户端数（0=不限制）
 	backend        Backend        // 分布式后端（如 RabbitMQ Direct，nil=单机模式）
 	instanceID     string         // 本实例唯一标识，用于跳过自发布消息回环
 	receiveStopCh  chan struct{}  // 关闭时通知 receiveLoop 退出
@@ -54,22 +51,22 @@ type DistributedDispatcher struct {
 
 	// 分布式客户端注册表：跨实例同步的在线 UID 集合
 	// uid → count（同一 UID 多设备连接）
-	remoteUIDs sync.Map
+	remoteUIDCounts sync.Map
+	// 远端 UID 计数：避免 Len()/Stats() O(n) 遍历 remoteUIDTotal
+	remoteUIDTotal atomic.Int32
 
-	// 本地 UID 索引：uid → 连接计数，避免 hasLocalUID O(n) 扫描
-	uidIndex sync.Map // uid → int32
-
-	// 远端 UID 计数器：避免 Len()/Stats() O(n) 遍历 remoteUIDs
-	remoteUIDCount atomic.Int32
+	localClientTotal atomic.Int32 // clients 中的客户端数量，优化 Len() 性能
+	// 本地 UID 计数：uid → 连接数，避免 hasLocalUID O(n) 扫描
+	localUIDCounts sync.Map // uid → *atomic.Int32 本地 UID 连接计数
 
 	// 单点登录：同一 UID 仅保留最新连接（后登录踢前登录）
-	enableSSO  bool       // 是否启用单点登录
-	ssoClients sync.Map   // uid → *Client 本地 SSO 映射
+	enableSSO  bool     // 是否启用单点登录
+	ssoClients sync.Map // uid → *Client 本地 SSO 映射
 
-	workerNum      atomic.Int32   // worker 协程数（默认 4）
-	workerCh       chan func()    // 投递任务通道，背压保护缓冲队列
-	workerWg       sync.WaitGroup // 等待所有 worker goroutine 退出
-	workerStarted  atomic.Bool    // 是否已启动 WorkerPool
+	workerNum     atomic.Int32   // worker 协程数（默认 4）
+	workerCh      chan func()    // 投递任务通道，背压保护缓冲队列
+	workerWg      sync.WaitGroup // 等待所有 worker goroutine 退出
+	workerStarted atomic.Bool    // 是否已启动 WorkerPool
 }
 
 // NewDispatcher 创建并初始化一个新的消息分发中心。
@@ -125,7 +122,7 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 	lifecycleCtx := context.WithoutCancel(ctx)
 
 	// 1. 先连接后端，获取广播消息通道
-	msgCh, err := dd.backend.CreateBroadcastConsumer(lifecycleCtx)
+	msgCh, err := dd.backend.SubscribeBroadcast(lifecycleCtx)
 	if err != nil {
 		logger.WarnWithCtx(ctx, "dispatcher start receive failed", logger.Err(err))
 		dd.receiveStarted.Store(false)
@@ -143,9 +140,9 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 		logger.InfoWithCtx(ctx, "dispatcher worker pool started", logger.Int32("workers", n))
 	}
 
-	// 3. 启动 receiveLoop
+	// 3. 启动 dispatchLoop
 	dd.receiveWg.Add(1)
-	go dd.receiveLoop(lifecycleCtx, msgCh)
+	go dd.dispatchLoop(lifecycleCtx, msgCh)
 	logger.InfoWithCtx(ctx, "distributed dispatcher started")
 }
 
@@ -201,17 +198,12 @@ func (dd *DistributedDispatcher) Stop() {
 
 // Len 返回全局在线连接数（本地 + 远端）。
 func (dd *DistributedDispatcher) Len() int {
-	return int(dd.clientCount.Load()) + int(dd.remoteUIDCount.Load())
+	return int(dd.localClientTotal.Load()) + int(dd.remoteUIDTotal.Load())
 }
 
 // MaxConnections 返回最大连接数限制（0=不限制）。
 func (dd *DistributedDispatcher) MaxConnections() int {
 	return int(dd.maxClientNum.Load())
-}
-
-// TotalRejected 返回因达到连接上限被拒绝的累计连接数。
-func (dd *DistributedDispatcher) TotalRejected() int {
-	return int(dd.totalRejected.Load())
 }
 
 // Clients 返回当前所有已注册客户端的快照切片。
@@ -246,32 +238,30 @@ type DispatcherStats struct {
 	LocalConnections int // 本地在线连接数
 	RemoteUIDs       int // 远端实例上的唯一 UID 数
 	MaxConnections   int // 最大连接数限制（0=不限制）
-	TotalRejected    int // 因达到上限被拒绝的累计连接数
 }
 
 // Stats 返回分发中心的实时统计信息。
 func (dd *DistributedDispatcher) Stats() DispatcherStats {
 	local := dd.LenLocal()
-	remote := int(dd.remoteUIDCount.Load())
+	remote := int(dd.remoteUIDTotal.Load())
 
 	return DispatcherStats{
 		TotalConnections: local + remote,
 		LocalConnections: local,
 		RemoteUIDs:       remote,
 		MaxConnections:   dd.MaxConnections(),
-		TotalRejected:    dd.TotalRejected(),
 	}
 }
 
 // LenLocal 返回本地在线连接数。
 func (dd *DistributedDispatcher) LenLocal() int {
-	return int(dd.clientCount.Load())
+	return int(dd.localClientTotal.Load())
 }
 
 // ConnectedUIDs 返回所有实例上的在线 UID 列表（去重）。
 func (dd *DistributedDispatcher) ConnectedUIDs() []string {
 	// 预分配 map 容量（本地连接数 + 远端 UID 数），减少 reallocation
-	seen := make(map[string]struct{}, dd.LenLocal()+int(dd.remoteUIDCount.Load()))
+	seen := make(map[string]struct{}, dd.LenLocal()+int(dd.remoteUIDTotal.Load()))
 
 	// 1. 本地 UID
 	dd.clients.Range(func(key, _ any) bool {
@@ -286,7 +276,7 @@ func (dd *DistributedDispatcher) ConnectedUIDs() []string {
 	})
 
 	// 2. 远端 UID
-	dd.remoteUIDs.Range(func(key, _ any) bool {
+	dd.remoteUIDCounts.Range(func(key, _ any) bool {
 		uid, ok := key.(string)
 		if !ok {
 			return true
@@ -304,8 +294,31 @@ func (dd *DistributedDispatcher) ConnectedUIDs() []string {
 	return uids
 }
 
+// forEachAliveClient 遍历所有存活客户端并执行 fn，遍历结束后自动清理僵尸连接。
+// 返回 (totalCount, deadCleaned) 即遍历总数和清理的僵尸数。
+func (dd *DistributedDispatcher) forEachAliveClient(fn func(c *Client)) (totalCount int, deadCleaned int) {
+	var deadClients []*Client
+	dd.clients.Range(func(key, _ any) bool {
+		c, ok := key.(*Client)
+		if !ok {
+			return true
+		}
+		totalCount++
+		if !c.IsAlive() {
+			deadClients = append(deadClients, c)
+			return true
+		}
+		fn(c)
+		return true
+	})
+	if len(deadClients) > 0 {
+		dd.deleteDeadClients(deadClients)
+	}
+	return totalCount, len(deadClients)
+}
+
 // CleanupDeadConns 清理所有已关闭的僵尸连接，释放 Dispatcher 内存。
-// 同时递减 uidIndex 索引，确保 hasLocalUID 查询不漂移。
+// 同时递减 localUIDCounts 引用计数，确保 hasLocalUID 查询不漂移。
 // 返回清理的连接数。
 func (dd *DistributedDispatcher) CleanupDeadConns() int {
 	var cleaned int
@@ -317,9 +330,9 @@ func (dd *DistributedDispatcher) CleanupDeadConns() int {
 		if !client.IsAlive() {
 			if _, loaded := dd.clients.LoadAndDelete(key); loaded {
 				cleaned++
-				dd.clientCount.Add(-1)
+				dd.localClientTotal.Add(-1)
 				if client.uid != "" {
-					dd.decrementUIDIndex(client.uid)
+					dd.decrementLocalUIDCount(client.uid)
 				}
 			}
 		}

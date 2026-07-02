@@ -47,7 +47,7 @@ type RabbitMQBackend struct {
 	// 按 UID 的消费者管理（Direct 模式，队列持久化，支持离线消息积压）
 	uidConsumers sync.Map // uid → *uidConsumerState
 
-	rabbitMQClosed atomic.Bool // 确保 Close 只执行一次，支持重启（CreateBroadcastConsumer 重置）
+	rabbitMQClosed atomic.Bool // 确保 Close 只执行一次，支持重启（SubscribeBroadcast 重置）
 }
 
 type uidConsumerState struct {
@@ -161,9 +161,9 @@ func (b *RabbitMQBackend) publishWithRoutingKey(ctx context.Context, data []byte
 	return nil
 }
 
-// CreateBroadcastConsumer 创建并启动广播消费者，返回消息通道。
+// SubscribeBroadcast 订阅广播消息，返回消息通道。
 // 创建独立队列绑定到 Direct 交换机（routing_key=""），接收所有广播消息。
-func (b *RabbitMQBackend) CreateBroadcastConsumer(ctx context.Context) (<-chan *PubSubMessage, error) {
+func (b *RabbitMQBackend) SubscribeBroadcast(ctx context.Context) (<-chan *PubSubMessage, error) {
 	b.broadcastMu.Lock()
 	defer b.broadcastMu.Unlock()
 

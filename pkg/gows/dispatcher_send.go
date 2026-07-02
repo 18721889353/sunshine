@@ -166,18 +166,8 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 		return
 	}
 
-	var deadClients []*Client
-	var totalCount, sentCount int
-	dd.clients.Range(func(key, _ any) bool {
-		c, ok := key.(*Client)
-		if !ok {
-			return true
-		}
-		totalCount++
-		if !c.IsAlive() {
-			deadClients = append(deadClients, c)
-			return true
-		}
+	var sentCount int
+	totalCount, deadCleaned := dd.forEachAliveClient(func(c *Client) {
 		if filter(c) {
 			if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
 				logger.WarnWithCtx(ctx, "ws broadcast_filter write failed",
@@ -187,18 +177,12 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 			}
 			sentCount++
 		}
-		return true
 	})
 
 	span.SetAttributes(
 		attribute.Int("ws.broadcast_targets", totalCount),
 		attribute.Int("ws.broadcast_sent", sentCount),
+		attribute.Int("ws.dead_clients_cleaned", deadCleaned),
 	)
-
-	if len(deadClients) > 0 {
-		span.SetAttributes(attribute.Int("ws.dead_clients_cleaned", len(deadClients)))
-		dd.deleteDeadClients(deadClients)
-	}
-
 	span.SetStatus(codes.Ok, "broadcast_filter completed")
 }

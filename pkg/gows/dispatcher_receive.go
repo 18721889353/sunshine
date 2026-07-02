@@ -13,62 +13,54 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// receiveLoop 后台协程：持续从后端接收跨实例消息并在本地投递。
-// 使用 WorkerPool 实现背压保护：当 Worker 全忙时，新消息降级为串行处理。
-func (dd *DistributedDispatcher) receiveLoop(ctx context.Context, msgCh <-chan *PubSubMessage) {
+// dispatchLoop 后台协程：持续从后端接收跨实例消息并通过 WorkerPool 异步分发。
+// WorkerPool 满时阻塞发送，天然反压到消息源。
+func (dd *DistributedDispatcher) dispatchLoop(ctx context.Context, msgCh <-chan *PubSubMessage) {
 	defer dd.receiveWg.Done()
-
 	tracer := otel.Tracer("gows")
 	for {
-		if dd.receiveOnce(ctx, tracer, msgCh) {
-			return
-		}
-	}
-}
-
-// receiveOnce 单次接收并处理一条消息，panic 恢复后返回 false 继续循环。
-func (dd *DistributedDispatcher) receiveOnce(ctx context.Context, tracer trace.Tracer, msgCh <-chan *PubSubMessage) (done bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			logger.WarnWithCtx(ctx, "ws dispatcher receiveOnce panic recovered",
-				logger.Any("panic", r),
-			)
-			done = false // 继续循环
-		}
-	}()
-	select {
-	case <-dd.receiveStopCh:
-		return true
-	case msg, ok := <-msgCh:
-		if !ok {
-			return true
-		}
-		dd.dispatchMessage(ctx, tracer, msg)
-		return false
-	}
-}
-
-// dispatchMessage 将消息分发到 WorkerPool 或串行处理。
-// WorkerPool 可用时异步投递，否则串行降级（反压保护）。
-func (dd *DistributedDispatcher) dispatchMessage(ctx context.Context, tracer trace.Tracer, msg *PubSubMessage) {
-	if dd.workerStarted.Load() {
-		// WorkerPool 模式：尝试投递到 Worker 队列
-		task := func() {
-			dd.deliverMessage(ctx, tracer, msg)
-		}
 		select {
-		case dd.workerCh <- task:
-			return // 成功投递
-		default:
-			// Worker 队列满，降级为串行处理（反压保护）
-			logger.WarnWithCtx(ctx, "ws dispatcher worker pool full, fallback to serial processing")
+		case <-dd.receiveStopCh:
+			return
+		case msg, ok := <-msgCh:
+			if !ok {
+				return
+			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.WarnWithCtx(ctx, "ws dispatcher receiveLoop panic recovered",
+							logger.Any("panic", r),
+						)
+					}
+				}()
+				if dd.workerStarted.Load() {
+					select {
+					case dd.workerCh <- func() {
+						dd.deliverMessage(ctx, tracer, msg)
+					}:
+					case <-dd.receiveStopCh:
+					}
+				} else {
+					dd.deliverMessage(ctx, tracer, msg)
+				}
+			}()
 		}
 	}
-	// 串行处理（默认或降级）
-	dd.deliverMessage(ctx, tracer, msg)
 }
 
-// deliverMessage 将一条跨实例消息投递到本地匹配的客户端。
+// deliverMessage 根据消息类型将跨实例消息投递到本地匹配的客户端。
+//
+// 参数:
+//   - ctx: 用于链路追踪的上下文
+//   - tracer: OpenTelemetry Tracer，用于创建追踪 span
+//   - msg: 从后端接收到的跨实例消息，包含类型、目标 UID 列表和负载
+//
+// 消息类型路由:
+//   - MsgTypeBroadcast: 投递到所有本地在线客户端
+//   - MsgTypeSendToUID: 投递到指定 UID 的本地客户端
+//   - MsgTypeClientOnline: 更新远端在线 UID 集合（递增计数）
+//   - MsgTypeClientOffline: 更新远端在线 UID 集合（递减计数）
 func (dd *DistributedDispatcher) deliverMessage(ctx context.Context, tracer trace.Tracer, msg *PubSubMessage) {
 	_, span := tracer.Start(ctx, "ws.distributed.deliver",
 		trace.WithSpanKind(trace.SpanKindInternal),
@@ -110,13 +102,13 @@ func (dd *DistributedDispatcher) handleRemoteOnline(uids []string) {
 			continue
 		}
 		// 使用 *atomic.Int32 指针原子递增，无 CAS 循环
-		actual, _ := dd.remoteUIDs.LoadOrStore(uid, &atomic.Int32{})
+		actual, _ := dd.remoteUIDCounts.LoadOrStore(uid, &atomic.Int32{})
 		counter, ok := actual.(*atomic.Int32)
 		if !ok {
 			continue
 		}
 		if counter.Add(1) == 1 {
-			dd.remoteUIDCount.Add(1) // 新 UID 加入
+			dd.remoteUIDTotal.Add(1) // 新 UID 加入
 		}
 	}
 }
@@ -131,7 +123,7 @@ func (dd *DistributedDispatcher) handleRemoteOffline(uids []string) {
 		if dd.hasLocalUID(uid) {
 			continue
 		}
-		val, ok := dd.remoteUIDs.Load(uid)
+		val, ok := dd.remoteUIDCounts.Load(uid)
 		if !ok {
 			continue
 		}
@@ -140,8 +132,8 @@ func (dd *DistributedDispatcher) handleRemoteOffline(uids []string) {
 			continue
 		}
 		if counter.Add(-1) <= 0 {
-			if _, loaded := dd.remoteUIDs.LoadAndDelete(uid); loaded {
-				dd.remoteUIDCount.Add(-1) // UID 移除
+			if _, loaded := dd.remoteUIDCounts.LoadAndDelete(uid); loaded {
+				dd.remoteUIDTotal.Add(-1) // UID 移除
 			}
 		}
 	}
@@ -149,24 +141,14 @@ func (dd *DistributedDispatcher) handleRemoteOffline(uids []string) {
 
 // hasLocalUID 检查指定 UID 是否在本实例上有在线连接（O(1) 查找）。
 func (dd *DistributedDispatcher) hasLocalUID(uid string) bool {
-	_, ok := dd.uidIndex.Load(uid)
+	_, ok := dd.localUIDCounts.Load(uid)
 	return ok
 }
 
 // deliverBroadcast 向本地所有在线客户端广播消息。
 func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.RawMessage) {
-	var deadClients []*Client
-	var sentCount, totalCount int
-	dd.clients.Range(func(key, _ any) bool {
-		c, ok := key.(*Client)
-		if !ok {
-			return true
-		}
-		totalCount++
-		if !c.IsAlive() {
-			deadClients = append(deadClients, c)
-			return true
-		}
+	var sentCount int
+	totalCount, _ := dd.forEachAliveClient(func(c *Client) {
 		if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
 			logger.WarnWithCtx(c.clientCtx, "ws distributed broadcast write failed",
 				logger.String("uid", c.uid),
@@ -174,28 +156,21 @@ func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.
 			)
 		}
 		sentCount++
-		return true
 	})
-
 	span.SetAttributes(
 		attribute.Int("ws.local_sent", sentCount),
 		attribute.Int("ws.local_clients", totalCount),
 	)
-
-	if len(deadClients) > 0 {
-		dd.deleteDeadClients(deadClients)
-	}
-
 	span.SetStatus(codes.Ok, "broadcast delivered")
 }
 
-// deleteDeadClients 批量从 dispatcher 中删除已关闭的僵尸连接，递减 clientCount 和 uidIndex。
+// deleteDeadClients 批量从 dispatcher 中删除已关闭的僵尸连接，递减 localClientTotal 和 localUIDCounts。
 func (dd *DistributedDispatcher) deleteDeadClients(clients []*Client) {
 	for _, client := range clients {
 		if _, loaded := dd.clients.LoadAndDelete(client); loaded {
-			dd.clientCount.Add(-1)
+			dd.localClientTotal.Add(-1)
 			if client.uid != "" {
-				dd.decrementUIDIndex(client.uid)
+				dd.decrementLocalUIDCount(client.uid)
 			}
 		}
 	}
@@ -215,28 +190,18 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 		uidSet[uid] = struct{}{}
 	}
 
-	var deadClients []*Client
-	var sentCount, totalCount int
-	dd.clients.Range(func(key, _ any) bool {
-		c, ok := key.(*Client)
-		if !ok {
-			return true
-		}
-		totalCount++
-		if !c.IsAlive() {
-			deadClients = append(deadClients, c)
-			return true
-		}
+	var sentCount int
+	totalCount, _ := dd.forEachAliveClient(func(c *Client) {
 		if _, ok := uidSet[c.uid]; ok {
 			if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
 				logger.WarnWithCtx(c.clientCtx, "ws distributed send_to_uid write failed",
 					logger.String("uid", c.uid),
 					logger.Err(err),
 				)
+			} else {
+				sentCount++
 			}
-			sentCount++
 		}
-		return true
 	})
 
 	if span != nil {
@@ -244,25 +209,18 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 			attribute.Int("ws.local_sent", sentCount),
 			attribute.Int("ws.local_clients", totalCount),
 		)
-	}
-
-	if len(deadClients) > 0 {
-		dd.deleteDeadClients(deadClients)
-	}
-
-	if span != nil {
 		span.SetStatus(codes.Ok, "send_to_uid delivered")
 	}
 }
 
-// decrementUIDIndex 原子递减本地 UID 索引计数器，归零时删除条目。
-func (dd *DistributedDispatcher) decrementUIDIndex(uid string) {
-	val, ok := dd.uidIndex.Load(uid)
+// decrementLocalUIDCount 原子递减本地 UID 索引计数器，归零时删除条目。
+func (dd *DistributedDispatcher) decrementLocalUIDCount(uid string) {
+	val, ok := dd.localUIDCounts.Load(uid)
 	if !ok {
 		return
 	}
 	counter, ok := val.(*atomic.Int32)
 	if ok && counter.Add(-1) <= 0 {
-		dd.uidIndex.Delete(uid)
+		dd.localUIDCounts.Delete(uid)
 	}
 }

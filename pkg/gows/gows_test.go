@@ -124,7 +124,7 @@ func (m *mockBackend) Publish(_ context.Context, msg *PubSubMessage) error {
 	return nil
 }
 
-func (m *mockBackend) CreateBroadcastConsumer(_ context.Context) (<-chan *PubSubMessage, error) {
+func (m *mockBackend) SubscribeBroadcast(_ context.Context) (<-chan *PubSubMessage, error) {
 	ch := make(chan *PubSubMessage, 64)
 	m.mu.Lock()
 	m.subscribers = append(m.subscribers, ch)
@@ -1776,16 +1776,16 @@ func TestDistributed_ConcurrentOnlineOffline(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	val, ok := dd.remoteUIDs.Load("alice")
+	val, ok := dd.remoteUIDCounts.Load("alice")
 	if !ok {
-		t.Fatal("alice should be in remoteUIDs")
+		t.Fatal("alice should be in remoteUIDTotal")
 	}
 	counter := val.(*atomic.Int32)
 	if n := counter.Load(); n != 20 {
-		t.Errorf("remoteUIDs[alice]=%d, want 20", n)
+		t.Errorf("remoteUIDTotal[alice]=%d, want 20", n)
 	}
-	if n := dd.remoteUIDCount.Load(); n != 1 {
-		t.Errorf("remoteUIDCount=%d, want 1", n)
+	if n := dd.remoteUIDTotal.Load(); n != 1 {
+		t.Errorf("remoteUIDTotal=%d, want 1", n)
 	}
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
@@ -1795,11 +1795,11 @@ func TestDistributed_ConcurrentOnlineOffline(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if _, ok := dd.remoteUIDs.Load("alice"); ok {
-		t.Error("alice should be removed from remoteUIDs after all offline")
+	if _, ok := dd.remoteUIDCounts.Load("alice"); ok {
+		t.Error("alice should be removed from remoteUIDCounts after all offline")
 	}
-	if n := dd.remoteUIDCount.Load(); n != 0 {
-		t.Errorf("remoteUIDCount=%d, want 0", n)
+	if n := dd.remoteUIDTotal.Load(); n != 0 {
+		t.Errorf("remoteUIDTotal=%d, want 0", n)
 	}
 }
 

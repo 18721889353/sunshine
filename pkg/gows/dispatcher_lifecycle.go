@@ -99,9 +99,8 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 
 	maxClientNum := dd.maxClientNum.Load()
 	if maxClientNum > 0 {
-		currentCount := dd.clientCount.Load()
+		currentCount := dd.localClientTotal.Load()
 		if currentCount >= maxClientNum {
-			dd.totalRejected.Add(1)
 			logger.WarnWithCtx(client.clientCtx, "ws dispatcher max connections reached, rejecting",
 				logger.String("uid", client.uid),
 				logger.String("remote_addr", client.remoteAddr),
@@ -117,9 +116,9 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 			if prev, ok := oldClient.(*Client); ok {
 				// 从 Dispatcher 中移除旧连接，确保注册新连接前状态一致
 				dd.clients.Delete(prev)
-				dd.clientCount.Add(-1)
+				dd.localClientTotal.Add(-1)
 				if prev.uid != "" {
-					dd.decrementUIDIndex(prev.uid)
+					dd.decrementLocalUIDCount(prev.uid)
 				}
 				prev.Close()
 			}
@@ -127,19 +126,19 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	}
 
 	dd.clients.Store(client, struct{}{})
-	dd.clientCount.Add(1)
+	dd.localClientTotal.Add(1)
 	// 更新 map 后检查 ctx，过期则回滚
 	select {
 	case <-ctx.Done():
 		dd.clients.Delete(client)
-		dd.clientCount.Add(-1)
+		dd.localClientTotal.Add(-1)
 		return ctx.Err()
 	default:
 	}
 
 	// 递增本地 UID 索引（确认注册后，不回滚）
 	if client.uid != "" {
-		actual, _ := dd.uidIndex.LoadOrStore(client.uid, &atomic.Int32{})
+		actual, _ := dd.localUIDCounts.LoadOrStore(client.uid, &atomic.Int32{})
 		counter, ok := actual.(*atomic.Int32)
 		if ok {
 			counter.Add(1)
@@ -175,14 +174,14 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 
 	_, loaded := dd.clients.LoadAndDelete(client)
 	if loaded {
-		dd.clientCount.Add(-1)
+		dd.localClientTotal.Add(-1)
 	}
 	// 删除后检查 ctx，过期则回滚
 	select {
 	case <-ctx.Done():
 		if loaded {
 			dd.clients.Store(client, struct{}{})
-			dd.clientCount.Add(1)
+			dd.localClientTotal.Add(1)
 		}
 		return ctx.Err()
 	default:
@@ -196,7 +195,7 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 
 	// 递减本地 UID 索引（确认注销后，不回滚）
 	if client.uid != "" && loaded {
-		dd.decrementUIDIndex(client.uid)
+		dd.decrementLocalUIDCount(client.uid)
 	}
 
 	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
