@@ -46,8 +46,9 @@ type DistributedDispatcher struct {
 	receiveWg      sync.WaitGroup // 等待 receiveLoop goroutine 退出
 	receiveStarted atomic.Bool    // 是否已启动，确保 Start 幂等
 
-	// 按 UID 的消息订阅管理（Direct 模式）
-	uidSubs sync.Map // uid → chan struct{} 停止订阅信号
+	// uidCancelChs 按 UID 的订阅取消信号通道
+	// uid → chan struct{}，用于通知 subscribeUID 启动的 goroutine 退出
+	uidCancelChs sync.Map
 
 	// 分布式客户端注册表：跨实例同步的在线 UID 集合
 	// uid → count（同一 UID 多设备连接）
@@ -168,11 +169,11 @@ func (dd *DistributedDispatcher) workerLoop() {
 // 关闭顺序: 关闭 UID 订阅 → 关闭 Backend → 关闭 receiveLoop → 关闭 WorkerPool。
 func (dd *DistributedDispatcher) Stop() {
 	// 1. 关闭所有 UID 订阅
-	dd.uidSubs.Range(func(key, value any) bool {
+	dd.uidCancelChs.Range(func(key, value any) bool {
 		if ch, ok := value.(chan struct{}); ok {
 			close(ch)
 		}
-		dd.uidSubs.Delete(key)
+		dd.uidCancelChs.Delete(key)
 		return true
 	})
 

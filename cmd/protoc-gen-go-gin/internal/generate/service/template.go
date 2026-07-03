@@ -86,19 +86,28 @@ func (c *{{.LowerServiceName}}Client) {{.MethodName}}(ctx context.Context, req *
 	//	    // 解析消息
 	//		msg := &{{.RequestImportPkgName}}.HelloRequest{}
 	//	    if err := json.Unmarshal(message, msg); err != nil {
-	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: "invalid message format"})
+	//	        if err := client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: "invalid message format"}); err != nil {
+	//	            logger.WarnWithCtx(ctx, "ws write error msg failed", logger.Err(err))
+	//	            break
+	//	        }
 	//	        continue
 	//	    }
 	//
 	//	    // 按 type 分发处理
 	//	    switch msg.Type {
 	//	    case "ping":
-	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "pong"})
+	//	        if err := client.WriteJSONCtx(ctx, gows.Message{Type: "pong"}); err != nil {
+	//	            logger.WarnWithCtx(ctx, "ws write pong error", logger.Err(err))
+	//	            break
+	//	        }
 	//		case "say_hello":
-	//		_ = client.WriteJSONCtx(ctx, gows.Message{
+	//		if err := client.WriteJSONCtx(ctx, gows.Message{
 	//			Type: "reply",
 	//			Msg:  "Hello, " + msg.Name,
-	//		})
+	//		}); err != nil {
+	//			logger.WarnWithCtx(ctx, "ws write reply failed", logger.Err(err))
+	//			break
+	//		}
 	//	    default:
 	//	        // 调用 DAO 或 RPC 方法处理业务
 	//	        // reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{...})
@@ -106,7 +115,10 @@ func (c *{{.LowerServiceName}}Client) {{.MethodName}}(ctx context.Context, req *
 	//	        //     _ = client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: err.Error()})
 	//	        //     continue
 	//	        // }
-	//	        _ = client.WriteJSONCtx(ctx, gows.Message{Type: "reply", Data: msg.Name})
+	//	        if err := client.WriteJSONCtx(ctx, gows.Message{Type: "reply", Data: msg.Name}); err != nil {
+		//	            logger.WarnWithCtx(ctx, "ws write reply failed", logger.Err(err))
+		//	            break
+		//	        }
 	//	    }
 	//	}
 	//

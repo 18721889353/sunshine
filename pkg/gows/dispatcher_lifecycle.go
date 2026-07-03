@@ -11,7 +11,7 @@ import (
 // RegisterCtx 将客户端连接注册到 Dispatcher 全局列表（带自定义上下文）。
 //
 // 注册流程依次执行：最大连接数检查 → 空 UID 拒绝 → SSO 踢旧连接 → 入表计数 →
-// 事件广播 → 订阅队列。分布式模式下自动向所有实例广播上线通知。
+// 事件广播 → 消费队列。分布式模式下自动向所有实例广播上线通知。
 //
 // 参数：
 //   - ctx：用于跨实例链路追踪的上下文，tracing 信息随事件消息传播
@@ -61,7 +61,7 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 
 	dd.clients.Store(client, struct{}{})
 	dd.localClientTotal.Add(1)
-	// 递增本地 UID 索引
+	// 递增本地 UID 连接计数
 	actual, loaded := dd.localUIDCounts.LoadOrStore(client.uid, &atomic.Int32{})
 	if loaded {
 		counter, ok := actual.(*atomic.Int32)
@@ -76,25 +76,27 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	}
 
 	dd.publishMq(ctx, MsgTypeClientOnline, client.uid)
-	dd.subscribeUID(ctx, client.uid)
+	dd.consumeAndDeliverUID(ctx, client.uid)
 	return nil
 }
 
-// subscribeUID 订阅指定 UID 的队列消息，启动后台消费 goroutine。
-// 用户断线后队列保留，重连后继续消费积压消息。
-// 同一 UID 仅订阅一次，重复调用直接返回。
+// consumeAndDeliverUID 启动后端消费者订阅 UID 队列，后台 goroutine 持续接收
+// 远端消息并投递给本地 WebSocket 客户端。
+// 同一 UID 仅启动一个消费者 goroutine，重复调用直接返回。
+// goroutine 中通过 InstanceID 过滤掉本实例自发布的消息，防止回环。
+// 用户断线后 MQ 队列保留（消息不丢失），重连后继续消费积压消息。
 //
 // 参数：
 //   - ctx：携带 tracing 信息的上下文
-//   - uid：要订阅的用户标识
-func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
+//   - uid：要消费消息的用户标识
+func (dd *DistributedDispatcher) consumeAndDeliverUID(ctx context.Context, uid string) {
 	if dd.backend == nil {
 		return
 	}
 
 	stopCh := make(chan struct{})
-	// 已订阅，无需重复订阅
-	if _, loaded := dd.uidSubs.LoadOrStore(uid, stopCh); loaded {
+	// 该 UID 消费者已启动，直接返回
+	if _, loaded := dd.uidCancelChs.LoadOrStore(uid, stopCh); loaded {
 		return
 	}
 
@@ -104,7 +106,7 @@ func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
 			logger.String("uid", uid),
 			logger.Err(err),
 		)
-		dd.uidSubs.Delete(uid)
+		dd.uidCancelChs.Delete(uid)
 		return
 	}
 
@@ -139,7 +141,7 @@ func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
 // UnregisterCtx 从 Dispatcher 全局列表中移除客户端连接（带自定义上下文）。
 //
 // 注销流程依次执行：从 clients 删除 → 事件广播 → 递减 UID 计数 →
-// 清理 SSO → 取消订阅。分布式模式下自动向所有实例广播下线通知。
+// 清理 SSO → 停止消费。分布式模式下自动向所有实例广播下线通知。
 //
 // 参数：
 //   - ctx：携带 tracing 信息的上下文
@@ -165,18 +167,18 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 
 	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
 	if !dd.hasLocalUID(client.uid) {
-		dd.unsubscribeUID(ctx, client.uid)
+		dd.stopConsumeUID(ctx, client.uid)
 	}
 	return nil
 }
 
-// unsubscribeUID 取消订阅指定 UID 的队列。
-// 保留队列及其中的离线消息，待用户重连后继续消费。
+// stopConsumeUID 停止消费指定 UID 的消息。
+// 关闭消费者但保留 MQ 队列及离线消息，待用户重连后继续消费。
 //
 // 参数：
 //   - ctx：携带 tracing 信息的上下文
-//   - uid：要取消订阅的用户标识
-func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string) {
+//   - uid：要停止消费的用户标识
+func (dd *DistributedDispatcher) stopConsumeUID(ctx context.Context, uid string) {
 	if dd.backend == nil {
 		return
 	}
@@ -188,7 +190,7 @@ func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string)
 		)
 	}
 
-	if stopCh, loaded := dd.uidSubs.LoadAndDelete(uid); loaded {
+	if stopCh, loaded := dd.uidCancelChs.LoadAndDelete(uid); loaded {
 		if ch, ok := stopCh.(chan struct{}); ok {
 			close(ch)
 		}
