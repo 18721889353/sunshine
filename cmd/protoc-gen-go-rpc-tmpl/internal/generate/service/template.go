@@ -244,18 +244,18 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//
 	//	// ========== 进入 WebSocket 读写循环（阻塞，使用 Ctx 变体进行链路追踪） ==========
 	//	for {
-	//	    message, readErr := client.ReadMessageCtx(ctx)
+	//	    message, readErr := client.ReadMsgFromClientReadCh(wsCtx)
 	//	    if readErr != nil {
-	//	        logger.WarnWithCtx(ctx, "ws read message error", logger.Err(readErr))
+	//	        logger.WarnWithCtx(wsCtx, "ws read message error", logger.Err(readErr))
 	//	        break
 	//	    }
-	//	    logger.InfoWithCtx(ctx, "ws received message", logger.String("msg", string(message)))
+	//	    logger.InfoWithCtx(wsCtx, "ws received message", logger.String("msg", string(message)))
 	//
 	//	    // 解析消息
 	//		msg := &{{.RequestImportPkgName}}.HelloRequest{}
 	//	    if err := json.Unmarshal(message, &msg); err != nil {
-	//	        if err := client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: "invalid message format"}); err != nil {
-	//	            logger.WarnWithCtx(ctx, "ws write error msg failed", logger.Err(err))
+	//	        if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "error", Msg: "invalid message format"}); err != nil {
+	//	            logger.WarnWithCtx(wsCtx, "ws write error msg failed", logger.Err(err))
 	//	            break
 	//	        }
 	//	        continue
@@ -264,27 +264,27 @@ func (s *{{.LowerServiceName}}) {{.MethodName}}(ctx context.Context, req *{{.Req
 	//	    // 按 type 分发处理
 	//	    switch msg.Type {
 	//	    case "ping":
-	//	        if err := client.WriteJSONCtx(ctx, gows.Message{Type: "pong"}); err != nil {
-	//	            logger.WarnWithCtx(ctx, "ws write pong error", logger.Err(err))
+	//	        if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "pong"}); err != nil {
+	//	            logger.WarnWithCtx(wsCtx, "ws write pong error", logger.Err(err))
 	//	            break
 	//	        }
 	//		case "say_hello":
-	//		if err := client.WriteJSONCtx(ctx, gows.Message{
+	//		if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{
 	//			Type: "reply",
 	//			Msg:  "Hello, " + msg.Name,
 	//		}); err != nil {
-	//			logger.WarnWithCtx(ctx, "ws write reply failed", logger.Err(err))
+	//			logger.WarnWithCtx(wsCtx, "ws write reply failed", logger.Err(err))
 	//			break
 	//		}
 	//	    default:
 	//	        // 调用 DAO 或 RPC 方法处理业务
 	//	        // reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{...})
 	//	        // if err != nil {
-	//	        //     _ = client.WriteJSONCtx(ctx, gows.Message{Type: "error", Msg: err.Error()})
+	//	        //     _ = client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "error", Msg: err.Error()})
 	//	        //     continue
 	//	        // }
-	//	        if err := client.WriteJSONCtx(ctx, gows.Message{Type: "reply", Data: msg.Name}); err != nil {
-		//	            logger.WarnWithCtx(ctx, "ws write reply failed", logger.Err(err))
+	//	        if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "reply", Data: msg.Name}); err != nil {
+		//	            logger.WarnWithCtx(wsCtx, "ws write reply failed", logger.Err(err))
 		//	            break
 		//	        }
 	//	    }

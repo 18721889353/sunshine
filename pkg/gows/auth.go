@@ -3,7 +3,6 @@ package gows
 
 import (
 	"context"
-	"errors"
 
 	"github.com/spf13/cast"
 
@@ -14,9 +13,6 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/jwt"
 )
-
-// ErrTokenInvalid token 无效（格式正确但缺少 uid 字段）
-var ErrTokenInvalid = errors.New("token is invalid: missing uid")
 
 // defaultUIDFields UID 字段名优先级列表，与 middleware 保持一致
 var defaultUIDFields = []string{"id", "uid", "userId", "user_id"}

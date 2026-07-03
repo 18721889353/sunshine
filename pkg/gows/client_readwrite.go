@@ -1,7 +1,6 @@
 package gows
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -18,16 +17,7 @@ const (
 	writeDeadline    = 10 * time.Second // 默认单次写入超时时间
 )
 
-// ErrWriteQueueFull 写入队列已满，消息被丢弃的错误标识。
-// 当客户端写入缓冲区满载时 WriteJSON 返回此错误，
-// 发送方可根据此错误判断是否为短暂拥塞，决定是否降级处理。
-var ErrWriteQueueFull = errors.New("write queue is full, message dropped")
-
-// ErrWriteLimitExceeded 单条消息大小超过写入限制的错误标识。
-// 当消息超过 WithWriteLimit 设置的字节数时 WriteJSON/WriteRaw 返回此错误。
-var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
-
-// msgFromWsToCh 从底层 WebSocket 连接接收消息并推入 readCh 供 ReadMessageCtx 消费。
+// msgFromWsToCh 从底层 WebSocket 连接接收消息并推入 readCh 供 ReadMsgFromClientReadCh 消费。
 // 通过 readCh 缓冲通道解耦网络读取和业务处理，满队列时反压到 TCP 读取层。
 // 支持主动读超时保护（独立于心跳），超时或读取失败时记录错误并关闭底层连接。
 //
@@ -35,7 +25,7 @@ var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 //   - readTimeout > 0 时每次读前设置 SetReadDeadline，超时后 ReadMessage 返回 timeout 错误
 //   - 读取成功后阻塞推入 readCh，队列满时反压到 TCP 读取层，不丢弃消息
 //   - 读取失败后调用 closeWsConn 关闭底层 TCP 连接（不自锁），不调用 Close
-//   - 退出时 defer 关闭 readCh，触发 ReadMessageCtx 的 <-c.readCh 返回 !ok
+//   - 退出时 defer 关闭 readCh，触发 ReadMsgFromClientReadCh 的 <-c.readCh 返回 !ok
 //
 // 退出路径:
 //   - ReadMessage 返回错误（网络断开/超时/连接关闭）→ closeWsConn → return

@@ -1,7 +1,6 @@
 package gows
 
 import (
-	"fmt"
 	"sync/atomic"
 	"time"
 )
@@ -17,26 +16,16 @@ type healthState struct {
 	lastReadErr   atomic.Value
 }
 
-// recordWriteErr 原子记录写入错误计数和最近一次错误信息
+// recordWriteErr 原子记录写入错误计数和最近一次错误
 func (c *Client) recordWriteErr(err error) {
 	c.health.writeErrCount.Add(1)
-	c.health.lastWriteErr.Store(err.Error())
+	c.health.lastWriteErr.Store(err)
 }
 
-// recordReadErr 原子记录读取错误计数和最近一次错误信息
+// recordReadErr 原子记录读取错误计数和最近一次错误
 func (c *Client) recordReadErr(err error) {
 	c.health.readErrCount.Add(1)
-	c.health.lastReadErr.Store(err.Error())
-}
-
-// getLastReadErr 获取最近一次读取错误，用于 readCh 关闭时返回给 ReadMessage 调用方。
-func (c *Client) getLastReadErr() error {
-	if v := c.health.lastReadErr.Load(); v != nil {
-		if s, ok := v.(string); ok && s != "" {
-			return fmt.Errorf("%s", s)
-		}
-	}
-	return fmt.Errorf("connection closed")
+	c.health.lastReadErr.Store(err)
 }
 
 // markLastWrite 记录最后一次成功写入时间
@@ -114,13 +103,13 @@ func (c *Client) Stats() ClientStats {
 
 	var lastWriteErrStr, lastReadErrStr string
 	if v := c.health.lastWriteErr.Load(); v != nil {
-		if s, ok := v.(string); ok {
-			lastWriteErrStr = s
+		if err, ok := v.(error); ok {
+			lastWriteErrStr = err.Error()
 		}
 	}
 	if v := c.health.lastReadErr.Load(); v != nil {
-		if s, ok := v.(string); ok {
-			lastReadErrStr = s
+		if err, ok := v.(error); ok {
+			lastReadErrStr = err.Error()
 		}
 	}
 

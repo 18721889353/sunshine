@@ -703,9 +703,9 @@ func TestNewClient(t *testing.T) {
 		t.Error("RemoteAddr empty")
 	}
 	_ = testConn.WriteMessage(websocket.TextMessage, []byte("hello"))
-	data, err := client.ReadMessageCtx(context.Background())
+	data, err := client.ReadMsgFromClientReadCh(context.Background())
 	if err != nil {
-		t.Fatalf("ReadMessageCtx: %v", err)
+		t.Fatalf("ReadMsgFromClientReadCh: %v", err)
 	}
 	if string(data) != "hello" {
 		t.Errorf("got %q, want hello", string(data))
@@ -735,8 +735,8 @@ func TestClose_ContextCancelled(t *testing.T) {
 func TestClose_DrainBehavior(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	for i := 0; i < 5; i++ {
-		if err := client.WriteJSONCtx(context.Background(), Message{Type: "drain", Msg: fmt.Sprintf("msg-%d", i)}); err != nil {
-			t.Fatalf("WriteJSONCtx #%d: %v", i, err)
+		if err := client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "drain", Msg: fmt.Sprintf("msg-%d", i)}); err != nil {
+			t.Fatalf("WriteJSONToClientWriteCh #%d: %v", i, err)
 		}
 	}
 	if err := client.Close(); err != nil {
@@ -755,12 +755,10 @@ func TestClose_DrainBehavior(t *testing.T) {
 
 func TestClose_DrainWithFullQueue(t *testing.T) {
 	client, _ := newTestClientPair(t)
-	var queueFull, sentOk int
+	var sentOk int
 	for i := 0; i < 2000; i++ {
-		err := client.WriteJSONCtx(context.Background(), Message{Type: "full", Data: make([]byte, 100)})
-		if err == ErrWriteQueueFull {
-			queueFull++
-		} else if err == nil {
+		err := client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "full", Data: make([]byte, 100)})
+		if err == nil {
 			sentOk++
 		} else if err == websocket.ErrCloseSent {
 			break
@@ -768,7 +766,7 @@ func TestClose_DrainWithFullQueue(t *testing.T) {
 			t.Fatalf("unexpected err: %v", err)
 		}
 	}
-	t.Logf("sentOk=%d queueFull=%d before Close", sentOk, queueFull)
+	t.Logf("sentOk=%d before Close", sentOk)
 	if err := client.Close(); err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
@@ -830,11 +828,11 @@ func TestClientCtx_CancelPropagation(t *testing.T) {
 func TestClientStats(t *testing.T) {
 	client, c := newTestClientPair(t)
 	defer client.Close()
-	_ = client.WriteJSONCtx(context.Background(), Message{Type: "ping"})
-	_ = client.WriteJSONCtx(context.Background(), Message{Type: "pong"})
+	_ = client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "ping"})
+	_ = client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "pong"})
 	time.Sleep(50 * time.Millisecond)
 	_ = c.WriteMessage(websocket.TextMessage, []byte(`{"type":"hello"}`))
-	_, _ = client.ReadMessageCtx(context.Background())
+	_, _ = client.ReadMsgFromClientReadCh(context.Background())
 	s := client.Stats()
 	if s.UID != "test-uid" {
 		t.Errorf("UID=%q", s.UID)
@@ -928,20 +926,6 @@ func TestHealth_RecordReadErr(t *testing.T) {
 	}
 }
 
-func TestHealth_GetLastReadErr(t *testing.T) {
-	client, _ := newTestClientPair(t)
-	defer client.Close()
-	err := client.getLastReadErr()
-	if err == nil || err.Error() != "connection closed" {
-		t.Errorf("getLastReadErr=%v, want 'connection closed'", err)
-	}
-	client.recordReadErr(fmt.Errorf("network timeout"))
-	err = client.getLastReadErr()
-	if err == nil || err.Error() != "network timeout" {
-		t.Errorf("getLastReadErr=%v, want 'network timeout'", err)
-	}
-}
-
 func TestHealth_MarkLastWrite(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	defer client.Close()
@@ -983,7 +967,7 @@ func TestHealth_MarkLastRead(t *testing.T) {
 func TestStats_AfterClose_QueueMetrics(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	for i := 0; i < 10; i++ {
-		_ = client.WriteJSONCtx(context.Background(), Message{Type: "test"})
+		_ = client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "test"})
 	}
 	client.Close()
 	s := client.Stats()
@@ -1008,8 +992,8 @@ func TestStats_AfterClose_QueueMetrics(t *testing.T) {
 func TestWriteJSON_Success(t *testing.T) {
 	client, c := newTestClientPair(t)
 	defer client.Close()
-	if err := client.WriteJSONCtx(context.Background(), Message{Type: "greeting", Msg: "hi"}); err != nil {
-		t.Fatalf("WriteJSONCtx: %v", err)
+	if err := client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "greeting", Msg: "hi"}); err != nil {
+		t.Fatalf("WriteJSONToClientWriteCh: %v", err)
 	}
 	_, data, err := c.ReadMessage()
 	if err != nil {
@@ -1020,78 +1004,29 @@ func TestWriteJSON_Success(t *testing.T) {
 	}
 }
 
-func TestWriteJSON_QueueFull(t *testing.T) {
+func TestWriteJSON_Blocking(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	defer client.Close()
 	for i := 0; i < 100; i++ {
-		if err := client.WriteJSONCtx(context.Background(), Message{Type: "ping", Data: i}); err == ErrWriteQueueFull {
-			return
-		} else if err != nil {
+		if err := client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "ping", Data: i}); err != nil {
 			t.Fatalf("unexpected err: %v", err)
 		}
 	}
-	t.Log("queue never full (msgFromChToWs consumed all)")
+	t.Log("all writes succeeded (blocking write waited for space)")
 }
 
 func TestWriteJSON_AfterClose(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	client.Close()
-	if err := client.WriteJSONCtx(context.Background(), Message{Type: "ping"}); err != websocket.ErrCloseSent {
+	if err := client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "ping"}); err != websocket.ErrCloseSent {
 		t.Errorf("got %v, want ErrCloseSent", err)
-	}
-}
-
-func TestWriteJSONCtx_WithTimeout(t *testing.T) {
-	client, _ := newTestClientPair(t)
-	defer client.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	var timeoutCount int
-	for i := 0; i < 3000; i++ {
-		err := client.WriteJSONCtx(ctx, Message{Type: "timeout", Data: make([]byte, 100)})
-		if err == context.DeadlineExceeded {
-			timeoutCount++
-		} else if err != nil && err != ErrWriteQueueFull {
-			t.Errorf("unexpected err: %v", err)
-		}
-		if err == context.DeadlineExceeded {
-			break
-		}
-	}
-	if timeoutCount == 0 {
-		t.Log("writeCh never full enough for timeout - write path always available")
-	} else {
-		t.Logf("ctx timeout triggered %d times", timeoutCount)
-	}
-}
-
-func TestWriteRawCtx_WithTimeout(t *testing.T) {
-	client, _ := newTestClientPair(t)
-	defer client.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	var timeoutCount int
-	for i := 0; i < 3000; i++ {
-		err := client.WriteRawCtx(ctx, make([]byte, 100))
-		if err == context.DeadlineExceeded {
-			timeoutCount++
-			break
-		} else if err != nil && err != ErrWriteQueueFull {
-			t.Errorf("unexpected err: %v", err)
-			break
-		}
-	}
-	if timeoutCount == 0 {
-		t.Log("writeCh never full enough for timeout")
-	} else {
-		t.Logf("WriteRawCtx ctx timeout triggered %d times", timeoutCount)
 	}
 }
 
 func TestWriteRaw_AfterClose(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	client.Close()
-	if err := client.WriteRawCtx(context.Background(), []byte("data")); err != websocket.ErrCloseSent {
+	if err := client.WriteRawToClientWriteCh(context.Background(), []byte("data")); err != websocket.ErrCloseSent {
 		t.Errorf("got %v, want ErrCloseSent", err)
 	}
 }
@@ -1101,8 +1036,8 @@ func TestReadMessage_Count(t *testing.T) {
 	defer client.Close()
 	for i := 0; i < 5; i++ {
 		_ = c.WriteMessage(websocket.TextMessage, []byte("msg"))
-		if _, err := client.ReadMessageCtx(context.Background()); err != nil {
-			t.Fatalf("ReadMessageCtx: %v", err)
+		if _, err := client.ReadMsgFromClientReadCh(context.Background()); err != nil {
+			t.Fatalf("ReadMsgFromClientReadCh: %v", err)
 		}
 	}
 	if s := client.Stats(); s.NumReceived != 5 {
@@ -1110,14 +1045,12 @@ func TestReadMessage_Count(t *testing.T) {
 	}
 }
 
-func TestReadMessageCtx_WithTimeout(t *testing.T) {
+func TestReadMsgFromClientReadCh_NilCtx(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	defer client.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	_, err := client.ReadMessageCtx(ctx)
-	if err != context.DeadlineExceeded {
-		t.Errorf("got %v, want DeadlineExceeded", err)
+	_, err := client.ReadMsgFromClientReadCh(nil)
+	if err != ErrNilContext {
+		t.Errorf("got %v, want ErrNilContext", err)
 	}
 }
 
@@ -1159,9 +1092,9 @@ func TestCheckWriteLimit_ExactBoundary(t *testing.T) {
 func TestWriteLimit_ThroughWriteRaw(t *testing.T) {
 	client, _ := newTestClientPair(t, func(o *clientConfig) { o.writeLimit = 10 })
 	defer client.Close()
-	err := client.WriteRawCtx(context.Background(), make([]byte, 100))
+	err := client.WriteRawToClientWriteCh(context.Background(), make([]byte, 100))
 	if err != ErrWriteLimitExceeded {
-		t.Errorf("WriteRawCtx with over-limit: got %v, want ErrWriteLimitExceeded", err)
+		t.Errorf("WriteRawToClientWriteCh with over-limit: got %v, want ErrWriteLimitExceeded", err)
 	}
 }
 
@@ -1170,7 +1103,7 @@ func BenchmarkWriteJSON(b *testing.B) {
 	defer client.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = client.WriteJSONCtx(context.Background(), Message{Type: "bench", Msg: "hello"})
+		_ = client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "bench", Msg: "hello"})
 	}
 }
 
@@ -1950,7 +1883,7 @@ func TestIntegration_WebSocketFullLifecycle(t *testing.T) {
 		}
 		close(heartStarted)
 		for {
-			_, err := client.ReadMessageCtx(context.Background())
+			_, err := client.ReadMsgFromClientReadCh(context.Background())
 			if err != nil {
 				return
 			}
@@ -2132,10 +2065,10 @@ func TestClose_ConcurrentWriteAndClose(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				err := client.WriteJSONCtx(context.Background(), Message{Type: "concurrent", Msg: fmt.Sprintf("g-%d-%d", id, j)})
+				err := client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "concurrent", Msg: fmt.Sprintf("g-%d-%d", id, j)})
 				if err == nil {
 					writeOkCount.Add(1)
-				} else if err == websocket.ErrCloseSent || err == ErrWriteQueueFull {
+				} else if err == websocket.ErrCloseSent {
 					closeSentCount.Add(1)
 					return
 				} else {
@@ -2169,7 +2102,7 @@ func TestConcurrent_ReadAndWrite(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_ = client.WriteJSONCtx(context.Background(), Message{Type: "w", Msg: fmt.Sprintf("w-%d", i)})
+			_ = client.WriteJSONToClientWriteCh(context.Background(), Message{Type: "w", Msg: fmt.Sprintf("w-%d", i)})
 		}
 	}()
 	wg.Add(1)
@@ -2183,7 +2116,7 @@ func TestConcurrent_ReadAndWrite(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
-			_, _ = client.ReadMessageCtx(context.Background())
+			_, _ = client.ReadMsgFromClientReadCh(context.Background())
 		}
 	}()
 	wg.Wait()

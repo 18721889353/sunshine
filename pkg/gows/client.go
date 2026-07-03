@@ -13,8 +13,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// msgFromWsToCh / msgFromChToWs / writeWithRetry / checkWriteLimit / ErrWriteQueueFull / ErrWriteLimitExceeded 定义在 client_readwrite.go
-// WriteJSONCtx / WriteRawCtx / ReadMessageCtx 定义在 client_local.go
+// WriteJSONToClientWriteCh / WriteRawToClientWriteCh / ReadMsgFromClientReadCh 定义在 client_local.go
 // healthState / IsAlive / ClientStats / Stats 定义在 health.go
 
 // clientConfig 客户端通用配置，在 Upgrade→Client 间直接传递。

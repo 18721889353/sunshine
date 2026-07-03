@@ -169,7 +169,7 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 	var sentCount int
 	totalCount, deadCleaned := dd.forEachAliveClient(func(c *Client) {
 		if filter(c) {
-			if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
+			if err := c.WriteRawToClientWriteCh(c.clientCtx, payload); err != nil {
 				logger.WarnWithCtx(ctx, "ws broadcast_filter write failed",
 					logger.String("uid", c.uid),
 					logger.Err(err),

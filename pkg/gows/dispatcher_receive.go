@@ -149,7 +149,7 @@ func (dd *DistributedDispatcher) hasLocalUID(uid string) bool {
 func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.RawMessage) {
 	var sentCount int
 	totalCount, _ := dd.forEachAliveClient(func(c *Client) {
-		if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
+		if err := c.WriteRawToClientWriteCh(c.clientCtx, payload); err != nil {
 			logger.WarnWithCtx(c.clientCtx, "ws distributed broadcast write failed",
 				logger.String("uid", c.uid),
 				logger.Err(err),
@@ -193,7 +193,7 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 	var sentCount int
 	totalCount, _ := dd.forEachAliveClient(func(c *Client) {
 		if _, ok := uidSet[c.uid]; ok {
-			if err := c.WriteRawCtx(c.clientCtx, payload); err != nil {
+			if err := c.WriteRawToClientWriteCh(c.clientCtx, payload); err != nil {
 				logger.WarnWithCtx(c.clientCtx, "ws distributed send_to_uid write failed",
 					logger.String("uid", c.uid),
 					logger.Err(err),
