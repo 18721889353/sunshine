@@ -55,7 +55,9 @@ func newTestClientPair(t testing.TB, opts ...func(*clientConfig)) (*Client, *web
 func newTestClientWithUID(t testing.TB, uid string, opts ...func(*clientConfig)) (*Client, *websocket.Conn) {
 	t.Helper()
 	serverCh := make(chan *Client, 1)
-	s := newTestServer(t, func(raw *websocket.Conn) { serverCh <- newClientWithConfig(context.Background(), raw, uid, testConfig(opts...)) })
+	s := newTestServer(t, func(raw *websocket.Conn) {
+		serverCh <- newClientWithConfig(context.Background(), raw, uid, testConfig(opts...))
+	})
 	url := "ws" + strings.TrimPrefix(s.URL, "http")
 	testConn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
@@ -1366,15 +1368,16 @@ func TestRegisterCtx_CancelledCtx(t *testing.T) {
 	c, _ := newTestClientWithUID(t, "alice")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	// RegisterCtx 不再检查 ctx 取消，取消的 ctx 不影响注册
 	err := d.RegisterCtx(ctx, c)
-	if err == nil {
-		t.Error("should return error for cancelled ctx")
+	if err != nil {
+		t.Fatalf("register should succeed: %v", err)
 	}
-	if d.Len() != 0 {
-		t.Errorf("Len=%d after cancelled ctx, want 0", d.Len())
+	if d.Len() != 1 {
+		t.Errorf("Len=%d after register, want 1", d.Len())
 	}
-	if d.hasLocalUID("alice") {
-		t.Error("hasLocalUID should be false after rollback")
+	if !d.hasLocalUID("alice") {
+		t.Error("hasLocalUID should be true after register")
 	}
 	c.Close()
 }
@@ -1387,15 +1390,16 @@ func TestUnregisterCtx_CancelledCtx(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	// UnregisterCtx 不再检查 ctx 取消，取消的 ctx 不影响注销
 	err := d.UnregisterCtx(ctx, c)
-	if err == nil {
-		t.Error("should return error for cancelled ctx")
+	if err != nil {
+		t.Fatalf("unregister should succeed: %v", err)
 	}
-	if d.Len() != 1 {
-		t.Errorf("Len=%d after cancelled ctx rollback, want 1", d.Len())
+	if d.Len() != 0 {
+		t.Errorf("Len=%d after unregister, want 0", d.Len())
 	}
-	if !d.hasLocalUID("bob") {
-		t.Error("hasLocalUID should still be true after rollback")
+	if d.hasLocalUID("bob") {
+		t.Error("hasLocalUID should be false after unregister")
 	}
 	c.Close()
 }

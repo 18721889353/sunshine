@@ -20,8 +20,8 @@ import (
 
 // 全局限流状态
 var (
-	wsLimiter atomic.Pointer[rate.Limiter] // 全局 WebSocket 升级速率限制器
-	ipConnCounts   sync.Map                     // map[string]*atomic.Int32 单IP连接计数
+	wsLimiter    atomic.Pointer[rate.Limiter] // 全局 WebSocket 升级速率限制器
+	ipConnCounts sync.Map                     // map[string]*atomic.Int32 单IP连接计数
 )
 
 // upgradeOptions / UpgradeOption / With* 定义在 upgrade_options.go

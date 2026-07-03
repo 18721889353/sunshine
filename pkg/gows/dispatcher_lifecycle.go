@@ -8,16 +8,94 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// subscribeUID 订阅指定 UID 的队列消息，启动后台消费。
+// RegisterCtx 将客户端连接注册到 Dispatcher 全局列表（带自定义上下文）。
+//
+// 注册流程依次执行：最大连接数检查 → 空 UID 拒绝 → SSO 踢旧连接 → 入表计数 →
+// 事件广播 → 订阅队列。分布式模式下自动向所有实例广播上线通知。
+//
+// 参数：
+//   - ctx：用于跨实例链路追踪的上下文，tracing 信息随事件消息传播
+//   - client：已建立的 WebSocket 客户端连接，需包含 uid、remoteAddr 等有效信息
+//
+// 返回值：
+//   - nil：注册成功，client 已加入全局列表并开始接收广播/点对点消息
+//   - ErrMaxConnections：达到最大连接数上限，调用方应执行 client.Close() 释放资源
+//   - ErrEmptyUID：客户端 UID 为空，禁止注册
+func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client) error {
+	maxClientNum := dd.maxClientNum.Load()
+	if maxClientNum > 0 {
+		currentCount := dd.localClientTotal.Load()
+		if currentCount >= maxClientNum {
+			logger.WarnWithCtx(client.clientCtx, "ws dispatcher max connections reached, rejecting",
+				logger.String("uid", client.uid),
+				logger.String("remote_addr", client.remoteAddr),
+				logger.Int32("max", maxClientNum),
+			)
+			return ErrMaxConnections
+		}
+	}
+
+	// 空 UID 禁止注册
+	if client.uid == "" {
+		return ErrEmptyUID
+	}
+
+	// 单点登录：先踢旧连接，再注册新连接
+	if dd.enableSSO {
+		if oldClient, ok := dd.ssoClients.Load(client.uid); ok {
+			if prevClient, ok := oldClient.(*Client); ok && prevClient != client {
+				// 从 Dispatcher 中移除旧连接，确保注册新连接前状态一致
+				dd.clients.Delete(prevClient)
+				dd.localClientTotal.Add(-1)
+				dd.decrementLocalUIDCount(prevClient.uid)
+				if err := prevClient.Close(); err != nil {
+					logger.WarnWithCtx(client.clientCtx, "ws dispatcher close old SSO connection failed",
+						logger.String("uid", prevClient.uid),
+						logger.String("remote_addr", prevClient.remoteAddr),
+						logger.Err(err),
+					)
+				}
+			}
+		}
+	}
+
+	dd.clients.Store(client, struct{}{})
+	dd.localClientTotal.Add(1)
+	// 递增本地 UID 索引
+	actual, loaded := dd.localUIDCounts.LoadOrStore(client.uid, &atomic.Int32{})
+	if loaded {
+		counter, ok := actual.(*atomic.Int32)
+		if ok {
+			counter.Add(1)
+		}
+	}
+
+	// 更新 SSO 映射
+	if dd.enableSSO {
+		dd.ssoClients.Store(client.uid, client)
+	}
+
+	dd.publishMq(ctx, MsgTypeClientOnline, client.uid)
+	dd.subscribeUID(ctx, client.uid)
+	return nil
+}
+
+// subscribeUID 订阅指定 UID 的队列消息，启动后台消费 goroutine。
 // 用户断线后队列保留，重连后继续消费积压消息。
+// 同一 UID 仅订阅一次，重复调用直接返回。
+//
+// 参数：
+//   - ctx：携带 tracing 信息的上下文
+//   - uid：要订阅的用户标识
 func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
-	if dd.backend == nil || uid == "" {
+	if dd.backend == nil {
 		return
 	}
 
 	stopCh := make(chan struct{})
+	// 已订阅，无需重复订阅
 	if _, loaded := dd.uidSubs.LoadOrStore(uid, stopCh); loaded {
-		return // 已订阅
+		return
 	}
 
 	msgCh, err := dd.backend.Subscribe(ctx, uid)
@@ -58,9 +136,48 @@ func (dd *DistributedDispatcher) subscribeUID(ctx context.Context, uid string) {
 	}()
 }
 
+// UnregisterCtx 从 Dispatcher 全局列表中移除客户端连接（带自定义上下文）。
+//
+// 注销流程依次执行：从 clients 删除 → 事件广播 → 递减 UID 计数 →
+// 清理 SSO → 取消订阅。分布式模式下自动向所有实例广播下线通知。
+//
+// 参数：
+//   - ctx：携带 tracing 信息的上下文
+//   - client：要移除的客户端连接
+//
+// 返回值：
+//   - nil：注销成功
+func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Client) error {
+	_, loaded := dd.clients.LoadAndDelete(client)
+	if !loaded {
+		return ErrClientNotRegistered
+	}
+
+	dd.localClientTotal.Add(-1)
+	dd.decrementLocalUIDCount(client.uid)
+
+	// 清理 SSO 映射（仅当该客户端是当前映射值时）
+	if dd.enableSSO {
+		dd.ssoClients.CompareAndDelete(client.uid, client)
+	}
+
+	dd.publishMq(ctx, MsgTypeClientOffline, client.uid)
+
+	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
+	if !dd.hasLocalUID(client.uid) {
+		dd.unsubscribeUID(ctx, client.uid)
+	}
+	return nil
+}
+
 // unsubscribeUID 取消订阅指定 UID 的队列。
+// 保留队列及其中的离线消息，待用户重连后继续消费。
+//
+// 参数：
+//   - ctx：携带 tracing 信息的上下文
+//   - uid：要取消订阅的用户标识
 func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string) {
-	if dd.backend == nil || uid == "" {
+	if dd.backend == nil {
 		return
 	}
 
@@ -78,136 +195,15 @@ func (dd *DistributedDispatcher) unsubscribeUID(ctx context.Context, uid string)
 	}
 }
 
-// RegisterCtx 将客户端连接注册到 Dispatcher 全局列表（带自定义上下文）。
-// 如果达到最大连接数上限，返回 ErrMaxConnections。
-// 分布式模式下自动向所有实例广播上线通知，ctx 中的 tracing 信息会随消息传播。
-// 调用方应检查此错误并执行 client.Close() 释放连接资源。
-//
-// 注意:
-//   - 若 ctx 已过期，返回 ctx.Err() 并回滚 map 修改
-func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// 先检查 ctx 是否已取消
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	maxClientNum := dd.maxClientNum.Load()
-	if maxClientNum > 0 {
-		currentCount := dd.localClientTotal.Load()
-		if currentCount >= maxClientNum {
-			logger.WarnWithCtx(client.clientCtx, "ws dispatcher max connections reached, rejecting",
-				logger.String("uid", client.uid),
-				logger.String("remote_addr", client.remoteAddr),
-				logger.Int32("max", maxClientNum),
-			)
-			return ErrMaxConnections
-		}
-	}
-
-	// 单点登录：先踢旧连接，再注册新连接
-	if dd.enableSSO && client.uid != "" {
-		if oldClient, loaded := dd.ssoClients.Load(client.uid); loaded {
-			if prev, ok := oldClient.(*Client); ok {
-				// 从 Dispatcher 中移除旧连接，确保注册新连接前状态一致
-				dd.clients.Delete(prev)
-				dd.localClientTotal.Add(-1)
-				if prev.uid != "" {
-					dd.decrementLocalUIDCount(prev.uid)
-				}
-				prev.Close()
-			}
-		}
-	}
-
-	dd.clients.Store(client, struct{}{})
-	dd.localClientTotal.Add(1)
-	// 更新 map 后检查 ctx，过期则回滚
-	select {
-	case <-ctx.Done():
-		dd.clients.Delete(client)
-		dd.localClientTotal.Add(-1)
-		return ctx.Err()
-	default:
-	}
-
-	// 递增本地 UID 索引（确认注册后，不回滚）
-	if client.uid != "" {
-		actual, _ := dd.localUIDCounts.LoadOrStore(client.uid, &atomic.Int32{})
-		counter, ok := actual.(*atomic.Int32)
-		if ok {
-			counter.Add(1)
-		}
-	}
-
-	// 更新 SSO 映射（确认注册后）
-	if dd.enableSSO && client.uid != "" {
-		dd.ssoClients.Store(client.uid, client)
-	}
-
-	dd.publishClientEvent(ctx, MsgTypeClientOnline, client.uid)
-
-	// 订阅该 UID 的持久化队列（Direct 模式，支持离线消息）
-	dd.subscribeUID(ctx, client.uid)
-	return nil
-}
-
-// UnregisterCtx 从 Dispatcher 全局列表中移除客户端连接（带自定义上下文）。
-// 分布式模式下自动向所有实例广播下线通知，ctx 中的 tracing 信息会随消息传播。
-// 若 ctx 已过期，回滚 map 删除并返回 ctx.Err()。
-func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Client) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	// 先检查 ctx 是否已取消
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	_, loaded := dd.clients.LoadAndDelete(client)
-	if loaded {
-		dd.localClientTotal.Add(-1)
-	}
-	// 删除后检查 ctx，过期则回滚
-	select {
-	case <-ctx.Done():
-		if loaded {
-			dd.clients.Store(client, struct{}{})
-			dd.localClientTotal.Add(1)
-		}
-		return ctx.Err()
-	default:
-	}
-	dd.publishClientEvent(ctx, MsgTypeClientOffline, client.uid)
-
-	// 清理 SSO 映射（仅当该客户端是当前映射值时）
-	if dd.enableSSO && client.uid != "" {
-		dd.ssoClients.CompareAndDelete(client.uid, client)
-	}
-
-	// 递减本地 UID 索引（确认注销后，不回滚）
-	if client.uid != "" && loaded {
-		dd.decrementLocalUIDCount(client.uid)
-	}
-
-	// 该 UID 无剩余连接时取消订阅，保留队列中的离线消息
-	if !dd.hasLocalUID(client.uid) {
-		dd.unsubscribeUID(ctx, client.uid)
-	}
-	return nil
-}
-
-// publishClientEvent 向 Backend 发布客户端上线/下线事件。
+// publishMq 向 Backend 发布客户端上线/下线事件。
 // 自动填充 InstanceID 用于自发布消息跳过。
-func (dd *DistributedDispatcher) publishClientEvent(ctx context.Context, eventType, uid string) {
+// backend 为 nil 时（单机模式）直接返回。
+//
+// 参数：
+//   - ctx：携带 tracing 信息的上下文
+//   - eventType：事件类型（MsgTypeClientOnline / MsgTypeClientOffline）
+//   - uid：事件关联的用户标识
+func (dd *DistributedDispatcher) publishMq(ctx context.Context, eventType, uid string) {
 	if dd.backend == nil {
 		return
 	}

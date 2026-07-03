@@ -7,7 +7,7 @@ import (
 // dispatcherOptions 分发中心内部配置参数集合
 type dispatcherOptions struct {
 	maxClientNum int32 // 最大客户端数（0=不限制）
-	workerNum int32 // worker 协程数（默认 4）
+	workerNum    int32 // worker 协程数（默认 4）
 }
 
 func defaultDispatcherOptions() *dispatcherOptions {
@@ -51,3 +51,9 @@ func WithWorkerPool(n int) DispatcherOption {
 
 // ErrMaxConnections 达到最大连接数限制的错误
 var ErrMaxConnections = fmt.Errorf("dispatcher: max connections reached")
+
+// ErrEmptyUID UID 为空时禁止注册
+var ErrEmptyUID = fmt.Errorf("dispatcher: empty uid")
+
+// ErrClientNotRegistered 客户端未注册到 Dispatcher
+var ErrClientNotRegistered = fmt.Errorf("dispatcher: client not registered")
