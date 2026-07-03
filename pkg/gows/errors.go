@@ -17,6 +17,9 @@ var ErrWriteLimitExceeded = errors.New("write message exceeds size limit")
 // 当 ReadMsgFromClientReadCh 接收到 nil context 时返回此错误，由调用方自行修复。
 var ErrNilContext = errors.New("ctx must not be nil")
 
+// ErrNoDispatcher Client 未关联 Dispatcher，无法执行跨实例发送/广播。
+var ErrNoDispatcher = errors.New("client has no dispatcher configured")
+
 // ErrTokenInvalid token 无效（格式正确但缺少 uid 字段）
 var ErrTokenInvalid = errors.New("token is invalid: missing uid")
 

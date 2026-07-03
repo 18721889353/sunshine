@@ -132,7 +132,7 @@ func (dd *DistributedDispatcher) consumeAndDeliverUID(ctx context.Context, uid s
 					continue
 				}
 				// 投递到本地对应用户
-				dd.deliverToUIDs(nil, []string{uid}, msg.Payload)
+				_ = dd.WriteRawToLocalUIDs(nil, []string{uid}, msg.Payload)
 			}
 		}
 	}()

@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/logger"
+
+	"github.com/panjf2000/ants/v2"
 )
 
 // DispatcherOption / dispatcherOptions / WithMaxConnections / WithWorkerPool / ErrMaxConnections 定义在 dispatcher_options.go
@@ -64,10 +66,11 @@ type DistributedDispatcher struct {
 	enableSSO  bool     // 是否启用单点登录
 	ssoClients sync.Map // uid → *Client 本地 SSO 映射
 
-	workerNum     atomic.Int32   // worker 协程数（默认 4）
-	workerCh      chan func()    // 投递任务通道，背压保护缓冲队列
-	workerWg      sync.WaitGroup // 等待所有 worker goroutine 退出
-	workerStarted atomic.Bool    // 是否已启动 WorkerPool
+	// workerPool 消息处理协程池（背压保护），用于 dispatchLoop 异步投递
+	workerPool *ants.Pool
+
+	// deliverPool 本地并发投递协程池，限制 deliverBroadcast / WriteRawToLocalUIDs 的 goroutine 数
+	deliverPool *ants.Pool
 }
 
 // NewDispatcher 创建并初始化一个新的消息分发中心。
@@ -99,8 +102,25 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 	} else {
 		d.instanceID = "standalone"
 	}
-	d.workerNum.Store(o.workerNum)
 	d.maxClientNum.Store(o.maxClientNum)
+	// workerNum > 1 时创建 ants 协程池作为 WorkerPool
+	if o.workerNum > 1 {
+		pool, err := ants.NewPool(int(o.workerNum))
+		if err != nil {
+			logger.WarnWithCtx(context.Background(), "create worker pool failed", logger.Err(err))
+		} else {
+			d.workerPool = pool
+			logger.InfoWithCtx(context.Background(), "worker pool created",
+				logger.Int32("workers", o.workerNum),
+			)
+		}
+	}
+	// 本地并发投递协程池，256 个 worker，防止广播时 goroutine 爆炸
+	pool, err := ants.NewPool(256)
+	if err != nil {
+		logger.WarnWithCtx(context.Background(), "create deliver pool failed", logger.Err(err))
+	}
+	d.deliverPool = pool
 	return d
 }
 
@@ -130,43 +150,14 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 		return
 	}
 
-	// 2. 启动 Worker Pool（背压保护）
-	if n := dd.workerNum.Load(); n > 0 {
-		dd.workerCh = make(chan func(), n*2) // 缓冲队列为 worker 数的 2 倍
-		for i := int32(0); i < n; i++ {
-			dd.workerWg.Add(1)
-			go dd.workerLoop()
-		}
-		dd.workerStarted.Store(true)
-		logger.InfoWithCtx(ctx, "dispatcher worker pool started", logger.Int32("workers", n))
-	}
-
-	// 3. 启动 dispatchLoop
+	// 2. 启动 dispatchLoop（WorkerPool 已在 NewDispatcher 中创建）
 	dd.receiveWg.Add(1)
 	go dd.dispatchLoop(lifecycleCtx, msgCh)
 	logger.InfoWithCtx(ctx, "distributed dispatcher started")
 }
 
-// workerLoop Worker 协程：从 workerCh 取任务执行。
-// panic 恢复后继续处理下一个任务，防止单条消息导致 worker 全部退出。
-func (dd *DistributedDispatcher) workerLoop() {
-	defer dd.workerWg.Done()
-	for task := range dd.workerCh {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					logger.WarnWithCtx(context.Background(), "ws dispatcher worker panic recovered",
-						logger.Any("panic", r),
-					)
-				}
-			}()
-			task()
-		}()
-	}
-}
-
 // Stop 停止后台接收协程，释放后端资源。
-// 关闭顺序: 关闭 UID 订阅 → 关闭 Backend → 关闭 receiveLoop → 关闭 WorkerPool。
+// 关闭顺序: 关闭 UID 订阅 → 关闭 Backend → 释放 WorkerPool → 关闭 receiveLoop。
 func (dd *DistributedDispatcher) Stop() {
 	// 1. 关闭所有 UID 订阅
 	dd.uidCancelChs.Range(func(key, value any) bool {
@@ -186,14 +177,18 @@ func (dd *DistributedDispatcher) Stop() {
 		}
 	}
 
-	// 3. 关闭 receiveLoop
+	// 3. 释放 WorkerPool（unblock dispatchLoop 若阻塞在 Submit）
+	if dd.workerPool != nil {
+		dd.workerPool.Release()
+	}
+
+	// 4. 关闭 receiveLoop
 	close(dd.receiveStopCh)
 	dd.receiveWg.Wait()
 
-	// 4. 关闭 WorkerPool
-	if dd.workerStarted.Load() {
-		close(dd.workerCh)
-		dd.workerWg.Wait()
+	// 5. 释放本地投递协程池
+	if dd.deliverPool != nil {
+		dd.deliverPool.Release()
 	}
 }
 

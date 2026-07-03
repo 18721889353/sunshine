@@ -1114,18 +1114,37 @@ func BenchmarkWriteJSON(b *testing.B) {
 func TestClientProxy_NoDispatcher(t *testing.T) {
 	client, _ := newTestClientPair(t)
 	defer client.Close()
-	client.SendToUIDCtx(context.Background(), "someone", Message{Type: "t"})
-	client.SendToMultiUIDCtx(context.Background(), []string{"a", "b"}, Message{Type: "t"})
-	client.BroadcastCtx(context.Background(), Message{Type: "t"})
-	client.BroadcastReliableCtx(context.Background(), Message{Type: "t"})
+	if err := client.SendToUIDCtx(context.Background(), "someone", Message{Type: "t"}); err != ErrNoDispatcher {
+		t.Errorf("SendToUIDCtx: got %v, want ErrNoDispatcher", err)
+	}
+	if err := client.SendToMultiUIDCtx(context.Background(), []string{"a", "b"}, Message{Type: "t"}); err != ErrNoDispatcher {
+		t.Errorf("SendToMultiUIDCtx: got %v, want ErrNoDispatcher", err)
+	}
+	if err := client.BroadcastCtx(context.Background(), Message{Type: "t"}); err != ErrNoDispatcher {
+		t.Errorf("BroadcastCtx: got %v, want ErrNoDispatcher", err)
+	}
+	if err := client.BroadcastReliableCtx(context.Background(), Message{Type: "t"}); err != ErrNoDispatcher {
+		t.Errorf("BroadcastReliableCtx: got %v, want ErrNoDispatcher", err)
+	}
 }
 
-func TestClientProxy_SendToSelf_NoOp(t *testing.T) {
+func TestClientProxy_SendToSelf_Delivered(t *testing.T) {
 	d := NewDispatcher(nil)
-	alice, _ := newTestClientWithUID(t, "alice", func(o *clientConfig) { o.dispatcher = d })
+	alice, aliceConn := newTestClientWithUID(t, "alice", func(o *clientConfig) { o.dispatcher = d })
 	_ = d.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
-	alice.SendToUIDCtx(context.Background(), "alice", Message{Type: "self"})
+	_ = alice.SendToUIDCtx(context.Background(), "alice", Message{Type: "self"})
+	time.Sleep(50 * time.Millisecond)
+	aliceConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_, data, err := aliceConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("alice should receive self-send: %v", err)
+	}
+	var msg Message
+	json.Unmarshal(data, &msg)
+	if msg.Type != "self" {
+		t.Errorf("got type=%q, want self", msg.Type)
+	}
 	if !d.hasLocalUID("alice") {
 		t.Error("alice should still be in dispatcher")
 	}
@@ -1139,7 +1158,7 @@ func TestClientProxy_SendToUID_Success(t *testing.T) {
 	bob, bobConn := newTestClientWithUID(t, "bob", func(o *clientConfig) { o.dispatcher = d })
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	alice.SendToUIDCtx(context.Background(), "bob", Message{Type: "proxy", Msg: "from alice"})
+	_ = alice.SendToUIDCtx(context.Background(), "bob", Message{Type: "proxy", Msg: "from alice"})
 	time.Sleep(50 * time.Millisecond)
 	bobConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	_, data, err := bobConn.ReadMessage()
@@ -1157,7 +1176,7 @@ func TestClientProxy_SendToUID_Success(t *testing.T) {
 	}
 }
 
-func TestClientProxy_SendToMultiUID_FilterSelf(t *testing.T) {
+func TestClientProxy_SendToMultiUID_SelfIncluded(t *testing.T) {
 	d := NewDispatcher(nil)
 	alice, aliceConn := newTestClientWithUID(t, "alice", func(o *clientConfig) { o.dispatcher = d })
 	_ = d.RegisterCtx(context.Background(), alice)
@@ -1165,25 +1184,24 @@ func TestClientProxy_SendToMultiUID_FilterSelf(t *testing.T) {
 	bob, bobConn := newTestClientWithUID(t, "bob", func(o *clientConfig) { o.dispatcher = d })
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	alice.SendToMultiUIDCtx(context.Background(), []string{"alice", "bob"}, Message{Type: "multi", Msg: "team msg"})
+	_ = alice.SendToMultiUIDCtx(context.Background(), []string{"alice", "bob"}, Message{Type: "multi", Msg: "team msg"})
 	time.Sleep(50 * time.Millisecond)
-	bobConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-	_, data, err := bobConn.ReadMessage()
-	if err != nil {
-		t.Fatalf("bob should receive: %v", err)
-	}
-	var msg Message
-	json.Unmarshal(data, &msg)
-	if msg.Msg != "team msg" {
-		t.Errorf("bob got %q", msg.Msg)
-	}
-	aliceConn.SetReadDeadline(time.Now().Add(30 * time.Millisecond))
-	if _, _, err := aliceConn.ReadMessage(); err == nil {
-		t.Error("alice should NOT receive her own multicast")
+	for name, conn := range map[string]*websocket.Conn{"alice": aliceConn, "bob": bobConn} {
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			t.Errorf("%s should receive multicast: %v", name, err)
+			continue
+		}
+		var msg Message
+		json.Unmarshal(data, &msg)
+		if msg.Msg != "team msg" {
+			t.Errorf("%s got msg=%q", name, msg.Msg)
+		}
 	}
 }
 
-func TestClientProxy_SendToMultiUID_EmptyFiltered(t *testing.T) {
+func TestClientProxy_SendToMultiUID_SingleSelf(t *testing.T) {
 	d := NewDispatcher(nil)
 	alice, _ := newTestClientWithUID(t, "alice")
 	_ = d.RegisterCtx(context.Background(), alice)
@@ -1199,7 +1217,7 @@ func TestClientProxy_Broadcast(t *testing.T) {
 	bob, bobConn := newTestClientWithUID(t, "bob", func(o *clientConfig) { o.dispatcher = d })
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	alice.BroadcastCtx(context.Background(), Message{Type: "announce", Msg: "all"})
+	_ = alice.BroadcastCtx(context.Background(), Message{Type: "announce", Msg: "all"})
 	time.Sleep(50 * time.Millisecond)
 	for name, conn := range map[string]*websocket.Conn{"alice": aliceConn, "bob": bobConn} {
 		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
@@ -1224,7 +1242,7 @@ func TestClientProxy_BroadcastReliable(t *testing.T) {
 	bob, bobConn := newTestClientWithUID(t, "bob", func(o *clientConfig) { o.dispatcher = d })
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	alice.BroadcastReliableCtx(context.Background(), Message{Type: "reliable", Msg: "guaranteed"})
+	_ = alice.BroadcastReliableCtx(context.Background(), Message{Type: "reliable", Msg: "guaranteed"})
 	time.Sleep(50 * time.Millisecond)
 	for name, conn := range map[string]*websocket.Conn{"alice": aliceConn, "bob": bobConn} {
 		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
@@ -1404,7 +1422,7 @@ func TestDispatcher_SendToUID(t *testing.T) {
 	bob, _ := newTestClientWithUID(t, "bob")
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	d.SendToUIDCtx(context.Background(), "alice", Message{Type: "private", Msg: "hello"})
+	_ = d.SendToUIDCtx(context.Background(), "alice", Message{Type: "private", Msg: "hello"})
 	time.Sleep(50 * time.Millisecond)
 	sA := alice.Stats()
 	sB := bob.Stats()
@@ -1414,7 +1432,7 @@ func TestDispatcher_SendToUID(t *testing.T) {
 	if sB.NumSent > 0 || sB.WriteQueueLen > 0 {
 		t.Errorf("bob should NOT receive, sent=%d", sB.NumSent)
 	}
-	d.SendToUIDCtx(context.Background(), "nonexistent", Message{Type: "ghost"})
+	_ = d.SendToUIDCtx(context.Background(), "nonexistent", Message{Type: "ghost"})
 }
 
 func TestDispatcher_MultiDevice(t *testing.T) {
@@ -1424,7 +1442,7 @@ func TestDispatcher_MultiDevice(t *testing.T) {
 		_ = d.RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
-	d.SendToUIDCtx(context.Background(), "alice", Message{Type: "multi", Msg: "sync"})
+	_ = d.SendToUIDCtx(context.Background(), "alice", Message{Type: "multi", Msg: "sync"})
 	time.Sleep(50 * time.Millisecond)
 	d.Range(func(c *Client) bool {
 		if c.UID() == "alice" {
@@ -1483,7 +1501,7 @@ func TestDispatcher_BroadcastReliable(t *testing.T) {
 	bob, connB := newTestClientWithUID(t, "bob")
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	d.BroadcastReliableCtx(context.Background(), Message{Type: "reliable", Msg: "all must receive"})
+	_ = d.BroadcastReliableCtx(context.Background(), Message{Type: "reliable", Msg: "all must receive"})
 	time.Sleep(50 * time.Millisecond)
 	for name, conn := range map[string]*websocket.Conn{"alice": connA, "bob": connB} {
 		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
@@ -1519,7 +1537,7 @@ func TestDistributed_SendToUID(t *testing.T) {
 	bob, bc := newTestClientWithUID(t, "bob")
 	_ = B.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	A.SendToUIDCtx(ctx, "bob", Message{Type: "greeting", Msg: "hello bob"})
+	_ = A.SendToUIDCtx(ctx, "bob", Message{Type: "greeting", Msg: "hello bob"})
 	time.Sleep(100 * time.Millisecond)
 	_, data, err := bc.ReadMessage()
 	if err != nil {
@@ -1549,7 +1567,7 @@ func TestDistributed_SendToMultiUID(t *testing.T) {
 		conns[uid] = conn
 		defer c.Close()
 	}
-	dd.SendToMultiUIDCtx(ctx, []string{"alice", "charlie"}, Message{Type: "team", Msg: "team msg"})
+	_ = dd.SendToMultiUIDCtx(ctx, []string{"alice", "charlie"}, Message{Type: "team", Msg: "team msg"})
 	time.Sleep(100 * time.Millisecond)
 	for _, uid := range []string{"alice", "charlie"} {
 		_, data, err := conns[uid].ReadMessage()
@@ -1583,7 +1601,7 @@ func TestDistributed_Broadcast(t *testing.T) {
 	bob, bc := newTestClientWithUID(t, "bob")
 	_ = B.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
-	A.BroadcastCtx(ctx, Message{Type: "announce", Msg: "通知"})
+	_ = A.BroadcastCtx(ctx, Message{Type: "announce", Msg: "通知"})
 	time.Sleep(100 * time.Millisecond)
 	for name, conn := range map[string]*websocket.Conn{"alice": ac, "bob": bc} {
 		_, data, err := conn.ReadMessage()
@@ -1603,7 +1621,7 @@ func TestDistributed_SelfPublish(t *testing.T) {
 	c, conn := newTestClientWithUID(t, "alice")
 	_ = dd.RegisterCtx(context.Background(), c)
 	defer c.Close()
-	dd.SendToUIDCtx(ctx, "alice", Message{Type: "self", Msg: "自己发的"})
+	_ = dd.SendToUIDCtx(ctx, "alice", Message{Type: "self", Msg: "自己发的"})
 	time.Sleep(100 * time.Millisecond)
 	if _, _, err := conn.ReadMessage(); err != nil {
 		t.Fatalf("self-publish: %v", err)
@@ -1652,7 +1670,7 @@ func TestDistributed_Concurrent(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 20; j++ {
-				dd.BroadcastCtx(ctx, Message{Type: "t", Msg: "test"})
+				_ = dd.BroadcastCtx(ctx, Message{Type: "t", Msg: "test"})
 				done.Add(1)
 			}
 		}()
@@ -1680,7 +1698,7 @@ func TestDistributed_ConcurrentView(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		go func() {
 			for j := 0; j < 50; j++ {
-				d.SendToUIDCtx(context.Background(), fmt.Sprintf("u-%d", j%5), Message{Type: "t"})
+				_ = d.SendToUIDCtx(context.Background(), fmt.Sprintf("u-%d", j%5), Message{Type: "t"})
 				send.Add(1)
 			}
 		}()
@@ -1759,8 +1777,8 @@ func TestDistributed_Integration(t *testing.T) {
 		_ = instances[i/2].RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
-	instances[0].SendToUIDCtx(ctx, "charlie", Message{Type: "p2p", Msg: "from 0"})
-	instances[1].BroadcastCtx(ctx, Message{Type: "notice", Msg: "ann"})
+	_ = instances[0].SendToUIDCtx(ctx, "charlie", Message{Type: "p2p", Msg: "from 0"})
+	_ = instances[1].BroadcastCtx(ctx, Message{Type: "notice", Msg: "ann"})
 	time.Sleep(150 * time.Millisecond)
 	received := map[string]int{}
 	for _, u := range users {
@@ -1927,7 +1945,7 @@ func TestIntegration_WebSocketFullLifecycle(t *testing.T) {
 		t.Fatalf("发送消息失败: %v", err)
 	}
 	msg := Message{Type: "notify", Msg: "server push"}
-	d.SendToUIDCtx(context.Background(), client.UID(), msg)
+	_ = d.SendToUIDCtx(context.Background(), client.UID(), msg)
 	time.Sleep(50 * time.Millisecond)
 	stats := client.Stats()
 	t.Logf("Client Stats: UID=%s, NumSent=%d, NumReceived=%d", stats.UID, stats.NumSent, stats.NumReceived)
@@ -1981,9 +1999,9 @@ func TestIntegration_DistributedMessaging(t *testing.T) {
 	if len(uidsA) != 4 || len(uidsB) != 4 {
 		t.Errorf("ConnectedUIDs: A=%d, B=%d, want both=4", len(uidsA), len(uidsB))
 	}
-	instanceA.SendToUIDCtx(ctx, "charlie", Message{Type: "p2p", Msg: "from A to charlie"})
-	instanceB.SendToUIDCtx(ctx, "alice", Message{Type: "p2p", Msg: "from B to alice"})
-	instanceB.BroadcastCtx(ctx, Message{Type: "notice", Msg: "global notice"})
+	_ = instanceA.SendToUIDCtx(ctx, "charlie", Message{Type: "p2p", Msg: "from A to charlie"})
+	_ = instanceB.SendToUIDCtx(ctx, "alice", Message{Type: "p2p", Msg: "from B to alice"})
+	_ = instanceB.BroadcastCtx(ctx, Message{Type: "notice", Msg: "global notice"})
 	time.Sleep(200 * time.Millisecond)
 	received := map[string]int{}
 	for name, conn := range map[string]*websocket.Conn{
@@ -2032,7 +2050,7 @@ func TestIntegration_ConcurrentSendAndStats(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		go func() {
 			for j := 0; j < 10; j++ {
-				d.BroadcastCtx(context.Background(), Message{Type: "concurrent", Msg: "test"})
+				_ = d.BroadcastCtx(context.Background(), Message{Type: "concurrent", Msg: "test"})
 			}
 		}()
 	}
@@ -2618,5 +2636,94 @@ func TestHealth_MarkLastWrite_Zero(t *testing.T) {
 	}
 	if writeTime.Before(before) {
 		t.Errorf("writeTime should be after start")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WriteRawToLocalUIDs / deliverBroadcast 异常场景
+// ---------------------------------------------------------------------------
+
+func TestWriteRawToLocalUIDs_NilPool(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	dd.deliverPool = nil // 模拟初始化失败
+	err := dd.WriteRawToLocalUIDs(nil, []string{"u1"}, json.RawMessage(`{}`))
+	if err != ErrNoDispatcher {
+		t.Errorf("expected ErrNoDispatcher, got %v", err)
+	}
+}
+
+func TestWriteRawToLocalUIDs_EmptyUIDs(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	err := dd.WriteRawToLocalUIDs(nil, nil, json.RawMessage(`{}`))
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+	err = dd.WriteRawToLocalUIDs(nil, []string{}, json.RawMessage(`{}`))
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestWriteRawToLocalUIDs_PoolReleased(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	dd.deliverPool.Release()
+	err := dd.WriteRawToLocalUIDs(nil, []string{"u1"}, json.RawMessage(`{}`))
+	// pool 释放后 Submit 返回 ErrPoolClosed，内部已记录 WARN 日志
+	// 外部返回 nil（fire-and-forget 语义）
+	if err != nil {
+		t.Errorf("expected nil from outer, got %v", err)
+	}
+}
+
+func TestWriteRawToLocalUIDs_NilSpanEmptyUIDs(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	// nil span 传入不应该导致 panic
+	err := dd.WriteRawToLocalUIDs(nil, nil, json.RawMessage(`{}`))
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestDeliverBroadcast_NilPool(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	dd.deliverPool = nil
+	err := dd.deliverBroadcast(nil, json.RawMessage(`{}`))
+	if err != ErrNoDispatcher {
+		t.Errorf("expected ErrNoDispatcher, got %v", err)
+	}
+}
+
+func TestDeliverBroadcast_PoolReleased(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	dd.deliverPool.Release()
+	err := dd.deliverBroadcast(nil, json.RawMessage(`{}`))
+	if err != nil {
+		t.Errorf("expected nil from outer, got %v", err)
+	}
+}
+
+func TestWriteRawToLocalUIDs_NoMatchUID(t *testing.T) {
+	t.Parallel()
+	// 没有任何客户端注册时，WriteRawToLocalUIDs 应该正常返回 nil
+	dd := NewDispatcher(nil)
+	err := dd.WriteRawToLocalUIDs(nil, []string{"nonexistent-uid"}, json.RawMessage(`{}`))
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestDeliverBroadcast_NoClients(t *testing.T) {
+	t.Parallel()
+	// 没有任何客户端注册时，deliverBroadcast 应该正常返回 nil
+	dd := NewDispatcher(nil)
+	err := dd.deliverBroadcast(nil, json.RawMessage(`{}`))
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
 	}
 }

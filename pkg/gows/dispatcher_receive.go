@@ -14,7 +14,7 @@ import (
 )
 
 // dispatchLoop 后台协程：持续从后端接收跨实例消息并通过 WorkerPool 异步分发。
-// WorkerPool 满时阻塞发送，天然反压到消息源。
+// WorkerPool 满时 Submit 阻塞发送，天然反压到消息源。
 func (dd *DistributedDispatcher) dispatchLoop(ctx context.Context, msgCh <-chan *PubSubMessage) {
 	defer dd.receiveWg.Done()
 	tracer := otel.Tracer("gows")
@@ -34,12 +34,11 @@ func (dd *DistributedDispatcher) dispatchLoop(ctx context.Context, msgCh <-chan 
 						)
 					}
 				}()
-				if dd.workerStarted.Load() {
-					select {
-					case dd.workerCh <- func() {
+				if dd.workerPool != nil {
+					if err := dd.workerPool.Submit(func() {
 						dd.deliverMessage(ctx, tracer, msg)
-					}:
-					case <-dd.receiveStopCh:
+					}); err != nil {
+						dd.deliverMessage(ctx, tracer, msg)
 					}
 				} else {
 					dd.deliverMessage(ctx, tracer, msg)
@@ -74,10 +73,10 @@ func (dd *DistributedDispatcher) deliverMessage(ctx context.Context, tracer trac
 
 	switch msg.Type {
 	case MsgTypeBroadcast:
-		dd.deliverBroadcast(span, msg.Payload)
+		_ = dd.deliverBroadcast(span, msg.Payload)
 
 	case MsgTypeSendToUID:
-		dd.deliverToUIDs(span, msg.UIDs, msg.Payload)
+		_ = dd.WriteRawToLocalUIDs(span, msg.UIDs, msg.Payload)
 
 	case MsgTypeClientOnline:
 		dd.handleRemoteOnline(msg.UIDs)
@@ -146,22 +145,50 @@ func (dd *DistributedDispatcher) hasLocalUID(uid string) bool {
 }
 
 // deliverBroadcast 向本地所有在线客户端广播消息。
-func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.RawMessage) {
-	var sentCount int
+func (dd *DistributedDispatcher) deliverBroadcast(span trace.Span, payload json.RawMessage) error {
+	if dd.deliverPool == nil {
+		return ErrNoDispatcher
+	}
+	var sentCount atomic.Int64
 	totalCount, _ := dd.forEachAliveClient(func(c *Client) {
-		if err := c.WriteRawToClientWriteCh(c.clientCtx, payload); err != nil {
-			logger.WarnWithCtx(c.clientCtx, "ws distributed broadcast write failed",
-				logger.String("uid", c.uid),
+		if err := dd.submitDeliverTask(c, payload, "broadcast"); err != nil {
+			logger.WarnWithCtx(context.Background(), "ws deliver pool submit failed",
+				logger.String("op", "broadcast"),
+				logger.Err(err),
+			)
+			return
+		}
+		sentCount.Add(1)
+	})
+	if span != nil {
+		span.SetAttributes(
+			attribute.Int("ws.local_sent", int(sentCount.Load())),
+			attribute.Int("ws.local_clients", totalCount),
+		)
+		span.SetStatus(codes.Ok, "broadcast delivered")
+	}
+	return nil
+}
+
+// submitDeliverTask 提交投递任务到 ants 协程池，包含 recover 保护和写失败日志。
+// op 用于日志标识，如 "broadcast"、"send_to_uid"。
+func (dd *DistributedDispatcher) submitDeliverTask(client *Client, payload json.RawMessage, op string) error {
+	return dd.deliverPool.Submit(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.WarnWithCtx(client.clientCtx, "ws deliver "+op+" goroutine panic",
+					logger.String("uid", client.uid),
+					logger.Any("panic", r),
+				)
+			}
+		}()
+		if err := client.WriteRawToClientWriteCh(client.clientCtx, payload); err != nil {
+			logger.WarnWithCtx(client.clientCtx, "ws distributed "+op+" write failed",
+				logger.String("uid", client.uid),
 				logger.Err(err),
 			)
 		}
-		sentCount++
 	})
-	span.SetAttributes(
-		attribute.Int("ws.local_sent", sentCount),
-		attribute.Int("ws.local_clients", totalCount),
-	)
-	span.SetStatus(codes.Ok, "broadcast delivered")
 }
 
 // deleteDeadClients 批量从 dispatcher 中删除已关闭的僵尸连接，递减 localClientTotal 和 localUIDCounts。
@@ -176,13 +203,16 @@ func (dd *DistributedDispatcher) deleteDeadClients(clients []*Client) {
 	}
 }
 
-// deliverToUIDs 向本地指定 UID 的客户端投递消息。
-func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, payload json.RawMessage) {
+// WriteRawToLocalUIDs 向本地指定 UID 的客户端投递预序列化的原始消息。
+func (dd *DistributedDispatcher) WriteRawToLocalUIDs(span trace.Span, uids []string, payload json.RawMessage) error {
+	if dd.deliverPool == nil {
+		return ErrNoDispatcher
+	}
 	if len(uids) == 0 {
 		if span != nil {
 			span.SetStatus(codes.Ok, "no target uids")
 		}
-		return
+		return nil
 	}
 
 	uidSet := make(map[string]struct{}, len(uids))
@@ -190,27 +220,29 @@ func (dd *DistributedDispatcher) deliverToUIDs(span trace.Span, uids []string, p
 		uidSet[uid] = struct{}{}
 	}
 
-	var sentCount int
+	var sentCount atomic.Int64
 	totalCount, _ := dd.forEachAliveClient(func(c *Client) {
 		if _, ok := uidSet[c.uid]; ok {
-			if err := c.WriteRawToClientWriteCh(c.clientCtx, payload); err != nil {
-				logger.WarnWithCtx(c.clientCtx, "ws distributed send_to_uid write failed",
+			if err := dd.submitDeliverTask(c, payload, "send_to_uid"); err != nil {
+				logger.WarnWithCtx(context.Background(), "ws deliver pool submit failed",
 					logger.String("uid", c.uid),
+					logger.String("op", "send_to_uid"),
 					logger.Err(err),
 				)
-			} else {
-				sentCount++
+				return
 			}
+			sentCount.Add(1)
 		}
 	})
 
 	if span != nil {
 		span.SetAttributes(
-			attribute.Int("ws.local_sent", sentCount),
+			attribute.Int("ws.local_sent", int(sentCount.Load())),
 			attribute.Int("ws.local_clients", totalCount),
 		)
 		span.SetStatus(codes.Ok, "send_to_uid delivered")
 	}
+	return nil
 }
 
 // decrementLocalUIDCount 原子递减本地 UID 索引计数器，归零时删除条目。
