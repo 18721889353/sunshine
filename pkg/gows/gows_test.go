@@ -2727,3 +2727,34 @@ func TestDeliverBroadcast_NoClients(t *testing.T) {
 		t.Errorf("expected nil, got %v", err)
 	}
 }
+
+func TestBroadcastFilter_NilPool(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	dd.deliverPool = nil // 模拟初始化失败
+	err := dd.BroadcastFilterCtx(context.Background(), "msg", func(c *Client) bool { return true })
+	if err != ErrNoDispatcher {
+		t.Errorf("expected ErrNoDispatcher, got %v", err)
+	}
+}
+
+func TestBroadcastFilter_PoolReleased(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	dd.deliverPool.Release()
+	err := dd.BroadcastFilterCtx(context.Background(), "msg", func(c *Client) bool { return true })
+	// pool 释放后 submitDeliverTask 内部记录 WARN 日志，外部返回 nil（fire-and-forget 语义）
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestBroadcastFilter_EmptyPayload(t *testing.T) {
+	t.Parallel()
+	dd := NewDispatcher(nil)
+	// 没有任何客户端注册时，BroadcastFilter 应该正常返回 nil
+	err := dd.BroadcastFilterCtx(context.Background(), "msg", func(c *Client) bool { return true })
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}

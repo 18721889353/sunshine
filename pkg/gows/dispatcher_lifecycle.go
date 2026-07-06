@@ -62,12 +62,9 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	dd.clients.Store(client, struct{}{})
 	dd.localClientTotal.Add(1)
 	// 递增本地 UID 连接计数
-	actual, loaded := dd.localUIDCounts.LoadOrStore(client.uid, &atomic.Int32{})
-	if loaded {
-		counter, ok := actual.(*atomic.Int32)
-		if ok {
-			counter.Add(1)
-		}
+	actual, _ := dd.localUIDCounts.LoadOrStore(client.uid, &atomic.Int32{})
+	if counter, ok := actual.(*atomic.Int32); ok {
+		counter.Add(1)
 	}
 
 	// 更新 SSO 映射
@@ -132,7 +129,12 @@ func (dd *DistributedDispatcher) consumeAndDeliverUID(ctx context.Context, uid s
 					continue
 				}
 				// 投递到本地对应用户
-				_ = dd.WriteRawToLocalUIDs(nil, []string{uid}, msg.Payload)
+				if err := dd.WriteRawToLocalUIDs(nil, []string{uid}, msg.Payload); err != nil {
+					logger.WarnWithCtx(ctx, "ws uid consumer write to local failed",
+						logger.String("uid", uid),
+						logger.Err(err),
+					)
+				}
 			}
 		}
 	}()

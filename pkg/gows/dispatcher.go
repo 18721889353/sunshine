@@ -115,8 +115,8 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 			)
 		}
 	}
-	// 本地并发投递协程池，256 个 worker，防止广播时 goroutine 爆炸
-	pool, err := ants.NewPool(256)
+	// 本地并发投递协程池，512 个 worker，防止广播时 goroutine 爆炸
+	pool, err := ants.NewPool(512)
 	if err != nil {
 		logger.WarnWithCtx(context.Background(), "create deliver pool failed", logger.Err(err))
 	}

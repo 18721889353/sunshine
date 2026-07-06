@@ -73,10 +73,16 @@ func (dd *DistributedDispatcher) deliverMessage(ctx context.Context, tracer trac
 
 	switch msg.Type {
 	case MsgTypeBroadcast:
-		_ = dd.deliverBroadcast(span, msg.Payload)
+		if err := dd.deliverBroadcast(span, msg.Payload); err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			logger.WarnWithCtx(ctx, "ws deliver broadcast failed", logger.Err(err))
+		}
 
 	case MsgTypeSendToUID:
-		_ = dd.WriteRawToLocalUIDs(span, msg.UIDs, msg.Payload)
+		if err := dd.WriteRawToLocalUIDs(span, msg.UIDs, msg.Payload); err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			logger.WarnWithCtx(ctx, "ws deliver send_to_uid failed", logger.Err(err))
+		}
 
 	case MsgTypeClientOnline:
 		dd.handleRemoteOnline(msg.UIDs)

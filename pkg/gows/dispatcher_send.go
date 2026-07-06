@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
@@ -39,7 +40,9 @@ func (dd *DistributedDispatcher) SendToMultiUIDCtx(ctx context.Context, uids []s
 		)
 		defer span.End()
 		span.SetAttributes(requestIDAttr(ctx))
-		_ = dd.WriteRawToLocalUIDs(span, uids, payload)
+		if err := dd.WriteRawToLocalUIDs(span, uids, payload); err != nil {
+			logger.WarnWithCtx(ctx, "ws local send_to_uids write failed", logger.Err(err))
+		}
 		return nil
 	}
 
@@ -68,7 +71,12 @@ func (dd *DistributedDispatcher) SendToMultiUIDCtx(ctx context.Context, uids []s
 	}
 
 	// 1. 先投递本地客户端（立即送达，不走 MQ 回环）
-	_ = dd.WriteRawToLocalUIDs(span, uids, payload)
+	if err := dd.WriteRawToLocalUIDs(span, uids, payload); err != nil {
+		logger.WarnWithCtx(ctx, "ws distributed send_to_uids local write failed",
+			logger.Err(err),
+			logger.String("uids", fmt.Sprintf("%v", uids)),
+		)
+	}
 
 	// 2. 再发布到 MQ 供远端实例消费（自发布消息由 subscribeUID 的 InstanceID 过滤跳过）
 	msg := &PubSubMessage{
@@ -106,7 +114,9 @@ func (dd *DistributedDispatcher) BroadcastCtx(ctx context.Context, v any) error 
 		)
 		defer span.End()
 		span.SetAttributes(requestIDAttr(ctx))
-		_ = dd.deliverBroadcast(span, payload)
+		if err := dd.deliverBroadcast(span, payload); err != nil {
+			logger.WarnWithCtx(ctx, "ws local broadcast write failed", logger.Err(err))
+		}
 		return nil
 	}
 
@@ -155,6 +165,7 @@ func (dd *DistributedDispatcher) BroadcastReliableCtx(ctx context.Context, v any
 }
 
 // BroadcastFilterCtx 向满足 filter 条件的本地客户端广播消息（仅本地）。
+// 使用 deliverPool 并发投递，与 deliverBroadcast / WriteRawToLocalUIDs 保持一致的并发模式。
 func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, filter func(*Client) bool) error {
 	tracer := otel.Tracer("gows")
 	_, span := tracer.Start(ctx, "ws.broadcast_filter", trace.WithSpanKind(trace.SpanKindInternal))
@@ -168,22 +179,28 @@ func (dd *DistributedDispatcher) BroadcastFilterCtx(ctx context.Context, v any, 
 		return err
 	}
 
-	var sentCount int
+	if dd.deliverPool == nil {
+		span.SetStatus(codes.Error, "deliver pool not available")
+		return ErrNoDispatcher
+	}
+
+	var sentCount atomic.Int64
 	totalCount, deadCleaned := dd.forEachAliveClient(func(c *Client) {
 		if filter(c) {
-			if err := c.WriteRawToClientWriteCh(c.clientCtx, payload); err != nil {
-				logger.WarnWithCtx(ctx, "ws broadcast_filter write failed",
-					logger.String("uid", c.uid),
+			if err := dd.submitDeliverTask(c, payload, "broadcast_filter"); err != nil {
+				logger.WarnWithCtx(context.Background(), "ws deliver pool submit failed",
+					logger.String("op", "broadcast_filter"),
 					logger.Err(err),
 				)
+				return
 			}
-			sentCount++
+			sentCount.Add(1)
 		}
 	})
 
 	span.SetAttributes(
 		attribute.Int("ws.broadcast_targets", totalCount),
-		attribute.Int("ws.broadcast_sent", sentCount),
+		attribute.Int("ws.broadcast_sent", int(sentCount.Load())),
 		attribute.Int("ws.dead_clients_cleaned", deadCleaned),
 	)
 	span.SetStatus(codes.Ok, "broadcast_filter completed")
