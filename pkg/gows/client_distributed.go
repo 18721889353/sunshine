@@ -46,3 +46,21 @@ func (c *Client) BroadcastReliableCtx(ctx context.Context, v any) error {
 	}
 	return c.dispatcher.BroadcastReliableCtx(ctx, v)
 }
+
+// DisconnectByUID 通过关联的 Dispatcher 断开指定 UID 的连接。
+// 仅在 Client 已注册到 Dispatcher 时有效。
+func (c *Client) DisconnectByUID(ctx context.Context, uid string) error {
+	if c.dispatcher == nil {
+		return ErrNoDispatcher
+	}
+	return c.dispatcher.DisconnectByUID(uid)
+}
+
+// DisconnectByUIDs 通过关联的 Dispatcher 断开多个 UID 的连接。
+// 仅在 Client 已注册到 Dispatcher 时有效。
+func (c *Client) DisconnectByUIDs(ctx context.Context, uids ...string) int {
+	if c.dispatcher == nil {
+		return 0
+	}
+	return c.dispatcher.DisconnectByUIDs(uids...)
+}

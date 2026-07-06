@@ -336,3 +336,52 @@ func (dd *DistributedDispatcher) CleanupDeadConns() int {
 	})
 	return cleaned
 }
+
+// DisconnectByUID 断开指定 UID 的客户端连接。
+// 如果该 UID 有多个连接（同账号多设备），全部断开。
+// 返回:
+//   - error: 未找到该 UID 时返回 ErrClientNotFound
+func (dd *DistributedDispatcher) DisconnectByUID(uid string) error {
+	var found bool
+	dd.clients.Range(func(key, _ any) bool {
+		c, ok := key.(*Client)
+		if !ok || c.uid != uid {
+			return true
+		}
+		c.Close()
+		found = true
+		return true // 继续遍历，断开该 UID 所有连接
+	})
+	if !found {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
+// DisconnectByUIDs 断开多个指定 UID 的客户端连接。
+// 参数:
+//   - uids: 要断开的 UID 列表
+// 返回:
+//   - int: 实际断开的连接数
+func (dd *DistributedDispatcher) DisconnectByUIDs(uids ...string) int {
+	if len(uids) == 0 {
+		return 0
+	}
+	uidSet := make(map[string]struct{}, len(uids))
+	for _, uid := range uids {
+		uidSet[uid] = struct{}{}
+	}
+	var count int
+	dd.clients.Range(func(key, _ any) bool {
+		c, ok := key.(*Client)
+		if !ok {
+			return true
+		}
+		if _, hit := uidSet[c.uid]; hit {
+			c.Close()
+			count++
+		}
+		return true
+	})
+	return count
+}

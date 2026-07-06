@@ -31,3 +31,6 @@ var ErrEmptyUID = errors.New("dispatcher: empty uid")
 
 // ErrClientNotRegistered 客户端未注册到 Dispatcher
 var ErrClientNotRegistered = errors.New("dispatcher: client not registered")
+
+// ErrClientNotFound 未找到指定 UID 的客户端连接
+var ErrClientNotFound = errors.New("dispatcher: client not found")
