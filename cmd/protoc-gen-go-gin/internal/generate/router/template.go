@@ -270,6 +270,7 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 	//   .Websocket.Queue.WriteTimeout      → gows.WithWriteTimeout()          写入超时（秒），0=默认10s
 	//   .Websocket.Queue.ReadLimit         → gows.WithReadLimit()             单条消息读取大小限制（字节）
 	//   .Websocket.Queue.WriteLimit        → gows.WithWriteLimit()            单条消息写入大小限制（字节）
+	//   .Websocket.Queue.WriteMsgType      → gows.WithWriteMessageType()      消息帧类型：1=Text 2=Binary
 	//
 	// 【心跳保活】
 	//   .Websocket.Heartbeat.HeartbeatInterval → gows.WithHeartbeatInterval()     心跳间隔（秒）
@@ -319,6 +320,8 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		gows.WithSubprotocols(strings.Split(config.Get().Websocket.Upgrade.Subprotocols, ",")...),
 		// 客户端读写队列容量（0=默认 1024），及读写超时配置
 		gows.WithQueueSize(config.Get().Websocket.Queue.WriteQueueSize, config.Get().Websocket.Queue.ReadQueueSize),
+		// 消息帧类型：1=Text（默认）2=Binary（二进制协议如 protobuf 设为 2）
+		gows.WithWriteMessageType(config.Get().Websocket.Queue.WriteMsgType),
 	}
 	// 条件启用心跳（根据 enableHeartbeat 配置）
 	if config.Get().Websocket.Heartbeat.EnableHeartbeat {

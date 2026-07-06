@@ -48,6 +48,21 @@
             <span class="preset-btn" data-msg='{"type":"say_hello","name":"World"}'>say_hello World</span>
             <span class="preset-btn" data-msg='{"type":"say_hello","name":"张三"}'>say_hello 张三</span>
         </div>
+        <div style="margin-bottom:8px">
+            <label><input type="checkbox" id="binaryMode" /> 二进制模式</label>
+            <span style="font-size:12px;color:#999">（收到的二进制数据自动以 Hex + 文本预览显示）</span>
+        </div>
+        <div id="binaryOptions" style="margin-bottom:8px;display:none;padding:8px;background:#f8f9fa;border-radius:4px">
+            <div style="margin-bottom:4px">
+                <span class="preset-btn" data-hex="12 05 57 6f 72 6c 64">HelloRequest{name:"World"}</span>
+                <span class="preset-btn" data-hex="12 06 e5 bc a0 e4 b8 89">HelloRequest{name:"张三"}</span>
+            </div>
+            <div style="font-size:12px;color:#999;line-height:1.5">
+                Hex 格式：空格或逗号分隔，如 <code>12 05 57 6f 72 6c 64</code>
+                <br>对应 protobuf：<code>field=2(name) wire=2(len-delim) | len=5 | "World"</code>
+                <br>提示：服务器会自动检测 JSON 文本 / Binary protobuf
+            </div>
+        </div>
         <textarea id="msgInput">{"type":"say_hello","name":"World"}</textarea>
         <button id="btnSend" class="btn btn-primary" disabled>发送</button>
     </div>
@@ -61,6 +76,7 @@
 
 <script>
     let ws = null;
+    let binaryMode = false;
 
     const $ = id => document.getElementById(id);
     const logBox = $("logBox");
@@ -98,6 +114,7 @@
             const token = $("wsToken").value;
             const finalUrl = token ? url + "?token=" + encodeURIComponent(token) : url;
             ws = new WebSocket(finalUrl);
+            ws.binaryType = "arraybuffer";
         } catch (e) {
             log("error", "创建 WebSocket 失败: " + e.message);
             return;
@@ -109,7 +126,19 @@
         };
 
         ws.onmessage = (e) => {
-            log("recv", "📩 " + e.data);
+            if (e.data instanceof ArrayBuffer || e.data instanceof Blob) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const bytes = new Uint8Array(reader.result);
+                    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+                    const preview = new TextDecoder().decode(bytes).replace(/[\x00-\x1f\x7f-\x9f]/g, '.');
+                    log("recv", `📩 [二进制 ${bytes.length}B] hex: ${hex.substring(0, 120)}${bytes.length > 60 ? '...' : ''}`);
+                    log("recv", `📩 [文本预览] "${preview.substring(0, 80)}${preview.length > 80 ? '...' : ''}"`);
+                };
+                reader.readAsArrayBuffer(e.data);
+            } else {
+                log("recv", "📩 " + e.data);
+            }
         };
 
         ws.onclose = (e) => {
@@ -135,9 +164,28 @@
             log("error", "未连接");
             return;
         }
-        const msg = $("msgInput").value;
-        ws.send(msg);
-        log("sent", "📤 " + msg);
+        const raw = $("msgInput").value;
+        if (binaryMode) {
+            // 解析 Hex 输入：移除空格/逗号/0x 前缀
+            const hexStr = raw.replace(/[^0-9a-fA-F]/g, "");
+            if (hexStr.length === 0) {
+                log("error", "❌ Hex 内容为空");
+                return;
+            }
+            if (hexStr.length % 2 !== 0) {
+                log("error", "❌ Hex 字符串长度必须为偶数");
+                return;
+            }
+            const bytes = new Uint8Array(hexStr.length / 2);
+            for (let i = 0; i < bytes.length; i++) {
+                bytes[i] = parseInt(hexStr.substring(i * 2, i * 2 + 2), 16);
+            }
+            ws.send(bytes.buffer);
+            log("sent", `📤 [Hex ${bytes.length}B] ${raw}`);
+        } else {
+            ws.send(raw);
+            log("sent", "📤 " + raw);
+        }
     }
 
     // 事件绑定
@@ -146,8 +194,8 @@
     $("btnSend").addEventListener("click", send);
     $("btnClear").addEventListener("click", () => logBox.innerHTML = "");
 
-    // 预设消息
-    document.querySelectorAll(".preset-btn").forEach(btn => {
+    // 预设消息（排除 Hex 按钮）
+    document.querySelectorAll(".preset-btn:not([data-hex])").forEach(btn => {
         btn.addEventListener("click", () => {
             $("msgInput").value = btn.dataset.msg;
         });
@@ -158,7 +206,29 @@
         if (e.key === "Enter" && e.ctrlKey) send();
     });
 
-    log("info", "🟡 输入 WS 地址后点击「连接」");
+    // 二进制模式切换
+     $("binaryMode").addEventListener("change", () => {
+         binaryMode = $("binaryMode").checked;
+         const binOpts = $("binaryOptions");
+         if (binaryMode) {
+             binOpts.style.display = "block";
+             $("msgInput").value = "12 05 57 6f 72 6c 64";
+             log("info", "🟡 已切换为二进制模式（Hex 输入）");
+         } else {
+             binOpts.style.display = "none";
+             $("msgInput").value = '{"type":"say_hello","name":"World"}';
+             log("info", "🟡 已切换为文本模式（JSON）");
+         }
+     });
+
+     // Hex 预设按钮
+     document.querySelectorAll("[data-hex]").forEach(btn => {
+         btn.addEventListener("click", () => {
+             $("msgInput").value = btn.dataset.hex;
+         });
+     });
+
+     log("info", "🟡 输入 WS 地址后点击「连接」");
 </script>
 </body>
 </html>

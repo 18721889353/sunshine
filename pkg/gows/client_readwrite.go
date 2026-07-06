@@ -6,8 +6,6 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
@@ -144,6 +142,7 @@ func (c *Client) msgFromChToWs() {
 //   - error: 所有重试均失败时返回最后一次错误
 func (c *Client) writeWithRetry(data []byte) error {
 	var lastErr error
+	msgType := c.writeMsgType
 	for attempt := 0; attempt <= writeLoopRetries; attempt++ {
 		if attempt > 0 {
 			// 指数退避：100ms, 200ms, 400ms
@@ -161,7 +160,7 @@ func (c *Client) writeWithRetry(data []byte) error {
 			continue
 		}
 
-		if err := c.wsConn.WriteMessage(websocket.TextMessage, data); err != nil {
+		if err := c.wsConn.WriteMessage(msgType, data); err != nil {
 			lastErr = err
 			c.recordWriteErr(err)
 			continue

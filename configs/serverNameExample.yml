@@ -335,6 +335,7 @@ websocket:
     writeTimeout: 10         # 写入超时（秒），0=默认 10
     readLimit: 0             # 单条消息读取大小限制（字节），0=不限制
     writeLimit: 0            # 单条消息写入大小限制（字节），0=不限制
+    writeMsgType: 1          # 消息帧类型：1=Text 2=Binary（二进制协议如 protobuf 请设为 2）
 
   heartbeat:
     # ==================== 心跳保活 ====================

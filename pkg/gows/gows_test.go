@@ -589,6 +589,30 @@ func TestUpgradeOptions_RateLimit_ZeroValues(t *testing.T) {
 	}
 }
 
+func TestUpgradeOptions_WriteMessageType_Default(t *testing.T) {
+	o := defaultUpgradeOptions()
+	if o.writeMsgType != websocket.TextMessage {
+		t.Errorf("default writeMsgType=%d, want TextMessage(1)", o.writeMsgType)
+	}
+}
+
+func TestUpgradeOptions_WriteMessageType_Binary(t *testing.T) {
+	o := defaultUpgradeOptions()
+	WithWriteMessageType(websocket.BinaryMessage)(o)
+	if o.writeMsgType != websocket.BinaryMessage {
+		t.Errorf("writeMsgType=%d, want BinaryMessage(2)", o.writeMsgType)
+	}
+}
+
+func TestUpgradeOptions_WriteMessageType_Invalid(t *testing.T) {
+	o := defaultUpgradeOptions()
+	defaultType := o.writeMsgType
+	WithWriteMessageType(999)(o)
+	if o.writeMsgType != defaultType {
+		t.Errorf("invalid writeMsgType should not change, got %d, want %d", o.writeMsgType, defaultType)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // auth 功能
 // ---------------------------------------------------------------------------
@@ -2331,7 +2355,7 @@ func TestUpgradeRegisterDispatcher_PropagatesRegisterError(t *testing.T) {
 
 func TestDispatcher_SSO_KickOld(t *testing.T) {
 	d := NewDispatcher(nil)
-	d.enableSSO = true
+	d.enableSSO.Store(true)
 
 	alice, aliceConn := newTestClientWithUID(t, "alice")
 	if err := d.RegisterCtx(context.Background(), alice); err != nil {
@@ -2374,7 +2398,7 @@ func TestDispatcher_SSO_KickOld(t *testing.T) {
 
 func TestDispatcher_SSO_NoKickOnDifferentUID(t *testing.T) {
 	d := NewDispatcher(nil)
-	d.enableSSO = true
+	d.enableSSO.Store(true)
 
 	alice, _ := newTestClientWithUID(t, "alice")
 	if err := d.RegisterCtx(context.Background(), alice); err != nil {
@@ -2404,7 +2428,7 @@ func TestDispatcher_SSO_NoKickOnDifferentUID(t *testing.T) {
 
 func TestDispatcher_SSO_CleanupOnClose(t *testing.T) {
 	d := NewDispatcher(nil)
-	d.enableSSO = true
+	d.enableSSO.Store(true)
 
 	alice, _ := newTestClientWithUID(t, "alice")
 	if err := d.RegisterCtx(context.Background(), alice); err != nil {
@@ -2428,7 +2452,7 @@ func TestDispatcher_SSO_CleanupOnClose(t *testing.T) {
 
 func TestDispatcher_SSO_KickReRegister(t *testing.T) {
 	d := NewDispatcher(nil)
-	d.enableSSO = true
+	d.enableSSO.Store(true)
 
 	// 注册第一个
 	alice1, _ := newTestClientWithUID(t, "alice")

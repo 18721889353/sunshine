@@ -32,6 +32,11 @@ package service
 
 import (
 	"context"
+{{if .HasWebSocketMethod}}
+	"encoding/hex"
+	"encoding/json"
+	"google.golang.org/protobuf/proto"
+{{end}}
 
 	// import api service package here
 	//"moduleNameExample/internal/rpcclient"
@@ -59,91 +64,87 @@ func New{{.Name}}Client() {{.ProtoPkgName}}.{{.Name}}Logicer {
 
 {{if eq .InvokeType 0}}{{if .Path}}{{.Comment}}
 func (c *{{.LowerServiceName}}Client) {{.MethodName}}(ctx context.Context, req *{{.RequestImportPkgName}}.{{.Request}}) (*{{.ReplyImportPkgName}}.{{.Reply}}, error) {
-    panic("{{.Prompt}}")
 {{if .IsWebSocket}}
+	// ========== 运行时自动检测 JSON / Binary 协议 ==========
+	// JSON 文本消息 → json.Unmarshal + switch msg.Type
+	// Binary protobuf 消息 → proto.Unmarshal + proto.Marshal
 
-	// WebSocket example:
+	wsCtx := context.WithoutCancel(ctx)
+
+	client, ok := wsCtx.Value({{.RequestImportPkgName}}.WsConnKey).(*gows.Client)
+	if !ok {
+		return nil, ecode.StatusInternalServerError.Err()
+	}
+
+readLoop:
+	for {
+		message, readErr := client.ReadMsgFromClientReadCh(wsCtx)
+		if readErr != nil {
+			logger.WarnWithCtx(wsCtx, "ws read error", logger.Err(readErr))
+			break
+		}
+
+		req := &{{.RequestImportPkgName}}.{{.Request}}{}
+
+		// 尝试 JSON 反序列化，成功且含 Type 字段则为文本协议
+		if err := json.Unmarshal(message, req); err == nil && req.Type != "" {
+			// JSON 协议：按 type 字段路由分发
+			switch req.Type {
+			case "ping":
+				if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "pong"}); err != nil {
+					logger.WarnWithCtx(wsCtx, "ws write pong error", logger.Err(err))
+					break readLoop
+				}
+			default:
+				// TODO: 处理业务逻辑
+				// reply, err := c.{{.LowerServiceName}}Cli.{{.MethodName}}(wsCtx, &model.{{.ServiceName}}{...})
+				if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "reply", Data: req.Name}); err != nil {
+					logger.WarnWithCtx(wsCtx, "ws write reply failed", logger.Err(err))
+					break readLoop
+				}
+			}
+		} else {
+			// 不是 JSON，尝试 Binary protobuf
+			if err := proto.Unmarshal(message, req); err != nil {
+				logger.WarnWithCtx(wsCtx, "ws unmarshal failed", logger.Err(err))
+				continue
+			}
+			logger.InfoWithCtx(wsCtx, "ws received binary", logger.String("msg", hex.EncodeToString(message)))
+
+			// TODO: 处理业务逻辑
+
+			reply := &{{.ReplyImportPkgName}}.{{.Reply}}{Message: "Hello, " + req.Name}
+			data, _ := proto.Marshal(reply)
+			if err := client.WriteRawToClientWriteCh(wsCtx, data); err != nil {
+				logger.WarnWithCtx(wsCtx, "ws write raw failed", logger.Err(err))
+				break
+			}
+		}
+	}
+
 	//
-	//	// ========== 剥离 HTTP 超时，长连接应使用独立生命周期 ==========
-	//	wsCtx := context.WithoutCancel(ctx)
+	// ========== 在读写循环外，通过 Client 的 Dispatcher 代理向指定用户推送消息 ==========
+	// 适用于其他 HTTP/gRPC 接口中触发的推送（此处仅作示例，不在读写循环内执行）
 	//
-	//	// ========== 从 context 取出 WebSocket 连接（由 router 层升级后存入） ==========
-	//	client, ok := wsCtx.Value({{.RequestImportPkgName}}.WsConnKey).(*gows.Client)
-	//	if !ok {
-	//	    return nil, ecode.StatusInternalServerError.Err()
-	//	}
+	// 向单个用户发送:
+	//	client.SendToUIDCtx(wsCtx, "target_uid", gows.Message{Type: "notify", Msg: "你有新消息"})
 	//
+	// 向多个用户发送:
+	//	client.SendToMultiUIDCtx(wsCtx, []string{"uid1", "uid2"}, gows.Message{Type: "batch", Data: map[string]any{"scores": scores}})
 	//
-	//	// ========== 进入 WebSocket 读写循环（阻塞，使用 Ctx 变体进行链路追踪） ==========
-	//	for {
-	//	    message, readErr := client.ReadMsgFromClientReadCh(wsCtx)
-	//	    if readErr != nil {
-	//	        logger.WarnWithCtx(wsCtx, "ws read message error", logger.Err(readErr))
-	//	        break
-	//	    }
-	//	    logger.InfoWithCtx(wsCtx, "ws received message", logger.String("msg", string(message)))
+	// 向所有在线用户广播:
+	//	client.BroadcastCtx(wsCtx, gows.Message{Type: "announcement", Msg: "系统维护通知"})
 	//
-	//	    // 解析消息
-	//		msg := &{{.RequestImportPkgName}}.HelloRequest{}
-	//	    if err := json.Unmarshal(message, msg); err != nil {
-	//	        if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "error", Msg: "invalid message format"}); err != nil {
-	//	            logger.WarnWithCtx(wsCtx, "ws write error msg failed", logger.Err(err))
-	//	            break
-	//	        }
-	//	        continue
-	//	    }
+	// 向所有在线用户可靠广播（转为按 UID 下发，支持离线积压）:
+	//	client.BroadcastReliableCtx(wsCtx, gows.Message{Type: "announcement", Msg: "重要通知"})
 	//
-	//	    // 按 type 分发处理
-	//	    switch msg.Type {
-	//	    case "ping":
-	//	        if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "pong"}); err != nil {
-	//	            logger.WarnWithCtx(wsCtx, "ws write pong error", logger.Err(err))
-	//	            break
-	//	        }
-	//		case "say_hello":
-	//		if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{
-	//			Type: "reply",
-	//			Msg:  "Hello, " + msg.Name,
-	//		}); err != nil {
-	//			logger.WarnWithCtx(wsCtx, "ws write reply failed", logger.Err(err))
-	//			break
-	//		}
-	//	    default:
-	//	        // 调用 DAO 或 RPC 方法处理业务
-	//	        // reply, err := s.iDao.{{.MethodName}}(ctx, &model.{{.ServiceName}}{...})
-	//	        // if err != nil {
-	//	        //     _ = client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "error", Msg: err.Error()})
-	//	        //     continue
-	//	        // }
-	//	        if err := client.WriteJSONToClientWriteCh(wsCtx, gows.Message{Type: "reply", Data: msg.Name}); err != nil {
-		//	            logger.WarnWithCtx(wsCtx, "ws write reply failed", logger.Err(err))
-		//	            break
-		//	        }
-	//	    }
-	//	}
-	//
-	//
-	//	// ========== 在读写循环外，通过 Client 的 Dispatcher 代理向指定用户推送消息 ==========
-	//	// 适用于其他 HTTP/gRPC 接口中触发的推送（此处仅作示例，不在读写循环内执行）
-	//	//
-	//	// 向单个用户发送:
-	//	//	client.SendToUIDCtx(ctx, "target_uid", gows.Message{Type: "notify", Msg: "你有新消息"})
-	//	//
-	//	// 向多个用户发送:
-	//	//	client.SendToMultiUIDCtx(ctx, []string{"uid1", "uid2"}, gows.Message{Type: "batch", Data: map[string]any{"scores": scores}})
-	//	//
-	//	// 向所有在线用户广播:
-	//	//	client.BroadcastCtx(ctx, gows.Message{Type: "announcement", Msg: "系统维护通知"})
-	//	//
-	//	// 向所有在线用户可靠广播（转为按 UID 下发，支持离线积压）:
-	//	//	client.BroadcastReliableCtx(ctx, gows.Message{Type: "announcement", Msg: "重要通知"})
-	//	//
-	//	// 注意: 分布式模式下（enableDistributed=true），以上调用会自动跨实例投递。
-	//	// 单机模式下同样可用，无需关心底层是否为分布式 Backend。
-	//
-	//	// ========== 读写循环结束，返回特殊错误跳过响应 ==========
-	//	return nil, errcode.SkipResponse
+	// 注意: 分布式模式下（enableDistributed=true），以上调用会自动跨实例投递。
+	// 单机模式下同样可用，无需关心底层是否为分布式 Backend。
+
+	// ========== 读写循环结束 ==========
+		return nil, errcode.SkipResponse
 {{else}}
+	panic("{{.Prompt}}")
 
 	// fill in the business logic code here
 	// example:

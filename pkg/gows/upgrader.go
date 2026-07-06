@@ -62,7 +62,7 @@ func ipConnCountDecrement(clientIP string) {
 func upgradeRegisterDispatcher(ctx context.Context, client *Client, o *upgradeOptions) error {
 	// 传播单点登录配置到 Dispatcher
 	if o.enableSSO {
-		o.dispatcher.enableSSO = true
+		o.dispatcher.enableSSO.Store(true)
 	}
 	if err := o.dispatcher.RegisterCtx(ctx, client); err != nil {
 		if closeErr := client.Close(); closeErr != nil {

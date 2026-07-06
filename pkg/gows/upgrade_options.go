@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
 )
 
@@ -44,8 +45,9 @@ type upgradeOptions struct {
 func defaultUpgradeOptions() *upgradeOptions {
 	return &upgradeOptions{
 		clientConfig: clientConfig{
-			writeChSize: 1024,
-			readChSize:  1024,
+			writeChSize:  1024,
+			readChSize:   1024,
+			writeMsgType: websocket.TextMessage, // 默认文本帧，二进制协议请使用 WithWriteMessageType(websocket.BinaryMessage)
 		},
 		upgraderConfig: upgraderConfig{
 			checkOrigin:       func(_ *http.Request) bool { return false },
@@ -256,6 +258,19 @@ func WithClientUID(uid string) UpgradeOption {
 func WithSSO() UpgradeOption {
 	return func(o *upgradeOptions) {
 		o.enableSSO = true
+	}
+}
+
+// WithWriteMessageType 设置 WebSocket 消息帧类型。
+// 参数:
+//   - msgType: 消息帧类型，可选 websocket.TextMessage(1) 或 websocket.BinaryMessage(2)
+//
+// 默认 TextMessage。二进制协议（如 protobuf）请传 websocket.BinaryMessage。
+func WithWriteMessageType(msgType int) UpgradeOption {
+	return func(o *upgradeOptions) {
+		if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+			o.writeMsgType = msgType
+		}
 	}
 }
 

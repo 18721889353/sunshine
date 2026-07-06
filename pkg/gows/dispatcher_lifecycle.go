@@ -41,7 +41,7 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	}
 
 	// 单点登录：先踢旧连接，再注册新连接
-	if dd.enableSSO {
+	if dd.enableSSO.Load() {
 		if oldClient, ok := dd.ssoClients.Load(client.uid); ok {
 			if prevClient, ok := oldClient.(*Client); ok && prevClient != client {
 				// 从 Dispatcher 中移除旧连接，确保注册新连接前状态一致
@@ -68,7 +68,7 @@ func (dd *DistributedDispatcher) RegisterCtx(ctx context.Context, client *Client
 	}
 
 	// 更新 SSO 映射
-	if dd.enableSSO {
+	if dd.enableSSO.Load() {
 		dd.ssoClients.Store(client.uid, client)
 	}
 
@@ -161,7 +161,7 @@ func (dd *DistributedDispatcher) UnregisterCtx(ctx context.Context, client *Clie
 	dd.decrementLocalUIDCount(client.uid)
 
 	// 清理 SSO 映射（仅当该客户端是当前映射值时）
-	if dd.enableSSO {
+	if dd.enableSSO.Load() {
 		dd.ssoClients.CompareAndDelete(client.uid, client)
 	}
 

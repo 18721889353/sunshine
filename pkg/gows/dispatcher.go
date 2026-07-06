@@ -63,8 +63,8 @@ type DistributedDispatcher struct {
 	localUIDCounts sync.Map // uid → *atomic.Int32 本地 UID 连接计数
 
 	// 单点登录：同一 UID 仅保留最新连接（后登录踢前登录）
-	enableSSO  bool     // 是否启用单点登录
-	ssoClients sync.Map // uid → *Client 本地 SSO 映射
+	enableSSO  atomic.Bool // 是否启用单点登录
+	ssoClients sync.Map    // uid → *Client 本地 SSO 映射
 
 	// workerPool 消息处理协程池（背压保护），用于 dispatchLoop 异步投递
 	workerPool *ants.Pool

@@ -25,6 +25,7 @@ type clientConfig struct {
 	writeTimeout time.Duration          // msgFromChToWs 写入超时时间（0=默认 10s）
 	readLimit    int64                  // 单条消息读取大小限制（0=不限制）
 	writeLimit   int64                  // 单条消息写入大小限制（0=不限制）
+	writeMsgType int                    // 消息帧类型：websocket.TextMessage(1) 或 websocket.BinaryMessage(2)
 	dispatcher   *DistributedDispatcher // 关联的分发中心（nil=未注册）
 }
 
@@ -62,6 +63,7 @@ type Client struct {
 	numReceived     atomic.Int64       // 原子计数: 已接收消息数
 	health          healthState        // 健康监控（读写时间、错误计数）
 	clientIsClosed  atomic.Bool        // 关闭标记，Close() 使用 CAS 保证幂等
+	wsConnClosed    atomic.Bool        // wsConn 关闭标记，closeWsConn() 使用 CAS 保证幂等，防止与 Close() 重复关闭
 }
 
 // newClientWithConfig 内部构造函数，直接接收 *clientConfig 避免经过 ClientOption 中间层。
@@ -115,21 +117,30 @@ func (c *Client) Close() error {
 		if c.closeHook != nil {
 			c.closeHook()
 		}
-		c.clientCtxCancel()          // 取消 clientCtx，通知所有协程退出（msgFromChToWs drain 后退出）
-		c.writeWg.Wait()             // 等待所有排队消息写入完毕
-		closeErr := c.wsConn.Close() // 关闭底层连接，触发 msgFromWsToCh 的 ReadMessage 返回错误
-		c.readWg.Wait()              // 等待 msgFromWsToCh 完全退出（defer 会关闭 readCh）
+		c.clientCtxCancel() // 取消 clientCtx，通知所有协程退出（msgFromChToWs drain 后退出）
+		c.writeWg.Wait()    // 等待所有排队消息写入完毕
+
+		// 如果 closeWsConn() 已由内部协程关闭过连接，跳过重复关闭
+		var closeErr error
+		if !c.wsConnClosed.Load() {
+			closeErr = c.wsConn.Close() // 关闭底层连接，触发 msgFromWsToCh 的 ReadMessage 返回错误
+		}
+		c.readWg.Wait() // 等待 msgFromWsToCh 完全退出（defer 会关闭 readCh）
 		return closeErr
 	}
 	return nil
 }
 
 // closeWsConn 直接关闭底层 TCP 连接，不等待 msgFromChToWs 退出。
-// 由 msgFromChToWs（写入重试全部失败后）或 StartHeartbeat（Ping 发送失败后）调用。
+// 由 msgFromChToWs（写入重试全部失败后）或 msgFromWsToCh（读取失败后）调用。
 // 关闭 TCP 连接后，消息读取方的 ReadMessage 会立即返回"use of closed network connection"错误，
 // 调用方感知错误后执行 Close() 完成完整清理流程（幂等安全）。
 // 此方法与 Close 分离设计，避免 msgFromChToWs 自锁（Close 中 wg.Wait 等待 msgFromChToWs 退出）。
+// 使用 wsConnClosed CAS 保证即使被多个 goroutine 同时调用也只关闭一次。
 func (c *Client) closeWsConn() {
+	if !c.wsConnClosed.CompareAndSwap(false, true) {
+		return
+	}
 	if err := c.wsConn.Close(); err != nil {
 		logger.WarnWithCtx(c.clientCtx, "ws force close conn failed",
 			logger.String("uid", c.uid),

@@ -42,6 +42,17 @@ type serviceLogicFields struct {
 	PbServices []*parse.PbService
 }
 
+func (f *serviceLogicFields) HasWebSocketMethod() bool {
+	for _, svc := range f.PbServices {
+		for _, m := range svc.Methods {
+			if m.IsWebSocket {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (f *serviceLogicFields) execute() []byte {
 	buf := new(bytes.Buffer)
 	if err := serviceLogicTmpl.Execute(buf, f); err != nil {

@@ -388,6 +388,7 @@ type Queue struct {
 	ReadQueueSize  int `yaml:"readQueueSize" json:"readQueueSize"`
 	ReadTimeout    int `yaml:"readTimeout" json:"readTimeout"`
 	WriteLimit     int `yaml:"writeLimit" json:"writeLimit"`
+	WriteMsgType   int `yaml:"writeMsgType" json:"writeMsgType"`
 	WriteQueueSize int `yaml:"writeQueueSize" json:"writeQueueSize"`
 	WriteTimeout   int `yaml:"writeTimeout" json:"writeTimeout"`
 }
