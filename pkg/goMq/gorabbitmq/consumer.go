@@ -143,6 +143,12 @@ type Handler func(ctx context.Context, data []byte, messageId string, tagID stri
 func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ...ConsumerOption) (*Consumer, error) {
 	o := defaultConsumerOptions()
 	o.apply(opts...)
+
+	// 校验交换机配置
+	if err := exchange.Validate(); err != nil {
+		return nil, err
+	}
+
 	c := &Consumer{
 		exchange:  exchange,
 		QueueName: queueName,
@@ -229,16 +235,16 @@ func (c *Consumer) initialize(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.conn.mutex.Lock()
+	c.conn.mu.Lock()
 
 	// 创建一个新的通道
-	channel, err := c.conn.conn.Channel()
+	channel, err := c.conn.mqConn.Load().Channel()
 	if err != nil {
-		c.conn.mutex.Unlock()
+		c.conn.mu.Unlock()
 		return err
 	}
 	c.ch = channel
-	c.conn.mutex.Unlock()
+	c.conn.mu.Unlock()
 
 	// 验证队列配置
 	if err := c.validateQueueConfig(); err != nil {
@@ -554,7 +560,7 @@ func (c *Consumer) waitRetry(ctx context.Context, ticker *time.Ticker) bool {
 	select {
 	case <-ctx.Done():
 		return false
-	case <-c.conn.exit:
+	case <-c.conn.connCloseCh:
 		c.Close()
 		return false
 	case <-ticker.C:
@@ -570,7 +576,7 @@ func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Del
 			logger.WarnWithCtx(ctx, "[rabbitmq consumer] context done, stopping processMessages",
 				logger.String("queue", c.QueueName))
 			return false
-		case <-c.conn.exit:
+		case <-c.conn.connCloseCh:
 			c.Close()
 			return false
 		case d, ok := <-delivery:

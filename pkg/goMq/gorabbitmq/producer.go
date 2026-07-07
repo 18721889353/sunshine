@@ -124,6 +124,11 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 	o := defaultProducerOptions()
 	o.apply(opts...)
 
+	// 校验交换机配置
+	if err := exchange.Validate(); err != nil {
+		return nil, err
+	}
+
 	// crate a new channel
 	amqpConn := connection.GetConn(ctx)
 	channel, err := amqpConn.Channel()

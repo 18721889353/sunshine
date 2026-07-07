@@ -1,7 +1,11 @@
 // Package gorabbitmq 提供 RabbitMQ 消息队列的高性能客户端实现。
 package gorabbitmq
 
-import amqp "github.com/rabbitmq/amqp091-go"
+import (
+	"fmt"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
 
 // ErrClosed closed
 var ErrClosed = amqp.ErrClosed
@@ -22,10 +26,10 @@ const (
 	HeadersTypeAny HeadersType = "any" // HeadersTypeAny 匹配headers中任意键值对
 )
 
-// HeadersType headers type
-type HeadersType = string // HeadersType 头交换机类型别名
+// HeadersType 头交换机匹配类型
+type HeadersType = string
 
-// Exchange rabbitmq minimum management unit
+// Exchange RabbitMQ交换机最小管理单元
 type Exchange struct {
 	name        string                 // name 交换机名称
 	eType       string                 // eType 交换机类型: direct, topic, fanout, headers, x-delayed-message
@@ -33,24 +37,37 @@ type Exchange struct {
 	headersKeys map[string]interface{} // headersKeys 头交换机的键值对配置
 }
 
-// Name exchange name
+// Name 返回交换机名称
 func (e *Exchange) Name() string {
 	return e.name
 }
 
-// Type exchange type
+// Type 返回交换机类型
 func (e *Exchange) Type() string {
 	return e.eType
 }
 
-// RoutingKey exchange routing key
+// RoutingKey 返回路由键
 func (e *Exchange) RoutingKey() string {
 	return e.routingKey
 }
 
-// HeadersKeys exchange headers keys
+// HeadersKeys 返回头交换机键值对
 func (e *Exchange) HeadersKeys() map[string]interface{} {
 	return e.headersKeys
+}
+
+// Validate 校验交换机配置合法性
+func (e *Exchange) Validate() error {
+	if e.name == "" {
+		return fmt.Errorf("exchange name cannot be empty")
+	}
+	switch e.eType {
+	case exchangeTypeDirect, exchangeTypeTopic, exchangeTypeFanout, exchangeTypeHeaders, exchangeTypeDelayedMessage:
+		return nil
+	default:
+		return fmt.Errorf("unsupported exchange type: %s (supported: direct, topic, fanout, headers, x-delayed-message)", e.eType)
+	}
 }
 
 // NewDirectExchange create a direct exchange
@@ -133,7 +150,7 @@ func NewDelayedMessageExchange(exchangeName string, e *Exchange) *Exchange {
 
 // -------------------------------------------------------------------------------------------
 
-// ExchangeDeclareOption declare exchange option.
+// ExchangeDeclareOption 交换机声明选项函数类型
 type ExchangeDeclareOption func(*exchangeDeclareOptions)
 
 type exchangeDeclareOptions struct {
@@ -150,7 +167,7 @@ func (o *exchangeDeclareOptions) apply(opts ...ExchangeDeclareOption) {
 	}
 }
 
-// default exchange declare settings
+// defaultExchangeDeclareOptions 默认交换机声明设置
 func defaultExchangeDeclareOptions() *exchangeDeclareOptions {
 	return &exchangeDeclareOptions{
 		durable:    true,  // 默认持久化
@@ -161,14 +178,14 @@ func defaultExchangeDeclareOptions() *exchangeDeclareOptions {
 	}
 }
 
-// WithExchangeDeclareDurable set exchange declare auto delete option.
+// WithExchangeDeclareDurable 设置交换机持久化选项
 func WithExchangeDeclareDurable(enable bool) ExchangeDeclareOption {
 	return func(o *exchangeDeclareOptions) {
 		o.durable = enable
 	}
 }
 
-// WithExchangeDeclareAutoDelete set exchange declare auto delete option.
+// WithExchangeDeclareAutoDelete 设置交换机自动删除选项
 func WithExchangeDeclareAutoDelete(enable bool) ExchangeDeclareOption {
 	return func(o *exchangeDeclareOptions) {
 		o.autoDelete = enable
@@ -198,7 +215,7 @@ func WithExchangeDeclareArgs(args map[string]interface{}) ExchangeDeclareOption 
 
 // -------------------------------------------------------------------------------------------
 
-// QueueDeclareOption declare queue option.
+// QueueDeclareOption 队列声明选项函数类型
 type QueueDeclareOption func(*queueDeclareOptions)
 
 type queueDeclareOptions struct {
@@ -215,7 +232,7 @@ func (o *queueDeclareOptions) apply(opts ...QueueDeclareOption) {
 	}
 }
 
-// default queue declare settings
+// defaultQueueDeclareOptions 默认队列声明设置
 func defaultQueueDeclareOptions() *queueDeclareOptions {
 	return &queueDeclareOptions{
 		durable:    true,  // 默认持久化
@@ -263,7 +280,7 @@ func WithQueueDeclareArgs(args map[string]interface{}) QueueDeclareOption {
 
 // -------------------------------------------------------------------------------------------
 
-// QueueBindOption declare queue bind option.
+// QueueBindOption 队列绑定选项函数类型
 type QueueBindOption func(*queueBindOptions)
 
 type queueBindOptions struct {
@@ -277,7 +294,7 @@ func (o *queueBindOptions) apply(opts ...QueueBindOption) {
 	}
 }
 
-// default queue bind settings
+// defaultQueueBindOptions 默认队列绑定设置
 func defaultQueueBindOptions() *queueBindOptions {
 	return &queueBindOptions{
 		noWait: false, // 默认阻塞等待确认
@@ -301,11 +318,11 @@ func WithQueueBindArgs(args map[string]interface{}) QueueBindOption {
 
 // -------------------------------------------------------------------------------------------
 
-// NormalLetterOption declare dead letter option.
-// NormalLetterOption 普通消息配置选项
+// NormalLetterOption 普通消息配置选项函数类型
 type NormalLetterOption func(*NormalLetterOptions)
 
 // NormalLetterOptions 普通消息配置选项结构
+// 包含单一消息流转路径：消息→normalQueue，不涉及死信
 type NormalLetterOptions struct {
 	exchangeName     string // exchangeName 普通交换机名称
 	normalQueueName  string // normalQueueName 普通队列名称
@@ -365,27 +382,20 @@ func WithNormalLetter(exchangeName string, normalQueueName string, normalRouting
 
 // -------------------------------------------------------------------------------------------
 
-// CustomerDeadLetterOption declare dead letter option.
+// CustomerDeadLetterOption 自定义死信队列选项函数类型
 type CustomerDeadLetterOption func(*CustomerDeadLetterOptions)
 
 // CustomerDeadLetterOptions 自定义死信配置选项结构
+// 在标准死信配置的基础上增加错误路由/队列支持。
+// 三条消息流转路径：正常→normalQueue, 消费失败→errQueue, TTL超时→deadQueue
 type CustomerDeadLetterOptions struct {
-	exchangeName string // exchangeName 死信交换机名称
+	// 嵌入标准死信配置，复用 deadRouting/deadQueue/normalQueue 等字段
+	DeadLetterOptions
 
-	deadRoutingKey   string // deadRoutingKey 死信路由键
-	deadQueueName    string // deadQueueName 死信队列名称
-	errRoutingKey    string // errRoutingKey 错误路由键
-	errQueueName     string // errQueueName 错误队列名称
-	normalQueueName  string // normalQueueName 普通队列名称
-	normalRoutingKey string // normalRoutingKey 普通路由键
-
-	exchangeDeclare    *exchangeDeclareOptions // exchangeDeclare 交换机声明选项
-	deadQueueDeclare   *queueDeclareOptions    // deadQueueDeclare 死信队列声明选项
-	deadQueueBind      *queueBindOptions       // deadQueueBind 死信队列绑定选项
-	errQueueDeclare    *queueDeclareOptions    // errQueueDeclare 错误队列声明选项
-	errQueueBind       *queueBindOptions       // errQueueBind 错误队列绑定选项
-	normalQueueDeclare *queueDeclareOptions    // normalQueueDeclare 普通队列声明选项
-	normalQueueBind    *queueBindOptions       // normalQueueBind 普通队列绑定选项
+	errRoutingKey   string               // errRoutingKey 消费失败后的路由键
+	errQueueName    string               // errQueueName  消费失败后的队列名称
+	errQueueDeclare *queueDeclareOptions // errQueueDeclare 错误队列声明选项
+	errQueueBind    *queueBindOptions    // errQueueBind    错误队列绑定选项
 }
 
 func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
@@ -394,22 +404,15 @@ func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
 	}
 }
 
+// defaultCustomerDeadLetterOptions 默认自定义死信配置
 func defaultCustomerDeadLetterOptions() *CustomerDeadLetterOptions {
+	base := defaultDeadLetterOptions()
 	return &CustomerDeadLetterOptions{
-		exchangeName:       defaultExchangeName,             // 默认死信交换机名称
-		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
-		deadRoutingKey:     "deadRouting",                   // 默认死信路由键
-		deadQueueName:      "deadQueue",                     // 默认死信队列名称
-		errRoutingKey:      "errRouting",                    // 默认错误路由键
-		errQueueName:       "errQueue",                      // 默认错误队列名称
-		normalQueueName:    "normalQueue",                   // 默认普通队列名称
-		normalRoutingKey:   "normalRouting",                 // 默认普通路由键
-		deadQueueDeclare:   defaultQueueDeclareOptions(),    // 默认死信队列声明选项
-		deadQueueBind:      defaultQueueBindOptions(),       // 默认死信队列绑定选项
-		errQueueDeclare:    defaultQueueDeclareOptions(),    // 默认错误队列声明选项
-		errQueueBind:       defaultQueueBindOptions(),       // 默认错误队列绑定选项
-		normalQueueDeclare: defaultQueueDeclareOptions(),    // 默认普通队列声明选项
-		normalQueueBind:    defaultQueueBindOptions(),       // 默认普通队列绑定选项
+		DeadLetterOptions: *base,
+		errRoutingKey:     "errRouting",
+		errQueueName:      "errQueue",
+		errQueueDeclare:   defaultQueueDeclareOptions(),
+		errQueueBind:      defaultQueueBindOptions(),
 	}
 }
 
@@ -486,10 +489,13 @@ func WithCustomerDeadLetter(
 
 // -------------------------------------------------------------------------------------------
 
-// DeadLetterOption declare dead letter option.
+// DeadLetterOption 死信队列选项函数类型
 type DeadLetterOption func(*DeadLetterOptions)
 
-// DeadLetterOptions 死信配置选项结构
+// DeadLetterOptions 死信队列配置选项结构
+// 包含死信+普通两条消息流转路径：
+//   - 正常投递 → normalQueue
+//   - TTL超时/队列满 → deadQueue
 type DeadLetterOptions struct {
 	exchangeName string // exchangeName 死信交换机名称
 
@@ -511,57 +517,58 @@ func (o *DeadLetterOptions) apply(opts ...DeadLetterOption) {
 	}
 }
 
+// defaultDeadLetterOptions 默认死信队列配置
 func defaultDeadLetterOptions() *DeadLetterOptions {
 	return &DeadLetterOptions{
-		exchangeName:       defaultExchangeName,             // 默认死信交换机名称
-		exchangeDeclare:    defaultExchangeDeclareOptions(), // 默认交换机声明选项
-		deadRoutingKey:     "deadRouting",                   // 默认死信路由键
-		deadQueueName:      "deadQueue",                     // 默认死信队列名称
-		normalQueueName:    "normalQueue",                   // 默认普通队列名称
-		normalRoutingKey:   "normalRouting",                 // 默认普通路由键
-		deadQueueDeclare:   defaultQueueDeclareOptions(),    // 默认死信队列声明选项
-		deadQueueBind:      defaultQueueBindOptions(),       // 默认死信队列绑定选项
-		normalQueueDeclare: defaultQueueDeclareOptions(),    // 默认普通队列声明选项
-		normalQueueBind:    defaultQueueBindOptions(),       // 默认普通队列绑定选项
+		exchangeName:       defaultExchangeName,
+		exchangeDeclare:    defaultExchangeDeclareOptions(),
+		deadRoutingKey:     "deadRouting",
+		deadQueueName:      "deadQueue",
+		normalQueueName:    "normalQueue",
+		normalRoutingKey:   "normalRouting",
+		deadQueueDeclare:   defaultQueueDeclareOptions(),
+		deadQueueBind:      defaultQueueBindOptions(),
+		normalQueueDeclare: defaultQueueDeclareOptions(),
+		normalQueueBind:    defaultQueueBindOptions(),
 	}
 }
 
-// WithDeadLetterExchangeDeclareOptions set dead letter exchange declare option.
+// WithDeadLetterExchangeDeclareOptions 设置死信交换机声明选项
 func WithDeadLetterExchangeDeclareOptions(opts ...ExchangeDeclareOption) DeadLetterOption {
 	return func(o *DeadLetterOptions) {
 		o.exchangeDeclare.apply(opts...)
 	}
 }
 
-// WithDeadLetterDeadQueueDeclareOptions set dead letter queue declare option.
+// WithDeadLetterDeadQueueDeclareOptions 设置死信队列声明选项
 func WithDeadLetterDeadQueueDeclareOptions(opts ...QueueDeclareOption) DeadLetterOption {
 	return func(o *DeadLetterOptions) {
 		o.deadQueueDeclare.apply(opts...)
 	}
 }
 
-// WithDeadLetterDeadQueueBindOptions set dead letter queue declare option.
+// WithDeadLetterDeadQueueBindOptions 设置死信队列绑定选项
 func WithDeadLetterDeadQueueBindOptions(opts ...QueueBindOption) DeadLetterOption {
 	return func(o *DeadLetterOptions) {
 		o.deadQueueBind.apply(opts...)
 	}
 }
 
-// WithDeadLetterNormalQueueDeclareOptions set dead letter queue declare option.
+// WithDeadLetterNormalQueueDeclareOptions 设置普通队列声明选项
 func WithDeadLetterNormalQueueDeclareOptions(opts ...QueueDeclareOption) DeadLetterOption {
 	return func(o *DeadLetterOptions) {
 		o.normalQueueDeclare.apply(opts...)
 	}
 }
 
-// WithDeadLetterNormalQueueBindOptions set dead letter queue declare option.
+// WithDeadLetterNormalQueueBindOptions 设置普通队列绑定选项
 func WithDeadLetterNormalQueueBindOptions(opts ...QueueBindOption) DeadLetterOption {
 	return func(o *DeadLetterOptions) {
 		o.normalQueueBind.apply(opts...)
 	}
 }
 
-// WithDeadLetter set dead letter exchange, queue, routing key.
+// WithDeadLetter 设置死信队列的交换机、队列、路由键
 func WithDeadLetter(exchangeName string, deadQueueName string, deadRoutingKey string, normalQueueName string, normalRoutingKey string) DeadLetterOption {
 	return func(o *DeadLetterOptions) {
 		o.exchangeName = exchangeName

@@ -20,73 +20,89 @@ func main() {
 	if err != nil {
 		log.Fatalf("初始化logger失败: %v", err)
 	}
-	ctx := context.Background()
-	// 创建连接池，配置 ants 协程池大小
+
+	// 带取消的 context，确保 idleCleanup 能退出
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 创建连接池
 	pool, err := gorabbitmq.NewPool(
 		ctx,
 		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
-		gorabbitmq.WithInitialCap(10),                    // 初始连接数
-		gorabbitmq.WithMaxCap(1000),                      // 最大连接数
-		gorabbitmq.WithMaxIdle(time.Minute*1),            // 最大空闲时间
-		gorabbitmq.WithHealthCheckPeriod(time.Second*30), // 健康检查间隔
-		gorabbitmq.WithAntsPoolSize(10),                  // 配置 ants 协程池大小为 10
-		gorabbitmq.WithConnOptions( // 连接选项
+		gorabbitmq.WithInitialCap(3),
+		gorabbitmq.WithMaxCap(10),
+		gorabbitmq.WithMaxIdle(time.Minute*1),
+		gorabbitmq.WithHealthCheckPeriod(time.Second*30),
+		gorabbitmq.WithAntsPoolSize(10),
+		gorabbitmq.WithConnOptions(
 			gorabbitmq.WithReconnectTime(time.Second*3),
 			gorabbitmq.WithDialTimeout(time.Second*5),
 			gorabbitmq.WithHeartbeat(time.Second*3),
 		),
 	)
-
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to create connection pool", logger.Err(err))
 	}
 	defer func() {
 		if closeErr := pool.Close(ctx); closeErr != nil {
-			log.Printf("关闭连接池失败: %v", closeErr)
+			log.Printf("close pool error: %v", closeErr)
 		}
 	}()
 
-	// 打印连接池状态
-	printAntsExampleStats(ctx, pool)
+	printPoolStats(ctx, pool, "initial")
 
-	// 使用连接池中的连接
+	// 并发使用连接
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			// 从连接池获取连接
-			conn, err := pool.Get(ctx)
-			if err != nil {
-				logger.ErrorWithCtx(ctx, "Failed to get connection from pool", logger.Err(err))
+
+			conn, getErr := pool.Get(ctx)
+			if getErr != nil {
+				logger.ErrorWithCtx(ctx, "Failed to get connection from pool", logger.Err(getErr))
 				return
 			}
-
-			// 使用连接（这里只是模拟使用）
 			fmt.Printf("Goroutine %d got connection\n", id)
 			time.Sleep(time.Millisecond * 100)
 
-			// 将连接放回连接池
-			err = pool.Put(ctx, conn)
-			if err != nil {
-				logger.ErrorWithCtx(ctx, "Failed to put connection back to pool", logger.Err(err))
+			if putErr := pool.Put(ctx, conn); putErr != nil {
+				logger.ErrorWithCtx(ctx, "Failed to put connection back to pool", logger.Err(putErr))
 				return
 			}
-
 			fmt.Printf("Goroutine %d returned connection\n", id)
 		}(i)
 	}
-
-	// 等待所有 goroutine 完成
 	wg.Wait()
 
-	// 等待一段时间以便观察ants协程池的状态
-	for range time.NewTicker(time.Second).C {
-		printAntsExampleStats(ctx, pool)
+	printPoolStats(ctx, pool, "after use")
+
+	// 演示：Context 取消
+	fmt.Println("\n--- Demo: context cancellation ---")
+	cancelCtx, demoCancel := context.WithCancel(context.Background())
+	demoCancel()
+	if _, getErr := pool.Get(cancelCtx); getErr != nil {
+		fmt.Printf("Get with cancelled context returned expected error: %v\n", getErr)
 	}
+
+	// 演示：放回已关闭的连接
+	fmt.Println("\n--- Demo: discard invalid connection ---")
+	conn, err := pool.Get(ctx)
+	if err == nil {
+		conn.Close()
+		if err := pool.Put(ctx, conn); err != nil {
+			fmt.Printf("Put closed connection error (expected): %v\n", err)
+		} else {
+			fmt.Println("Invalid connection discarded by pool")
+		}
+	}
+
+	printPoolStats(ctx, pool, "final")
+	fmt.Println("\nPool demo completed successfully")
 }
 
-func printAntsExampleStats(ctx context.Context, pool *gorabbitmq.Pool) {
+func printPoolStats(ctx context.Context, pool *gorabbitmq.Pool, stage string) {
 	stats := pool.Stats(ctx)
-	fmt.Printf("Pool Stats: %+v\n", stats)
+	fmt.Printf("[%s] totalConns=%d available=%d poolSize=%d maxCap=%d\n",
+		stage, stats["totalConns"], stats["available"], stats["poolSize"], stats["maxCap"])
 }

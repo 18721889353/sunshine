@@ -53,7 +53,7 @@ func (c *Client) DisconnectByUID(ctx context.Context, uid string) error {
 	if c.dispatcher == nil {
 		return ErrNoDispatcher
 	}
-	return c.dispatcher.DisconnectByUID(uid)
+	return c.dispatcher.DisconnectByUID(ctx, uid)
 }
 
 // DisconnectByUIDs 通过关联的 Dispatcher 断开多个 UID 的连接。
@@ -62,5 +62,5 @@ func (c *Client) DisconnectByUIDs(ctx context.Context, uids ...string) int {
 	if c.dispatcher == nil {
 		return 0
 	}
-	return c.dispatcher.DisconnectByUIDs(uids...)
+	return c.dispatcher.DisconnectByUIDs(ctx, uids...)
 }

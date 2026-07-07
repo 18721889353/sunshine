@@ -2,9 +2,8 @@ package gorabbitmq
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -16,124 +15,30 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// DefaultURL 默认的 RabbitMQ 连接 URL
-const DefaultURL = "amqp://guest:guest@localhost:5672/"
-
-// ConnectionOption 连接配置选项函数类型
-type ConnectionOption func(*connectionOptions)
-
-// connectionOptions 连接配置选项
-type connectionOptions struct {
-	tlsConfig       *tls.Config   // TLS 配置，如果使用 amqps 协议则必须设置
-	reconnectTime   time.Duration // 重连时间间隔，默认为 3 秒
-	dialTimeout     time.Duration // 连接超时时间，默认为 5 秒
-	heartbeat       time.Duration // 心跳间隔
-	deadlineTimeout time.Duration // 截止时间超时
-	maxRetries      int           // 最大重连次数，0 表示无限重试
+// connError 连接错误快照，用于原子读写
+type connError struct {
+	err  error
+	time time.Time
 }
-
-// apply 应用连接配置选项
-func (o *connectionOptions) apply(opts ...ConnectionOption) {
-	for _, opt := range opts {
-		opt(o)
-	}
-}
-
-// defaultConnectionOptions 默认连接配置选项
-func defaultConnectionOptions() *connectionOptions {
-	return &connectionOptions{
-		tlsConfig:       nil,
-		reconnectTime:   time.Second * 3,
-		dialTimeout:     time.Second * 5,
-		heartbeat:       time.Second * 3,
-		deadlineTimeout: time.Second * 30,
-		maxRetries:      0, // 默认无限重试
-	}
-}
-
-// WithTLSConfig 设置 TLS 配置选项
-func WithTLSConfig(tlsConfig *tls.Config) ConnectionOption {
-	return func(o *connectionOptions) {
-		if tlsConfig == nil {
-			tlsConfig = &tls.Config{
-				InsecureSkipVerify: true,
-			}
-		}
-		o.tlsConfig = tlsConfig
-	}
-}
-
-// WithReconnectTime 设置重连时间间隔选项
-func WithReconnectTime(d time.Duration) ConnectionOption {
-	return func(o *connectionOptions) {
-		if d == 0 {
-			d = time.Second * 3
-		}
-		o.reconnectTime = d
-	}
-}
-
-// WithDialTimeout 设置连接超时时间选项
-func WithDialTimeout(d time.Duration) ConnectionOption {
-	return func(o *connectionOptions) {
-		if d == 0 {
-			d = time.Second * 5
-		}
-		o.dialTimeout = d
-	}
-}
-
-// WithHeartbeat 设置心跳间隔选项
-func WithHeartbeat(d time.Duration) ConnectionOption {
-	return func(o *connectionOptions) {
-		if d == 0 {
-			d = time.Second * 5
-		}
-		o.heartbeat = d
-	}
-}
-
-// WithDeadlineTimeout 设置截止时间超时选项
-func WithDeadlineTimeout(d time.Duration) ConnectionOption {
-	return func(o *connectionOptions) {
-		if d == 0 {
-			d = time.Second * 30
-		}
-		o.deadlineTimeout = d
-	}
-}
-
-// WithMaxRetries 设置最大重连次数，0表示无限重试，默认为0
-func WithMaxRetries(maxRetries int) ConnectionOption {
-	return func(o *connectionOptions) {
-		o.maxRetries = maxRetries
-	}
-}
-
-// -------------------------------------------------------------------------------------------
 
 // Connection RabbitMQ 连接结构体
 type Connection struct {
-	mutex sync.Mutex
+	mu sync.RWMutex
 
-	url             string        // 连接 URL
-	tlsConfig       *tls.Config   // TLS 配置
-	reconnectTime   time.Duration // 重连时间间隔
-	dialTimeout     time.Duration // 连接超时时间
-	heartbeat       time.Duration // 心跳间隔
-	deadlineTimeout time.Duration // 截止时间超时
-	maxRetries      int           // 最大重连次数
-	exit            chan struct{} // 退出信号通道
+	// 连接配置（嵌入 connectionOptions，消除字段重复）
+	connectionOptions
 
-	conn        *amqp.Connection   // AMQP 连接对象
-	blockChan   chan amqp.Blocking // 阻塞通知通道
-	closeChan   chan *amqp.Error   // 关闭通知通道
-	isConnected bool               // 是否已连接
+	url         string        // 连接 URL
+	connCloseCh chan struct{} // 连接关闭信号通道
+
+	mqConn      atomic.Pointer[amqp.Connection] // AMQP 连接对象（原子指针，无锁读）
+	mqBlockChan chan amqp.Blocking              // 阻塞通知通道
+	mqCloseChan chan *amqp.Error                // 关闭通知通道
+	isConnected atomic.Bool                     // 是否已连接（原子布尔，无锁读）
 
 	// 连接状态统计
-	reconnectCount int64     // 重连次数
-	lastError      error     // 最后一次错误
-	lastErrorTime  time.Time // 最后一次错误时间
+	reconnectCount atomic.Int64              // 重连次数
+	lastConnErr    atomic.Pointer[connError] // 最近一次连接错误（含时间戳），nil 表示无错误
 }
 
 // NewConnection 创建新的 RabbitMQ 连接
@@ -144,101 +49,73 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 
 	o := defaultConnectionOptions()
 	o.apply(opts...)
-	connection := &Connection{
-		url:             url,
-		reconnectTime:   o.reconnectTime,
-		tlsConfig:       o.tlsConfig,
-		dialTimeout:     o.dialTimeout,
-		heartbeat:       o.heartbeat,
-		deadlineTimeout: o.deadlineTimeout,
-		maxRetries:      o.maxRetries,
-		exit:            make(chan struct{}),
+	c := &Connection{
+		url:               url,
+		connectionOptions: *o,
+		connCloseCh:       make(chan struct{}),
 	}
 
-	conn, err := connect(ctx, connection)
+	mqConn, err := getMqConnect(ctx, c)
 	if err != nil {
 		return nil, err
 	}
 
-	connection.conn = conn
-	connection.blockChan = connection.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
-	connection.closeChan = connection.conn.NotifyClose(make(chan *amqp.Error, 1))
-	connection.isConnected = true
+	c.mqConn.Store(mqConn)
+	c.mqBlockChan = c.mqConn.Load().NotifyBlocked(make(chan amqp.Blocking, 1))
+	c.mqCloseChan = c.mqConn.Load().NotifyClose(make(chan *amqp.Error, 1))
+	c.isConnected.Store(true)
 
-	go connection.monitor(ctx)
+	go c.monitor(ctx)
 
-	return connection, nil
+	return c, nil
 }
 
-// connect 建立 AMQP 连接
-func connect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
+// getMqConnect 建立 AMQP 连接
+func getMqConnect(ctx context.Context, c *Connection) (*amqp.Connection, error) {
 	url := c.url
 	tlsConfig := c.tlsConfig
 	dialTimeout := c.dialTimeout
 	heartbeat := c.heartbeat
 	deadlineTimeout := c.deadlineTimeout
-	var (
-		conn *amqp.Connection
-		err  error
-	)
-	if strings.HasPrefix(url, "amqps://") {
-		if tlsConfig == nil {
-			return nil, errors.New("tls not set, e.g. NewConnection(url, WithTLSConfig(tlsConfig))")
-		}
-		conn, err = amqp.DialTLS(url, tlsConfig)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		dialer := &net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: 30 * time.Second,
-		}
 
-		conn, err = amqp.DialConfig(url, amqp.Config{
-			Dial: func(network, addr string) (net.Conn, error) {
-				c, dialErr := dialer.DialContext(ctx, network, addr)
-				if dialErr != nil {
-					return nil, dialErr
-				}
-				dialErr = c.SetDeadline(time.Now().Add(deadlineTimeout)) // 设置读写超时时间
-				if dialErr != nil {
-					return nil, dialErr
-				}
-				return c, nil
-			},
-			Heartbeat: heartbeat, // 增加心跳间隔
-		})
-		if err != nil {
-			return nil, err
-		}
+	// amqps 必须配置 TLS
+	if strings.HasPrefix(url, "amqps://") && tlsConfig == nil {
+		return nil, errors.New("tls not set, e.g. NewConnection(url, WithTLSConfig(tlsConfig))")
 	}
 
-	return conn, nil
+	amqpCfg := amqp.Config{
+		Dial: func(network, addr string) (net.Conn, error) {
+			dialer := &net.Dialer{
+				Timeout:   dialTimeout,
+				KeepAlive: 30 * time.Second,
+			}
+			tcpConn, dialErr := dialer.DialContext(ctx, network, addr)
+			if dialErr != nil {
+				return nil, dialErr
+			}
+			// 设置建联阶段的绝对截止时间（保护后续 TLS/AMQP 握手）
+			// 注意：amqp091-go 内部会在握手完成后，基于 Heartbeat 重新设置读写截止时间，
+			// 因此此截止时间仅影响握手阶段，不会影响正常业务收发。
+			if err := tcpConn.SetDeadline(time.Now().Add(deadlineTimeout)); err != nil {
+				return nil, err
+			}
+			return tcpConn, nil
+		},
+		Heartbeat: heartbeat,
+	}
+	if tlsConfig != nil {
+		amqpCfg.TLSClientConfig = tlsConfig
+	}
+	mqConn, err := amqp.DialConfig(url, amqpCfg)
+	if err != nil {
+		return nil, err
+	}
+	return mqConn, nil
 }
-
-// maskURL 脱敏 URL，移除用户名和密码(暂未使用,保留供将来扩展)
-// func maskURL(url string) string {
-// 	if url == "" {
-// 		return url
-// 	}
-// 	prefix := ""
-// 	rest := url
-// 	if idx := strings.Index(url, "://"); idx != -1 {
-// 		prefix = url[:idx+3]
-// 		rest = url[idx+3:]
-// 	}
-// 	if idx := strings.Index(rest, "@"); idx != -1 {
-// 		return prefix + "***:***@" + rest[idx+1:]
-// 	}
-// 	return url
-// }
 
 // CheckConnected 检查连接是否正常
 func (c *Connection) CheckConnected(_ context.Context) bool {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	return c.isConnected && c.conn != nil && !c.conn.IsClosed()
+	return c.isConnected.Load() && c.mqConn.Load() != nil && !c.mqConn.Load().IsClosed()
 }
 
 // handleExitSignal 处理退出信号
@@ -252,168 +129,218 @@ func (c *Connection) handleExitSignal() {
 // handleBlockNotification 处理阻塞通知
 func (c *Connection) handleBlockNotification(b amqp.Blocking) {
 	if b.Active {
-		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] TCP blocked", logger.String("reason", b.Reason))
+		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] TCP blocked",
+			logger.String("reason", b.Reason),
+			logger.String("url", maskURL(c.url)))
 	}
 }
 
-// handleCloseError 处理连接关闭错误
-func (c *Connection) handleCloseError(closeChanErr *amqp.Error, reconnectTip string) bool {
-	c.mutex.Lock()
-	c.isConnected = false
-	c.lastError = closeChanErr
-	c.lastErrorTime = time.Now()
-	c.mutex.Unlock()
+// handleCloseAndReconnect 处理连接关闭错误并执行重连
+// 返回值：true 表示继续监控（重连成功或需要继续重试），false 表示终止监控（超过最大重试或服务已退出）
+func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
+	// 1. 标记断开，记录错误
+	c.isConnected.Store(false)
+	c.lastConnErr.Store(&connError{err: mqCloseChanErr, time: time.Now()})
 
-	atomic.AddInt64(&c.reconnectCount, 1)
-	retryCount := c.GetReconnectCount(context.Background())
+	retryCount := c.reconnectCount.Add(1)
 
-	// 检查是否超过最大重试次数
+	// 2. 检查是否超过最大重试次数
 	if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
-		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] max retries exceeded, stopping reconnection attempts",
+		logger.WarnWithCtx(context.Background(), "[rabbitmq] max retries exceeded, stop reconnecting",
 			logger.Int64("retryCount", retryCount),
 			logger.Int("maxRetries", c.maxRetries),
-			logger.String("url", c.url))
-		return false // 停止重连
+			logger.String("url", maskURL(c.url)))
+		return false
 	}
 
-	// 记录错误日志（每10次重试记录一次）
+	// 3. 计算具备“指数退避 + 随机抖动”的等待时间
+	backoffFactor := float64(int(retryCount-1)/5 + 1) // 每失败5次，系数+1
+	if backoffFactor > 6 {
+		backoffFactor = 6 // 最大退避到 6 倍的基准时间（如 5s -> 30s）
+	}
+	baseWait := float64(c.reconnectTime) * backoffFactor
+	jitterRange := baseWait * 0.15 // ±15% 随机抖动
+	actualWaitDuration := time.Duration(baseWait + (rand.Float64()*2-1)*jitterRange)
+
+	// 4. 节流日志：每 10 次重试输出一次
 	if retryCount%10 == 1 {
-		if closeChanErr != nil {
-			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
-				logger.String("err", closeChanErr.Error()),
-				logger.Int64("retryCount", retryCount),
-				logger.String("url", c.url))
-		} else {
-			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] lost connection error",
-				logger.Int64("retryCount", retryCount),
-				logger.String("url", c.url))
-		}
-		logger.InfoWithCtx(context.Background(), reconnectTip,
+		fields := []logger.Field{
 			logger.Int64("retryCount", retryCount),
-			logger.String("url", c.url))
-	}
-
-	time.Sleep(c.reconnectTime)
-
-	// 重连
-	reconnectStart := time.Now()
-	amqpConn, amqpErr := connect(context.Background(), c)
-	reconnectDuration := time.Since(reconnectStart)
-
-	if amqpErr != nil {
-		if retryCount%10 == 1 {
-			logger.WarnWithCtx(context.Background(), "[rabbitmq connection] reconnect error",
-				logger.Err(amqpErr),
-				logger.Int64("retryCount", retryCount),
-				logger.String("url", c.url))
+			logger.Duration("reconnectIn", actualWaitDuration),
+			logger.String("url", maskURL(c.url)),
 		}
-		return true // 继续下一次循环尝试重连
+		if mqCloseChanErr != nil {
+			fields = append(fields, logger.String("err", mqCloseChanErr.Error()))
+		}
+		logger.WarnWithCtx(context.Background(), "[rabbitmq] connection lost, reconnecting...", fields...)
 	}
 
-	logger.InfoWithCtx(context.Background(), "[rabbitmq connection] reconnected successfully",
+	// 5. 可中断的等待：在等待期间如果外部调用了 Close()，立刻退出
+	select {
+	case <-c.connCloseCh:
+		logger.InfoWithCtx(context.Background(), "[rabbitmq] connection closing detected during retry wait, abort reconnect")
+		return false
+	case <-time.After(actualWaitDuration):
+	}
+
+	// 6. 带超时上下文的重连（支持被 Close 中断）
+	reconnectCtx, reconnectCancel := context.WithCancel(context.Background())
+	defer reconnectCancel()
+
+	// 监听关闭信号，一旦触发则取消重连
+	go func() {
+		select {
+		case <-c.connCloseCh:
+			reconnectCancel()
+		case <-reconnectCtx.Done():
+		}
+	}()
+
+	reconnectStart := time.Now()
+	amqpConn, err := getMqConnect(reconnectCtx, c)
+	if err != nil {
+		// 如果是因为外部 Close 导致的 context canceled，直接终止
+		if errors.Is(err, context.Canceled) {
+			return false
+		}
+		// 其他错误：记录日志，返回 true 让 monitor 继续下一次重试
+		if retryCount%10 == 1 {
+			logger.WarnWithCtx(context.Background(), "[rabbitmq] reconnect failed",
+				logger.Err(err),
+				logger.Int64("retryCount", retryCount),
+				logger.String("url", maskURL(c.url)))
+		}
+		return true
+	}
+
+	// 7. 重连成功：替换连接，清空错误快照
+	logger.InfoWithCtx(context.Background(), "[rabbitmq] reconnected",
 		logger.Int64("retryCount", retryCount),
-		logger.String("url", c.url),
-		logger.Duration("duration", reconnectDuration))
+		logger.String("url", maskURL(c.url)),
+		logger.Duration("cost", time.Since(reconnectStart)))
 
-	// 设置新连接
-	c.mutex.Lock()
-	c.isConnected = true
-	c.conn = amqpConn
-	c.blockChan = c.conn.NotifyBlocked(make(chan amqp.Blocking, 1))
-	c.closeChan = c.conn.NotifyClose(make(chan *amqp.Error, 1))
-	c.mutex.Unlock()
+	c.isConnected.Store(true)
+	c.mqConn.Store(amqpConn)
+	c.mqBlockChan = c.mqConn.Load().NotifyBlocked(make(chan amqp.Blocking, 1))
+	c.mqCloseChan = c.mqConn.Load().NotifyClose(make(chan *amqp.Error, 1))
 
-	return true // 继续监控
+	// 【改进】重连成功后清除错误快照，避免 GetLastError() 返回过期错误
+	c.lastConnErr.Store(nil)
+
+	return true
 }
 
-// monitor 监控连接状态
+// monitor 监控连接状态，在后台 goroutine 中运行
 func (c *Connection) monitor(_ context.Context) {
-	reconnectTip := fmt.Sprintf("[rabbitmq connection] lost connection, attempting reconnect in %s", c.reconnectTime)
-
 	for {
-		// 使用 defer/recover 防止 monitor goroutine 因异常而退出
-		func() {
+		// 1. 每次循环开始，先进行一次非阻塞的退出检查（确保能最快速度退出）
+		select {
+		case <-c.connCloseCh:
+			c.handleExitSignal()
+			return
+		default:
+		}
+
+		// 2. 核心事件监听与 Panic 保护
+		shouldExit := func() bool {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.WarnWithCtx(context.Background(), "[rabbitmq connection] monitor recovered from panic",
+					logger.WarnWithCtx(context.Background(), "[rabbitmq] monitor recovered from panic",
 						logger.Any("panic", r),
-						logger.String("url", c.url))
+						logger.String("url", maskURL(c.url)))
 				}
 			}()
 
 			select {
-			case <-c.exit:
-				c.handleExitSignal()
-				return
-			case b := <-c.blockChan:
+			case <-c.connCloseCh:
+				return true // ① 外部主动关闭
+			case b := <-c.mqBlockChan:
 				c.handleBlockNotification(b)
-			case closeChanErr := <-c.closeChan:
-				if !c.handleCloseError(closeChanErr, reconnectTip) {
-					return // 停止重连
+				return false // ② 阻塞通知，仅日志，继续监控
+			case mqCloseChanErr := <-c.mqCloseChan:
+				if !c.handleCloseAndReconnect(mqCloseChanErr) {
+					return true // ③ 重连失败/终止，退出
 				}
+				return false // ④ 重连成功/继续重试，继续监控
 			}
 		}()
 
-		// 防止过快重试
+		// 3. 检查内部匿名函数的退出指示
+		if shouldExit {
+			c.handleExitSignal()
+			return
+		}
+
+		// 4. 安全防抖：既能防止过快循环，又能【瞬间响应】退出信号！
 		select {
-		case <-c.exit:
+		case <-c.connCloseCh:
 			c.handleExitSignal()
 			return
 		case <-time.After(time.Millisecond * 100):
-			// 继续下一次循环
+			// 正常无事发生，等待 100ms 后进入下一次循环
 		}
 	}
 }
 
 // Close 关闭 RabbitMQ 连接
 func (c *Connection) Close() {
-	c.mutex.Lock()
-	if c.isConnected {
-		c.isConnected = false
-		close(c.exit)
+	// 原子 CAS 确保只关闭一次，无需外部锁
+	if c.isConnected.CompareAndSwap(true, false) {
+		close(c.connCloseCh)
 	}
-	c.mutex.Unlock()
 }
 
 // closeConn 关闭 AMQP 连接
 func (c *Connection) closeConn() error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.conn != nil && !c.conn.IsClosed() {
-		return c.conn.Close()
+	if conn := c.mqConn.Load(); conn != nil && !conn.IsClosed() {
+		return conn.Close()
 	}
-
 	return nil
 }
 
 // GetReconnectCount 获取重连次数
 func (c *Connection) GetReconnectCount(_ context.Context) int64 {
-	return atomic.LoadInt64(&c.reconnectCount)
+	return c.reconnectCount.Load()
+}
+
+// maskURL 脱敏 URL，隐藏用户名密码
+func maskURL(rawURL string) string {
+	if rawURL == "" {
+		return rawURL
+	}
+	prefix := ""
+	rest := rawURL
+	if idx := strings.Index(rawURL, "://"); idx != -1 {
+		prefix = rawURL[:idx+3]
+		rest = rawURL[idx+3:]
+	}
+	if idx := strings.Index(rest, "@"); idx != -1 {
+		return prefix + "***:***@" + rest[idx+1:]
+	}
+	return rawURL
 }
 
 // GetLastError 获取最后的错误信息
 func (c *Connection) GetLastError(_ context.Context) (time.Time, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	return c.lastErrorTime, c.lastError
+	if v := c.lastConnErr.Load(); v != nil {
+		return v.time, v.err
+	}
+	return time.Time{}, nil
 }
 
 // GetConnectionStatus 获取连接状态信息
 func (c *Connection) GetConnectionStatus(_ context.Context) map[string]interface{} {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
 	status := map[string]interface{}{
-		"connected":      c.isConnected && c.conn != nil && !c.conn.IsClosed(),
-		"reconnectCount": atomic.LoadInt64(&c.reconnectCount),
-		"url":            c.url,
+		"connected":      c.isConnected.Load() && c.mqConn.Load() != nil && !c.mqConn.Load().IsClosed(),
+		"reconnectCount": c.reconnectCount.Load(),
+		"url":            maskURL(c.url),
 		"maxRetries":     c.maxRetries,
+		"reconnectTime":  c.reconnectTime.String(),
 	}
 
-	if c.lastError != nil {
-		status["lastError"] = c.lastError.Error()
-		status["lastErrorTime"] = c.lastErrorTime
+	if v := c.lastConnErr.Load(); v != nil {
+		status["lastError"] = v.err.Error()
+		status["lastErrorTime"] = v.time
 	}
 
 	return status
@@ -421,11 +348,8 @@ func (c *Connection) GetConnectionStatus(_ context.Context) map[string]interface
 
 // GetConn 获取 AMQP 连接
 func (c *Connection) GetConn(_ context.Context) *amqp.Connection {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.conn != nil && !c.conn.IsClosed() {
-		return c.conn
+	if conn := c.mqConn.Load(); conn != nil && !conn.IsClosed() {
+		return conn
 	}
 	return nil
 }
