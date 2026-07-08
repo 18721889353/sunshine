@@ -26,7 +26,7 @@ type PubSubMessage struct {
 // 所有实现必须 goroutine 安全。
 //
 // 内置实现:
-//   - NewRabbitMQBackend(url, exchange) — 基于 RabbitMQ Direct 交换机
+//   - NewRabbitMQBackend(url, exchange) — 基于 RabbitMQ Fanout+Direct 交换机
 //
 // 可自行实现接入 Kafka / Redis Pub/Sub / NATS 等中间件。
 type Backend interface {
