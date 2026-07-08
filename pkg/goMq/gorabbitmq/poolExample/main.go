@@ -58,7 +58,7 @@ func main() {
 		go func(id int) {
 			defer wg.Done()
 
-			conn, getErr := pool.Get(ctx)
+			conn, getErr := pool.GetConn(ctx)
 			if getErr != nil {
 				logger.ErrorWithCtx(ctx, "Failed to get connection from pool", logger.Err(getErr))
 				return
@@ -81,13 +81,13 @@ func main() {
 	fmt.Println("\n--- Demo: context cancellation ---")
 	cancelCtx, demoCancel := context.WithCancel(context.Background())
 	demoCancel()
-	if _, getErr := pool.Get(cancelCtx); getErr != nil {
+	if _, getErr := pool.GetConn(cancelCtx); getErr != nil {
 		fmt.Printf("Get with cancelled context returned expected error: %v\n", getErr)
 	}
 
 	// 演示：放回已关闭的连接
 	fmt.Println("\n--- Demo: discard invalid connection ---")
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err == nil {
 		conn.Close()
 		if err := pool.Put(ctx, conn); err != nil {

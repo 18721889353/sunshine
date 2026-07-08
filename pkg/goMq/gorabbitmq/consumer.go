@@ -235,16 +235,16 @@ func (c *Consumer) initialize(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.conn.mu.Lock()
+	c.conn.ConnMu.Lock()
 
 	// 创建一个新的通道
 	channel, err := c.conn.mqConn.Load().Channel()
 	if err != nil {
-		c.conn.mu.Unlock()
+		c.conn.ConnMu.Unlock()
 		return err
 	}
 	c.ch = channel
-	c.conn.mu.Unlock()
+	c.conn.ConnMu.Unlock()
 
 	// 验证队列配置
 	if err := c.validateQueueConfig(); err != nil {

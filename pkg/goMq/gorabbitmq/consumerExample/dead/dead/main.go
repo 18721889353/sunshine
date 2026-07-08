@@ -51,7 +51,7 @@ func main() {
 			log.Printf("关闭连接池失败: %v", closeErr)
 		}
 	}()
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		logger.FatalWithCtx(ctx, "Failed to get connection from pool", logger.Err(err))
 	}

@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/panjf2000/ants/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -20,123 +20,27 @@ import (
 var (
 	// ErrPoolClosed 连接池已关闭时返回的错误
 	ErrPoolClosed = errors.New("pool is closed")
-	// ErrGetTimeout 获取连接超时时返回的错误
-	ErrGetTimeout = errors.New("get connection timeout")
 	// 连接在 3 秒内被使用过，则跳过深度验证
 	fastVerifyThreshold = 3 * time.Second
 )
 
-// PoolOption 连接池配置选项函数类型
-type PoolOption func(*poolOptions)
-
-// poolOptions 连接池配置选项
-type poolOptions struct {
-	initialCap        int                // 初始连接数
-	maxCap            int                // 最大连接数
-	maxIdle           time.Duration      // 连接最大空闲时间
-	connOpts          []ConnectionOption // 连接选项
-	antsCap           int                // ants协程池容量
-	healthCheckPeriod time.Duration      // 健康检查周期
-	enableTrace       bool               // 是否启用 Trace
-}
-
-// apply 应用连接池配置选项
-func (o *poolOptions) apply(opts ...PoolOption) {
-	for _, opt := range opts {
-		opt(o)
-	}
-}
-
-// defaultPoolOptions 默认连接池配置选项
-func defaultPoolOptions() *poolOptions {
-	return &poolOptions{
-		initialCap:        5,
-		maxCap:            30,
-		maxIdle:           time.Minute * 10,
-		connOpts:          []ConnectionOption{},
-		antsCap:           0,
-		healthCheckPeriod: time.Minute,
-		enableTrace:       true,
-	}
-}
-
-// WithInitialCap 设置初始连接数
-func WithInitialCap(initialCap int) PoolOption {
-	return func(o *poolOptions) {
-		if initialCap > 0 {
-			o.initialCap = initialCap
-		}
-	}
-}
-
-// WithMaxCap 设置最大连接数
-func WithMaxCap(maxCap int) PoolOption {
-	return func(o *poolOptions) {
-		if maxCap > 0 {
-			o.maxCap = maxCap
-		}
-	}
-}
-
-// WithMaxIdle 设置连接最大空闲时间
-func WithMaxIdle(d time.Duration) PoolOption {
-	return func(o *poolOptions) {
-		if d > 0 {
-			o.maxIdle = d
-		}
-	}
-}
-
-// WithConnOptions 设置连接选项
-func WithConnOptions(connOpts ...ConnectionOption) PoolOption {
-	return func(o *poolOptions) {
-		o.connOpts = connOpts
-	}
-}
-
-// WithAntsPoolSize 设置ants协程池大小
-func WithAntsPoolSize(antsCap int) PoolOption {
-	return func(o *poolOptions) {
-		if antsCap >= 0 {
-			o.antsCap = antsCap
-		}
-	}
-}
-
-// WithHealthCheckPeriod 设置健康检查周期
-func WithHealthCheckPeriod(d time.Duration) PoolOption {
-	return func(o *poolOptions) {
-		if d > 0 {
-			o.healthCheckPeriod = d
-		}
-	}
-}
-
-// WithTraceEnabled 启用或禁用 Trace
-func WithTraceEnabled(enabled bool) PoolOption {
-	return func(o *poolOptions) {
-		o.enableTrace = enabled
-	}
-}
-
 // poolConn 连接池中的连接
 type poolConn struct {
-	conn       *Connection // RabbitMQ 连接
+	connInfo   *Connection // RabbitMQ 连接
 	createTime time.Time   // 创建时间
 	lastUsed   time.Time   // 最后使用时间
 }
 
 // Pool 连接池结构
 type Pool struct {
-	mutex      sync.Mutex   // 互斥锁
-	cond       *sync.Cond   // 条件变量
-	conns      []*poolConn  // 连接池中的连接列表
-	url        string       // 连接 URL
-	poolOpts   *poolOptions // 连接池配置选项
-	closed     bool         // 连接池是否已关闭
-	totalConns atomic.Int64 // 原子计数器，跟踪总连接数
-	antsPool   *ants.Pool   // ants协程池，用于处理后台任务
-	tracer     trace.Tracer // OpenTelemetry tracer
+	poolMu      sync.Mutex    // 互斥锁
+	url         string        // 连接 URL
+	poolOpts    *poolOptions  // 连接池配置选项
+	poolConns   []*poolConn   // 连接池中的连接列表
+	connReadyCh chan struct{} // 连接可用信号（缓冲 1，select 安全唤醒）
+	isClosed    atomic.Bool   // 连接池是否已关闭
+	totalConns  atomic.Int64  // 原子计数器，跟踪总连接数
+	tracer      trace.Tracer  // OpenTelemetry tracer
 }
 
 // NewPool 创建新的连接池
@@ -144,37 +48,20 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 	if url == "" {
 		return nil, errors.New("url is empty")
 	}
-
-	poolOpts := defaultPoolOptions()
-	poolOpts.apply(opts...)
-
-	// 创建ants协程池
-	var antsPool *ants.Pool
-	var err error
-	if poolOpts.antsCap > 0 {
-		antsPool, err = ants.NewPool(poolOpts.antsCap)
-	} else {
-		// 使用ants库的默认配置
-		antsPool, err = ants.NewPool(-1)
-	}
-
-	if err != nil {
-		return nil, err
-	}
+	o := defaultPoolOptions()
+	o.apply(opts...)
 
 	p := &Pool{
-		conns:    make([]*poolConn, 0, poolOpts.maxCap),
-		url:      url,
-		poolOpts: poolOpts,
-		antsPool: antsPool,
-		tracer:   otel.Tracer("gorabbitmq"), // 初始化 tracer
+		poolConns:   make([]*poolConn, 0, o.maxCap),
+		url:         url,
+		poolOpts:    o,
+		connReadyCh: make(chan struct{}, 1),
+		tracer:      otel.Tracer("gorabbitmq"),
 	}
 
-	p.cond = sync.NewCond(&p.mutex)
-
 	// 初始化连接
-	for i := 0; i < poolOpts.initialCap; i++ {
-		conn, err := NewConnection(ctx, url, poolOpts.connOpts...)
+	for i := 0; i < o.initialCap; i++ {
+		conn, err := NewConnection(ctx, url, o.connOpts...)
 		if err != nil {
 			// 关闭已经创建的连接
 			if closeErr := p.Close(ctx); closeErr != nil {
@@ -183,41 +70,45 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 			return nil, err
 		}
 
-		p.conns = append(p.conns, &poolConn{
-			conn:       conn,
+		p.poolConns = append(p.poolConns, &poolConn{
+			connInfo:   conn,
 			createTime: time.Now(),
 			lastUsed:   time.Now(),
 		})
 		p.totalConns.Add(1)
 	}
 
-	// 启动空闲连接清理协程
-	go p.idleCleanup(ctx)
-
-	//pool.poolOpts.zapLog.Info("[rabbitmq pool] created successfully",
-	//	logger.String("url", url),
-	//	logger.Int("initialCap", poolOpts.initialCap),
-	//	logger.Int("maxCap", poolOpts.maxCap),
-	//	logger.Duration("healthCheckPeriod", poolOpts.healthCheckPeriod))
+	// 启动空闲连接清理协程（使用 WithoutCancel 隔离调用方 ctx 的取消信号）
+	go p.idleCleanup(context.WithoutCancel(ctx))
 
 	return p, nil
 }
 
-// popFromPoolLocked 从池中弹出最后一个连接（调用方必须持有锁）
+// getConnFromPool 从池中取出一个连接（调用方必须持有锁）
 // 返回 nil 表示池为空
-func (p *Pool) popFromPoolLocked() *poolConn {
-	if len(p.conns) == 0 {
+func (p *Pool) getConnFromPool() *poolConn {
+	if len(p.poolConns) == 0 {
 		return nil
 	}
-	lastIdx := len(p.conns) - 1
-	pc := p.conns[lastIdx]
-	p.conns = p.conns[:lastIdx]
+	lastIdx := len(p.poolConns) - 1
+	pc := p.poolConns[lastIdx]
+	p.poolConns = p.poolConns[:lastIdx]
 	return pc
 }
 
-// isConnectionUsable 检查连接是否可用
-func isConnectionUsable(ctx context.Context, pc *poolConn) bool {
-	if !pc.conn.CheckConnected(ctx) {
+// checkConnected 检查连接是否可用。
+// 采用两级验证策略：
+//   - 快速路径：近期使用过的连接（3 秒内）仅检查本地状态，无需网络交互
+//   - 完整路径：闲置超过 3 秒的连接创建临时 AMQP channel 做深度验证
+//
+// 参数:
+//   - ctx: 上下文，用于日志追踪
+//   - pc: 池内连接对象
+//
+// 返回:
+//   - bool: true 表示连接可用
+func checkConnected(ctx context.Context, pc *poolConn) bool {
+	if !pc.connInfo.CheckConnected(ctx) {
 		return false
 	}
 	// 近期使用过的连接跳过深度验证
@@ -225,7 +116,7 @@ func isConnectionUsable(ctx context.Context, pc *poolConn) bool {
 		return true
 	}
 	// 深度验证：创建临时 channel 确认连接可用
-	amqpConn := pc.conn.GetConn(ctx)
+	amqpConn := pc.connInfo.GetConn(ctx)
 	if amqpConn == nil {
 		return false
 	}
@@ -234,18 +125,18 @@ func isConnectionUsable(ctx context.Context, pc *poolConn) bool {
 		return false
 	}
 	if closeErr := ch.Close(); closeErr != nil {
-		logger.WarnWithCtx(context.Background(), "verify connection: close temp channel failed",
+		logger.WarnWithCtx(ctx, "verify connection: close temp channel failed",
 			logger.Err(closeErr),
 		)
 	}
 	return true
 }
 
-// Get 从连接池获取一个连接
+// GetConn 从连接池获取一个连接
 // 锁管理策略：Get 全程集中管理 mutex，辅助函数不碰锁
 //
 //nolint:gocognit // 认知复杂度略高于阈值，函数逻辑已有清晰阶段划分
-func (p *Pool) Get(ctx context.Context) (*Connection, error) {
+func (p *Pool) GetConn(ctx context.Context) (*Connection, error) {
 	var span trace.Span
 	if p.poolOpts.enableTrace {
 		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.get", trace.WithSpanKind(trace.SpanKindClient))
@@ -254,9 +145,9 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 
 	startTime := time.Now()
 	for {
-		p.mutex.Lock()
-		if p.closed {
-			p.mutex.Unlock()
+		p.poolMu.Lock()
+		if p.isClosed.Load() {
+			p.poolMu.Unlock()
 			if span != nil {
 				span.RecordError(ErrPoolClosed)
 				span.SetStatus(codes.Error, ErrPoolClosed.Error())
@@ -265,11 +156,11 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 		}
 
 		// 阶段 1: 从池中弹出连接（持有锁）
-		if pc := p.popFromPoolLocked(); pc != nil {
-			p.mutex.Unlock()
-			if isConnectionUsable(ctx, pc) {
+		if pConn := p.getConnFromPool(); pConn != nil {
+			p.poolMu.Unlock()
+			if checkConnected(ctx, pConn) {
 				if span != nil {
-					isFresh := time.Since(pc.lastUsed) < fastVerifyThreshold
+					isFresh := time.Since(pConn.lastUsed) < fastVerifyThreshold
 					verifyType := "full"
 					if isFresh {
 						verifyType = "fast"
@@ -281,10 +172,10 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 					)
 					span.AddEvent(fmt.Sprintf("connection acquired from pool (%s path)", verifyType))
 				}
-				return pc.conn, nil
+				return pConn.connInfo, nil
 			}
 			// 连接不可用，销毁并继续
-			pc.conn.Close()
+			pConn.connInfo.Close()
 			p.totalConns.Add(-1)
 			if span != nil {
 				span.AddEvent("stale connection discarded")
@@ -295,8 +186,7 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 		// 阶段 2: 池空，尝试创建新连接（持有锁检查容量）
 		if int(p.totalConns.Load()) < p.poolOpts.maxCap {
 			p.totalConns.Add(1)
-			p.mutex.Unlock()
-
+			p.poolMu.Unlock()
 			if span != nil {
 				span.AddEvent("creating new connection")
 			}
@@ -327,42 +217,35 @@ func (p *Pool) Get(ctx context.Context) (*Connection, error) {
 }
 
 // waitForConnection 在池满时等待可用连接
-// 调用方必须持有 mutex，返回后 mutex 已释放
+// 调用方必须持有 poolMu，返回后 poolMu 已释放
 func (p *Pool) waitForConnection(ctx context.Context, span trace.Span) error {
 	if span != nil {
 		span.AddEvent("waiting for available connection")
 	}
-	// 先检查 ctx 是否已取消，避免已取消 ctx 的 Signal 在 Wait 前丢失导致死锁
-	if ctx.Err() != nil {
-		p.mutex.Unlock()
+	p.poolMu.Unlock()
+
+	select {
+	case <-p.connReadyCh:
+		// 有连接被归还，回 Get 重新尝试
+		return nil
+	case <-ctx.Done():
 		if span != nil {
 			span.RecordError(ctx.Err())
 			span.SetStatus(codes.Error, ctx.Err().Error())
 		}
 		return ctx.Err()
 	}
-	waitDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			p.cond.Signal()
-		case <-waitDone:
-		}
-	}()
-	p.cond.Wait()
-	close(waitDone)
-	p.mutex.Unlock()
-	if ctx.Err() != nil {
-		if span != nil {
-			span.RecordError(ctx.Err())
-			span.SetStatus(codes.Error, ctx.Err().Error())
-		}
-		return ctx.Err()
-	}
-	return nil
 }
 
-// calculateRetryDelay 计算重试延迟时间
+// calculateRetryDelay 计算重试延迟时间，采用指数退避策略。
+//   - attempt=0 → 100ms, attempt=1 → 200ms, attempt=2 → 400ms, ...
+//   - 最大延迟上限 3 秒
+//
+// 参数:
+//   - attempt: 当前重试次数（从 0 开始）
+//
+// 返回:
+//   - time.Duration: 退避后的基础延迟时间（不含随机抖动）
 func calculateRetryDelay(attempt int) time.Duration {
 	delay := time.Duration(1<<uint(attempt)) * time.Millisecond * 100
 	if delay > time.Second*3 {
@@ -371,9 +254,21 @@ func calculateRetryDelay(attempt int) time.Duration {
 	return delay
 }
 
-// handleGetRetry 处理单次获取连接的重试逻辑
-func (p *Pool) handleGetRetry(ctx context.Context, i, maxRetries int, span trace.Span) (*Connection, bool, error) {
-	conn, err := p.Get(ctx)
+// handleGetConnRetry 执行单次 GetConn 并处理重试逻辑。
+// 参数:
+//   - ctx: 上下文，用于超时控制
+//   - i: 当前尝试次数（从 0 开始）
+//   - maxRetries: 最大重试次数
+//   - span: OpenTelemetry trace span，用于记录重试事件
+//
+// 返回:
+//   - *Connection: 成功时返回连接
+//   - bool: true 表示调用方需要继续重试，false 表示停止
+//   - error: 失败时的错误信息
+//
+// handleGetConnRetry 处理单次获取连接的重试逻辑
+func (p *Pool) handleGetConnRetry(ctx context.Context, i, maxRetries int, span trace.Span) (*Connection, bool, error) {
+	conn, err := p.GetConn(ctx)
 	if err == nil {
 		if span != nil {
 			span.SetAttributes(
@@ -381,7 +276,7 @@ func (p *Pool) handleGetRetry(ctx context.Context, i, maxRetries int, span trace
 			)
 			span.AddEvent("connection acquired after retries")
 		}
-		return conn, false, nil // 成功，不需要继续重试
+		return conn, false, nil
 	}
 
 	// 如果是连接池关闭错误，则不重试
@@ -390,36 +285,50 @@ func (p *Pool) handleGetRetry(ctx context.Context, i, maxRetries int, span trace
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "pool closed")
 		}
-		return nil, false, err // 失败，停止重试
+		return nil, false, err
 	}
 
-	// 指数退避延迟
-	if i < maxRetries {
-		delay := calculateRetryDelay(i)
+	// 最后一次尝试失败后不再退避
+	if i >= maxRetries {
+		return nil, false, err
+	}
 
+	// 指数退避 + 随机抖动，避免惊群效应
+	delay := calculateRetryDelay(i)
+	jitterRange := float64(delay) * 0.15
+	actualDelay := time.Duration(float64(delay) + (rand.Float64()*2-1)*jitterRange)
+
+	if span != nil {
+		span.AddEvent(fmt.Sprintf("waiting %.0fms before retry", float64(actualDelay.Milliseconds())))
+	}
+
+	timer := time.NewTimer(actualDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
 		if span != nil {
-			span.AddEvent(fmt.Sprintf("waiting %.0fms before retry", float64(delay.Milliseconds())))
+			span.RecordError(ctx.Err())
+			span.SetStatus(codes.Error, ctx.Err().Error())
 		}
-
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			if span != nil {
-				span.RecordError(ctx.Err())
-				span.SetStatus(codes.Error, ctx.Err().Error())
-			}
-			return nil, false, ctx.Err()
-		case <-timer.C:
-			timer.Stop()
-		}
+		return nil, false, ctx.Err()
+	case <-timer.C:
 	}
 
-	return nil, true, err // 失败，需要继续重试
+	return nil, true, err
 }
 
-// GetWithRetry 从连接池获取一个连接，带重试机制
-func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, error) {
+// GetConnWithRetry 从连接池获取一个连接，失败时按指数退避+随机抖动重试。
+// 重试过程中遇到 ErrPoolClosed 或 ctx 取消时立即停止。
+// 参数:
+//   - ctx: 上下文，用于控制重试生命周期
+//   - maxRetries: 最大重试次数（额外尝试次数，总共执行 maxRetries+1 次 Get）
+//
+// 返回:
+//   - *Connection: 成功时返回可用连接
+//   - error: 全部重试耗尽后返回最后一次错误
+//
+// GetConnWithRetry 从连接池获取一个连接，带重试机制
+func (p *Pool) GetConnWithRetry(ctx context.Context, maxRetries int) (*Connection, error) {
 	var span trace.Span
 	if p.poolOpts.enableTrace {
 		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.get_with_retry", trace.WithSpanKind(trace.SpanKindClient))
@@ -435,7 +344,7 @@ func (p *Pool) GetWithRetry(ctx context.Context, maxRetries int) (*Connection, e
 			span.AddEvent(fmt.Sprintf("retry attempt %d/%d", i, maxRetries))
 		}
 
-		conn, shouldContinue, err := p.handleGetRetry(ctx, i, maxRetries, span)
+		conn, shouldContinue, err := p.handleGetConnRetry(ctx, i, maxRetries, span)
 		if !shouldContinue {
 			return conn, err
 		}
@@ -464,9 +373,9 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 		return nil
 	}
 
-	p.mutex.Lock()
-	if p.closed || !conn.CheckConnected(ctx) {
-		p.mutex.Unlock()
+	p.poolMu.Lock()
+	defer p.poolMu.Unlock()
+	if p.isClosed.Load() || !conn.CheckConnected(ctx) {
 		p.totalConns.Add(-1)
 		conn.Close()
 		if span != nil {
@@ -477,22 +386,24 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 	}
 
 	// 更新最后使用时间，配合 Get 中的 fastVerifyThreshold
-	pc := &poolConn{
-		conn:     conn,
+	pConn := &poolConn{
+		connInfo: conn,
 		lastUsed: time.Now(),
 	}
-	p.conns = append(p.conns, pc)
+	p.poolConns = append(p.poolConns, pConn)
 
 	if span != nil {
 		span.SetAttributes(
-			attribute.Int("rabbitmq.pool.size", len(p.conns)),
+			attribute.Int("rabbitmq.pool.size", len(p.poolConns)),
 			attribute.Bool("rabbitmq.pool.connection_returned", true),
 		)
 		span.AddEvent("connection returned to pool")
 	}
-	// 唤醒 Get 中的 Wait
-	p.cond.Signal()
-	p.mutex.Unlock()
+	// 唤醒等待的 Get
+	select {
+	case p.connReadyCh <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -500,68 +411,61 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 func (p *Pool) idleCleanup(ctx context.Context) {
 	ticker := time.NewTicker(p.poolOpts.healthCheckPeriod)
 	defer ticker.Stop()
-
 	for {
-		if err := func() error {
+		if p.isClosed.Load() {
+			return
+		}
+		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.WarnWithCtx(context.Background(), "[rabbitmq pool] idleCleanup recovered from panic",
+					logger.WarnWithCtx(ctx, "[rabbitmq pool] idleCleanup recovered from panic",
 						logger.Any("panic", r))
 				}
 			}()
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-				return p.antsPool.Submit(func() {
-					p.doCleanup(ctx)
-					p.HealthCheck(ctx)
-				})
-			}
-		}(); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
-			fmt.Printf("submit cleanup task error: %v\n", err)
-		}
+			<-ticker.C
+			p.cleanup(ctx)
+		}()
 	}
 }
 
-// doCleanup 实际执行清理工作的函数
-func (p *Pool) doCleanup(ctx context.Context) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+// cleanup 清理空闲和无效连接（一次加锁完成两件事）
+func (p *Pool) cleanup(ctx context.Context) {
+	p.poolMu.Lock()
+	defer p.poolMu.Unlock()
 
-	if p.closed {
+	if p.isClosed.Load() {
 		return
 	}
 
 	now := time.Now()
-	// 保留的连接数不能少于初始容量
 	minKeep := p.poolOpts.initialCap
-	if minKeep > len(p.conns) {
-		minKeep = len(p.conns)
-	}
-
-	// 从后往前遍历，移除空闲时间过长的连接
 	removedCount := 0
-	for i := len(p.conns) - 1; i >= minKeep; i-- {
-		pc := p.conns[i]
-		if now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
-			// 关闭连接
-			pc.conn.Close()
+
+	for i := 0; i < len(p.poolConns); {
+		pc := p.poolConns[i]
+		// 优先移除不可用连接，不受 minKeep 限制
+		if !checkConnected(ctx, pc) {
+			pc.connInfo.Close()
 			p.totalConns.Add(-1)
-			// 从池中移除
-			p.conns = append(p.conns[:i], p.conns[i+1:]...)
+			p.poolConns = append(p.poolConns[:i], p.poolConns[i+1:]...)
 			removedCount++
+			continue
 		}
+		// 再移除超时空闲连接，受 minKeep 限制
+		if len(p.poolConns) > minKeep && now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
+			pc.connInfo.Close()
+			p.totalConns.Add(-1)
+			p.poolConns = append(p.poolConns[:i], p.poolConns[i+1:]...)
+			removedCount++
+			continue
+		}
+		i++
 	}
 
 	if removedCount > 0 {
-		logger.InfoWithCtx(ctx, "[rabbitmq pool] cleanup completed",
+		logger.InfoWithCtx(ctx, "[rabbitmq pool] cleanup removed idle/invalid connections",
 			logger.Int("removed_count", removedCount),
-			logger.Int("remaining_pool_size", len(p.conns)))
+			logger.Int("remaining_pool_size", len(p.poolConns)))
 	}
 }
 
@@ -573,33 +477,30 @@ func (p *Pool) Close(ctx context.Context) error {
 		defer span.End()
 	}
 
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	p.poolMu.Lock()
+	defer p.poolMu.Unlock()
 
-	if p.closed {
+	if p.isClosed.Load() {
 		if span != nil {
 			span.SetStatus(codes.Ok, "already closed")
 		}
 		return nil
 	}
 
-	p.closed = true
+	p.isClosed.Store(true)
 
 	// 关闭所有连接
 	closedCount := 0
-	for _, pc := range p.conns {
-		pc.conn.Close()
+	for _, pc := range p.poolConns {
+		pc.connInfo.Close()
 		p.totalConns.Add(-1)
 		closedCount++
 	}
 
-	p.conns = nil
+	p.poolConns = nil
 
-	// 通知所有等待的goroutine
-	p.cond.Broadcast()
-
-	// 释放ants协程池资源
-	p.antsPool.Release()
+	// 关闭信号通道，唤醒所有等待的 Get
+	close(p.connReadyCh)
 
 	if span != nil {
 		span.SetAttributes(
@@ -613,52 +514,24 @@ func (p *Pool) Close(ctx context.Context) error {
 
 // Stats 返回连接池统计信息
 func (p *Pool) Stats(ctx context.Context) map[string]interface{} {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
+	p.poolMu.Lock()
+	defer p.poolMu.Unlock()
 
 	// 计算可用连接数
 	available := 0
-	for _, pc := range p.conns {
-		if pc.conn.CheckConnected(ctx) {
+	for _, pc := range p.poolConns {
+		if pc.connInfo.CheckConnected(ctx) {
 			available++
 		}
 	}
 
 	stats := map[string]interface{}{
-		"totalConns":      p.totalConns.Load(),
-		"available":       available,
-		"poolSize":        len(p.conns),
-		"maxCap":          p.poolOpts.maxCap,
-		"closed":          p.closed,
-		"antsPoolRunning": p.antsPool.Running(),
-		"antsPoolCap":     p.antsPool.Cap(),
+		"totalConns": p.totalConns.Load(),
+		"available":  available,
+		"poolSize":   len(p.poolConns),
+		"maxCap":     p.poolOpts.maxCap,
+		"closed":     p.isClosed.Load(),
 	}
 
 	return stats
-}
-
-// HealthCheck 健康检查所有连接，移除无效连接
-func (p *Pool) HealthCheck(ctx context.Context) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
-	if p.closed {
-		return
-	}
-
-	removedCount := 0
-	for i := len(p.conns) - 1; i >= 0; i-- {
-		pc := p.conns[i]
-		if !isConnectionUsable(ctx, pc) {
-			pc.conn.Close()
-			p.totalConns.Add(-1)
-			p.conns = append(p.conns[:i], p.conns[i+1:]...)
-			removedCount++
-		}
-	}
-
-	if removedCount > 0 {
-		logger.InfoWithCtx(ctx, "[rabbitmq pool] health check removed invalid connections",
-			logger.Int("removedCount", removedCount))
-	}
 }

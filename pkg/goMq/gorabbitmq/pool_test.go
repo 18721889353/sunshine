@@ -44,7 +44,7 @@ func TestPool_GetPut(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// 获取连接
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestPool_ConcurrentGetPut(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				conn, err := pool.Get(ctx)
+				conn, err := pool.GetConn(ctx)
 				if err != nil {
 					t.Errorf("Get failed: %v", err)
 					return
@@ -128,7 +128,7 @@ func TestPool_GetContextCancel(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// 借出唯一的连接
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("first Get failed: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestPool_GetContextCancel(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel() // 立即取消
 
-	_, err = pool.Get(cancelCtx)
+	_, err = pool.GetConn(cancelCtx)
 	if err == nil {
 		t.Error("expected error on cancelled context, got nil")
 	}
@@ -168,7 +168,7 @@ func TestPool_PutInvalidConnection(t *testing.T) {
 	initialTotal := initialStats["totalConns"].(int64)
 
 	// 获取连接
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestPool_ConnectionReuse(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// 第一次获取
-	conn1, err := pool.Get(ctx)
+	conn1, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("first Get failed: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestPool_ConnectionReuse(t *testing.T) {
 	}
 
 	// 再次获取 — 连接应来自池中（池中只有一个）
-	conn2, err := pool.Get(ctx)
+	conn2, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("second Get failed: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestPool_CloseWhileWaiting(t *testing.T) {
 	)
 
 	// 借出唯一的连接，池变空
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestPool_CloseWhileWaiting(t *testing.T) {
 	// 在 goroutine 中执行第二个 Get（会等待），然后关闭池
 	waitErrCh := make(chan error, 1)
 	go func() {
-		_, err := pool.Get(ctx)
+		_, err := pool.GetConn(ctx)
 		waitErrCh <- err
 	}()
 
@@ -318,7 +318,7 @@ func TestPool_PutAfterClose(t *testing.T) {
 	)
 
 	// 借出连接
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestPool_PutWakesUpWaiter(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// 借出唯一的连接
-	conn1, err := pool.Get(ctx)
+	conn1, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("first Get failed: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestPool_PutWakesUpWaiter(t *testing.T) {
 	// 启动 goroutine 等待第二个连接
 	gotConn := make(chan *Connection, 1)
 	go func() {
-		c, err := pool.Get(ctx)
+		c, err := pool.GetConn(ctx)
 		if err != nil {
 			t.Errorf("waiter Get failed: %v", err)
 			return
@@ -418,7 +418,7 @@ func TestPool_MaxCapExhausted(t *testing.T) {
 	// 全部借出
 	conns := make([]*Connection, 0, 2)
 	for i := 0; i < 2; i++ {
-		c, err := pool.Get(ctx)
+		c, err := pool.GetConn(ctx)
 		if err != nil {
 			t.Fatalf("Get failed when borrowing all: %v", err)
 		}
@@ -465,7 +465,7 @@ func TestPool_GetBlocksWhenExhausted(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// 借出唯一的连接，池变空+已达 maxCap
-	borrowed, err := pool.Get(ctx)
+	borrowed, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("first Get failed: %v", err)
 	}
@@ -479,7 +479,7 @@ func TestPool_GetBlocksWhenExhausted(t *testing.T) {
 	}()
 
 	// 此时池空且满，Get 应阻塞直到 Put 归还
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("Get after Put failed: %v", err)
@@ -506,7 +506,7 @@ func TestPool_GetWithRetry(t *testing.T) {
 	)
 	defer pool.Close(ctx)
 
-	conn, err := pool.GetWithRetry(ctx, 3)
+	conn, err := pool.GetConnWithRetry(ctx, 3)
 	if err != nil {
 		t.Fatalf("GetWithRetry failed: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestPool_ZeroInitialCap(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// Get 应正常工作
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestPool_DoublePut(t *testing.T) {
 	)
 	defer pool.Close(ctx)
 
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -635,7 +635,7 @@ func TestPool_GetAfterClose(t *testing.T) {
 
 	pool.Close(ctx)
 
-	_, err := pool.Get(ctx)
+	_, err := pool.GetConn(ctx)
 	if err != ErrPoolClosed {
 		t.Errorf("expected ErrPoolClosed after close, got %v", err)
 	}
@@ -657,7 +657,7 @@ func TestPool_GetWithRetryExhausted(t *testing.T) {
 	defer pool.Close(ctx)
 
 	// 借出唯一连接，池满
-	conn, err := pool.Get(ctx)
+	conn, err := pool.GetConn(ctx)
 	if err != nil {
 		t.Fatalf("first Get failed: %v", err)
 	}
@@ -666,7 +666,7 @@ func TestPool_GetWithRetryExhausted(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = pool.GetWithRetry(cancelCtx, 3)
+	_, err = pool.GetConnWithRetry(cancelCtx, 3)
 	if err == nil {
 		t.Error("expected error from GetWithRetry with cancelled ctx, got nil")
 	} else {
@@ -693,7 +693,7 @@ func TestPool_SignalWakesOneWaiter(t *testing.T) {
 
 	conns := make([]*Connection, 2)
 	for i := 0; i < 2; i++ {
-		c, err := pool.Get(ctx)
+		c, err := pool.GetConn(ctx)
 		if err != nil {
 			t.Fatalf("Get %d failed: %v", i, err)
 		}
@@ -707,7 +707,7 @@ func TestPool_SignalWakesOneWaiter(t *testing.T) {
 	for i := 0; i < waiters; i++ {
 		go func() {
 			defer wg.Done()
-			c, err := pool.Get(ctx)
+			c, err := pool.GetConn(ctx)
 			if err != nil {
 				t.Errorf("waiter Get failed: %v", err)
 				return
@@ -730,6 +730,142 @@ func TestPool_SignalWakesOneWaiter(t *testing.T) {
 	wg.Wait()
 }
 
+// ---------------------------------------------------------------------------
+// 边界：Close 应唤醒所有等待者，而非仅一个
+// ---------------------------------------------------------------------------
+
+func TestPool_CloseWakesMultipleWaiters(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool := newTestPool(t, ctx,
+		WithInitialCap(2),
+		WithMaxCap(2),
+		WithConnOptions(defaultTestConnOpts...),
+	)
+
+	// 全部借出
+	conns := make([]*Connection, 2)
+	for i := 0; i < 2; i++ {
+		c, err := pool.GetConn(ctx)
+		if err != nil {
+			t.Fatalf("Get %d failed: %v", i, err)
+		}
+		conns[i] = c
+	}
+
+	// 3 个 goroutine 等待
+	const waiters = 3
+	var doneCount int32
+	var wg sync.WaitGroup
+	wg.Add(waiters)
+	for i := 0; i < waiters; i++ {
+		go func() {
+			defer wg.Done()
+			_, err := pool.GetConn(ctx)
+			if err != nil {
+				atomic.AddInt32(&doneCount, 1)
+			}
+		}()
+	}
+
+	time.Sleep(time.Millisecond * 50)
+
+	// Close 应唤醒所有等待者
+	pool.Close(ctx)
+	wg.Wait()
+
+	if n := atomic.LoadInt32(&doneCount); n != waiters {
+		t.Errorf("expected all %d waiters to get error on Close, got %d", waiters, n)
+	}
+
+	// 归还借出的连接（池已关闭，安全丢弃）
+	for _, c := range conns {
+		pool.Put(ctx, c)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 边界：归还无效连接后重新 Get，应自动创建新连接
+// ---------------------------------------------------------------------------
+
+func TestPool_StaleConnectionDiscardedAndNewCreated(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool := newTestPool(t, ctx,
+		WithInitialCap(1),
+		WithMaxCap(2),
+		WithConnOptions(defaultTestConnOpts...),
+	)
+	defer pool.Close(ctx)
+
+	// 获取连接
+	conn1, err := pool.GetConn(ctx)
+	if err != nil {
+		t.Fatalf("first Get failed: %v", err)
+	}
+
+	// 关闭它（模拟连接失效）
+	conn1.Close()
+
+	// 放回已关闭的连接 → 池应丢弃它
+	if err := pool.Put(ctx, conn1); err != nil {
+		t.Fatalf("Put failed: %v", err)
+	}
+
+	// 再次获取 → 池会创建新连接（池中无可用连接）
+	conn2, err := pool.GetConn(ctx)
+	if err != nil {
+		t.Fatalf("second Get failed: %v", err)
+	}
+	if conn2 == conn1 {
+		t.Error("expected a new connection, got the stale one")
+	}
+	if !conn2.CheckConnected(ctx) {
+		t.Error("new connection should be connected")
+	}
+	pool.Put(ctx, conn2)
+}
+
+// ---------------------------------------------------------------------------
+// 边界：GetConnWithRetry 在池恢复后重试成功
+// ---------------------------------------------------------------------------
+
+func TestPool_RetrySucceedsAfterPoolRecovers(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pool := newTestPool(t, ctx,
+		WithInitialCap(1),
+		WithMaxCap(1),
+		WithConnOptions(defaultTestConnOpts...),
+	)
+	defer pool.Close(ctx)
+
+	// 借出唯一连接，池满
+	borrowed, err := pool.GetConn(ctx)
+	if err != nil {
+		t.Fatalf("first Get failed: %v", err)
+	}
+
+	// 异步归还连接（100ms 后）
+	go func() {
+		time.Sleep(time.Millisecond * 100)
+		pool.Put(ctx, borrowed)
+	}()
+
+	// 带重试获取 — 应在池恢复后成功
+	conn, err := pool.GetConnWithRetry(ctx, 3)
+	if err != nil {
+		t.Fatalf("GetConnWithRetry failed after pool recovered: %v", err)
+	}
+	if conn == nil {
+		t.Fatal("GetConnWithRetry returned nil")
+	}
+	pool.Put(ctx, conn)
+}
+
 // ===================================================================
 // 基准测试
 // ===================================================================
@@ -749,7 +885,7 @@ func BenchmarkPool_GetPut(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		conn, err := pool.Get(ctx)
+		conn, err := pool.GetConn(ctx)
 		if err != nil {
 			b.Fatalf("Get failed: %v", err)
 		}
@@ -776,7 +912,7 @@ func BenchmarkPool_Concurrent(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			conn, err := pool.Get(ctx)
+			conn, err := pool.GetConn(ctx)
 			if err != nil {
 				b.Errorf("Get failed: %v", err)
 				continue
@@ -816,7 +952,7 @@ func BenchmarkPool_DifferentSizes(b *testing.B) {
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				conn, err := pool.Get(ctx)
+				conn, err := pool.GetConn(ctx)
 				if err != nil {
 					b.Fatalf("Get failed: %v", err)
 				}

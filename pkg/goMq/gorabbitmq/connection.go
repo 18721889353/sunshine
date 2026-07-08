@@ -23,10 +23,10 @@ type connError struct {
 
 // Connection RabbitMQ 连接结构体
 type Connection struct {
-	mu sync.RWMutex
+	ConnMu sync.RWMutex
 
 	// 连接配置（嵌入 connectionOptions，消除字段重复）
-	connectionOptions
+	*connectionOptions
 
 	url         string        // 连接 URL
 	connCloseCh chan struct{} // 连接关闭信号通道
@@ -51,7 +51,7 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 	o.apply(opts...)
 	c := &Connection{
 		url:               url,
-		connectionOptions: *o,
+		connectionOptions: o,
 		connCloseCh:       make(chan struct{}),
 	}
 
@@ -65,7 +65,7 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 	c.mqCloseChan = c.mqConn.Load().NotifyClose(make(chan *amqp.Error, 1))
 	c.isConnected.Store(true)
 
-	go c.monitor(ctx)
+	go c.monitor(context.WithoutCancel(ctx))
 
 	return c, nil
 }
@@ -119,17 +119,17 @@ func (c *Connection) CheckConnected(_ context.Context) bool {
 }
 
 // handleExitSignal 处理退出信号
-func (c *Connection) handleExitSignal() {
+func (c *Connection) handleExitSignal(ctx context.Context) {
 	if err := c.closeConn(); err != nil {
-		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] 关闭连接失败", logger.Err(err))
+		logger.WarnWithCtx(ctx, "[rabbitmq connection] 关闭连接失败", logger.Err(err))
 	}
-	logger.WarnWithCtx(context.Background(), "[rabbitmq connection] closed")
+	logger.WarnWithCtx(ctx, "[rabbitmq connection] closed")
 }
 
 // handleBlockNotification 处理阻塞通知
-func (c *Connection) handleBlockNotification(b amqp.Blocking) {
+func (c *Connection) handleBlockNotification(ctx context.Context, b amqp.Blocking) {
 	if b.Active {
-		logger.WarnWithCtx(context.Background(), "[rabbitmq connection] TCP blocked",
+		logger.WarnWithCtx(ctx, "[rabbitmq connection] TCP blocked",
 			logger.String("reason", b.Reason),
 			logger.String("url", maskURL(c.url)))
 	}
@@ -137,7 +137,7 @@ func (c *Connection) handleBlockNotification(b amqp.Blocking) {
 
 // handleCloseAndReconnect 处理连接关闭错误并执行重连
 // 返回值：true 表示继续监控（重连成功或需要继续重试），false 表示终止监控（超过最大重试或服务已退出）
-func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
+func (c *Connection) handleCloseAndReconnect(ctx context.Context, mqCloseChanErr *amqp.Error) bool {
 	// 1. 标记断开，记录错误
 	c.isConnected.Store(false)
 	c.lastConnErr.Store(&connError{err: mqCloseChanErr, time: time.Now()})
@@ -146,7 +146,7 @@ func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
 
 	// 2. 检查是否超过最大重试次数
 	if c.maxRetries > 0 && int(retryCount) > c.maxRetries {
-		logger.WarnWithCtx(context.Background(), "[rabbitmq] max retries exceeded, stop reconnecting",
+		logger.WarnWithCtx(ctx, "[rabbitmq] max retries exceeded, stop reconnecting",
 			logger.Int64("retryCount", retryCount),
 			logger.Int("maxRetries", c.maxRetries),
 			logger.String("url", maskURL(c.url)))
@@ -172,13 +172,13 @@ func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
 		if mqCloseChanErr != nil {
 			fields = append(fields, logger.String("err", mqCloseChanErr.Error()))
 		}
-		logger.WarnWithCtx(context.Background(), "[rabbitmq] connection lost, reconnecting...", fields...)
+		logger.WarnWithCtx(ctx, "[rabbitmq] connection lost, reconnecting...", fields...)
 	}
 
 	// 5. 可中断的等待：在等待期间如果外部调用了 Close()，立刻退出
 	select {
 	case <-c.connCloseCh:
-		logger.InfoWithCtx(context.Background(), "[rabbitmq] connection closing detected during retry wait, abort reconnect")
+		logger.InfoWithCtx(ctx, "[rabbitmq] connection closing detected during retry wait, abort reconnect")
 		return false
 	case <-time.After(actualWaitDuration):
 	}
@@ -205,7 +205,7 @@ func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
 		}
 		// 其他错误：记录日志，返回 true 让 monitor 继续下一次重试
 		if retryCount%10 == 1 {
-			logger.WarnWithCtx(context.Background(), "[rabbitmq] reconnect failed",
+			logger.WarnWithCtx(ctx, "[rabbitmq] reconnect failed",
 				logger.Err(err),
 				logger.Int64("retryCount", retryCount),
 				logger.String("url", maskURL(c.url)))
@@ -214,7 +214,7 @@ func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
 	}
 
 	// 7. 重连成功：替换连接，清空错误快照
-	logger.InfoWithCtx(context.Background(), "[rabbitmq] reconnected",
+	logger.InfoWithCtx(ctx, "[rabbitmq] reconnected",
 		logger.Int64("retryCount", retryCount),
 		logger.String("url", maskURL(c.url)),
 		logger.Duration("cost", time.Since(reconnectStart)))
@@ -231,12 +231,12 @@ func (c *Connection) handleCloseAndReconnect(mqCloseChanErr *amqp.Error) bool {
 }
 
 // monitor 监控连接状态，在后台 goroutine 中运行
-func (c *Connection) monitor(_ context.Context) {
+func (c *Connection) monitor(ctx context.Context) {
 	for {
 		// 1. 每次循环开始，先进行一次非阻塞的退出检查（确保能最快速度退出）
 		select {
 		case <-c.connCloseCh:
-			c.handleExitSignal()
+			c.handleExitSignal(ctx)
 			return
 		default:
 		}
@@ -245,7 +245,7 @@ func (c *Connection) monitor(_ context.Context) {
 		shouldExit := func() bool {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.WarnWithCtx(context.Background(), "[rabbitmq] monitor recovered from panic",
+					logger.WarnWithCtx(ctx, "[rabbitmq] monitor recovered from panic",
 						logger.Any("panic", r),
 						logger.String("url", maskURL(c.url)))
 				}
@@ -255,10 +255,10 @@ func (c *Connection) monitor(_ context.Context) {
 			case <-c.connCloseCh:
 				return true // ① 外部主动关闭
 			case b := <-c.mqBlockChan:
-				c.handleBlockNotification(b)
+				c.handleBlockNotification(ctx, b)
 				return false // ② 阻塞通知，仅日志，继续监控
 			case mqCloseChanErr := <-c.mqCloseChan:
-				if !c.handleCloseAndReconnect(mqCloseChanErr) {
+				if !c.handleCloseAndReconnect(ctx, mqCloseChanErr) {
 					return true // ③ 重连失败/终止，退出
 				}
 				return false // ④ 重连成功/继续重试，继续监控
@@ -267,14 +267,14 @@ func (c *Connection) monitor(_ context.Context) {
 
 		// 3. 检查内部匿名函数的退出指示
 		if shouldExit {
-			c.handleExitSignal()
+			c.handleExitSignal(ctx)
 			return
 		}
 
 		// 4. 安全防抖：既能防止过快循环，又能【瞬间响应】退出信号！
 		select {
 		case <-c.connCloseCh:
-			c.handleExitSignal()
+			c.handleExitSignal(ctx)
 			return
 		case <-time.After(time.Millisecond * 100):
 			// 正常无事发生，等待 100ms 后进入下一次循环

@@ -176,7 +176,7 @@ func (r *RabbitMQ) GetConnection(ctx context.Context) (*gorabbitmq.Connection, e
 	}
 
 	// 使用带重试机制的连接获取方法
-	return r.pool.GetWithRetry(ctx, 3)
+	return r.pool.GetConnWithRetry(ctx, 3)
 }
 
 // getExchangeFromCache 从缓存中获取或创建exchange
