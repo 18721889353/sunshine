@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -23,8 +22,6 @@ type connError struct {
 
 // Connection RabbitMQ 连接结构体
 type Connection struct {
-	ConnMu sync.RWMutex
-
 	// 连接配置（嵌入 connectionOptions，消除字段重复）
 	*connectionOptions
 
@@ -113,7 +110,14 @@ func getMqConnect(ctx context.Context, c *Connection) (*amqp.Connection, error) 
 	return mqConn, nil
 }
 
-// CheckConnected 检查连接是否正常
+// CheckConnected 检查连接是否可用。
+// 通过原子操作读取连接状态、AMQP 连接对象是否存在且未关闭，无需加锁。
+//
+// 参数:
+//   - _: 上下文（保留参数，用于接口一致性，当前未使用）
+//
+// 返回值:
+//   - bool: true 表示连接可用，false 表示已断开或未就绪
 func (c *Connection) CheckConnected(_ context.Context) bool {
 	return c.isConnected.Load() && c.mqConn.Load() != nil && !c.mqConn.Load().IsClosed()
 }
@@ -344,6 +348,12 @@ func (c *Connection) GetConnectionStatus(_ context.Context) map[string]interface
 	}
 
 	return status
+}
+
+// Done 返回一个只读 channel，当连接被关闭时会收到信号
+// 用于外部监听连接关闭事件，替代直接访问未导出字段 connCloseCh
+func (c *Connection) Done() <-chan struct{} {
+	return c.connCloseCh
 }
 
 // GetConn 获取 AMQP 连接

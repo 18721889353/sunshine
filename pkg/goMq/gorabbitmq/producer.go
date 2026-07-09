@@ -93,7 +93,7 @@ func NewProducer(ctx context.Context, exchange *Exchange, connection *Connection
 		mqChannel:       channel,
 		Exchange:        exchange,
 		producerOptions: o,
-		tracer:          otel.Tracer("gorabbitmq"),
+		tracer:          otel.Tracer("gomq"),
 	}, nil
 }
 
@@ -112,258 +112,19 @@ func closeChannel(channel *amqp.Channel) {
 	}
 }
 
-// setupProducerCustomerDeadLetter 设置生产者的自定义死信队列，在 exchange 上声明三条消息路径。
-// 参数:
-//   - channel: AMQP 通道，用于声明交换机、队列和绑定
-//   - exchange: 目标交换机配置
-//   - o: 生产者配置选项，其中的 customerDeadLetter 包含具体队列和路由参数
-//
-// 返回:
-//   - error: 任意一步失败时返回错误（调用方负责关闭 channel）
-//
-// 消息流转路径：
-//
-//	TTL 超时 → deadQueue → deadRoutingKey → exchange
-//	消费失败 → errQueue  → errRoutingKey  → exchange
-//	正常消费 → normalQueue → normalRoutingKey → exchange
+// setupProducerCustomerDeadLetter 设置生产者的自定义死信队列，委托共享函数执行。
 func setupProducerCustomerDeadLetter(channel *amqp.Channel, exchange *Exchange, o *producerOptions) error {
-	// 第一步：声明主交换机
-	err := channel.ExchangeDeclare(
-		exchange.name,
-		exchange.eType,
-		o.customerDeadLetter.exchangeDeclare.durable,
-		o.customerDeadLetter.exchangeDeclare.autoDelete,
-		o.customerDeadLetter.exchangeDeclare.internal,
-		o.customerDeadLetter.exchangeDeclare.noWait,
-		o.customerDeadLetter.exchangeDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 第二步：声明死信队列（TTL 超时消息入队）并绑定到交换机
-	if o.customerDeadLetter.deadQueueDeclare.args == nil {
-		o.customerDeadLetter.deadQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchange.name,
-			"x-dead-letter-routing-key": o.customerDeadLetter.errRoutingKey,
-			"x-message-ttl":             int32(600000), // 600秒后过期
-		}
-	}
-	// 创建死信队列
-	dlq, err := channel.QueueDeclare(
-		o.customerDeadLetter.deadQueueName,
-		o.customerDeadLetter.deadQueueDeclare.durable,
-		o.customerDeadLetter.deadQueueDeclare.autoDelete,
-		o.customerDeadLetter.deadQueueDeclare.exclusive,
-		o.customerDeadLetter.deadQueueDeclare.noWait,
-		o.customerDeadLetter.deadQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-	// 绑定死信队列
-	err = channel.QueueBind(
-		dlq.Name,
-		o.customerDeadLetter.deadRoutingKey,
-		exchange.name,
-		o.customerDeadLetter.deadQueueBind.noWait,
-		o.customerDeadLetter.deadQueueBind.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 第三步：声明异常队列（消费者 NACK/Reject 消息入队）并绑定到交换机
-	if o.customerDeadLetter.errQueueDeclare.args == nil {
-		o.customerDeadLetter.errQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchange.name,
-			"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
-		}
-	}
-	// 创建异常队列
-	elq, err := channel.QueueDeclare(
-		o.customerDeadLetter.errQueueName,
-		o.customerDeadLetter.errQueueDeclare.durable,
-		o.customerDeadLetter.errQueueDeclare.autoDelete,
-		o.customerDeadLetter.errQueueDeclare.exclusive,
-		o.customerDeadLetter.errQueueDeclare.noWait,
-		o.customerDeadLetter.errQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-	// 绑定异常队列
-	err = channel.QueueBind(
-		elq.Name,
-		o.customerDeadLetter.errRoutingKey,
-		exchange.name,
-		o.customerDeadLetter.errQueueBind.noWait,
-		o.customerDeadLetter.errQueueBind.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 第四步：声明普通队列（正常消费消息入队）并绑定到交换机
-	if o.customerDeadLetter.normalQueueDeclare.args == nil {
-		o.customerDeadLetter.normalQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchange.name,
-			"x-dead-letter-routing-key": o.customerDeadLetter.deadRoutingKey,
-		}
-	}
-	// 创建普通队列
-	nlq, err := channel.QueueDeclare(
-		o.customerDeadLetter.normalQueueName,
-		o.customerDeadLetter.normalQueueDeclare.durable,
-		o.customerDeadLetter.normalQueueDeclare.autoDelete,
-		o.customerDeadLetter.normalQueueDeclare.exclusive,
-		o.customerDeadLetter.normalQueueDeclare.noWait,
-		o.customerDeadLetter.normalQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-	// 绑定普通队列
-	return channel.QueueBind(
-		nlq.Name,
-		o.customerDeadLetter.normalRoutingKey,
-		exchange.name,
-		o.customerDeadLetter.normalQueueDeclare.noWait,
-		o.customerDeadLetter.normalQueueDeclare.args,
-	)
+	return setupCustomerDeadLetterDeclare(channel, exchange.name, exchange.eType, o.customerDeadLetter)
 }
 
-// setupProducerStandardDeadLetter 设置生产者的标准死信队列，在 exchange 上声明两条消息路径。
-// 参数:
-//   - channel: AMQP 通道，用于声明交换机、队列和绑定
-//   - exchange: 目标交换机配置
-//   - o: 生产者配置选项，其中的 deadLetter 包含具体队列和路由参数
-// 返回:
-//   - error: 任意一步失败时返回错误（调用方负责关闭 channel）
-//
-// 消息流转路径：
-//
-//	TTL 超时 → deadQueue → deadRoutingKey → exchange
-//	正常消费 → normalQueue → normalRoutingKey → exchange
+// setupProducerStandardDeadLetter 设置生产者的标准死信队列，委托共享函数执行。
 func setupProducerStandardDeadLetter(channel *amqp.Channel, exchange *Exchange, o *producerOptions) error {
-	// 第一步：声明主交换机
-	err := channel.ExchangeDeclare(
-		exchange.name,
-		exchange.eType,
-		o.deadLetter.exchangeDeclare.durable,
-		o.deadLetter.exchangeDeclare.autoDelete,
-		o.deadLetter.exchangeDeclare.internal,
-		o.deadLetter.exchangeDeclare.noWait,
-		o.deadLetter.exchangeDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 第二步：声明死信队列（TTL 超时消息入队）并绑定到交换机
-	if o.deadLetter.deadQueueDeclare.args == nil {
-		o.deadLetter.deadQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchange.name,
-			"x-dead-letter-routing-key": o.deadLetter.normalRoutingKey,
-			"x-message-ttl":             int32(600000), // 600秒后过期
-		}
-	}
-	dlq, err := channel.QueueDeclare(
-		o.deadLetter.deadQueueName,
-		o.deadLetter.deadQueueDeclare.durable,
-		o.deadLetter.deadQueueDeclare.autoDelete,
-		o.deadLetter.deadQueueDeclare.exclusive,
-		o.deadLetter.deadQueueDeclare.noWait,
-		o.deadLetter.deadQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	err = channel.QueueBind(
-		dlq.Name,
-		o.deadLetter.deadRoutingKey,
-		exchange.name,
-		o.deadLetter.deadQueueBind.noWait,
-		o.deadLetter.deadQueueBind.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 第三步：声明普通队列（正常消费消息入队）并绑定到交换机
-	if o.deadLetter.normalQueueDeclare.args == nil {
-		o.deadLetter.normalQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchange.name,
-			"x-dead-letter-routing-key": o.deadLetter.deadRoutingKey,
-		}
-	}
-	nlq, err := channel.QueueDeclare(
-		o.deadLetter.normalQueueName,
-		o.deadLetter.normalQueueDeclare.durable,
-		o.deadLetter.normalQueueDeclare.autoDelete,
-		o.deadLetter.normalQueueDeclare.exclusive,
-		o.deadLetter.normalQueueDeclare.noWait,
-		o.deadLetter.normalQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	return channel.QueueBind(
-		nlq.Name,
-		o.deadLetter.normalRoutingKey,
-		exchange.name,
-		o.deadLetter.normalQueueDeclare.noWait,
-		o.deadLetter.normalQueueDeclare.args,
-	)
+	return setupStandardDeadLetterDeclare(channel, exchange.name, exchange.eType, o.deadLetter)
 }
 
-// setupProducerNormalLetter 设置生产者的正常队列，在 exchange 上声明一条消息路径。
-// 参数:
-//   - channel: AMQP 通道，用于声明交换机、队列和绑定
-//   - exchange: 目标交换机配置
-//   - o: 生产者配置选项，其中的 normalLetter 包含队列和路由参数
-// 返回:
-//   - error: 任意一步失败时返回错误（调用方负责关闭 channel）
-//
-// 与 setupProducerCustomerDeadLetter 和 setupProducerStandardDeadLetter 不同，
-// 此函数不涉及死信机制，仅包含交换机声明 + 队列声明 + 绑定的标准三步。
+// setupProducerNormalLetter 设置生产者的正常队列，委托共享函数执行。
 func setupProducerNormalLetter(channel *amqp.Channel, exchange *Exchange, o *producerOptions) error {
-	// 第一步：声明主交换机
-	err := channel.ExchangeDeclare(
-		exchange.name,
-		exchange.eType,
-		o.normalLetter.exchangeDeclare.durable,
-		o.normalLetter.exchangeDeclare.autoDelete,
-		o.normalLetter.exchangeDeclare.internal,
-		o.normalLetter.exchangeDeclare.noWait,
-		o.normalLetter.exchangeDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 第二步：声明队列并绑定到交换机
-	nlq, err := channel.QueueDeclare(
-		o.normalLetter.normalQueueName,
-		o.normalLetter.normalQueueDeclare.durable,
-		o.normalLetter.normalQueueDeclare.autoDelete,
-		o.normalLetter.normalQueueDeclare.exclusive,
-		o.normalLetter.normalQueueDeclare.noWait,
-		o.normalLetter.normalQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	return channel.QueueBind(
-		nlq.Name,
-		o.normalLetter.normalRoutingKey,
-		exchange.name,
-		o.normalLetter.normalQueueDeclare.noWait,
-		o.normalLetter.normalQueueDeclare.args,
-	)
+	return setupNormalLetterDeclare(channel, exchange.name, exchange.eType, o.normalLetter)
 }
 
 // PublishDirect 向 Direct 类型交换机发布消息。
@@ -372,6 +133,7 @@ func setupProducerNormalLetter(channel *amqp.Channel, exchange *Exchange, o *pro
 //   - routingKey: 路由键，决定消息投递到哪个队列
 //   - body: 消息体
 //   - messageID: 消息唯一标识，用于幂等消费和追踪
+//
 // 返回:
 //   - error: 发布失败时返回 amqp 错误，成功返回 nil
 func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
@@ -383,6 +145,7 @@ func (p *Producer) PublishDirect(ctx context.Context, routingKey string, body []
 //   - ctx: 上下文，用于链路追踪和超时控制
 //   - body: 消息体
 //   - messageID: 消息唯一标识，用于幂等消费和追踪
+//
 // 返回:
 //   - error: 发布失败时返回 amqp 错误，成功返回 nil
 //
@@ -403,6 +166,7 @@ func (p *Producer) PublishFanout(ctx context.Context, body []byte, messageID str
 //   - routingKey: 路由键，支持通配符匹配（* 匹配一级，# 匹配多级）
 //   - body: 消息体
 //   - messageID: 消息唯一标识，用于幂等消费和追踪
+//
 // 返回:
 //   - error: 发布失败时返回 amqp 错误，成功返回 nil
 func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []byte, messageID string) (err error) {
@@ -415,6 +179,7 @@ func (p *Producer) PublishTopic(ctx context.Context, routingKey string, body []b
 //   - headersKeys: 消息头键值对，交换机根据 x-match（all/any）决定是否路由
 //   - body: 消息体
 //   - messageID: 消息唯一标识，用于幂等消费和追踪
+//
 // 返回:
 //   - error: 发布失败时返回 amqp 错误，成功返回 nil
 func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]interface{}, body []byte, messageID string) (err error) {
@@ -433,6 +198,7 @@ func (p *Producer) PublishHeaders(ctx context.Context, headersKeys map[string]in
 //   - messageID: 消息唯一标识
 //   - extraHeaders: 额外消息头（PublishHeaders 使用合并用户自定义 headers，其余传 nil）
 //   - extraAttrs: 额外 span 属性，由各 Publish* 方法传入类型专属属性
+//
 // 返回:
 //   - error: 发布失败时记录 span error 并返回 amqp 错误，成功返回 nil
 func (p *Producer) publish(ctx context.Context, exchangeType, routingKey string, body []byte, messageID string, extraHeaders map[string]interface{}, extraAttrs ...attribute.KeyValue) (err error) {

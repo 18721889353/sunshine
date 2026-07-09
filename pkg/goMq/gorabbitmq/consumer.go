@@ -18,122 +18,17 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// ConsumerOption 消费者选项配置函数类型
-type ConsumerOption func(*consumerOptions)
-
-// consumerOptions 消费者配置选项
-type consumerOptions struct {
-	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
-	normalLetter       *NormalLetterOptions       // 正常队列选项
-	deadLetter         *DeadLetterOptions         // 死信队列选项
-	qos                *qosOptions                // QoS选项
-	consume            *consumeOptions            // 消费选项
-
-	msgDurable bool   // 消息是否持久化
-	isAutoAck  bool   // 是否自动确认消息
-	name       string // 消费者名称，用于 trace span
-}
-
-// apply 应用消费者选项
-func (o *consumerOptions) apply(opts ...ConsumerOption) {
-	for _, opt := range opts {
-		opt(o)
-	}
-}
-
-// defaultConsumerOptions 默认消费者设置
-func defaultConsumerOptions() *consumerOptions {
-	return &consumerOptions{
-		customerDeadLetter: defaultCustomerDeadLetterOptions(),
-		normalLetter:       defaultNormalLetterOptions(),
-		deadLetter:         defaultDeadLetterOptions(),
-		qos:                defaultQosOptions(),
-		consume:            defaultConsumeOptions(),
-		msgDurable:         true,
-		isAutoAck:          true,
-		name:               "",
-	}
-}
-
-// WithConsumerCustomerDeadLetterOptions set dead letter options.
-func WithConsumerCustomerDeadLetterOptions(opts ...CustomerDeadLetterOption) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.customerDeadLetter.apply(opts...)
-	}
-}
-
-// WithConsumerNormalLetterOptions set dead letter options.
-func WithConsumerNormalLetterOptions(opts ...NormalLetterOption) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.normalLetter.apply(opts...)
-	}
-}
-
-// WithConsumerDeadLetterOptions set dead letter options.
-func WithConsumerDeadLetterOptions(opts ...DeadLetterOption) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.deadLetter.apply(opts...)
-	}
-}
-
-// WithConsumerQosOptions 设置消费QoS选项
-func WithConsumerQosOptions(opts ...QosOption) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.qos.apply(opts...)
-	}
-}
-
-// WithConsumerConsumeOptions 设置消费者消费选项
-func WithConsumerConsumeOptions(opts ...ConsumeOption) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.consume.apply(opts...)
-	}
-}
-
-// WithConsumerAutoAck 设置消费者自动确认选项
-func WithConsumerAutoAck(enable bool) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.isAutoAck = enable
-	}
-}
-
-// WithConsumerMsgDurable 设置消费者消息持久化选项
-func WithConsumerMsgDurable(enable bool) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.msgDurable = enable
-	}
-}
-
-// WithConsumerName 设置消费者名称，用于 trace span
-func WithConsumerName(name string) ConsumerOption {
-	return func(o *consumerOptions) {
-		o.name = name
-	}
-}
-
-// -------------------------------------------------------------------------------------------
-
 // Consumer 消费者会话
 type Consumer struct {
-	exchange  *Exchange     // 交换机
-	QueueName string        // 队列名称
-	conn      *Connection   // 连接
-	ch        *amqp.Channel // 通道
-
-	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项
-	normalLetter       *NormalLetterOptions
-	deadLetter         *DeadLetterOptions
-	qosOption          *qosOptions     // QoS选项
-	consumeOption      *consumeOptions // 消费选项
-
-	msgDurable bool           // 消息是否持久化
-	isAutoAck  bool           // 是否自动确认
-	mu         sync.RWMutex   // 读写锁，保护所有字段访问
-	wg         sync.WaitGroup // 等待组，用于等待正在处理的消息完成
-
-	tracer    trace.Tracer // OpenTelemetry tracer for reuse
-	closeOnce sync.Once    // 新增：确保关闭操作只执行一次
-	name      string       // 消费者名称，用于 trace span
+	exchange         *Exchange      // 交换机
+	QueueName        string         // 队列名称
+	*consumerOptions                // 嵌入消费者配置（消除字段重复）
+	conn             *Connection    // 连接
+	ch               *amqp.Channel  // 通道
+	mu               sync.RWMutex   // 读写锁，保护所有字段访问
+	wg               sync.WaitGroup // 等待组，用于等待正在处理的消息完成
+	tracer           trace.Tracer   // OpenTelemetry tracer for reuse
+	closeOnce        sync.Once      // 确保关闭操作只执行一次
 }
 
 // Handler 消息处理函数类型
@@ -141,30 +36,31 @@ type Handler func(ctx context.Context, data []byte, messageId string, tagID stri
 
 // NewConsumer 创建一个消费者
 func NewConsumer(exchange *Exchange, queueName string, conn *Connection, opts ...ConsumerOption) (*Consumer, error) {
-	o := defaultConsumerOptions()
-	o.apply(opts...)
+	// 前置校验
+	if exchange == nil {
+		return nil, fmt.Errorf("exchange cannot be nil")
+	}
+	if conn == nil {
+		return nil, fmt.Errorf("connection cannot be nil")
+	}
+	if queueName == "" {
+		return nil, fmt.Errorf("queue name cannot be empty")
+	}
 
 	// 校验交换机配置
 	if err := exchange.Validate(); err != nil {
 		return nil, err
 	}
 
+	o := defaultConsumerOptions()
+	o.apply(opts...)
+
 	c := &Consumer{
-		exchange:  exchange,
-		QueueName: queueName,
-		conn:      conn,
-
-		customerDeadLetter: o.customerDeadLetter,
-		normalLetter:       o.normalLetter,
-		deadLetter:         o.deadLetter,
-		qosOption:          o.qos,
-		consumeOption:      o.consume,
-
-		msgDurable: o.msgDurable,
-		isAutoAck:  o.isAutoAck,
-		name:       o.name,
-
-		tracer: otel.Tracer("gorabbitmq"), // 初始化 tracer
+		exchange:        exchange,
+		QueueName:       queueName,
+		conn:            conn,
+		consumerOptions: o,
+		tracer:          otel.Tracer("gomq"), // 初始化 tracer
 	}
 
 	return c, nil
@@ -184,18 +80,29 @@ func (c *Consumer) validateQueueConfig() error {
 	return nil
 }
 
-// setupQoS 设置 QoS
+// setupQoS 设置消费者的 QoS（服务质量）参数。
+// 若 QoS 未启用则直接返回，不进行任何设置。
+// 设置失败时会关闭传入的 channel 以避免资源泄漏。
+//
+// 参数:
+//   - ctx: 上下文，用于日志记录
+//   - channel: 待设置 QoS 的 AMQP 通道
+//
+// 返回值:
+//   - error: 设置成功或 QoS 未启用时返回 nil，否则返回错误信息
 func (c *Consumer) setupQoS(ctx context.Context, channel *amqp.Channel) error {
-	if !c.qosOption.enable {
+	if !c.qos.enable {
 		return nil
 	}
 
+	// 设置 QoS：prefetchCount（预取消息数量）、prefetchSize（预取消息大小）、global（是否全局生效）
 	err := channel.Qos(
-		c.qosOption.prefetchCount,
-		c.qosOption.prefetchSize,
-		c.qosOption.global,
+		c.qos.prefetchCount,
+		c.qos.prefetchSize,
+		c.qos.global,
 	)
 	if err != nil {
+		logger.ErrorWithCtx(ctx, "设置QoS失败", logger.Err(err))
 		if closeErr := channel.Close(); closeErr != nil {
 			logger.WarnWithCtx(ctx, "关闭channel失败", logger.Err(closeErr))
 		}
@@ -204,7 +111,15 @@ func (c *Consumer) setupQoS(ctx context.Context, channel *amqp.Channel) error {
 	return nil
 }
 
-// setupQueues 设置所有队列
+// setupQueues 按优先级依次设置消费者队列。
+// 优先级顺序：自定义死信队列 → 标准死信队列 → 正常队列，三种模式互斥。
+// 配置项通过 `consumerOptions` 中对应的 `exchangeName` 是否等于默认值来判断是否启用。
+//
+// 参数:
+//   - channel: AMQP 通道，用于声明交换机、队列和绑定
+//
+// 返回值:
+//   - error: 任一队列设置失败时返回错误，成功返回 nil
 func (c *Consumer) setupQueues(channel *amqp.Channel) error {
 	// 处理自定义死信队列
 	if c.customerDeadLetter.exchangeName != defaultExchangeName {
@@ -230,293 +145,129 @@ func (c *Consumer) setupQueues(channel *amqp.Channel) error {
 	return nil
 }
 
-// initialize 初始化消费者会话
-func (c *Consumer) initialize(ctx context.Context) error {
+// setupChannel 创建 AMQP 通道并完成消费者会话配置。
+// 依次执行：获取可用连接 → 创建通道 → 验证队列配置 → 设置 QoS → 声明并绑定队列。
+// 任一步骤失败时立即返回错误，确保不会继续执行后续操作。
+//
+// 参数:
+//   - ctx: 上下文，用于日志追踪
+//
+// 返回值:
+//   - error: 初始化成功返回 nil，否则返回具体错误信息
+func (c *Consumer) setupChannel(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.conn.ConnMu.Lock()
-
 	// 创建一个新的通道
-	channel, err := c.conn.mqConn.Load().Channel()
+	amqpConn := c.conn.GetConn(ctx)
+	if amqpConn == nil {
+		return fmt.Errorf("amqp connection is not available")
+	}
+	channel, err := amqpConn.Channel()
 	if err != nil {
-		c.conn.ConnMu.Unlock()
 		return err
 	}
 	c.ch = channel
-	c.conn.ConnMu.Unlock()
+
+	// 以下步骤失败时清理已创建的 channel
+	defer func() {
+		if err != nil {
+			if closeErr := channel.Close(); closeErr != nil {
+				logger.WarnWithCtx(ctx, "关闭初始化失败的 channel 出错", logger.Err(closeErr))
+			}
+			c.ch = nil
+		}
+	}()
 
 	// 验证队列配置
-	if err := c.validateQueueConfig(); err != nil {
+	if err = c.validateQueueConfig(); err != nil {
 		return err
 	}
 
 	// 设置 QoS
-	if err := c.setupQoS(ctx, channel); err != nil {
+	if err = c.setupQoS(ctx, channel); err != nil {
 		return err
 	}
 
 	// 设置所有队列
-	if err := c.setupQueues(channel); err != nil {
-		if closeErr := channel.Close(); closeErr != nil {
-			fmt.Printf("close channel error: %v\n", closeErr)
-		}
+	if err = c.setupQueues(channel); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// setupCustomerDeadLetter 设置自定义死信队列
+// setupCustomerDeadLetter 设置自定义死信队列，委托共享函数执行。
 func (c *Consumer) setupCustomerDeadLetter(channel *amqp.Channel) error {
-	// 声明交换机
-	err := channel.ExchangeDeclare(
-		c.exchange.name,  // 交换机名称
-		c.exchange.eType, // 交换机类型
-		c.customerDeadLetter.exchangeDeclare.durable,
-		c.customerDeadLetter.exchangeDeclare.autoDelete,
-		c.customerDeadLetter.exchangeDeclare.internal,
-		c.customerDeadLetter.exchangeDeclare.noWait,
-		c.customerDeadLetter.exchangeDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 声明死信队列并设置异常策略
-	if c.customerDeadLetter.deadQueueDeclare.args == nil {
-		c.customerDeadLetter.deadQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    c.exchange.name,
-			"x-dead-letter-routing-key": c.customerDeadLetter.errRoutingKey,
-			"x-message-ttl":             int32(600000), // 600秒后过期
-		}
-	}
-	dlq, err := channel.QueueDeclare(
-		c.customerDeadLetter.deadQueueName,
-		c.customerDeadLetter.deadQueueDeclare.durable,
-		c.customerDeadLetter.deadQueueDeclare.autoDelete,
-		c.customerDeadLetter.deadQueueDeclare.exclusive,
-		c.customerDeadLetter.deadQueueDeclare.noWait,
-		c.customerDeadLetter.deadQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 绑定死信队列到交换机
-	err = channel.QueueBind(
-		dlq.Name,
-		c.customerDeadLetter.deadRoutingKey,
-		c.exchange.name,
-		c.customerDeadLetter.deadQueueBind.noWait,
-		c.customerDeadLetter.deadQueueBind.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 声明异常队列并设置死信策略
-	if c.customerDeadLetter.errQueueDeclare.args == nil {
-		c.customerDeadLetter.errQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    c.exchange.name,
-			"x-dead-letter-routing-key": c.customerDeadLetter.deadRoutingKey,
-		}
-	}
-	elq, err := channel.QueueDeclare(
-		c.customerDeadLetter.errQueueName,
-		c.customerDeadLetter.errQueueDeclare.durable,
-		c.customerDeadLetter.errQueueDeclare.autoDelete,
-		c.customerDeadLetter.errQueueDeclare.exclusive,
-		c.customerDeadLetter.errQueueDeclare.noWait,
-		c.customerDeadLetter.errQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 绑定异常队列到交换机
-	err = channel.QueueBind(
-		elq.Name,
-		c.customerDeadLetter.errRoutingKey,
-		c.exchange.name,
-		c.customerDeadLetter.errQueueBind.noWait,
-		c.customerDeadLetter.errQueueBind.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 声明普通队列并设置死信策略
-	if c.customerDeadLetter.normalQueueDeclare.args == nil {
-		c.customerDeadLetter.normalQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    c.exchange.name,
-			"x-dead-letter-routing-key": c.customerDeadLetter.deadRoutingKey,
-		}
-	}
-	lq, err := channel.QueueDeclare(
-		c.customerDeadLetter.normalQueueName,
-		c.customerDeadLetter.normalQueueDeclare.durable,
-		c.customerDeadLetter.normalQueueDeclare.autoDelete,
-		c.customerDeadLetter.normalQueueDeclare.exclusive,
-		c.customerDeadLetter.normalQueueDeclare.noWait,
-		c.customerDeadLetter.normalQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 绑定普通队列到交换机
-	return channel.QueueBind(
-		lq.Name,
-		c.customerDeadLetter.normalRoutingKey,
-		c.exchange.name,
-		c.customerDeadLetter.normalQueueDeclare.noWait,
-		c.customerDeadLetter.normalQueueDeclare.args,
-	)
+	return setupCustomerDeadLetterDeclare(channel, c.exchange.name, c.exchange.eType, c.customerDeadLetter)
 }
 
-// setupStandardDeadLetter 设置标准死信队列
+// setupStandardDeadLetter 设置标准死信队列，委托共享函数执行。
 func (c *Consumer) setupStandardDeadLetter(channel *amqp.Channel) error {
-	// 声明交换机
-	err := channel.ExchangeDeclare(
-		c.exchange.name,
-		c.exchange.eType,
-		c.deadLetter.exchangeDeclare.durable,
-		c.deadLetter.exchangeDeclare.autoDelete,
-		c.deadLetter.exchangeDeclare.internal,
-		c.deadLetter.exchangeDeclare.noWait,
-		c.deadLetter.exchangeDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 声明死信队列并设置异常策略
-	if c.deadLetter.deadQueueDeclare.args == nil {
-		c.deadLetter.deadQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    c.exchange.name,
-			"x-dead-letter-routing-key": c.deadLetter.normalRoutingKey,
-			"x-message-ttl":             int32(600000), // 600秒后过期
-		}
-	}
-	dlq, err := channel.QueueDeclare(
-		c.deadLetter.deadQueueName,
-		c.deadLetter.deadQueueDeclare.durable,
-		c.deadLetter.deadQueueDeclare.autoDelete,
-		c.deadLetter.deadQueueDeclare.exclusive,
-		c.deadLetter.deadQueueDeclare.noWait,
-		c.deadLetter.deadQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 绑定死信队列到交换机
-	err = channel.QueueBind(
-		dlq.Name,
-		c.deadLetter.deadRoutingKey,
-		c.exchange.name,
-		c.deadLetter.deadQueueBind.noWait,
-		c.deadLetter.deadQueueBind.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 声明普通队列并设置死信策略
-	if c.deadLetter.normalQueueDeclare.args == nil {
-		c.deadLetter.normalQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    c.exchange.name,
-			"x-dead-letter-routing-key": c.deadLetter.deadRoutingKey,
-		}
-	}
-	lq, err := channel.QueueDeclare(
-		c.deadLetter.normalQueueName,
-		c.deadLetter.normalQueueDeclare.durable,
-		c.deadLetter.normalQueueDeclare.autoDelete,
-		c.deadLetter.normalQueueDeclare.exclusive,
-		c.deadLetter.normalQueueDeclare.noWait,
-		c.deadLetter.normalQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 绑定普通队列到交换机
-	return channel.QueueBind(
-		lq.Name,
-		c.deadLetter.normalRoutingKey,
-		c.exchange.name,
-		c.deadLetter.normalQueueDeclare.noWait,
-		c.deadLetter.normalQueueDeclare.args,
-	)
+	return setupStandardDeadLetterDeclare(channel, c.exchange.name, c.exchange.eType, c.deadLetter)
 }
 
-// setupNormalLetter 设置正常队列
+// setupNormalLetter 设置正常队列，委托共享函数执行。
 func (c *Consumer) setupNormalLetter(channel *amqp.Channel) error {
-	// 声明交换机
-	err := channel.ExchangeDeclare(
-		c.exchange.name,
-		c.exchange.eType,
-		c.normalLetter.exchangeDeclare.durable,
-		c.normalLetter.exchangeDeclare.autoDelete,
-		c.normalLetter.exchangeDeclare.internal,
-		c.normalLetter.exchangeDeclare.noWait,
-		c.normalLetter.exchangeDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 声明队列
-	nlq, err := channel.QueueDeclare(
-		c.normalLetter.normalQueueName,
-		c.normalLetter.normalQueueDeclare.durable,
-		c.normalLetter.normalQueueDeclare.autoDelete,
-		c.normalLetter.normalQueueDeclare.exclusive,
-		c.normalLetter.normalQueueDeclare.noWait,
-		c.normalLetter.normalQueueDeclare.args,
-	)
-	if err != nil {
-		return err
-	}
-
-	// 绑定队列到交换机
-	return channel.QueueBind(
-		nlq.Name,
-		c.normalLetter.normalRoutingKey,
-		c.exchange.name,
-		c.normalLetter.normalQueueDeclare.noWait,
-		c.normalLetter.normalQueueDeclare.args,
-	)
+	return setupNormalLetterDeclare(channel, c.exchange.name, c.exchange.eType, c.normalLetter)
 }
 
-// consumeWithContext 带上下文的消费消息
-func (c *Consumer) consumeWithContext(ctx context.Context) (<-chan amqp.Delivery, error) {
+// subscribe 向 RabbitMQ 注册消费者订阅并返回消息投递通道。
+// 封装对 amqp.Channel.ConsumeWithContext 的调用。
+//
+// 参数:
+//   - ctx: 上下文，取消时取消订阅并关闭 delivery 通道
+//
+// 返回值:
+//   - <-chan amqp.Delivery: 消息投递通道，用于读取 RabbitMQ 推送的消息
+//   - error: 注册订阅失败时返回错误
+func (c *Consumer) subscribe(ctx context.Context) (<-chan amqp.Delivery, error) {
 	return c.ch.ConsumeWithContext(
 		ctx,
 		c.QueueName,
-		c.consumeOption.consumer,
+		c.consume.consumer,
 		c.isAutoAck,
-		c.consumeOption.exclusive,
-		c.consumeOption.noLocal,
-		c.consumeOption.noWait,
-		c.consumeOption.args,
+		c.consume.exclusive,
+		c.consume.noLocal,
+		c.consume.noWait,
+		c.consume.args,
 	)
 }
 
-// Consume 在goroutine中循环消费消息
+// Consume 在后台 goroutine 中循环消费 RabbitMQ 消息，支持自动重连和重试。
+//
+// 参数:
+//   - ctx: 上下文，用于控制消费循环的生命周期，取消 ctx 会退出消费循环
+//   - handler: 消息处理回调，接收消息上下文、消息体、消息 ID 和标签 ID
+//
+// 行为说明:
+//   - 启动独立的 goroutine 执行消费循环
+//   - 连接未就绪或初始化失败时自动重试（间隔 2 秒）
+//   - subscribe 失败时关闭当前 channel 后重试
+//   - processMessages 返回 false 时退出循环（如 ctx 取消或连接关闭）
 func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 	go func() {
-		reconnectInterval := time.Second * 2
-		ticker := time.NewTicker(reconnectInterval)
+		// panic 保护，防止单个消费者崩溃导致整个进程退出
+		defer func() {
+			if r := recover(); r != nil {
+				logger.ErrorWithCtx(ctx, "[rabbitmq consumer] consumer goroutine panicked",
+					logger.Any("panic", r),
+					logger.String("queue", c.QueueName))
+			}
+		}()
+
+		ticker := time.NewTicker(time.Second * 2) // 2秒重试间隔
 		defer ticker.Stop()
+
+		// 消费主循环：初始化 → 消费 → 处理消息 → 清理
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
 			}
+
+			// 检查连接是否就绪
 			if !c.conn.CheckConnected(ctx) {
 				logger.WarnWithCtx(ctx, "[rabbitmq consumer] connection not ready, retrying...",
 					logger.String("queue", c.QueueName))
@@ -525,8 +276,10 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				}
 				continue
 			}
-			if err := c.initialize(ctx); err != nil {
-				logger.WarnWithCtx(ctx, "[rabbitmq consumer] initialize consumer error",
+
+			// 初始化消费者会话（创建 channel、设置 QoS、声明队列）
+			if err := c.setupChannel(ctx); err != nil {
+				logger.WarnWithCtx(ctx, "[rabbitmq consumer] setupChannel consumer error",
 					logger.Err(err),
 					logger.String("queue", c.QueueName))
 				if !c.waitRetry(ctx, ticker) {
@@ -534,9 +287,11 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				}
 				continue
 			}
-			delivery, err := c.consumeWithContext(ctx)
+
+			// 订阅队列获取消息投递通道
+			delivery, err := c.subscribe(ctx)
 			if err != nil {
-				logger.WarnWithCtx(ctx, "[rabbitmq consumer] execution of consumption error",
+				logger.WarnWithCtx(ctx, "[rabbitmq consumer] subscribe error",
 					logger.Err(err),
 					logger.String("queue", c.QueueName))
 				c.safeChannelClose()
@@ -545,22 +300,37 @@ func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 				}
 				continue
 			}
+
+			// 持续处理消息流直到结束或出错
 			shouldRetry := c.processMessages(ctx, delivery, handler)
 			c.safeChannelClose()
 
 			if !shouldRetry {
 				return
 			}
+
+			// delivery 通道关闭，等待重试间隔后重新消费
+			if !c.waitRetry(ctx, ticker) {
+				return
+			}
 		}
 	}()
 }
 
-// waitRetry 抽取统一的等待退出逻辑
+// waitRetry 等待重试间隔或退出信号。
+// 在重试前等待 ticker 触发，同时监听 ctx 取消和连接关闭信号，任一信号到达则退出等待。
+//
+// 参数:
+//   - ctx: 上下文，取消时返回 false 表示不再重试
+//   - ticker: 定时器，触发时返回 true 表示可以重试
+//
+// 返回值:
+//   - bool: true 表示可以重试，false 表示应退出消费循环
 func (c *Consumer) waitRetry(ctx context.Context, ticker *time.Ticker) bool {
 	select {
 	case <-ctx.Done():
 		return false
-	case <-c.conn.connCloseCh:
+	case <-c.conn.Done():
 		c.Close()
 		return false
 	case <-ticker.C:
@@ -568,15 +338,26 @@ func (c *Consumer) waitRetry(ctx context.Context, ticker *time.Ticker) bool {
 	}
 }
 
-// processMessages 处理从 RabbitMQ 接收到的消息流
+// processMessages 循环处理消息投递通道中的消息，直到上下文取消、连接关闭或 delivery 通道关闭。
+// 通过 select 多路复用监听三个事件，优先响应退出信号。delivery 通道关闭时返回 true
+// 通知调用方可重试（重新创建 channel 继续消费），其他情况返回 false 表示应退出消费循环。
+//
+// 参数:
+//   - ctx: 上下文，取消时停止消息处理并返回 false
+//   - delivery: RabbitMQ 消息投递通道，从中读取消息
+//   - handler: 用户自定义消息处理回调
+//
+// 返回值:
+//   - bool: true 表示可重试（delivery 通道关闭），false 表示应退出（ctx 取消或连接关闭）
 func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Delivery, handler Handler) bool {
 	for {
 		select {
 		case <-ctx.Done():
 			logger.WarnWithCtx(ctx, "[rabbitmq consumer] context done, stopping processMessages",
+				logger.Err(ctx.Err()),
 				logger.String("queue", c.QueueName))
 			return false
-		case <-c.conn.connCloseCh:
+		case <-c.conn.Done():
 			c.Close()
 			return false
 		case d, ok := <-delivery:
@@ -585,54 +366,52 @@ func (c *Consumer) processMessages(ctx context.Context, delivery <-chan amqp.Del
 					logger.String("queue", c.QueueName))
 				return true
 			}
-			c.handleSingleMessage(ctx, d, handler)
+			// 消息已从队列取出，隔离上游取消信号，保证消息被完整处理
+			c.handleSingleMessage(context.WithoutCancel(ctx), d, handler)
 		}
 	}
 }
 
-// handleSingleMessage 处理单条消息的逻辑封装（包含 Trace 和 Ack）
+// handleSingleMessage 处理单条 AMQP 消息的完整生命周期，包括链路追踪、消息头传播、
+// 请求 ID 提取以及消息确认（Ack/Reject）。
+//
+// 参数:
+//   - ctx: 上层上下文，用于 OpenTelemetry 传播和日志追踪。
+//   - d: RabbitMQ 投递的消息体，包含消息头、路由键、投递标签等信息。
+//   - handler: 用户定义的消息处理回调，接收消息上下文、消息体、消息 ID 和标识标签。
+//
+// 处理流程:
+//  1. 从消息头提取 OpenTelemetry 传播上下文，启动消费 Span 并注入请求 ID。
+//  2. 执行用户 handler。
+//  3. 根据消费模式（自动/手动 Ack）执行不同的确认逻辑。
 func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, handler Handler) {
-	select {
-	case <-ctx.Done():
-		logger.WarnWithCtx(ctx, "Context已取消，丢弃当前消息处理",
-			logger.Uint64("tag", d.DeliveryTag))
-		if rejectErr := d.Reject(true); rejectErr != nil {
-			logger.WarnWithCtx(ctx, "reject message error",
-				logger.Err(rejectErr),
-				logger.Uint64("tag", d.DeliveryTag))
-		}
-		return
-	default:
-	}
 	c.wg.Add(1)
 	defer c.wg.Done()
 
+	// 从消息 Header 中提取 OpenTelemetry 传播上下文，恢复链路追踪
 	headersMap := make(map[string]string)
 	for k, v := range d.Headers {
 		if strVal, ok := v.(string); ok {
 			headersMap[k] = strVal
 		}
 	}
-
 	extractedCtx := otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(headersMap))
 
+	// 启动消费 Span，继承生产者链路
 	spanName := c.name
 	if spanName == "" {
 		spanName = "rabbitmq.consume"
 	}
-
 	msgCtx, span := c.tracer.Start(extractedCtx, spanName, trace.WithSpanKind(trace.SpanKindConsumer))
 	defer span.End()
 
-	var reqIDStr string
-	// 从 RabbitMQ headers 中读取 request_id（headers key 必须是 string 类型）
+	// 从消息头提取 request_id 并注入到消息上下文，确保日志追踪可关联
 	if reqIDVal, ok := d.Headers[string(logger.ContextKeyRequestID)].(string); ok && reqIDVal != "" {
-		reqIDStr = reqIDVal
-		span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDStr))
-		// 注入到 context 时使用 logger 统一的 ContextKey 类型，确保 logger 能正确提取
-		msgCtx = context.WithValue(msgCtx, logger.ContextKeyForRequestID(), reqIDStr)
+		span.SetAttributes(attribute.String(string(logger.ContextKeyForRequestID()), reqIDVal))
+		msgCtx = context.WithValue(msgCtx, logger.ContextKeyForRequestID(), reqIDVal)
 	}
 
+	// 构造消息唯一标识（Exchange/Queue/DeliveryTag），标记消息维度的 Span 属性
 	tagID := strings.Join([]string{d.Exchange, c.QueueName, strconv.FormatUint(d.DeliveryTag, 10)}, "/")
 	span.SetAttributes(
 		attribute.String("messaging.system", "rabbitmq"),
@@ -640,69 +419,57 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 		attribute.String("messaging.destination_kind", "queue"),
 		attribute.String("messaging.rabbitmq.routing_key", d.RoutingKey),
 		attribute.String("messaging.message_id", d.MessageId),
-		attribute.Int("messaging.message_payload_size_bytes", len(d.Body)),
 		attribute.String("messaging.rabbitmq.delivery_tag", strconv.FormatUint(d.DeliveryTag, 10)),
 		attribute.String("messaging.operation", "process"),
 	)
 
+	// 关联生产者侧 Trace 信息，串联生产-消费完整调用链
 	if traceIDStr, ok := d.Headers["x-trace-id"].(string); ok && traceIDStr != "" {
 		span.SetAttributes(
 			attribute.String("messaging.rabbitmq.producer_trace_id", traceIDStr),
 		)
-		if spanIDStr, ok := d.Headers["x-span-id"].(string); ok && spanIDStr != "" {
-			span.SetAttributes(
-				attribute.String("messaging.rabbitmq.producer_span_id", spanIDStr),
-			)
-		}
+	}
+	if spanIDStr, ok := d.Headers["x-span-id"].(string); ok && spanIDStr != "" {
+		span.SetAttributes(
+			attribute.String("messaging.rabbitmq.producer_span_id", spanIDStr),
+		)
 	}
 
+	// 标记消息已到达消费者，开始正式处理
 	span.AddEvent("message received")
 
 	err := handler(msgCtx, d.Body, d.MessageId, tagID)
 
+	// 自动确认模式：仅记录处理结果，不执行消息确认（由 RabbitMQ 自动 Ack）
 	if c.isAutoAck {
 		if err != nil {
-			errorMsg := fmt.Sprintf("handler execution failed: %v | queue=%s | message_id=%s | delivery_tag=%d | routing_key=%s",
-				err, c.QueueName, d.MessageId, d.DeliveryTag, d.RoutingKey)
 			span.RecordError(err,
 				trace.WithAttributes(
 					attribute.String("error.type", fmt.Sprintf("%T", err)),
 					attribute.String("error.context", "auto-ack-mode"),
 				),
 			)
-			span.SetStatus(codes.Error, errorMsg)
-			span.AddEvent("handler error occurred",
-				trace.WithAttributes(
-					attribute.String("error.message", err.Error()),
-					attribute.String("queue", c.QueueName),
-					attribute.String("message_id", d.MessageId),
-				),
-			)
+			span.SetStatus(codes.Error, fmt.Sprintf("handler execution failed: %v", err))
+			span.AddEvent("handler error occurred")
 		} else {
 			span.AddEvent("message processed successfully (auto-ack)")
 		}
 		return
 	}
 
+	// 手动确认模式 - handler 执行失败：Reject 消息（不重新入队），记录完整错误信息
 	if err != nil {
-		errorMsg := fmt.Sprintf("handler execution failed: %v | queue=%s | message_id=%s | delivery_tag=%d | routing_key=%s",
-			err, c.QueueName, d.MessageId, d.DeliveryTag, d.RoutingKey)
 		span.RecordError(err,
 			trace.WithAttributes(
 				attribute.String("error.type", fmt.Sprintf("%T", err)),
 				attribute.String("error.context", "manual-ack-mode"),
-				attribute.String("error.action", "reject-and-requeue"),
+				attribute.String("error.action", "reject"),
 			),
 		)
-		span.SetStatus(codes.Error, errorMsg)
-		span.AddEvent("handler error occurred",
-			trace.WithAttributes(
-				attribute.String("error.message", err.Error()),
-				attribute.String("queue", c.QueueName),
-				attribute.String("message_id", d.MessageId),
-				attribute.Bool("requeue", false),
-			),
-		)
+		span.SetStatus(codes.Error, fmt.Sprintf("handler execution failed: %v", err))
+		span.AddEvent("handler error occurred")
+		//false	不重新入队（路由到 DLQ 或丢弃）	业务逻辑错误、消息格式异常、不可重试
+		//true	重新入队（放回原队列）					上下文取消、临时故障、可重试
 		if rejectErr := d.Reject(false); rejectErr != nil {
 			span.RecordError(rejectErr,
 				trace.WithAttributes(
@@ -710,23 +477,23 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 					attribute.String("error.context", "manual-reject-failed"),
 				),
 			)
-			span.AddEvent("message reject failed",
-				trace.WithAttributes(
-					attribute.String("error.message", rejectErr.Error()),
-					attribute.String("tagID", tagID),
-				),
-			)
+			span.AddEvent("message reject failed")
 			logger.WarnWithCtx(ctx, "[rabbitmq consumer] manual Reject error",
 				logger.Err(rejectErr),
 				logger.String("tagID", tagID),
 				logger.String("queue", c.QueueName),
 				logger.String("message_id", d.MessageId))
+			// Reject 失败说明 channel 可能已损坏，关闭 channel 触发 RabbitMQ 重投递该消息
+			c.safeChannelClose()
 		} else {
-			span.AddEvent("message rejected and requeued (requeue=false)")
+			span.AddEvent("message rejected (not requeued)")
 		}
 		return
 	}
 
+	// 手动确认模式 - handler 执行成功：确认消息已处理，确认失败时记录告警
+	//false	仅确认当前消息	逐条处理、精确控制、需要死信/重试的场景
+	//true	批量确认当前及之前所有未确认消息	批量消费、高吞吐、允许批量确认的场景
 	if ackErr := d.Ack(false); ackErr != nil {
 		span.RecordError(ackErr,
 			trace.WithAttributes(
@@ -735,57 +502,52 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 				attribute.String("error.impact", "message-will-be-requeued-by-rabbitmq"),
 			),
 		)
-		span.AddEvent("acknowledgment failed",
-			trace.WithAttributes(
-				attribute.String("error.message", ackErr.Error()),
-				attribute.String("queue", c.QueueName),
-				attribute.String("message_id", d.MessageId),
-				attribute.String("error.description", fmt.Sprintf("acknowledgment failed: %v | queue=%s | message_id=%s | delivery_tag=%d",
-					ackErr, c.QueueName, d.MessageId, d.DeliveryTag)),
-			),
-		)
+		span.AddEvent("acknowledgment failed")
 		logger.WarnWithCtx(ctx, "[rabbitmq consumer] manual ack error",
 			logger.Err(ackErr),
 			logger.String("tagID", tagID),
 			logger.String("queue", c.QueueName),
 			logger.String("message_id", d.MessageId))
+		// Ack 失败说明 channel 可能已损坏，关闭 channel 触发 RabbitMQ 重投递该消息
+		c.safeChannelClose()
 	} else {
 		span.AddEvent("message acknowledged successfully")
 	}
 }
 
-// 辅助方法：安全关闭当前 Channel
+// safeChannelClose 安全关闭当前 AMQP 通道并清空引用。
+// 在加锁保护下执行，关闭后将 c.ch 置为 nil 防止重复关闭。
+// 关闭失败时仅记录警告日志，不中断调用方流程。
+// 该方法可多次调用，第二次及以后为无操作。
 func (c *Consumer) safeChannelClose() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.ch != nil {
 		if err := c.ch.Close(); err != nil {
-			fmt.Printf("close channel error: %v\n", err)
+			logger.WarnWithCtx(context.Background(), "关闭 channel 出错",
+				logger.Err(err),
+				logger.String("queue", c.QueueName))
 		}
 		c.ch = nil
 	}
 }
 
-// Close 关闭消费者
+// Close 关闭消费者，释放所有关联资源。
+// 使用 sync.Once 保证只执行一次，支持多次调用且幂等。
+//
+// 关闭顺序:
+//  1. 等待所有正在处理的消息完成（wg.Wait）
+//  2. 安全关闭 AMQP 通道（safeChannelClose）
+//  3. 记录资源释放日志
+//
+// 注意事项:
+//  - 可在未初始化的 Consumer 上安全调用（c.ch 为 nil 时 safeChannelClose 为空操作）
+//  - 调用后不可再用于消费新消息
 func (c *Consumer) Close() {
 	c.closeOnce.Do(func() {
 		c.wg.Wait()
-		if c.ch != nil {
-			if err := c.ch.Close(); err != nil {
-				fmt.Printf("close channel error: %v\n", err)
-			}
-			c.ch = nil
-		}
+		c.safeChannelClose()
 		logger.InfoWithCtx(context.Background(), "[rabbitmq consumer] 资源已释放",
 			logger.String("queue", c.QueueName))
 	})
 }
-
-// getHeadersKeys 获取消息头的键列表（用于调试）(暂未使用,保留供将来扩展)
-// func getHeadersKeys(headers amqp.Table) []string {
-// 	keys := make([]string, 0, len(headers))
-// 	for k := range headers {
-// 		keys = append(keys, k)
-// 	}
-// 	return keys
-// }

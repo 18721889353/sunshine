@@ -184,7 +184,9 @@ func InitApp() {
 		logger.InfoWithCtx(initCtx, "init SnowNode succeeded")
 	}
 	if cfg.Rabbitmq.Enable {
-		database.InitRabbitmq()
+		if err := database.InitRabbitmq(); err != nil {
+			panic(err)
+		}
 		logger.InfoWithCtx(initCtx, "init RabbitMQ succeeded")
 	}
 }

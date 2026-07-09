@@ -3,15 +3,15 @@ package gorabbitmqconsumer
 
 import (
 	"context"
+	"runtime/debug"
 	"strconv"
 	"sync"
 
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/pkg/logger"
-
 	"github.com/jinzhu/copier"
 
+	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // MessageHandler 定义消息处理函数类型
@@ -24,10 +24,19 @@ type BaseConsumer struct {
 	handler        MessageHandler
 	consumers      []*gorabbitmq.Consumer
 	consumersMutex sync.RWMutex
+	connRelease    func() // 释放连接的回调，池模式归还连接，单连接模式无操作
 }
 
 // ConsumerOption 定义初始化选项
 type ConsumerOption func(*BaseConsumer)
+
+// WithConnRelease 设置连接释放回调，用于在 Start 异常或消费者停止时将连接归还给连接池。
+// 池模式使用示例：WithConnRelease(func() { client.PutConnection(context.Background(), conn) })
+func WithConnRelease(release func()) ConsumerOption {
+	return func(bc *BaseConsumer) {
+		bc.connRelease = release
+	}
+}
 
 // NewBaseConsumer 创建一个新的基础消费者
 func NewBaseConsumer(name string, handler MessageHandler, opts ...ConsumerOption) *BaseConsumer {
@@ -56,23 +65,44 @@ func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageI
 // Start 启动消费者
 // connection: 外部注入的连接
 // rawConfig: 客户端传入的 config.DoingOrder 实例
+//
+// 注意:
+//   - Start 成功后 goroutine 持有 connection 生命周期，goroutine 退出时会自动释放
+//   - Start 异常时（配置错误/未启用）会立即释放 connection
+//   - 如需将连接归还给连接池，使用 WithConnRelease 设置回调
 func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connection, rawConfig any) error {
+	// 按次捕获释放函数，避免被后续 Start 调用覆盖
+	rls := bc.connRelease
+
 	var queueConfig config.DoingOrder
 	if err := copier.Copy(&queueConfig, rawConfig); err != nil {
 		logger.ErrorWithCtx(ctx, bc.name+" config copy error", logger.Err(err))
+		if rls != nil {
+			rls()
+		}
 		return err
 	}
 	if !queueConfig.Enable {
+		if rls != nil {
+			rls()
+		}
 		return nil
 	}
 
 	go func() {
+		// 确保 goroutine 退出时释放连接
+		defer func() {
+			if rls != nil {
+				rls()
+			}
+		}()
+
 		// 防止 goroutine panic 导致整个服务崩溃
 		defer func() {
 			if r := recover(); r != nil {
 				logger.ErrorWithCtx(ctx, bc.name+" consumer goroutine panicked",
 					logger.Any("panic", r),
-					logger.String("stack", "")) // Stack trace 会在 panic 时自动记录
+					logger.String("stack", string(debug.Stack())))
 			}
 		}()
 
@@ -87,6 +117,10 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 		consumerNum := queueConfig.ConsumerNum
 		if consumerNum <= 0 {
 			consumerNum = 1
+		}
+		if consumerNum > 100 {
+			consumerNum = 100
+			logger.WarnWithCtx(ctx, bc.name+" consumerNum capped at 100")
 		}
 		// 创建指定数量的消费者
 		for i := 0; i < consumerNum; i++ {
@@ -117,14 +151,18 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 			logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
 		}
 
-		// 监听信号，无论是内部 Stop 还是外部 Context 取消
+		// 监听 Context 取消信号，退出时连接由 defer 自动释放
 		<-ctx.Done()
-		logger.WarnWithCtx(ctx, bc.name+" 收到全局 Context 取消信号")
-
 		logger.WarnWithCtx(ctx, bc.name+" 收到 Context 取消信号，主循环退出")
 	}()
 
 	return nil
+}
+
+// SetConnRelease 设置连接释放回调，用于在 Start 后才获取连接的场景（如 init() 创建、Start() 取连接的模式）。
+// 池模式使用示例：baseConsumer.SetConnRelease(func() { client.PutConnection(context.Background(), conn) })
+func (bc *BaseConsumer) SetConnRelease(release func()) {
+	bc.connRelease = release
 }
 
 // buildBaseOptions 构建通用的消费者配置

@@ -56,7 +56,7 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 		url:         url,
 		poolOpts:    o,
 		connReadyCh: make(chan struct{}, 1),
-		tracer:      otel.Tracer("gorabbitmq"),
+		tracer:      otel.Tracer("gomq"),
 	}
 
 	// 初始化连接

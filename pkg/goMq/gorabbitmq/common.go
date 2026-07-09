@@ -708,6 +708,233 @@ func WithQosPrefetchSize(size int) QosOption {
 	}
 }
 
+// setupCustomerDeadLetterDeclare 声明自定义死信队列的三条消息路径并绑定到交换机。
+// 包含：死信队列（TTL 超时）、异常队列（消费失败）、普通队列（正常消费）。
+//
+// 参数:
+//   - channel: AMQP 通道
+//   - exchangeName: 交换机名称
+//   - exchangeType: 交换机类型
+//   - opts: 自定义死信队列配置选项
+func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchangeType string, opts *CustomerDeadLetterOptions) error {
+	// 声明主交换机
+	if err := channel.ExchangeDeclare(
+		exchangeName,
+		exchangeType,
+		opts.exchangeDeclare.durable,
+		opts.exchangeDeclare.autoDelete,
+		opts.exchangeDeclare.internal,
+		opts.exchangeDeclare.noWait,
+		opts.exchangeDeclare.args,
+	); err != nil {
+		return err
+	}
+
+	// 声明死信队列（TTL 超时消息入队）并绑定到交换机
+	if opts.deadQueueDeclare.args == nil {
+		opts.deadQueueDeclare.args = amqp.Table{
+			"x-dead-letter-exchange":    exchangeName,
+			"x-dead-letter-routing-key": opts.errRoutingKey,
+			"x-message-ttl":             int32(600000),
+		}
+	}
+	dlq, err := channel.QueueDeclare(
+		opts.deadQueueName,
+		opts.deadQueueDeclare.durable,
+		opts.deadQueueDeclare.autoDelete,
+		opts.deadQueueDeclare.exclusive,
+		opts.deadQueueDeclare.noWait,
+		opts.deadQueueDeclare.args,
+	)
+	if err != nil {
+		return err
+	}
+	if err := channel.QueueBind(
+		dlq.Name,
+		opts.deadRoutingKey,
+		exchangeName,
+		opts.deadQueueBind.noWait,
+		opts.deadQueueBind.args,
+	); err != nil {
+		return err
+	}
+
+	// 声明异常队列（消费者 NACK/Reject 消息入队）并绑定到交换机
+	if opts.errQueueDeclare.args == nil {
+		opts.errQueueDeclare.args = amqp.Table{
+			"x-dead-letter-exchange":    exchangeName,
+			"x-dead-letter-routing-key": opts.deadRoutingKey,
+		}
+	}
+	elq, err := channel.QueueDeclare(
+		opts.errQueueName,
+		opts.errQueueDeclare.durable,
+		opts.errQueueDeclare.autoDelete,
+		opts.errQueueDeclare.exclusive,
+		opts.errQueueDeclare.noWait,
+		opts.errQueueDeclare.args,
+	)
+	if err != nil {
+		return err
+	}
+	if err := channel.QueueBind(
+		elq.Name,
+		opts.errRoutingKey,
+		exchangeName,
+		opts.errQueueBind.noWait,
+		opts.errQueueBind.args,
+	); err != nil {
+		return err
+	}
+
+	// 声明普通队列（正常消费消息入队）并绑定到交换机
+	if opts.normalQueueDeclare.args == nil {
+		opts.normalQueueDeclare.args = amqp.Table{
+			"x-dead-letter-exchange":    exchangeName,
+			"x-dead-letter-routing-key": opts.deadRoutingKey,
+		}
+	}
+	nlq, err := channel.QueueDeclare(
+		opts.normalQueueName,
+		opts.normalQueueDeclare.durable,
+		opts.normalQueueDeclare.autoDelete,
+		opts.normalQueueDeclare.exclusive,
+		opts.normalQueueDeclare.noWait,
+		opts.normalQueueDeclare.args,
+	)
+	if err != nil {
+		return err
+	}
+	return channel.QueueBind(
+		nlq.Name,
+		opts.normalRoutingKey,
+		exchangeName,
+		opts.normalQueueDeclare.noWait,
+		opts.normalQueueDeclare.args,
+	)
+}
+
+// setupStandardDeadLetterDeclare 声明标准死信队列的两条消息路径并绑定到交换机。
+// 包含：死信队列（TTL 超时）、普通队列（正常消费）。
+//
+// 参数:
+//   - channel: AMQP 通道
+//   - exchangeName: 交换机名称
+//   - exchangeType: 交换机类型
+//   - opts: 标准死信队列配置选项
+func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchangeType string, opts *DeadLetterOptions) error {
+	// 声明主交换机
+	if err := channel.ExchangeDeclare(
+		exchangeName,
+		exchangeType,
+		opts.exchangeDeclare.durable,
+		opts.exchangeDeclare.autoDelete,
+		opts.exchangeDeclare.internal,
+		opts.exchangeDeclare.noWait,
+		opts.exchangeDeclare.args,
+	); err != nil {
+		return err
+	}
+
+	// 声明死信队列（TTL 超时消息入队）并绑定到交换机
+	if opts.deadQueueDeclare.args == nil {
+		opts.deadQueueDeclare.args = amqp.Table{
+			"x-dead-letter-exchange":    exchangeName,
+			"x-dead-letter-routing-key": opts.normalRoutingKey,
+			"x-message-ttl":             int32(600000),
+		}
+	}
+	dlq, err := channel.QueueDeclare(
+		opts.deadQueueName,
+		opts.deadQueueDeclare.durable,
+		opts.deadQueueDeclare.autoDelete,
+		opts.deadQueueDeclare.exclusive,
+		opts.deadQueueDeclare.noWait,
+		opts.deadQueueDeclare.args,
+	)
+	if err != nil {
+		return err
+	}
+	if err := channel.QueueBind(
+		dlq.Name,
+		opts.deadRoutingKey,
+		exchangeName,
+		opts.deadQueueBind.noWait,
+		opts.deadQueueBind.args,
+	); err != nil {
+		return err
+	}
+
+	// 声明普通队列（正常消费消息入队）并绑定到交换机
+	if opts.normalQueueDeclare.args == nil {
+		opts.normalQueueDeclare.args = amqp.Table{
+			"x-dead-letter-exchange":    exchangeName,
+			"x-dead-letter-routing-key": opts.deadRoutingKey,
+		}
+	}
+	nlq, err := channel.QueueDeclare(
+		opts.normalQueueName,
+		opts.normalQueueDeclare.durable,
+		opts.normalQueueDeclare.autoDelete,
+		opts.normalQueueDeclare.exclusive,
+		opts.normalQueueDeclare.noWait,
+		opts.normalQueueDeclare.args,
+	)
+	if err != nil {
+		return err
+	}
+	return channel.QueueBind(
+		nlq.Name,
+		opts.normalRoutingKey,
+		exchangeName,
+		opts.normalQueueDeclare.noWait,
+		opts.normalQueueDeclare.args,
+	)
+}
+
+// setupNormalLetterDeclare 声明正常队列的单条消息路径并绑定到交换机。
+// 包含：交换机声明 + 队列声明 + 绑定。
+//
+// 参数:
+//   - channel: AMQP 通道
+//   - exchangeName: 交换机名称
+//   - exchangeType: 交换机类型
+//   - opts: 正常队列配置选项
+func setupNormalLetterDeclare(channel *amqp.Channel, exchangeName, exchangeType string, opts *NormalLetterOptions) error {
+	// 声明主交换机
+	if err := channel.ExchangeDeclare(
+		exchangeName,
+		exchangeType,
+		opts.exchangeDeclare.durable,
+		opts.exchangeDeclare.autoDelete,
+		opts.exchangeDeclare.internal,
+		opts.exchangeDeclare.noWait,
+		opts.exchangeDeclare.args,
+	); err != nil {
+		return err
+	}
+
+	// 声明队列并绑定到交换机
+	nlq, err := channel.QueueDeclare(
+		opts.normalQueueName,
+		opts.normalQueueDeclare.durable,
+		opts.normalQueueDeclare.autoDelete,
+		opts.normalQueueDeclare.exclusive,
+		opts.normalQueueDeclare.noWait,
+		opts.normalQueueDeclare.args,
+	)
+	if err != nil {
+		return err
+	}
+	return channel.QueueBind(
+		nlq.Name,
+		opts.normalRoutingKey,
+		exchangeName,
+		opts.normalQueueDeclare.noWait,
+		opts.normalQueueDeclare.args,
+	)
+}
+
 // WithQosPrefetchGlobal 设置QoS全局生效选项
 // 控制QoS设置是否应用于整个通道（true）还是仅应用于当前消费者（false）
 // 当设置为true时，QoS设置将应用于该通道上的所有消费者

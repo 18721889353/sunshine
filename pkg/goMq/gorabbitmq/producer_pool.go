@@ -25,8 +25,8 @@ type producerPoolEntry struct {
 // 每次 Get 借出一个 Producer，Put 归还复用，避免反复创建 channel。
 // 当底层连接重连导致 channel 失效时，Get 自动重建。
 type ProducerPool struct {
-	pool     *Pool         // 底层连接池
-	exchange *Exchange     // 交换机配置（所有 Producer 共享）
+	pool     *Pool            // 底层连接池
+	exchange *Exchange        // 交换机配置（所有 Producer 共享）
 	opts     []ProducerOption // 生产者配置选项
 
 	mu        sync.Mutex
@@ -55,7 +55,7 @@ func NewProducerPool(pool *Pool, exchange *Exchange, maxSize int, opts ...Produc
 		opts:      opts,
 		maxSize:   maxSize,
 		producers: make([]*producerPoolEntry, 0, maxSize),
-		tracer:    otel.Tracer("gorabbitmq"),
+		tracer:    otel.Tracer("gomq"),
 	}, nil
 }
 
@@ -169,14 +169,19 @@ func (pp *ProducerPool) Len() int {
 // ---------------------------------------------------------------------------
 
 // isChannelValid 检查 entry 的 channel 是否仍有效。
-// 两级验证：
+// 三级验证：
 //   - 快速路径：CheckConnected 检查连接本地状态（原子读）
+//   - 快速路径：IsClosed 检查 AMQP channel 自身状态（非网络交互）
 //   - 完整路径：reconnectCount 快照对比，检测重连导致的 channel 过期
 func (pp *ProducerPool) isChannelValid(entry *producerPoolEntry) bool {
-	if entry == nil || entry.conn == nil {
+	if entry == nil || entry.conn == nil || entry.producer == nil {
 		return false
 	}
 	if !entry.conn.CheckConnected(context.Background()) {
+		return false
+	}
+	// 检查 AMQP channel 自身是否已关闭（连接正常但 channel 被服务端关闭）
+	if entry.producer.mqChannel != nil && entry.producer.mqChannel.IsClosed() {
 		return false
 	}
 	reconn := entry.conn.GetReconnectCount(context.Background())
@@ -217,6 +222,13 @@ func (pp *ProducerPool) newProducerEntry(ctx context.Context) (*Producer, error)
 	}
 
 	amqpConn := conn.GetConn(ctx)
+	if amqpConn == nil {
+		if putErr := pp.pool.Put(ctx, conn); putErr != nil {
+			logger.WarnWithCtx(ctx, "[producer pool] return connection after nil amqp connection",
+				logger.Err(putErr))
+		}
+		return nil, fmt.Errorf("rabbitmq connection is not ready")
+	}
 	channel, err := amqpConn.Channel()
 	if err != nil {
 		if putErr := pp.pool.Put(ctx, conn); putErr != nil {
