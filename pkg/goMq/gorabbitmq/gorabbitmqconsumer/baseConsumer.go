@@ -71,38 +71,38 @@ func (bc *BaseConsumer) handleMessage(ctx context.Context, data []byte, messageI
 //   - Start 异常时（配置错误/未启用）会立即释放 connection
 //   - 如需将连接归还给连接池，使用 WithConnRelease 设置回调
 func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connection, rawConfig any) error {
-	// 按次捕获释放函数，避免被后续 Start 调用覆盖
-	rls := bc.connRelease
-
 	var queueConfig config.DoingOrder
 	if err := copier.Copy(&queueConfig, rawConfig); err != nil {
 		logger.ErrorWithCtx(ctx, bc.name+" config copy error", logger.Err(err))
-		if rls != nil {
-			rls()
+		if bc.connRelease != nil {
+			bc.connRelease()
 		}
 		return err
 	}
 	if !queueConfig.Enable {
-		if rls != nil {
-			rls()
+		if bc.connRelease != nil {
+			bc.connRelease()
 		}
 		return nil
 	}
 
 	go func() {
-		// 确保 goroutine 退出时释放连接
-		defer func() {
-			if rls != nil {
-				rls()
-			}
-		}()
-
-		// 防止 goroutine panic 导致整个服务崩溃
+		// panic 恢复 - 最外层安全网
 		defer func() {
 			if r := recover(); r != nil {
 				logger.ErrorWithCtx(ctx, bc.name+" consumer goroutine panicked",
 					logger.Any("panic", r),
 					logger.String("stack", string(debug.Stack())))
+			}
+		}()
+
+		// 关闭连接
+		defer connection.Close()
+
+		// 归还连接到连接池
+		defer func() {
+			if bc.connRelease != nil {
+				bc.connRelease()
 			}
 		}()
 
@@ -134,7 +134,7 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 				consumerOpts = append(consumerOpts, bc.buildNormalLetterOptions(exchange, queueConfig, normalQueueName)...)
 			}
 
-			// 添加消费者名称用于 trace span
+			// 添加消费者名称
 			consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
 
 			consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
@@ -151,7 +151,7 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 			logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
 		}
 
-		// 监听 Context 取消信号，退出时连接由 defer 自动释放
+		// 监听 Context 取消信号
 		<-ctx.Done()
 		logger.WarnWithCtx(ctx, bc.name+" 收到 Context 取消信号，主循环退出")
 	}()
@@ -282,6 +282,6 @@ func (bc *BaseConsumer) Stop(ctx context.Context) error {
 	}
 	bc.consumersMutex.Unlock()
 	bc.wg.Wait()
-	logger.WarnWithCtx(ctx, "<<< 消费者服务已安全停止: "+bc.name)
+	logger.InfoWithCtx(ctx, "<<< 消费者服务已安全停止: "+bc.name)
 	return nil
 }
