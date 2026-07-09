@@ -490,10 +490,10 @@ func TestConsumer_SetupQoS_EnabledWithTempChannel(t *testing.T) {
 
 // mockAcker 模拟 RabbitMQ 的 Acknowledger 接口，用于测试 Ack/Reject 的多种场景
 type mockAcker struct {
-	rejectErr     error // Reject 返回的错误，nil 表示成功
-	ackErr        error // Ack 返回的错误，nil 表示成功
-	ackCalled     bool  // Ack 是否被调用
-	rejectCalled  bool  // Reject 是否被调用
+	rejectErr     error  // Reject 返回的错误，nil 表示成功
+	ackErr        error  // Ack 返回的错误，nil 表示成功
+	ackCalled     bool   // Ack 是否被调用
+	rejectCalled  bool   // Reject 是否被调用
 	calledWithTag uint64 // 最近一次调用的 DeliveryTag
 }
 
@@ -533,12 +533,12 @@ func makeDelivery(t *testing.T, acker amqp.Acknowledger, headers amqp.Table, bod
 	t.Helper()
 	return amqp.Delivery{
 		Acknowledger: acker,
-		Headers:     headers,
-		Body:        body,
-		DeliveryTag: 1,
-		Exchange:    "test-exchange",
-		RoutingKey:  "test-key",
-		MessageId:   "test-msg-1",
+		Headers:      headers,
+		Body:         body,
+		DeliveryTag:  1,
+		Exchange:     "test-exchange",
+		RoutingKey:   "test-key",
+		MessageId:    "test-msg-1",
 	}
 }
 

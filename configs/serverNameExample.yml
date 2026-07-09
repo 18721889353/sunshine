@@ -323,6 +323,14 @@ email:
     username: "your_email@qq.com"
     password: "your_auth_code"
 
+# 短信服务配置（支持腾讯云SMS/阿里云SMS）
+sms:
+  providerType: "tencent_sms"        # tencent_sms | aliyun_sms
+  region: "ap-guangzhou"              # 区域（短信发送接口仅支持广州/新加坡等地域）
+  accessKeyID: ""   # SecretId
+  secretKey: ""        # SecretKey
+  appID: ""                # 短信应用ID（SmsSdkAppId）
+
 websocket:
   sso:
     # ==================== 单点登录 ====================

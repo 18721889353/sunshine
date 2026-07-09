@@ -190,11 +190,7 @@ func (c *Consumer) setupChannel(ctx context.Context) error {
 	}
 
 	// 设置所有队列
-	if err = c.setupQueues(channel); err != nil {
-		return err
-	}
-
-	return nil
+	return c.setupQueues(channel)
 }
 
 // setupCustomerDeadLetter 设置自定义死信队列，委托共享函数执行。
@@ -541,8 +537,8 @@ func (c *Consumer) safeChannelClose() {
 //  3. 记录资源释放日志
 //
 // 注意事项:
-//  - 可在未初始化的 Consumer 上安全调用（c.ch 为 nil 时 safeChannelClose 为空操作）
-//  - 调用后不可再用于消费新消息
+//   - 可在未初始化的 Consumer 上安全调用（c.ch 为 nil 时 safeChannelClose 为空操作）
+//   - 调用后不可再用于消费新消息
 func (c *Consumer) Close() {
 	c.closeOnce.Do(func() {
 		c.wg.Wait()

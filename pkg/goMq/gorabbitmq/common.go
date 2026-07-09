@@ -751,7 +751,7 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	if err != nil {
 		return err
 	}
-	if err := channel.QueueBind(
+	if err = channel.QueueBind(
 		dlq.Name,
 		opts.deadRoutingKey,
 		exchangeName,
@@ -779,7 +779,7 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	if err != nil {
 		return err
 	}
-	if err := channel.QueueBind(
+	if err = channel.QueueBind(
 		elq.Name,
 		opts.errRoutingKey,
 		exchangeName,
@@ -858,7 +858,7 @@ func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	if err != nil {
 		return err
 	}
-	if err := channel.QueueBind(
+	if err = channel.QueueBind(
 		dlq.Name,
 		opts.deadRoutingKey,
 		exchangeName,

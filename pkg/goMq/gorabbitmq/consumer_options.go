@@ -7,7 +7,7 @@ type ConsumerOption func(*consumerOptions)
 type consumerOptions struct {
 	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列选项，包含死信交换机、死信队列、重试队列的声明和绑定配置
 	normalLetter       *NormalLetterOptions       // 正常队列选项，包含普通交换机和队列的声明与绑定配置
-	deadLetter         *DeadLetterOptions       // 标准死信队列选项（正常↔死信两队列循环重试），包含死信交换机、队列的声明与绑定配置
+	deadLetter         *DeadLetterOptions         // 标准死信队列选项（正常↔死信两队列循环重试），包含死信交换机、队列的声明与绑定配置
 	qos                *qosOptions                // 消费者 QoS 选项，包含预取数量和大小等流控配置
 	consume            *consumeOptions            // 消费选项，包含消费者名称、排他性、noLocal 等消费行为配置
 

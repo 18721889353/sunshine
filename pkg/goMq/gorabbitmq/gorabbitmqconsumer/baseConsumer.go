@@ -14,12 +14,14 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+type ctxKeyQueueType string
+
 // QueueTypeKey 消息来源队列类型上下文键值。
 // 在 handler 中通过 ctx.Value(gorabbitmqconsumer.QueueTypeKey) 获取：
 //   - "normal"   → 正常队列（首次消费）
 //   - "retry"    → 重试队列（死信TTL超时后重试）
 //   - 空字符串   → 非 customerDead 模式（queueType=dead/normal 时无此值）
-const QueueTypeKey string = "queue_type"
+const QueueTypeKey ctxKeyQueueType = "queue_type"
 
 // MessageHandler 定义消息处理函数类型
 type MessageHandler func(ctx context.Context, data []byte, messageID string, tagID string) error
@@ -144,7 +146,7 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 			}
 
 			if queueConfig.QueueType == "customerDead" {
-				consumerOpts = append(consumerOpts, bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, normalRoutineKey)...)
+				consumerOpts = append(consumerOpts, bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName)...)
 			}
 
 			// 添加消费者名称
@@ -165,7 +167,7 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 
 			// 自定义死信模式：额外创建重试队列消费者
 			if queueConfig.QueueType == "customerDead" {
-				errConsumerOpts := bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, normalRoutineKey)
+				errConsumerOpts := bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName)
 				errConsumerOpts = append(errConsumerOpts, gorabbitmq.WithConsumerName(bc.name))
 
 				errConsumer, err := gorabbitmq.NewConsumer(exchange, errQueueName, connection, errConsumerOpts...)
@@ -301,7 +303,7 @@ func (bc *BaseConsumer) buildNormalLetterOptions(exchange *gorabbitmq.Exchange, 
 func (bc *BaseConsumer) buildCustomerDeadLetterOptions(
 	exchange *gorabbitmq.Exchange,
 	cfg config.DoingOrder,
-	deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, normalRoutineKey string,
+	deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName string,
 ) []gorabbitmq.ConsumerOption {
 	return []gorabbitmq.ConsumerOption{
 		gorabbitmq.WithConsumerCustomerDeadLetterOptions(

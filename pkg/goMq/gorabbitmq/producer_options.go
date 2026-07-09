@@ -4,7 +4,7 @@ package gorabbitmq
 type producerOptions struct {
 	customerDeadLetter *CustomerDeadLetterOptions // 自定义死信队列（含正常/死信/重试三条消息路径）
 	normalLetter       *NormalLetterOptions       // 普通队列（声明队列并绑定到交换机）
-	deadLetter         *DeadLetterOptions       // 标准死信队列（正常↔死信两队列循环重试）
+	deadLetter         *DeadLetterOptions         // 标准死信队列（正常↔死信两队列循环重试）
 	msgDurable         bool                       // true=消息持久化到磁盘（amqp.Persistent），false=仅内存（amqp.Transient）
 	mandatory          bool                       // true=消息不可路由时回退给发送者，false=直接丢弃不可路由的消息
 	isDelay            bool                       // true=启用延迟消息（需配合 x-delayed-message 类型交换机使用）

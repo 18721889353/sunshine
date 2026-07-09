@@ -45,7 +45,16 @@ type Config struct {
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
 	Sign          Sign          `yaml:"sign" json:"sign"`
 	Sls           Sls           `yaml:"sls" json:"sls"`
+	Sms           Sms           `yaml:"sms" json:"sms"`
 	Websocket     Websocket     `yaml:"websocket" json:"websocket"`
+}
+
+type Sms struct {
+	AccessKeyID  string `yaml:"accessKeyID" json:"accessKeyID"`
+	AppID        string `yaml:"appID" json:"appID"`
+	ProviderType string `yaml:"providerType" json:"providerType"`
+	Region       string `yaml:"region" json:"region"`
+	SecretKey    string `yaml:"secretKey" json:"secretKey"`
 }
 
 type Email struct {

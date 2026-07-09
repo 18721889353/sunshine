@@ -80,11 +80,11 @@ func (s *rabbitmqConsumerServer) Start() error {
 				case <-heartbeatCtx.Done():
 					return
 				case <-ticker.C:
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
+					regCtx, regCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					if _, err := s.iRegistry.Register(regCtx, s.instance); err != nil {
 						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
 					}
-					cancel()
+					regCancel()
 				}
 			}
 		}()
