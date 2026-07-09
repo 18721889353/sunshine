@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
@@ -16,54 +17,80 @@ import (
 var _ app.IServer = (*rabbitmqConsumerServer)(nil)
 
 type rabbitmqConsumerServer struct {
-	isRunning bool
-	cancel    context.CancelFunc
-
-	instance  *registry.ServiceInstance
-	iRegistry registry.Registry
-	consumers []mq.Consumer
+	isRunning         atomic.Bool               // 运行状态标记，防止重复启动
+	instance          *registry.ServiceInstance // 服务注册实例信息
+	mqServerCtxCancel context.CancelFunc        // 取消函数，调用后所有消费者感知 ctx.Done() 退出
+	iRegistry         registry.Registry         // 服务注册中心
+	registryCtxCancel context.CancelFunc        // 用于停止后台注册心跳
+	consumers         []mq.Consumer             // 消费者列表
 }
 
 func (s *rabbitmqConsumerServer) IsRunning() bool {
-	return s.isRunning
+	return s.isRunning.Load()
 }
 
-// Start 启动RabbitMQ消费者服务
+// Start 启动 RabbitMQ 消费者服务，按顺序执行：启动消费者 → 注册服务发现 → 阻塞等待退出信号。
+// 消费者启动失败时会立即返回错误，已启动的消费者由调用方负责清理。
+//
+// 返回值:
+//   - error: 服务启动成功返回 nil（阻塞中），启动失败返回具体错误信息
 func (s *rabbitmqConsumerServer) Start() error {
-	if s.iRegistry != nil {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-		if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-			return err
-		}
-		go func() {
-			ticker := time.NewTicker(15 * time.Second) // 每15秒检查一次
-			defer ticker.Stop()
-			for range ticker.C {
-				ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-				if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-					logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
-				} else {
-					logger.WarnWithCtx(context.Background(), "s.iRegistry.Register")
-				}
-			}
-		}()
-	}
-	if s.isRunning {
+	if s.isRunning.Load() {
 		return fmt.Errorf("rabbitmqConsumer server is already running")
 	}
+
+	// 创建可取消的上下文，用于统一控制所有消费者的生命周期
 	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
+	s.mqServerCtxCancel = cancel
 
 	// 启动所有消费者
-	for _, consumer := range s.consumers {
+	for i, consumer := range s.consumers {
 		logger.InfoWithCtx(context.Background(), "Starting consumer", logger.Any("name", consumer.Name()))
 		if err := consumer.Start(ctx); err != nil {
 			logger.ErrorWithCtx(context.Background(), "Failed to start consumer err", logger.Any("body", consumer.Name()), logger.Err(err))
+			// 取消上下文，通知已启动的 goroutine 退出
+			s.mqServerCtxCancel()
+			// 回滚：等待已启动的消费者完成退出
+			for j := 0; j < i; j++ {
+				if stopErr := s.consumers[j].Stop(context.Background()); stopErr != nil {
+					logger.WarnWithCtx(context.Background(), "Failed to stop consumer on rollback",
+						logger.Any("name", s.consumers[j].Name()), logger.Err(stopErr))
+				}
+			}
 			return fmt.Errorf("failed to start consumer %s: %w", consumer.Name(), err)
 		}
 	}
 
-	s.isRunning = true
+	// 注册服务发现，并在后台定期续期
+	if s.iRegistry != nil {
+		regCtx, regCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer regCancel()
+		if _, err := s.iRegistry.Register(regCtx, s.instance); err != nil {
+			s.mqServerCtxCancel()
+			return err
+		}
+
+		heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
+		s.registryCtxCancel = heartbeatCancel
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-heartbeatCtx.Done():
+					return
+				case <-ticker.C:
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
+						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
+					}
+					cancel()
+				}
+			}
+		}()
+	}
+
+	s.isRunning.Store(true)
 	logger.InfoWithCtx(context.Background(), "rabbitmqConsumer server started")
 
 	// 保持服务运行，直到收到停止信号
@@ -76,25 +103,31 @@ func (s *rabbitmqConsumerServer) Start() error {
 // Stop 停止RabbitMQ消费者服务
 func (s *rabbitmqConsumerServer) Stop() error {
 	logger.WarnWithCtx(context.Background(), "收到停止信号开始停止 rabbitmqConsumer server")
-	if s.iRegistry != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		go func() {
-			defer cancel()
-			if err := s.iRegistry.Deregister(ctx, s.instance); err != nil {
-				logger.WarnWithCtx(ctx, "注销服务实例失败", logger.Err(err))
-			}
-		}()
-		<-ctx.Done()
-	}
-	if !s.isRunning {
+
+	if !s.isRunning.Load() {
 		return fmt.Errorf("rabbitmqConsumer server is not running")
 	}
 
-	//掐断信号线！所有下游感知 ctx.Done()
-	if s.cancel != nil {
-		s.cancel()
+	// 停止后台注册心跳
+	if s.registryCtxCancel != nil {
+		s.registryCtxCancel()
 	}
-	// 3. 并发停止所有消费者
+
+	// 注销服务实例
+	if s.iRegistry != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := s.iRegistry.Deregister(ctx, s.instance); err != nil {
+			logger.WarnWithCtx(ctx, "注销服务实例失败", logger.Err(err))
+		}
+		cancel()
+	}
+
+	// 掐断信号线！所有下游感知 ctx.Done()
+	if s.mqServerCtxCancel != nil {
+		s.mqServerCtxCancel()
+	}
+
+	// 并发停止所有消费者
 	var wg sync.WaitGroup
 	for _, consumer := range s.consumers {
 		wg.Add(1)
@@ -104,12 +137,12 @@ func (s *rabbitmqConsumerServer) Stop() error {
 			if err := c.Stop(context.Background()); err != nil {
 				logger.WarnWithCtx(context.Background(), "consumer.Stop() err", logger.Any("body", c.Name()), logger.Err(err))
 			}
-		}(consumer) // 注意这里要传参，避免闭包变量捕获问题
+		}(consumer)
 	}
 	// 等待所有消费者处理完成
 	wg.Wait()
 
-	s.isRunning = false
+	s.isRunning.Store(false)
 	logger.WarnWithCtx(context.Background(), "成功停止 rabbitmqConsumer server")
 	return nil
 }
@@ -124,7 +157,6 @@ func NewRabbitmqConsumerServer(consumers []mq.Consumer, opts ...RABBITQMCONSUMER
 	o := defaultRABBITQMCONSUMEROptions()
 	o.apply(opts...)
 	return &rabbitmqConsumerServer{
-		isRunning: false,
 		iRegistry: o.iRegistry,
 		instance:  o.instance,
 		consumers: consumers,
