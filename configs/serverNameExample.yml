@@ -222,12 +222,14 @@ rabbitmq:
     statsLogOpen: true            # 统计日志打印 true开false关
   DoingOrder: # 订单处理配置
     enable: false                  # 是否启用
-    queueType: "dead"             # 队列类型 死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
+    queueType: "dead"             # 队列类型 普通死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
     exchangeName: "DoingOrderExchange"     # 交换机名称
     normalQueueName: "DoingOrderQueue"     # 正常队列名称
     normalKey: "DoingOrderExchange.DoingOrderQueue" #绑定键
     deadQueueName: "DoingOrderQueueDL"     # 死信队列名称
     deadKey: "DoingOrderExchange.DoingOrderQueueDL" #绑定键
+    errQueueName: "DoingOrderQueueErr"    # 重试队列名称（customerDead模式）
+    errKey: "DoingOrderExchange.DoingOrderQueueErr" #重试队列绑定键
     # 死信队列交换机选项
     exchangeDeclareOptions:
       durable: true               # 交换机是否持久化，即使服务器重启也保留
@@ -244,6 +246,15 @@ rabbitmq:
         xMessageTtl: 60000        # 消息过期时间（队列级别）,毫秒
     # 死信队列队列绑定选项
     deadQueueBindOption:
+      noWait: false               # 是否非阻塞处理，true表示不等待服务器确认
+    # 重试队列声明选项（customerDead模式）
+    errQueueDeclareOption:
+      durable: true               # 队列是否持久化，即使服务器重启也保留
+      autoDelete: false           # 是否自动删除，当最后一个消费者断开连接时是否自动删除
+      exclusive: false            # 是否排他，只有创建它的连接才能访问
+      noWait: false               # 是否非阻塞处理，true表示不等待服务器确认
+    # 重试队列绑定选项（customerDead模式）
+    errQueueBindOption:
       noWait: false               # 是否非阻塞处理，true表示不等待服务器确认
     normalQueueDeclareOption:
       durable: true               # 队列是否持久化，即使服务器重启也保留

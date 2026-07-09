@@ -158,7 +158,7 @@ type Logger struct {
 	Routes             []Routes      `yaml:"routes" json:"routes"`
 }
 
-type NormalQueueDeclareOption struct {
+type ErrQueueDeclareOption struct {
 	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
 	Durable    bool `yaml:"durable" json:"durable"`
 	Exclusive  bool `yaml:"exclusive" json:"exclusive"`
@@ -245,20 +245,24 @@ type ConsumerOption struct {
 }
 
 type DoingOrder struct {
-	ConsumerNum              int                      `yaml:"consumerNum" json:"consumerNum"`
-	ConsumerOption           ConsumerOption           `yaml:"consumerOption" json:"consumerOption"`
-	DeadKey                  string                   `yaml:"deadKey" json:"deadKey"`
-	DeadQueueBindOption      DeadQueueBindOption      `yaml:"deadQueueBindOption" json:"deadQueueBindOption"`
-	DeadQueueDeclareOption   DeadQueueDeclareOption   `yaml:"deadQueueDeclareOption" json:"deadQueueDeclareOption"`
-	DeadQueueName            string                   `yaml:"deadQueueName" json:"deadQueueName"`
-	Enable                   bool                     `yaml:"enable" json:"enable"`
-	ExchangeDeclareOptions   ExchangeDeclareOptions   `yaml:"exchangeDeclareOptions" json:"exchangeDeclareOptions"`
-	ExchangeName             string                   `yaml:"exchangeName" json:"exchangeName"`
-	NormalKey                string                   `yaml:"normalKey" json:"normalKey"`
-	NormalQueueBindOption    DeadQueueBindOption      `yaml:"normalQueueBindOption" json:"normalQueueBindOption"`
-	NormalQueueDeclareOption NormalQueueDeclareOption `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
-	NormalQueueName          string                   `yaml:"normalQueueName" json:"normalQueueName"`
-	QueueType                string                   `yaml:"queueType" json:"queueType"`
+	ConsumerNum              int                    `yaml:"consumerNum" json:"consumerNum"`
+	ConsumerOption           ConsumerOption         `yaml:"consumerOption" json:"consumerOption"`
+	DeadKey                  string                 `yaml:"deadKey" json:"deadKey"`
+	DeadQueueBindOption      DeadQueueBindOption    `yaml:"deadQueueBindOption" json:"deadQueueBindOption"`
+	DeadQueueDeclareOption   DeadQueueDeclareOption `yaml:"deadQueueDeclareOption" json:"deadQueueDeclareOption"`
+	DeadQueueName            string                 `yaml:"deadQueueName" json:"deadQueueName"`
+	Enable                   bool                   `yaml:"enable" json:"enable"`
+	ErrKey                   string                 `yaml:"errKey" json:"errKey"`
+	ErrQueueBindOption       DeadQueueBindOption    `yaml:"errQueueBindOption" json:"errQueueBindOption"`
+	ErrQueueDeclareOption    ErrQueueDeclareOption  `yaml:"errQueueDeclareOption" json:"errQueueDeclareOption"`
+	ErrQueueName             string                 `yaml:"errQueueName" json:"errQueueName"`
+	ExchangeDeclareOptions   ExchangeDeclareOptions `yaml:"exchangeDeclareOptions" json:"exchangeDeclareOptions"`
+	ExchangeName             string                 `yaml:"exchangeName" json:"exchangeName"`
+	NormalKey                string                 `yaml:"normalKey" json:"normalKey"`
+	NormalQueueBindOption    DeadQueueBindOption    `yaml:"normalQueueBindOption" json:"normalQueueBindOption"`
+	NormalQueueDeclareOption ErrQueueDeclareOption  `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
+	NormalQueueName          string                 `yaml:"normalQueueName" json:"normalQueueName"`
+	QueueType                string                 `yaml:"queueType" json:"queueType"`
 }
 
 type Redis struct {

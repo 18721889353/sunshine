@@ -14,6 +14,13 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// QueueTypeKey 消息来源队列类型上下文键值。
+// 在 handler 中通过 ctx.Value(gorabbitmqconsumer.QueueTypeKey) 获取：
+//   - "normal"   → 正常队列（首次消费）
+//   - "retry"    → 重试队列（死信TTL超时后重试）
+//   - 空字符串   → 非 customerDead 模式（queueType=dead/normal 时无此值）
+const QueueTypeKey string = "queue_type"
+
 // MessageHandler 定义消息处理函数类型
 type MessageHandler func(ctx context.Context, data []byte, messageID string, tagID string) error
 
@@ -110,6 +117,8 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 		exchangeName := queueConfig.ExchangeName
 		deadQueueName := queueConfig.DeadQueueName
 		deadRoutingKey := queueConfig.DeadKey
+		errQueueName := queueConfig.ErrQueueName
+		errRoutingKey := queueConfig.ErrKey
 		normalQueueName := queueConfig.NormalQueueName
 		normalRoutineKey := queueConfig.NormalKey
 		exchange := gorabbitmq.NewDirectExchange(exchangeName, normalRoutineKey)
@@ -134,6 +143,10 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 				consumerOpts = append(consumerOpts, bc.buildNormalLetterOptions(exchange, queueConfig, normalQueueName)...)
 			}
 
+			if queueConfig.QueueType == "customerDead" {
+				consumerOpts = append(consumerOpts, bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, normalRoutineKey)...)
+			}
+
 			// 添加消费者名称
 			consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
 
@@ -147,8 +160,25 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 
 			// 启动异步消费 (底层 consumer.go)
 			// 将上下文向下传递给具体的底层消费逻辑
-			consumer.Consume(ctx, bc.handleMessage)
+			consumer.Consume(context.WithValue(ctx, QueueTypeKey, "normal"), bc.handleMessage)
 			logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
+
+			// 自定义死信模式：额外创建重试队列消费者
+			if queueConfig.QueueType == "customerDead" {
+				errConsumerOpts := bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, normalRoutineKey)
+				errConsumerOpts = append(errConsumerOpts, gorabbitmq.WithConsumerName(bc.name))
+
+				errConsumer, err := gorabbitmq.NewConsumer(exchange, errQueueName, connection, errConsumerOpts...)
+				if err != nil {
+					logger.PanicWithCtx(ctx, "异步消息队列 failed to create rabbitmq err consumer error", logger.Err(err))
+				}
+				bc.consumersMutex.Lock()
+				bc.consumers = append(bc.consumers, errConsumer)
+				bc.consumersMutex.Unlock()
+
+				errConsumer.Consume(context.WithValue(ctx, QueueTypeKey, "retry"), bc.handleMessage)
+				logger.InfoWithCtx(ctx, "重试队列 "+errQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
+			}
 		}
 
 		// 监听 Context 取消信号
@@ -264,6 +294,66 @@ func (bc *BaseConsumer) buildNormalLetterOptions(exchange *gorabbitmq.Exchange, 
 				gorabbitmq.WithQueueBindNoWait(cfg.NormalQueueBindOption.NoWait),
 				gorabbitmq.WithQueueBindArgs(nil),
 			)),
+	}
+}
+
+// buildCustomerDeadLetterOptions 封装自定义死信队列选项
+func (bc *BaseConsumer) buildCustomerDeadLetterOptions(
+	exchange *gorabbitmq.Exchange,
+	cfg config.DoingOrder,
+	deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, normalRoutineKey string,
+) []gorabbitmq.ConsumerOption {
+	return []gorabbitmq.ConsumerOption{
+		gorabbitmq.WithConsumerCustomerDeadLetterOptions(
+			gorabbitmq.WithCustomerDeadLetter(exchange.Name(), deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName, exchange.RoutingKey()),
+			gorabbitmq.WithCustomerDeadLetterExchangeDeclareOptions(
+				gorabbitmq.WithExchangeDeclareDurable(cfg.ExchangeDeclareOptions.Durable),
+				gorabbitmq.WithExchangeDeclareAutoDelete(cfg.ExchangeDeclareOptions.AutoDelete),
+				gorabbitmq.WithExchangeDeclareInternal(cfg.ExchangeDeclareOptions.Internal),
+				gorabbitmq.WithExchangeDeclareNoWait(cfg.ExchangeDeclareOptions.NoWait),
+				gorabbitmq.WithExchangeDeclareArgs(nil),
+			),
+			gorabbitmq.WithCustomerDeadLetterDeadQueueDeclareOptions(
+				gorabbitmq.WithQueueDeclareDurable(cfg.DeadQueueDeclareOption.Durable),
+				gorabbitmq.WithQueueDeclareExclusive(cfg.DeadQueueDeclareOption.Exclusive),
+				gorabbitmq.WithQueueDeclareAutoDelete(cfg.DeadQueueDeclareOption.AutoDelete),
+				gorabbitmq.WithQueueDeclareNoWait(cfg.DeadQueueDeclareOption.NoWait),
+				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
+					"x-dead-letter-exchange":    exchange.Name(),
+					"x-dead-letter-routing-key": errRoutingKey,
+					"x-message-ttl":             cfg.DeadQueueDeclareOption.Args.XMessageTTL,
+				})),
+			gorabbitmq.WithCustomerDeadLetterDeadQueueBindOptions(
+				gorabbitmq.WithQueueBindNoWait(cfg.DeadQueueBindOption.NoWait),
+				gorabbitmq.WithQueueBindArgs(nil),
+			),
+			gorabbitmq.WithCustomerDeadLetterErrQueueDeclareOptions(
+				gorabbitmq.WithQueueDeclareDurable(cfg.ErrQueueDeclareOption.Durable),
+				gorabbitmq.WithQueueDeclareExclusive(cfg.ErrQueueDeclareOption.Exclusive),
+				gorabbitmq.WithQueueDeclareAutoDelete(cfg.ErrQueueDeclareOption.AutoDelete),
+				gorabbitmq.WithQueueDeclareNoWait(cfg.ErrQueueDeclareOption.NoWait),
+				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
+					"x-dead-letter-exchange":    exchange.Name(),
+					"x-dead-letter-routing-key": deadRoutingKey,
+				})),
+			gorabbitmq.WithCustomerDeadLetterErrQueueBindOptions(
+				gorabbitmq.WithQueueBindNoWait(cfg.ErrQueueBindOption.NoWait),
+				gorabbitmq.WithQueueBindArgs(nil),
+			),
+			gorabbitmq.WithCustomerDeadLetterNormalQueueDeclareOptions(
+				gorabbitmq.WithQueueDeclareDurable(cfg.NormalQueueDeclareOption.Durable),
+				gorabbitmq.WithQueueDeclareExclusive(cfg.NormalQueueDeclareOption.Exclusive),
+				gorabbitmq.WithQueueDeclareAutoDelete(cfg.NormalQueueDeclareOption.AutoDelete),
+				gorabbitmq.WithQueueDeclareNoWait(cfg.NormalQueueDeclareOption.NoWait),
+				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
+					"x-dead-letter-exchange":    exchange.Name(),
+					"x-dead-letter-routing-key": deadRoutingKey,
+				})),
+			gorabbitmq.WithCustomerDeadLetterNormalQueueBindOptions(
+				gorabbitmq.WithQueueBindNoWait(cfg.NormalQueueBindOption.NoWait),
+				gorabbitmq.WithQueueBindArgs(nil),
+			),
+		),
 	}
 }
 
