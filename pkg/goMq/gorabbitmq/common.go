@@ -386,16 +386,17 @@ func WithNormalLetter(exchangeName string, normalQueueName string, normalRouting
 type CustomerDeadLetterOption func(*CustomerDeadLetterOptions)
 
 // CustomerDeadLetterOptions 自定义死信配置选项结构
-// 在标准死信配置的基础上增加错误路由/队列支持。
-// 三条消息流转路径：正常→normalQueue, 消费失败→errQueue, TTL超时→deadQueue
+// 在标准死信配置的基础上增加错误路由/队列支持，将重试消息与正常消息隔离到不同队列。
+// 设计优势：重试消息不会影响正常队列的处理能力，避免大量重试拖垮正常消费吞吐。
+// 三条消息流转路径：正常→normalQueue, 消费失败→deadQueue(死信TTL), TTL超时→errQueue(重试)
 type CustomerDeadLetterOptions struct {
 	// 嵌入标准死信配置，复用 deadRouting/deadQueue/normalQueue 等字段
 	DeadLetterOptions
 
-	errRoutingKey   string               // errRoutingKey 消费失败后的路由键
-	errQueueName    string               // errQueueName  消费失败后的队列名称
-	errQueueDeclare *queueDeclareOptions // errQueueDeclare 错误队列声明选项
-	errQueueBind    *queueBindOptions    // errQueueBind    错误队列绑定选项
+	errRoutingKey   string               // errRoutingKey 死信TTL超时后的重试路由键
+	errQueueName    string               // errQueueName  死信TTL超时后的重试队列名称
+	errQueueDeclare *queueDeclareOptions // errQueueDeclare 重试队列声明选项
+	errQueueBind    *queueBindOptions    // errQueueBind    重试队列绑定选项
 }
 
 func (o *CustomerDeadLetterOptions) apply(opts ...CustomerDeadLetterOption) {
@@ -437,14 +438,14 @@ func WithCustomerDeadLetterDeadQueueBindOptions(opts ...QueueBindOption) Custome
 	}
 }
 
-// WithCustomerDeadLetterErrQueueDeclareOptions set dead letter queue declare option.
+// WithCustomerDeadLetterErrQueueDeclareOptions set retry queue declare option.
 func WithCustomerDeadLetterErrQueueDeclareOptions(opts ...QueueDeclareOption) CustomerDeadLetterOption {
 	return func(o *CustomerDeadLetterOptions) {
 		o.errQueueDeclare.apply(opts...)
 	}
 }
 
-// WithCustomerDeadLetterErrQueueBindOptions set dead letter queue declare option.
+// WithCustomerDeadLetterErrQueueBindOptions set retry queue bind option.
 func WithCustomerDeadLetterErrQueueBindOptions(opts ...QueueBindOption) CustomerDeadLetterOption {
 	return func(o *CustomerDeadLetterOptions) {
 		o.errQueueBind.apply(opts...)
@@ -493,9 +494,9 @@ func WithCustomerDeadLetter(
 type DeadLetterOption func(*DeadLetterOptions)
 
 // DeadLetterOptions 死信队列配置选项结构
-// 包含死信+普通两条消息流转路径：
-//   - 正常投递 → normalQueue
-//   - TTL超时/队列满 → deadQueue
+// 包含正常+死信两条消息路径，形成消费失败重试循环：
+//   - 正常投递 → normalQueue（消费失败→死信队列）
+//   - TTL超时 → deadQueue → TTL超时后重新投递到 normalQueue（循环重试）
 type DeadLetterOptions struct {
 	exchangeName string // exchangeName 死信交换机名称
 
@@ -709,7 +710,8 @@ func WithQosPrefetchSize(size int) QosOption {
 }
 
 // setupCustomerDeadLetterDeclare 声明自定义死信队列的三条消息路径并绑定到交换机。
-// 包含：死信队列（TTL 超时）、异常队列（消费失败）、普通队列（正常消费）。
+// 包含：死信队列（消费失败后转入，带TTL）、重试队列（死信TTL超时后重试）、普通队列（正常消费）。
+// 设计优势：通过独立的重试队列隔离失败消息，保障正常队列始终专注于处理新消息，不受重试流量干扰。
 //
 // 参数:
 //   - channel: AMQP 通道
@@ -730,7 +732,7 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 		return err
 	}
 
-	// 声明死信队列（TTL 超时消息入队）并绑定到交换机
+	// 声明死信队列（正常/重试队列消费失败后转入，TTL超时后转至重试队列）并绑定到交换机
 	if opts.deadQueueDeclare.args == nil {
 		opts.deadQueueDeclare.args = amqp.Table{
 			"x-dead-letter-exchange":    exchangeName,
@@ -759,7 +761,7 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 		return err
 	}
 
-	// 声明异常队列（消费者 NACK/Reject 消息入队）并绑定到交换机
+	// 声明重试队列（死信TTL超时后重新投递到此处，再次消费失败则回到死信队列）并绑定到交换机
 	if opts.errQueueDeclare.args == nil {
 		opts.errQueueDeclare.args = amqp.Table{
 			"x-dead-letter-exchange":    exchangeName,
@@ -815,7 +817,8 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 }
 
 // setupStandardDeadLetterDeclare 声明标准死信队列的两条消息路径并绑定到交换机。
-// 包含：死信队列（TTL 超时）、普通队列（正常消费）。
+// 包含：死信队列（消费失败后转入，TTL超时后重投递到普通队列）、普通队列（正常消费/死信重试）。
+// 形成 正常↔死信 两队列循环重试架构。
 //
 // 参数:
 //   - channel: AMQP 通道
@@ -836,7 +839,7 @@ func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 		return err
 	}
 
-	// 声明死信队列（TTL 超时消息入队）并绑定到交换机
+	// 声明死信队列（正常队列消费失败后转入，TTL超时后重新投递到普通队列）并绑定到交换机
 	if opts.deadQueueDeclare.args == nil {
 		opts.deadQueueDeclare.args = amqp.Table{
 			"x-dead-letter-exchange":    exchangeName,
@@ -865,7 +868,7 @@ func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 		return err
 	}
 
-	// 声明普通队列（正常消费消息入队）并绑定到交换机
+	// 声明普通队列（正常消费/死信TTL超时后重试消息入队）并绑定到交换机
 	if opts.normalQueueDeclare.args == nil {
 		opts.normalQueueDeclare.args = amqp.Table{
 			"x-dead-letter-exchange":    exchangeName,
