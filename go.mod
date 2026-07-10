@@ -44,7 +44,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
 	github.com/microcosm-cc/bluemonday v1.0.27
-	github.com/nacos-group/nacos-sdk-go/v2 v2.3.3
+	github.com/nacos-group/nacos-sdk-go/v2 v2.3.5
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/panjf2000/ants/v2 v2.11.3
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260423200730-b628c220ad03
@@ -278,7 +278,7 @@ require (
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
-	golang.org/x/time v0.8.0 // indirect
+	golang.org/x/time v0.8.0
 	golang.org/x/tools v0.44.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect

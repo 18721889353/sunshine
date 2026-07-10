@@ -23,6 +23,8 @@ type Nacos struct {
 	Group       string `yaml:"group" json:"group"`
 	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`
 	NamespaceID string `yaml:"namespaceID" json:"namespaceID"`
+	Password    string `yaml:"password" json:"password"`
 	Port        int    `yaml:"port" json:"port"`
 	Scheme      string `yaml:"scheme" json:"scheme"`
+	Username    string `yaml:"username" json:"username"`
 }

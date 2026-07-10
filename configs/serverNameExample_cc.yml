@@ -3,11 +3,45 @@
 
 # nacos settings
 nacos:
-  ipAddr: "192.168.3.37"    # server address
-  port: 8848                      # listening port
-  scheme: "http"               # http or grpc
-  contextPath: "/nacos"     # path
-  namespaceID: "3454d2b5-2455-4d0e-bf6d-e033b086bb4c" # namespace id
-  group: "dev"                    # group name: dev, prod, test
-  dataID: "serverNameExample.yml"  # config file id
-  format: "yaml"                 # configuration file type: json,yaml,toml
+  ipAddr: "127.0.0.1"           # Docker Nacos 地址（宿主机映射）
+  port: 8848                    # Nacos HTTP 端口
+  scheme: "http"                # http 或 grpc
+  contextPath: "/nacos"         # Nacos 上下文路径
+  namespaceID: ""               # 命名空间 ID，使用公共命名空间时留空
+  group: "dev"                  # 分组: dev, prod, test
+  dataID: "serverNameExample.yml"  # 配置文件 ID（需先在 Nacos 控制台创建）
+  format: "yaml"                # 配置文件类型: json, yaml, toml
+  username: "nacos"             # Docker Nacos 默认用户名（NACOS_AUTH_ENABLE=true 时需要）
+  password: "nacos"             # Docker Nacos 默认密码
+
+
+# Docker Nacos 启动命令（开启认证）:
+#   docker run -d \
+#     --name nacos \
+#     -p 8848:8848 \
+#     -p 9848:9848 \
+#     -e MODE=standalone \  # 单机模式
+#     -e NACOS_AUTH_ENABLE=true \
+#     -e NACOS_AUTH_TOKEN=Z8aQ4I8xS6NlpBVugqNzdRYyCUKa9BiHjiKXoRzXrrk= \
+#     -e NACOS_AUTH_IDENTITY_KEY=sunshine \
+#     -e NACOS_AUTH_IDENTITY_VALUE=sunshine \
+#     nacos/nacos-server:v2.4.3
+
+# 所有集群节点使用完全相同的环境变量
+#  docker run -d \
+#  --name nacos-node-1 \
+#  -e MODE=cluster \                              # 集群模式
+#  -e NACOS_AUTH_ENABLE=true \
+#  -e NACOS_AUTH_TOKEN=Z8aQ4I8xS6NlpBVugqNzdRYyCUKa9BiHjiKXoRzXrrk= \  # 所有节点相同！
+#  -e NACOS_AUTH_IDENTITY_KEY=sunshine \           # 所有节点相同！
+#  -e NACOS_AUTH_IDENTITY_VALUE=sunshine \         # 所有节点相同！
+#  -e NACOS_SERVERS="192.168.1.1:8848 192.168.1.2:8848" \  # 集群成员列表
+#  nacos/nacos-server:v2.4.3
+
+#  NACOS_AUTH_TOKEN   JWT 签发密钥，服务端用
+#  NACOS_AUTH_IDENTITY_KEY/VALUE  Nacos 集群内部身份识别
+# 首次使用步骤:
+#   1. 启动 Docker Nacos 后访问 http://127.0.0.1:8848/nacos
+#   2. 使用默认账号 nacos/nacos 登录
+#   3. 进入"配置管理"→"配置列表"，创建 dataID 指定的配置
+#   4. 配置内容为你的业务配置（serverNameExample.yml 内容）

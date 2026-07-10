@@ -121,9 +121,12 @@ image-build-sunshine:
 # delete the templates code end
 
 .PHONY: run
+# $ ./cmd/fuliApiGo/fuliApiGo.exe -enable-cc -c configs/fuliApiGo_cc.yml
 # 构建并运行服务，可指定配置文件路径
+# make run CONFIGFILE=configs/fuliApiGo_cc.yml ENABLE_CC=true
+# make run ENABLE_CC=true
 run:
-	@bash scripts/run.sh $(CONFIGFILE)
+	@bash scripts/run.sh "$(CONFIGFILE)" "$(ENABLE_CC)"
 
 
 .PHONY: run-nohup
