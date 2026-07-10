@@ -162,8 +162,10 @@ func Register{{$.Name}}Router(
 		o.responser = errcode.NewResponser(o.isMessage,o.isFromRPC, o.httpErrors, o.rpcStatus)
 	}
 
+	{{if $.HasWebSocket}}
 	// 初始化 WebSocket 分布式 Dispatcher（如启用）
 	initWSDispatcher()
+	{{end}}
 
 	r := &{{$.LowerName}}Router {
 		iRouter:               iRouter,

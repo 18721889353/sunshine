@@ -50,8 +50,11 @@ func genGinRouterFile(services parse.HTTPPbServices, goPackageName string, modul
 
 	// 遍历每个服务，生成路由字段代码
 	for _, service := range services {
-		rf := &ginRouterFields{service}            // 创建 ginRouterFields 结构体
-		content = append(content, rf.execute()...) // 执行模板，生成路由字段代码并追加到内容中
+		rf := &ginRouterFields{
+			HTTPPbService: service,              // 设置 HTTPPbService
+			HasWebSocket:  hasWebSocket,          // 传递 WebSocket 标记
+		}
+		content = append(content, rf.execute()...)
 	}
 	return content
 }
@@ -77,6 +80,7 @@ func (f *importPkg) execute() []byte {
 // ginRouterFields 用于生成 Gin 路由字段的结构体。
 type ginRouterFields struct {
 	*parse.HTTPPbService // 嵌入 HTTPPbService 结构体
+	HasWebSocket       bool   // 是否包含 WebSocket 方法
 }
 
 // execute 执行 Gin 路由字段模板，生成对应的代码。
