@@ -774,8 +774,29 @@ func changeOutPath(outPath string, serverName string) string {
 	return outPath + gofile.GetPathDelimiter() + serverName
 }
 
+// getSubFiles 收集需要生成的所有文件路径列表。
+// 自动确保 internal/config 目录包含 nacos.go，支持通过 replaceFiles 替换选定文件。
+// 参数:
+//   - selectFiles: 按目录分组的待生成文件映射，key 为目录路径，value 为文件名列表。
+//   - replaceFiles: 可选的文件替换映射，会覆盖 selectFiles 中同目录的文件列表。
+// 返回值:
+//   - 拼接后的完整文件路径列表（格式: 目录/文件名）。
 func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]string) []string {
 	files := []string{}
+	// 所有生成器自动包含 nacos.go（配置中心拉取功能）
+	if v, ok := selectFiles["internal/config"]; ok {
+		hasNacos := false
+		for _, f := range v {
+			if f == "nacos.go" {
+				hasNacos = true
+				break
+			}
+		}
+		if !hasNacos {
+			selectFiles["internal/config"] = append(v, "nacos.go")
+		}
+	}
+
 	for dir, filenames := range selectFiles {
 		if v, ok := replaceFiles[dir]; ok {
 			filenames = v

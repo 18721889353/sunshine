@@ -1,6 +1,6 @@
 #!/bin/bash
 
-serverName="fuliApiGo"
+serverName="serverNameExample_mixExample"
 
 binaryFile="cmd/${serverName}/${serverName}"
 configFile=$1
