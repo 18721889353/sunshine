@@ -3,6 +3,8 @@ package rpcclient
 import (
 	"context"
 	"fmt"
+	"github.com/18721889353/sunshine/pkg/nacoscli"
+	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,7 +13,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
-
 	"google.golang.org/grpc"
 
 	"github.com/18721889353/sunshine/internal/config"
@@ -67,11 +68,85 @@ func NewServerNameExampleRPCConn() {
 		)
 		if grpcClientCfg.RegistryDiscoveryType == "etcd" {
 			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName
-			cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*5))
+			var etcdOpts []etcdcli.Option
+			if cfg.Etcd.EtcdClient.DialTimeout != "" {
+				d, _ := time.ParseDuration(cfg.Etcd.EtcdClient.DialTimeout)
+				if d > 0 {
+					etcdOpts = append(etcdOpts, etcdcli.WithDialTimeout(d))
+				}
+			} else {
+				etcdOpts = append(etcdOpts, etcdcli.WithDialTimeout(time.Second*5))
+			}
+			if cfg.Etcd.EtcdClient.Username != "" {
+				etcdOpts = append(etcdOpts, etcdcli.WithAuth(cfg.Etcd.EtcdClient.Username, cfg.Etcd.EtcdClient.Password))
+			}
+			if cfg.Etcd.EtcdClient.AutoSyncInterval != "" {
+				d, _ := time.ParseDuration(cfg.Etcd.EtcdClient.AutoSyncInterval)
+				if d > 0 {
+					etcdOpts = append(etcdOpts, etcdcli.WithAutoSyncInterval(d))
+				}
+			}
+			if cfg.Etcd.EtcdClient.IsSecure {
+				etcdOpts = append(etcdOpts, etcdcli.WithSecure(cfg.Etcd.EtcdClient.ServerNameOverride, cfg.Etcd.EtcdClient.CertFile))
+			}
+			cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdOpts...)
 			if err != nil {
 				panic(fmt.Sprintf("etcdcli.Init error: %v, addr: %v", err, cfg.Etcd.Addrs))
 			}
 			iDiscovery := etcd.New(cli)
+			discoverOption = grpccli.WithDiscovery(iDiscovery)
+		}
+
+		if grpcClientCfg.RegistryDiscoveryType == "nacos" {
+			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name
+			var nacosOpts []nacoscli.Option
+			if cfg.NacosRegistry.NacosClient.Username != "" {
+				nacosOpts = append(nacosOpts, nacoscli.WithAuth(cfg.NacosRegistry.NacosClient.Username, cfg.NacosRegistry.NacosClient.Password))
+			}
+			if cfg.NacosRegistry.NacosServer.Scheme != "" {
+				nacosOpts = append(nacosOpts, nacoscli.WithScheme(cfg.NacosRegistry.NacosServer.Scheme))
+			}
+			if cfg.NacosRegistry.NacosServer.ContextPath != "" {
+				nacosOpts = append(nacosOpts, nacoscli.WithContextPath(cfg.NacosRegistry.NacosServer.ContextPath))
+			}
+			if cfg.NacosRegistry.NacosClient.TimeoutMs > 0 {
+				nacosOpts = append(nacosOpts, nacoscli.WithTimeoutMs(uint64(cfg.NacosRegistry.NacosClient.TimeoutMs)))
+			}
+			cli, err := nacoscli.NewNamingClient(cfg.NacosRegistry.NacosServer.IPAddr, cfg.NacosRegistry.NacosServer.Port, cfg.NacosRegistry.NacosServer.NamespaceID, nacosOpts...)
+			if err != nil {
+				panic(fmt.Sprintf("nacoscli.NewNamingClient error: %v, addr: %s:%d", err, cfg.NacosRegistry.NacosServer.IPAddr, cfg.NacosRegistry.NacosServer.Port))
+			}
+
+			var nacosRegistryOpts []nacosRegistry.Option
+			nacosRegistryOpts = append(nacosRegistryOpts,
+				nacosRegistry.WithGroupName(cfg.NacosRegistry.NacosRegistration.GroupName),
+				nacosRegistry.WithClusterName(cfg.NacosRegistry.NacosRegistration.ClusterName),
+				nacosRegistry.WithEphemeral(cfg.NacosRegistry.NacosRegistration.Ephemeral),
+				nacosRegistry.WithHealthy(cfg.NacosRegistry.NacosRegistration.Healthy),
+				nacosRegistry.WithRegisterEnabled(cfg.NacosRegistry.NacosRegistration.RegisterEnabled),
+			)
+			if cfg.NacosRegistry.NacosRegistration.Weight > 0 {
+				nacosRegistryOpts = append(nacosRegistryOpts, nacosRegistry.WithWeight(float64(cfg.NacosRegistry.NacosRegistration.Weight)))
+			}
+			if cfg.NacosRegistry.NacosRegistration.CheckInterval != "" {
+				d, _ := time.ParseDuration(cfg.NacosRegistry.NacosRegistration.CheckInterval)
+				if d > 0 {
+					nacosRegistryOpts = append(nacosRegistryOpts, nacosRegistry.WithCheckInterval(d))
+				}
+			}
+			if cfg.NacosRegistry.NacosRegistration.BackoffInit != "" {
+				d, _ := time.ParseDuration(cfg.NacosRegistry.NacosRegistration.BackoffInit)
+				if d > 0 {
+					nacosRegistryOpts = append(nacosRegistryOpts, nacosRegistry.WithBackoffInit(d))
+				}
+			}
+			if cfg.NacosRegistry.NacosRegistration.BackoffMax != "" {
+				d, _ := time.ParseDuration(cfg.NacosRegistry.NacosRegistration.BackoffMax)
+				if d > 0 {
+					nacosRegistryOpts = append(nacosRegistryOpts, nacosRegistry.WithBackoffMax(d))
+				}
+			}
+			iDiscovery := nacosRegistry.New(cli, nacosRegistryOpts...)
 			discoverOption = grpccli.WithDiscovery(iDiscovery)
 		}
 

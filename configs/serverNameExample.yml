@@ -1,4 +1,4 @@
-# 生成go结构体命令: sunshine config --server-dir=./serverDir
+都是# 生成go结构体命令: sunshine config --server-dir=./serverDir
 
 # 应用设置
 app:
@@ -14,7 +14,7 @@ app:
   enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭
   enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭, 如果为true必须设置jaeger配置
   tracingSamplingRate: 1.0        # 链路追踪采样率, 介于0和1之间, 0表示不采样, 1表示采样所有链路
-  registryDiscoveryType: ""       # 注册与发现类型:etcd, 如果为空, 不使用注册与发现
+  registryDiscoveryType: ""       # 注册与发现类型: etcd / nacos, 如果为空, 不使用注册与发现
   cacheType: ""                   # 缓存类型, 如果为空, 不使用缓存, 支持"memory"和"redis", 如果设置为redis, 必须设置redis配置
   openHttp: true                  # 是否开启http服务, true:开启, false:关闭
   openXSS: true                   # 是否开启xss过滤, true:开启, false:关闭
@@ -51,7 +51,7 @@ grpcClient:
     host: "127.0.0.1"             # grpc服务地址, 用于直连
     port: 8282                    # grpc服务端口
     timeout: 0                    # 请求超时时间(秒), 如果为0表示不设置, 如果大于0表示设置超时时间, 仅对一元grpc类型有效
-    registryDiscoveryType: ""     # 注册与发现类型: etcd, 如果为空, 使用host和port连接服务器
+    registryDiscoveryType: ""     # 注册与发现类型: etcd / nacos, 如果为空, 使用host和port连接服务器
     enableLoadBalance: true       # 是否开启负载均衡
     # clientSecure 参数设置
     # 如果type="", 表示无安全连接, 无需填写任何参数
@@ -174,6 +174,50 @@ jaeger:
 etcd:
   addrs: # ETCD地址列表
     - "127.0.0.1:2379"
+  etcdClient:
+    username: ""                   # 认证用户名（etcd 启用 auth 时填写）
+    password: ""                   # 认证密码
+    dialTimeout: 5s                 # 连接超时（默认 5s）
+    autoSyncInterval: 0s            # 成员列表自动同步间隔（0=不启用）
+    # TLS 安全连接
+    isSecure: false                 # 是否启用 TLS 安全连接
+    serverNameOverride: ""          # TLS 服务器域名覆盖
+    certFile: ""                    # TLS 证书文件路径
+  etcdRegistry:
+    namespace: "/microservices"    # etcd 键前缀命名空间
+    ttl: 15s                        # 注册租约 TTL（租约到期后自动摘除）
+    maxRetry: 5                     # 重注册最大重试次数
+    checkInterval: 3                # key 存在性校验间隔（心跳响应次数，3=每3次心跳校验1次）
+    # 重试退避
+    backoffInit: 1s                 # 重注册指数退避初始间隔
+    backoffMax: 30s                 # 重注册指数退避最大间隔
+
+# nacos服务注册与发现设置
+nacosRegistry:
+  nacosServer:
+    ipAddr: ""                      # Nacos 服务器地址
+    port: 8848                       # Nacos 服务器端口（8848=HTTP, 9848=gRPC）
+    namespaceID: ""                  # 命名空间 ID（空=public 命名空间）
+    scheme: ""                       # 协议，http 或 grpc（空=使用 SDK 默认）
+    contextPath: "/nacos"           # Nacos 上下文路径
+  nacosClient:
+    timeoutMs: 5000                  # 请求超时（毫秒，默认 5000）
+    # 连接认证
+    username: ""                     # 认证用户名（Nacos 开启 auth 时填写）
+    password: ""                     # 认证密码
+  nacosRegistration:
+    groupName: "DEFAULT_GROUP"      # 服务注册分组
+    clusterName: "DEFAULT"          # 集群名称
+    # 实例属性
+    weight: 1                        # 注册实例权重（范围 0~10000）
+    ephemeral: true                  # 是否临时实例（true=心跳保活，断开自动移除；false=持久实例）
+    registerEnabled: true            # 注册后是否启用（false=不下发流量）
+    healthy: true                    # 注册时实例健康状态（仅对持久实例有效）
+    # 自愈校验
+    checkInterval: 30s               # 实例存在性校验间隔（0=不启用）
+    # 重试退避
+    backoffInit: 1s                  # 重注册指数退避初始间隔
+    backoffMax: 30s                  # 重注册指数退避最大间隔
 
 # 签名设置
 sign:

@@ -40,6 +40,7 @@ type Config struct {
 	Jaeger        Jaeger        `yaml:"jaeger" json:"jaeger"`
 	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
 	Logger        Logger        `yaml:"logger" json:"logger"`
+	NacosRegistry NacosRegistry `yaml:"nacosRegistry" json:"nacosRegistry"`
 	Rabbitmq      Rabbitmq      `yaml:"rabbitmq" json:"rabbitmq"`
 	Redis         Redis         `yaml:"redis" json:"redis"`
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
@@ -47,6 +48,7 @@ type Config struct {
 	Sls           Sls           `yaml:"sls" json:"sls"`
 	Sms           Sms           `yaml:"sms" json:"sms"`
 	Websocket     Websocket     `yaml:"websocket" json:"websocket"`
+	都是__生成go结构体命令 string        `yaml:"都是# 生成go结构体命令" json:"都是# 生成go结构体命令"`
 }
 
 type Sms struct {
@@ -110,7 +112,9 @@ type Elasticsearch struct {
 }
 
 type Etcd struct {
-	Addrs []string `yaml:"addrs" json:"addrs"`
+	Addrs        []string     `yaml:"addrs" json:"addrs"`
+	EtcdClient   EtcdClient   `yaml:"etcdClient" json:"etcdClient"`
+	EtcdRegistry EtcdRegistry `yaml:"etcdRegistry" json:"etcdRegistry"`
 }
 
 type Jaeger struct {
@@ -179,6 +183,37 @@ type ExchangeDeclareOptions struct {
 	Durable    bool `yaml:"durable" json:"durable"`
 	Internal   bool `yaml:"internal" json:"internal"`
 	NoWait     bool `yaml:"noWait" json:"noWait"`
+}
+
+type EtcdClient struct {
+	AutoSyncInterval   string `yaml:"autoSyncInterval" json:"autoSyncInterval"`
+	CertFile           string `yaml:"certFile" json:"certFile"`
+	DialTimeout        string `yaml:"dialTimeout" json:"dialTimeout"`
+	IsSecure           bool   `yaml:"isSecure" json:"isSecure"`
+	Password           string `yaml:"password" json:"password"`
+	ServerNameOverride string `yaml:"serverNameOverride" json:"serverNameOverride"`
+	Username           string `yaml:"username" json:"username"`
+}
+
+type EtcdRegistry struct {
+	BackoffInit   string `yaml:"backoffInit" json:"backoffInit"`
+	BackoffMax    string `yaml:"backoffMax" json:"backoffMax"`
+	CheckInterval int    `yaml:"checkInterval" json:"checkInterval"`
+	MaxRetry      int    `yaml:"maxRetry" json:"maxRetry"`
+	Namespace     string `yaml:"namespace" json:"namespace"`
+	TTL           string `yaml:"ttl" json:"ttl"`
+}
+
+type NacosRegistration struct {
+	BackoffInit     string `yaml:"backoffInit" json:"backoffInit"`
+	BackoffMax      string `yaml:"backoffMax" json:"backoffMax"`
+	CheckInterval   string `yaml:"checkInterval" json:"checkInterval"`
+	ClusterName     string `yaml:"clusterName" json:"clusterName"`
+	Ephemeral       bool   `yaml:"ephemeral" json:"ephemeral"`
+	GroupName       string `yaml:"groupName" json:"groupName"`
+	Healthy         bool   `yaml:"healthy" json:"healthy"`
+	RegisterEnabled bool   `yaml:"registerEnabled" json:"registerEnabled"`
+	Weight          int    `yaml:"weight" json:"weight"`
 }
 
 type ClientSecure struct {
@@ -272,6 +307,14 @@ type DoingOrder struct {
 	NormalQueueDeclareOption ErrQueueDeclareOption  `yaml:"normalQueueDeclareOption" json:"normalQueueDeclareOption"`
 	NormalQueueName          string                 `yaml:"normalQueueName" json:"normalQueueName"`
 	QueueType                string                 `yaml:"queueType" json:"queueType"`
+}
+
+type NacosServer struct {
+	ContextPath string `yaml:"contextPath" json:"contextPath"`
+	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`
+	NamespaceID string `yaml:"namespaceID" json:"namespaceID"`
+	Port        int    `yaml:"port" json:"port"`
+	Scheme      string `yaml:"scheme" json:"scheme"`
 }
 
 type Redis struct {
@@ -387,8 +430,20 @@ type Sign struct {
 	SignKey         string        `yaml:"signKey" json:"signKey"`
 }
 
+type NacosRegistry struct {
+	NacosClient       NacosClient       `yaml:"nacosClient" json:"nacosClient"`
+	NacosRegistration NacosRegistration `yaml:"nacosRegistration" json:"nacosRegistration"`
+	NacosServer       NacosServer       `yaml:"nacosServer" json:"nacosServer"`
+}
+
 type DeadQueueBindOption struct {
 	NoWait bool `yaml:"noWait" json:"noWait"`
+}
+
+type NacosClient struct {
+	Password  string `yaml:"password" json:"password"`
+	TimeoutMs int    `yaml:"timeoutMs" json:"timeoutMs"`
+	Username  string `yaml:"username" json:"username"`
 }
 
 type HTTP struct {

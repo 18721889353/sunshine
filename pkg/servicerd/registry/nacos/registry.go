@@ -30,6 +30,7 @@ type Registry struct {
 	clusterName string                 // 集群名称
 	groupName   string                 // 分组名称
 
+	opts          *options          // 全部选项
 	checkInterval time.Duration       // 实例存在性校验间隔
 	cancelCheck   context.CancelFunc  // 用于停止检查 goroutine
 	stored        *storedInstance     // 最近一次注册的实例信息（供 verify 使用）
@@ -51,6 +52,12 @@ type options struct {
 	groupName     string
 	scheme        string
 	checkInterval time.Duration
+	weight        float64
+	ephemeral     bool
+	healthy       bool
+	registerEnabled bool
+	backoffInit   time.Duration
+	backoffMax    time.Duration
 }
 
 // WithClusterName 设置 Nacos 集群名称。
@@ -73,14 +80,50 @@ func WithCheckInterval(d time.Duration) Option {
 	return func(o *options) { o.checkInterval = d }
 }
 
+// WithWeight 设置注册实例的权重，默认 1。
+func WithWeight(weight float64) Option {
+	return func(o *options) { o.weight = weight }
+}
+
+// WithEphemeral 设置是否为临时实例，默认 true。
+func WithEphemeral(ephemeral bool) Option {
+	return func(o *options) { o.ephemeral = ephemeral }
+}
+
+// WithHealthy 设置注册时实例的健康状态，默认 true。
+func WithHealthy(healthy bool) Option {
+	return func(o *options) { o.healthy = healthy }
+}
+
+// WithRegisterEnabled 设置注册时实例是否启用，默认 true。
+func WithRegisterEnabled(enabled bool) Option {
+	return func(o *options) { o.registerEnabled = enabled }
+}
+
+// WithBackoffInit 设置重注册指数退避的初始间隔，默认 1s。
+func WithBackoffInit(d time.Duration) Option {
+	return func(o *options) { o.backoffInit = d }
+}
+
+// WithBackoffMax 设置重注册指数退避的最大间隔，默认 30s。
+func WithBackoffMax(d time.Duration) Option {
+	return func(o *options) { o.backoffMax = d }
+}
+
 // New 创建一个基于 Nacos 的服务注册表。
 // client 为已创建的 Nacos 命名客户端，可通过 nacoscli.NewNamingClient 获得。
 func New(client naming_client.INamingClient, opts ...Option) *Registry {
 	o := &options{
-		clusterName:   "DEFAULT",
-		groupName:     "DEFAULT_GROUP",
-		scheme:        "grpc",
-		checkInterval: 30 * time.Second, // 默认 30 秒校验一次
+		clusterName:     "DEFAULT",
+		groupName:       "DEFAULT_GROUP",
+		scheme:          "grpc",
+		checkInterval:   30 * time.Second,
+		weight:          1,
+		ephemeral:       true,
+		healthy:         true,
+		registerEnabled: true,
+		backoffInit:     time.Second,
+		backoffMax:      30 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -88,6 +131,7 @@ func New(client naming_client.INamingClient, opts ...Option) *Registry {
 
 	return &Registry{
 		client:        client,
+		opts:          o,
 		clusterName:   o.clusterName,
 		groupName:     o.groupName,
 		scheme:        o.scheme,
@@ -113,10 +157,10 @@ func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstan
 		ServiceName: service.Name,
 		GroupName:   r.groupName,
 		ClusterName: r.clusterName,
-		Weight:      1,
-		Enable:      true,
-		Healthy:     true,
-		Ephemeral:   true,
+		Weight:      r.opts.weight,
+		Enable:      r.opts.registerEnabled,
+		Healthy:     r.opts.healthy,
+		Ephemeral:   r.opts.ephemeral,
 		Metadata:    service.Metadata,
 	})
 	if err != nil {
@@ -235,10 +279,10 @@ func (r *Registry) verifyAndReRegister(ctx context.Context) {
 }
 
 // reRegisterInstanceWithBackoff 无限重试注册实例，直到成功或 context 取消。
-// 每次失败后指数退避：1s, 2s, 4s, 8s, 16s, 30s(max)。
+// 每次失败后指数退避：backoffInit, *2, *4, ..., backoffMax(max)。
 func (r *Registry) reRegisterInstanceWithBackoff(ctx context.Context, inst *storedInstance) {
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
+	backoff := r.opts.backoffInit
+	maxBackoff := r.opts.backoffMax
 
 	for {
 		if ctx.Err() != nil {
@@ -256,10 +300,10 @@ func (r *Registry) reRegisterInstanceWithBackoff(ctx context.Context, inst *stor
 			ServiceName: inst.serviceName,
 			GroupName:   r.groupName,
 			ClusterName: r.clusterName,
-			Weight:      1,
-			Enable:      true,
-			Healthy:     true,
-			Ephemeral:   true,
+			Weight:      r.opts.weight,
+			Enable:      r.opts.registerEnabled,
+			Healthy:     r.opts.healthy,
+			Ephemeral:   r.opts.ephemeral,
 			Metadata:    inst.metadata,
 		})
 		if err == nil {

@@ -36,6 +36,8 @@ type options struct {
 	ttl            time.Duration   // TTL（生存时间）
 	maxRetry       int             // 最大重试次数
 	checkInterval  int             // key 存在性校验间隔（心跳响应次数）
+	backoffInit    time.Duration   // 重注册指数退避初始间隔
+	backoffMax     time.Duration   // 重注册指数退避最大间隔
 }
 
 // defaultOptions 返回一个默认的 options 实例。
@@ -46,6 +48,8 @@ func defaultOptions() *options {
 		ttl:           time.Second * 15,     // 默认 TTL 为 15 秒
 		maxRetry:      5,                    // 默认最大重试次数为 5 次
 		checkInterval: 3,                    // 默认每 3 次心跳校验一次 key 存在性
+		backoffInit:   time.Second,          // 默认初始退避 1 秒
+		backoffMax:    30 * time.Second,     // 默认最大退避 30 秒
 	}
 }
 
@@ -72,6 +76,16 @@ func WithMaxRetry(num int) Option {
 // WithCheckInterval 设置 key 存在性校验间隔（心跳响应次数），0 或 1 表示每次心跳都校验。
 func WithCheckInterval(n int) Option {
 	return func(o *options) { o.checkInterval = n }
+}
+
+// WithBackoffInit 设置重注册指数退避的初始间隔，默认 1s。
+func WithBackoffInit(d time.Duration) Option {
+	return func(o *options) { o.backoffInit = d }
+}
+
+// WithBackoffMax 设置重注册指数退避的最大间隔，默认 30s。
+func WithBackoffMax(d time.Duration) Option {
+	return func(o *options) { o.backoffMax = d }
 }
 
 // New 创建一个新的 etcd 注册表实例。
@@ -195,11 +209,11 @@ func (r *Registry) tryReRegister(ctx context.Context, key, value string) (client
 }
 
 // reRegisterWithBackoff 无限重试注册，直到成功或 context 取消。
-// 每次失败后指数退避：1s, 2s, 4s, 8s, 16s, 30s(max)。
+// 每次失败后指数退避：backoffInit, *2, *4, ..., backoffMax(max)。
 // 返回新的 leaseID。
 func (r *Registry) reRegisterWithBackoff(ctx context.Context, key, value string) clientv3.LeaseID {
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
+	backoff := r.opts.backoffInit
+	maxBackoff := r.opts.backoffMax
 
 	for {
 		if ctx.Err() != nil {
