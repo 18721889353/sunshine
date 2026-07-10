@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"net/http"
 	"testing"
 	"time"
@@ -107,8 +106,8 @@ func TestHTTPServerMock(t *testing.T) {
 
 type iRegistry struct{}
 
-func (i *iRegistry) Register(ctx context.Context, service *registry.ServiceInstance) (*clientv3.Client, error) {
-	return nil, nil
+func (i *iRegistry) Register(ctx context.Context, service *registry.ServiceInstance) error {
+	return nil
 }
 
 func (i *iRegistry) Deregister(ctx context.Context, service *registry.ServiceInstance) error {

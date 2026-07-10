@@ -30,21 +30,9 @@ type httpServer struct {
 func (s *httpServer) Start() error {
 	if s.iRegistry != nil {
 		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-		if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
+		if err := s.iRegistry.Register(ctx, s.instance); err != nil {
 			return err
 		}
-		go func() {
-			ticker := time.NewTicker(15 * time.Second) // 每15秒检查一次
-			defer ticker.Stop()
-			for range ticker.C {
-				ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
-				if _, err := s.iRegistry.Register(ctx, s.instance); err != nil {
-					logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
-				} else {
-					logger.WarnWithCtx(context.Background(), "s.iRegistry.Register")
-				}
-			}
-		}()
 	}
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

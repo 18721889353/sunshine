@@ -27,7 +27,10 @@ func newWatcher(ctx context.Context, key, name string, client *clientv3.Client) 
 		first:       true,
 		serviceName: name,
 		kv:          clientv3.NewKV(client),
-		watcher:     clientv3.NewWatcher(client),
+		watcher:     client.Watcher,
+	}
+	if w.watcher == nil {
+		w.watcher = clientv3.NewWatcher(client)
 	}
 	w.ctx, w.cancel = context.WithCancel(ctx)
 	w.watchChan = w.watcher.Watch(w.ctx, key, clientv3.WithPrefix(), clientv3.WithRev(0))

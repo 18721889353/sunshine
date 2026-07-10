@@ -21,7 +21,6 @@ type rabbitmqConsumerServer struct {
 	instance          *registry.ServiceInstance // 服务注册实例信息
 	mqServerCtxCancel context.CancelFunc        // 取消函数，调用后所有消费者感知 ctx.Done() 退出
 	iRegistry         registry.Registry         // 服务注册中心
-	registryCtxCancel context.CancelFunc        // 用于停止后台注册心跳
 	consumers         []mq.Consumer             // 消费者列表
 }
 
@@ -61,33 +60,14 @@ func (s *rabbitmqConsumerServer) Start() error {
 		}
 	}
 
-	// 注册服务发现，并在后台定期续期
+	// 注册服务发现
 	if s.iRegistry != nil {
 		regCtx, regCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer regCancel()
-		if _, err := s.iRegistry.Register(regCtx, s.instance); err != nil {
+		if err := s.iRegistry.Register(regCtx, s.instance); err != nil {
 			s.mqServerCtxCancel()
 			return err
 		}
-
-		heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
-		s.registryCtxCancel = heartbeatCancel
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-heartbeatCtx.Done():
-					return
-				case <-ticker.C:
-					regCtx, regCancel := context.WithTimeout(context.Background(), 5*time.Second)
-					if _, err := s.iRegistry.Register(regCtx, s.instance); err != nil {
-						logger.WarnWithCtx(context.Background(), "s.iRegistry.Register error", logger.Err(err))
-					}
-					regCancel()
-				}
-			}
-		}()
 	}
 
 	s.isRunning.Store(true)
@@ -106,11 +86,6 @@ func (s *rabbitmqConsumerServer) Stop() error {
 
 	if !s.isRunning.Load() {
 		return fmt.Errorf("rabbitmqConsumer server is not running")
-	}
-
-	// 停止后台注册心跳
-	if s.registryCtxCancel != nil {
-		s.registryCtxCancel()
 	}
 
 	// 注销服务实例

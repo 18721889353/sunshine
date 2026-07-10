@@ -3,16 +3,16 @@ package registry
 
 import (
 	"context"
-
-	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 // Registry 是服务注册器接口。
 type Registry interface {
 	// Register 注册服务实例。
-	Register(ctx context.Context, service *ServiceInstance) (*clientv3.Client, error)
+	Register(ctx context.Context, service *ServiceInstance) error
 	// Deregister 取消注册服务实例。
 	Deregister(ctx context.Context, service *ServiceInstance) error
+	// Close 关闭注册器，释放底层资源（如心跳 goroutine、连接等）。
+	Close() error
 }
 
 // Discovery 是服务发现接口。

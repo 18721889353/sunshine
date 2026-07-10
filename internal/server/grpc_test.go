@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"net"
 	"testing"
 	"time"
@@ -91,8 +90,8 @@ func TestGRPCServerMock(t *testing.T) {
 
 type gRegistry struct{}
 
-func (g gRegistry) Register(ctx context.Context, service *registry.ServiceInstance) (*clientv3.Client, error) {
-	return nil, nil
+func (g gRegistry) Register(ctx context.Context, service *registry.ServiceInstance) error {
+	return nil
 }
 
 func (g gRegistry) Deregister(ctx context.Context, service *registry.ServiceInstance) error {

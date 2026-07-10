@@ -15,6 +15,7 @@ import (
 	"github.com/18721889353/sunshine/internal/cron"
 	"github.com/18721889353/sunshine/internal/server"
 	"github.com/18721889353/sunshine/pkg/app"
+	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
@@ -60,22 +61,18 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 
 		iRegistry registry.Registry
 		instance  *registry.ServiceInstance
-		err       error
 
 		id       = cfg.App.Name + "_" + scheme + "_" + host + "_" + strconv.Itoa(port)
 		logField logger.Field
 	)
 
 	if cfg.App.RegistryDiscoveryType == "etcd" {
-		iRegistry, instance, err = etcd.NewRegistry(
-			cfg.Etcd.Addrs,
-			id,
-			cfg.App.Name,
-			[]string{instanceEndpoint},
-		)
+		cli, err := etcdcli.Init(cfg.Etcd.Addrs)
 		if err != nil {
 			panic(err)
 		}
+		instance = registry.NewServiceInstance(id, cfg.App.Name, []string{instanceEndpoint})
+		iRegistry = etcd.New(cli)
 		logField = logger.Any("etcdAddress", cfg.Etcd.Addrs)
 	}
 

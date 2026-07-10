@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"strconv"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"google.golang.org/grpc/attributes"
 	"google.golang.org/grpc/resolver"
 
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 )
 
@@ -39,7 +39,7 @@ func (r *discoveryResolver) watch() {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			fmt.Printf("[resolver] Failed to watch discovery endpoint: %v\n", err)
+			logger.WarnWithCtx(context.Background(), "[resolver] failed to watch discovery endpoint", logger.Err(err))
 			time.Sleep(time.Second)
 			continue
 		}
@@ -78,15 +78,15 @@ func (r *discoveryResolver) update(ins []*registry.ServiceInstance) {
 	}
 	err := r.cc.UpdateState(resolver.State{Addresses: addrs})
 	if err != nil {
-		fmt.Printf("[resolver] failed to update state: %v\n", err)
+		logger.WarnWithCtx(context.Background(), "[resolver] failed to update state", logger.Err(err))
 	}
 
 	if !r.debugLogDisabled {
 		b, marshalErr := json.Marshal(ins)
 		if marshalErr != nil {
-			fmt.Printf("[resolver] marshal instances error: %v\n", marshalErr)
+			logger.WarnWithCtx(context.Background(), "[resolver] marshal instances error", logger.Err(marshalErr))
 		} else {
-			fmt.Printf("[resolver] update instances: %s\n", b)
+			logger.InfoWithCtx(context.Background(), "[resolver] update instances", logger.String("instances", string(b)))
 		}
 	}
 }
@@ -95,7 +95,7 @@ func (r *discoveryResolver) Close() {
 	r.cancel()
 	err := r.w.Stop()
 	if err != nil {
-		fmt.Printf("[resolver] failed to watch top: %v\n", err)
+		logger.WarnWithCtx(context.Background(), "[resolver] failed to stop watcher", logger.Err(err))
 	}
 }
 

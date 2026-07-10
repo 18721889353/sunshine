@@ -30,8 +30,8 @@ func WithInsecure(insecure bool) Option {
 	}
 }
 
-// DisableDebugLog disables update instances log.
-func DisableDebugLog() Option {
+// WithDebugLogDisabled disables update instances log.
+func WithDebugLogDisabled() Option {
 	return func(b *builder) {
 		b.debugLogDisabled = true
 	}
