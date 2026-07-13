@@ -33,14 +33,14 @@ type Config struct {
 	Database      Database      `yaml:"database" json:"database"`
 	Elasticsearch Elasticsearch `yaml:"elasticsearch" json:"elasticsearch"`
 	Email         Email         `yaml:"email" json:"email"`
-	Etcd          Etcd          `yaml:"etcd" json:"etcd"`
+	EtcdInfo      EtcdInfo      `yaml:"etcdInfo" json:"etcdInfo"`
 	Grpc          Grpc          `yaml:"grpc" json:"grpc"`
 	GrpcClient    []GrpcClient  `yaml:"grpcClient" json:"grpcClient"`
 	HTTP          HTTP          `yaml:"http" json:"http"`
 	Jaeger        Jaeger        `yaml:"jaeger" json:"jaeger"`
 	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
 	Logger        Logger        `yaml:"logger" json:"logger"`
-	NacosRegistry NacosRegistry `yaml:"nacosRegistry" json:"nacosRegistry"`
+	NacosInfo     NacosInfo     `yaml:"nacosInfo" json:"nacosInfo"`
 	Rabbitmq      Rabbitmq      `yaml:"rabbitmq" json:"rabbitmq"`
 	Redis         Redis         `yaml:"redis" json:"redis"`
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
@@ -111,10 +111,8 @@ type Elasticsearch struct {
 	Username              string   `yaml:"username" json:"username"`
 }
 
-type Etcd struct {
-	Addrs        []string     `yaml:"addrs" json:"addrs"`
-	EtcdClient   EtcdClient   `yaml:"etcdClient" json:"etcdClient"`
-	EtcdRegistry EtcdRegistry `yaml:"etcdRegistry" json:"etcdRegistry"`
+type EtcdServer struct {
+	Addrs []string `yaml:"addrs" json:"addrs"`
 }
 
 type Jaeger struct {
@@ -186,13 +184,15 @@ type ExchangeDeclareOptions struct {
 }
 
 type EtcdClient struct {
-	AutoSyncInterval   string `yaml:"autoSyncInterval" json:"autoSyncInterval"`
-	CertFile           string `yaml:"certFile" json:"certFile"`
-	DialTimeout        string `yaml:"dialTimeout" json:"dialTimeout"`
-	IsSecure           bool   `yaml:"isSecure" json:"isSecure"`
-	Password           string `yaml:"password" json:"password"`
-	ServerNameOverride string `yaml:"serverNameOverride" json:"serverNameOverride"`
-	Username           string `yaml:"username" json:"username"`
+	AutoSyncInterval     string `yaml:"autoSyncInterval" json:"autoSyncInterval"`
+	CertFile             string `yaml:"certFile" json:"certFile"`
+	DialKeepAliveTime    string `yaml:"dialKeepAliveTime" json:"dialKeepAliveTime"`
+	DialKeepAliveTimeout string `yaml:"dialKeepAliveTimeout" json:"dialKeepAliveTimeout"`
+	DialTimeout          string `yaml:"dialTimeout" json:"dialTimeout"`
+	IsSecure             bool   `yaml:"isSecure" json:"isSecure"`
+	Password             string `yaml:"password" json:"password"`
+	ServerNameOverride   string `yaml:"serverNameOverride" json:"serverNameOverride"`
+	Username             string `yaml:"username" json:"username"`
 }
 
 type EtcdRegistry struct {
@@ -204,7 +204,7 @@ type EtcdRegistry struct {
 	TTL           string `yaml:"ttl" json:"ttl"`
 }
 
-type NacosRegistration struct {
+type NacosRegistry struct {
 	BackoffInit     string `yaml:"backoffInit" json:"backoffInit"`
 	BackoffMax      string `yaml:"backoffMax" json:"backoffMax"`
 	CheckInterval   string `yaml:"checkInterval" json:"checkInterval"`
@@ -312,7 +312,6 @@ type DoingOrder struct {
 type NacosServer struct {
 	ContextPath string `yaml:"contextPath" json:"contextPath"`
 	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`
-	NamespaceID string `yaml:"namespaceID" json:"namespaceID"`
 	Port        int    `yaml:"port" json:"port"`
 	Scheme      string `yaml:"scheme" json:"scheme"`
 }
@@ -382,6 +381,12 @@ type Grpc struct {
 	ServerSecure ServerSecure `yaml:"serverSecure" json:"serverSecure"`
 }
 
+type EtcdInfo struct {
+	EtcdClient   EtcdClient   `yaml:"etcdClient" json:"etcdClient"`
+	EtcdRegistry EtcdRegistry `yaml:"etcdRegistry" json:"etcdRegistry"`
+	EtcdServer   EtcdServer   `yaml:"etcdServer" json:"etcdServer"`
+}
+
 type Jwt struct {
 	Expire        int           `yaml:"expire" json:"expire"`
 	IgnoreMethods IgnoreMethods `yaml:"ignoreMethods" json:"ignoreMethods"`
@@ -430,20 +435,21 @@ type Sign struct {
 	SignKey         string        `yaml:"signKey" json:"signKey"`
 }
 
-type NacosRegistry struct {
-	NacosClient       NacosClient       `yaml:"nacosClient" json:"nacosClient"`
-	NacosRegistration NacosRegistration `yaml:"nacosRegistration" json:"nacosRegistration"`
-	NacosServer       NacosServer       `yaml:"nacosServer" json:"nacosServer"`
+type NacosInfo struct {
+	NacosClient   NacosClient   `yaml:"nacosClient" json:"nacosClient"`
+	NacosRegistry NacosRegistry `yaml:"nacosRegistry" json:"nacosRegistry"`
+	NacosServer   NacosServer   `yaml:"nacosServer" json:"nacosServer"`
+}
+
+type NacosClient struct {
+	NamespaceID string `yaml:"namespaceID" json:"namespaceID"`
+	Password    string `yaml:"password" json:"password"`
+	TimeoutMs   int    `yaml:"timeoutMs" json:"timeoutMs"`
+	Username    string `yaml:"username" json:"username"`
 }
 
 type DeadQueueBindOption struct {
 	NoWait bool `yaml:"noWait" json:"noWait"`
-}
-
-type NacosClient struct {
-	Password  string `yaml:"password" json:"password"`
-	TimeoutMs int    `yaml:"timeoutMs" json:"timeoutMs"`
-	Username  string `yaml:"username" json:"username"`
 }
 
 type HTTP struct {

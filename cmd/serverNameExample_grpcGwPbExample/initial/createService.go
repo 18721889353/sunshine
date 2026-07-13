@@ -1,6 +1,13 @@
 package initial
 
 import (
+	"fmt"
+	"github.com/18721889353/sunshine/pkg/etcdcli"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/nacoscli"
+	"github.com/18721889353/sunshine/pkg/servicerd/registry"
+	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
+	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 	"strconv"
 
 	"github.com/18721889353/sunshine/internal/cron"
@@ -21,21 +28,18 @@ import (
 func CreateServices() []app.IServer {
 	var cfg = config.Get()
 	var servers []app.IServer
-	var httpAddr = ":" + strconv.Itoa(cfg.HTTP.Port)
 
-	// case 1, create a http service without registry
-	httpServer := server.NewHTTPServer_pbExample(httpAddr,
-		server.WithHTTPIsProd(cfg.App.Env == "prod"),
-	)
-
-	// case 2, Create a http service and register it with  etcd
-	//httpRegistry, httpInstance := registerService("http", cfg.App.Host, cfg.HTTP.Port)
-	//httpServer := server.NewHTTPServer_pbExample(httpAddr,
-	//	server.WithHTTPRegistry(httpRegistry, httpInstance),
-	//	server.WithHTTPIsProd(cfg.App.Env == "prod"),
-	//)
-
+	// create a http service
+	httpAddr := ":" + strconv.Itoa(cfg.HTTP.Port)
+	var httpOpts []server.HTTPOption
+	if cfg.App.RegistryDiscoveryType != "" {
+		httpRegistry, httpInstance := registerService("http", cfg.App.Host, cfg.HTTP.Port)
+		httpOpts = append(httpOpts, server.WithHTTPRegistry(httpRegistry, httpInstance))
+	}
+	httpOpts = append(httpOpts, server.WithHTTPIsProd(cfg.App.Env == "prod"))
+	httpServer := server.NewHTTPServer(httpAddr, httpOpts...)
 	servers = append(servers, httpServer)
+
 	if cfg.App.OpenCron {
 		// 添加cron服务示例
 		servers = append(servers, server.NewCronServer(cron.GetTasks()))
@@ -48,37 +52,47 @@ func CreateServices() []app.IServer {
 }
 
 // register service with etcd, select one of them to use
-//func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
-//	var (
-//		instanceEndpoint = fmt.Sprintf("%s://%s:%d", scheme, host, port)
-//		cfg              = config.Get()
-//
-//		iRegistry registry.Registry
-//		instance  *registry.ServiceInstance
-//		err       error
-//
-//		id       = cfg.App.Name + "_" + scheme + "_" + host + "_" + strconv.Itoa(port)
-//		logField logger.Field
-//	)
-//
-//	if cfg.App.RegistryDiscoveryType == "etcd" {
-//		iRegistry, instance, err = etcd.NewRegistry(
-//			cfg.Etcd.Addrs,
-//			id,
-//			cfg.App.Name,
-//			[]string{instanceEndpoint},
-//		)
-//		if err != nil {
-//			panic(err)
-//		}
-//		logField = logger.Any("etcdAddress", cfg.Etcd.Addrs)
-//	}
-//
-//	if instance != nil {
-//		msg := fmt.Sprintf("register service address to %s", cfg.App.RegistryDiscoveryType)
-//		logger.InfoWithCtx(initCtx, msg, logger.String("name", cfg.App.Name), logger.String("endpoint", instanceEndpoint), logger.String("id", id), logField)
-//		return iRegistry, instance
-//	}
-//
-//	return nil, nil
-//}
+func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
+	instanceEndpoint := fmt.Sprintf("%s://%s:%d", scheme, host, port)
+	cfg := config.Get()
+
+	id := cfg.App.Name + "_" + scheme + "_" + host + "_" + strconv.Itoa(port)
+	instance := registry.NewServiceInstance(id, cfg.App.Name, []string{instanceEndpoint})
+
+	var (
+		iRegistry registry.Registry
+		logField  logger.Field
+	)
+
+	switch cfg.App.RegistryDiscoveryType {
+	case "etcd":
+		cli, err := etcdcli.Init(cfg.EtcdInfo.ServerEndpoint(), cfg.EtcdInfo.EtcdClient.BuildClientOptions()...)
+		if err != nil {
+			panic(err)
+		}
+		iRegistry = etcd.New(cli, cfg.EtcdInfo.EtcdRegistry.BuildRegistryOptions()...)
+		logField = logger.String("etcdAddress", cfg.EtcdInfo.AddrDisplay())
+
+	case "nacos":
+		ipAddr, port, namespaceID := cfg.NacosInfo.ServerEndpoint()
+		cli, err := nacoscli.NewNamingClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
+		if err != nil {
+			panic(err)
+		}
+		iRegistry = nacosRegistry.New(cli, cfg.NacosInfo.NacosRegistry.BuildRegistryOptions()...)
+		logField = logger.String("nacosAddress", cfg.NacosInfo.AddrDisplay())
+	}
+
+	if iRegistry != nil {
+		msg := fmt.Sprintf("register service address to %s", cfg.App.RegistryDiscoveryType)
+		logger.InfoWithCtx(initCtx, msg,
+			logger.String("name", cfg.App.Name),
+			logger.String("endpoint", instanceEndpoint),
+			logger.String("id", id),
+			logField,
+		)
+		return iRegistry, instance
+	}
+
+	return nil, nil
+}

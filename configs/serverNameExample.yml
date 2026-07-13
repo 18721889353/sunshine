@@ -171,13 +171,16 @@ jaeger:
   endpoint: ""                    # JaegerHTTP端点
 
 # etcd设置
-etcd:
-  addrs: # ETCD地址列表
-    - "127.0.0.1:2379"
+etcdInfo:
+  etcdServer:
+    addrs: # ETCD地址列表
+      - "127.0.0.1:2379"
   etcdClient:
     username: ""                   # 认证用户名（etcd 启用 auth 时填写）
     password: ""                   # 认证密码
     dialTimeout: 5s                 # 连接超时（默认 5s）
+    dialKeepAliveTime: 20s          # 保持连接的时间间隔（默认 20s）
+    dialKeepAliveTimeout: 10s       # 保持连接的超时时间（默认 10s）
     autoSyncInterval: 0s            # 成员列表自动同步间隔（0=不启用）
     # TLS 安全连接
     isSecure: false                 # 是否启用 TLS 安全连接
@@ -193,19 +196,19 @@ etcd:
     backoffMax: 30s                 # 重注册指数退避最大间隔
 
 # nacos服务注册与发现设置
-nacosRegistry:
+nacosInfo:
   nacosServer:
     ipAddr: ""                      # Nacos 服务器地址
     port: 8848                       # Nacos 服务器端口（8848=HTTP, 9848=gRPC）
-    namespaceID: ""                  # 命名空间 ID（空=public 命名空间）
     scheme: ""                       # 协议，http 或 grpc（空=使用 SDK 默认）
     contextPath: "/nacos"           # Nacos 上下文路径
   nacosClient:
+    namespaceID: ""                  # 命名空间 ID（空=public 命名空间）
     timeoutMs: 5000                  # 请求超时（毫秒，默认 5000）
     # 连接认证
     username: ""                     # 认证用户名（Nacos 开启 auth 时填写）
     password: ""                     # 认证密码
-  nacosRegistration:
+  nacosRegistry:
     groupName: "DEFAULT_GROUP"      # 服务注册分组
     clusterName: "DEFAULT"          # 集群名称
     # 实例属性

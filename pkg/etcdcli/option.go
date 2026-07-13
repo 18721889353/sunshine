@@ -20,7 +20,9 @@ type options struct {
 	serverNameOverride string // etcd 域名
 	certFile           string // 证书文件路径
 
-	autoSyncInterval time.Duration // 成员列表自动同步的时间间隔
+	autoSyncInterval    time.Duration // 成员列表自动同步的时间间隔
+	dialKeepAliveTime    time.Duration // 保持连接的时间间隔
+	dialKeepAliveTimeout time.Duration // 保持连接的超时时间
 
 	// 如果设置了此参数，上述所有字段均无效
 	config *clientv3.Config
@@ -29,7 +31,9 @@ type options struct {
 // defaultOptions 返回默认的 options 配置。
 func defaultOptions() *options {
 	return &options{
-		dialTimeout: 5 * time.Second, // 默认连接超时时间为 5 秒
+		dialTimeout:          5 * time.Second, // 默认连接超时时间为 5 秒
+		dialKeepAliveTime:    20 * time.Second, // 默认保持连接的时间间隔为 20 秒
+		dialKeepAliveTimeout: 10 * time.Second, // 默认保持连接的超时时间为 10 秒
 	}
 }
 
@@ -68,6 +72,20 @@ func WithSecure(serverNameOverride string, certFile string) Option {
 func WithAutoSyncInterval(duration time.Duration) Option {
 	return func(o *options) {
 		o.autoSyncInterval = duration
+	}
+}
+
+// WithDialKeepAliveTime 设置保持连接的时间间隔。
+func WithDialKeepAliveTime(duration time.Duration) Option {
+	return func(o *options) {
+		o.dialKeepAliveTime = duration
+	}
+}
+
+// WithDialKeepAliveTimeout 设置保持连接的超时时间。
+func WithDialKeepAliveTimeout(duration time.Duration) Option {
+	return func(o *options) {
+		o.dialKeepAliveTimeout = duration
 	}
 }
 

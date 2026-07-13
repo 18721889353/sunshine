@@ -136,7 +136,7 @@ func discoverService(cfg *config.Config, grpcClientCfg config.GrpcClient) (grpcc
 	switch grpcClientCfg.RegistryDiscoveryType {
 	case "etcd":
 		endpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName.scheme
-		cli, err := etcdcli.Init(cfg.Etcd.Addrs, etcdcli.WithDialTimeout(time.Second*2))
+		cli, err := etcdcli.Init(cfg.EtcdInfo.ServerEndpoint(), etcdcli.WithDialTimeout(time.Second*2))
 		if err != nil {
 			panic(err)
 		}

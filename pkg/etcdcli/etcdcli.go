@@ -3,8 +3,6 @@ package etcdcli
 
 import (
 	"fmt"
-	"time"
-
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -36,13 +34,13 @@ func Init(endpoints []string, opts ...Option) (*clientv3.Client, error) {
 
 	// 配置 etcd 客户端
 	conf := clientv3.Config{
-		Endpoints:            endpoints,          // etcd 服务器地址
-		DialTimeout:          o.dialTimeout,      // 连接超时时间
-		DialKeepAliveTime:    20 * time.Second,   // 保持连接的时间间隔
-		DialKeepAliveTimeout: 10 * time.Second,   // 保持连接的超时时间
-		AutoSyncInterval:     o.autoSyncInterval, // 自动同步间隔
-		Username:             o.username,         // 用户名
-		Password:             o.password,         // 密码
+		Endpoints:            endpoints,              // etcd 服务器地址
+		DialTimeout:          o.dialTimeout,          // 连接超时时间
+		DialKeepAliveTime:    o.dialKeepAliveTime,    // 保持连接的时间间隔
+		DialKeepAliveTimeout: o.dialKeepAliveTimeout, // 保持连接的超时时间
+		AutoSyncInterval:     o.autoSyncInterval,     // 自动同步间隔
+		Username:             o.username,             // 用户名
+		Password:             o.password,             // 密码
 	}
 
 	// 根据是否启用安全模式设置 gRPC 的传输凭证
