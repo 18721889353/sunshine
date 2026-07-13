@@ -14,18 +14,54 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Params 包含 Nacos 配置的查询参数。
 type Params struct {
 	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`           // 服务器地址
-	Port        uint64 `yaml:"port" json:"port"`               // 端口
+	Port        int    `yaml:"port" json:"port"`               // 端口
 	Scheme      string `yaml:"scheme" json:"scheme"`           // 协议，http 或 grpc
 	ContextPath string `yaml:"contextPath" json:"contextPath"` // 路径
 	NamespaceID string `yaml:"namespaceID" json:"namespaceID"` // 命名空间 ID
 	Group       string `yaml:"group" json:"group"`             // 分组，例如：dev, prod, test
 	DataID      string `yaml:"dataID" json:"dataID"`           // 配置文件 ID
 	Format      string `yaml:"format" json:"format"`           // 配置文件类型：json, yaml, toml
+}
+
+// buildConfigs 从 options 构建 Nacos SDK 所需的 ClientConfig 和 ServerConfig。
+func buildConfigs(o *options) (*constant.ClientConfig, []constant.ServerConfig) {
+	clientConfig := o.clientConfig
+	if clientConfig == nil {
+		clientConfig = &constant.ClientConfig{
+			NamespaceId:         o.namespaceID,
+			TimeoutMs:           uint64(o.timeoutMs),
+			NotLoadCacheAtStart: true,
+			LogDir:              os.TempDir() + "/nacos/log",
+			CacheDir:            os.TempDir() + "/nacos/cache",
+			Username:            o.username,
+			Password:            o.password,
+		}
+	}
+
+	serverConfigs := o.serverConfigs
+	if serverConfigs == nil {
+		serverConfigs = []constant.ServerConfig{
+			{
+				IpAddr:      o.ipAddr,
+				Port:        uint64(o.port),
+				Scheme:      o.scheme,
+				ContextPath: o.contextPath,
+			},
+		}
+	}
+
+	return clientConfig, serverConfigs
 }
 
 // valid 检查 Params 结构体中的必填字段是否有效。
@@ -61,47 +97,22 @@ type Client struct {
 	configClient config_client.IConfigClient
 }
 
-// NewClient 创建一个 Nacos 配置客户端。
+// newConfigClient 创建一个 Nacos 配置客户端。
 //
 // 支持以下配置方式（优先级从高到低）：
 //  1. WithClientConfig / WithServerConfigs — 完全自定义 SDK 配置
 //  2. 单字段 Option（WithIPAddr、WithNamespaceID、WithAuth 等）
 //  3. 默认值（timeoutMs=5000, LogDir/CacheDir 使用系统临时目录）
-func NewClient(opts ...Option) (*Client, error) {
+func newConfigClient(opts ...Option) (*Client, error) {
 	o := defaultOptions()
 	o.apply(opts...)
 
-	// 构建 clientConfig
-	clientConfig := o.clientConfig
-	if clientConfig == nil {
-		clientConfig = &constant.ClientConfig{
-			NamespaceId:         o.namespaceID,
-			TimeoutMs:           o.timeoutMs,
-			NotLoadCacheAtStart: true,
-			LogDir:              os.TempDir() + "/nacos/log",
-			CacheDir:            os.TempDir() + "/nacos/cache",
-			Username:            o.username,
-			Password:            o.password,
-		}
+	if o.ipAddr == "" && o.serverConfigs == nil {
+		return nil, errors.New("Nacos 服务器地址 (IPAddr/IP 或 WithIPAddr) 不能为空")
 	}
 
-	// 构建 serverConfigs
-	serverConfigs := o.serverConfigs
-	if serverConfigs == nil {
-		if o.ipAddr == "" {
-			return nil, errors.New("Nacos 服务器地址 (IPAddr/IP 或 WithIPAddr) 不能为空")
-		}
-		serverConfigs = []constant.ServerConfig{
-			{
-				IpAddr:      o.ipAddr,
-				Port:        o.port,
-				Scheme:      o.scheme,
-				ContextPath: o.contextPath,
-			},
-		}
-	}
+	clientConfig, serverConfigs := buildConfigs(o)
 
-	// 创建 Nacos 配置客户端
 	configClient, err := clients.NewConfigClient(
 		vo.NacosClientParam{
 			ClientConfig:  clientConfig,
@@ -115,28 +126,39 @@ func NewClient(opts ...Option) (*Client, error) {
 	return &Client{configClient: configClient}, nil
 }
 
-// GetConfig 从 Nacos 获取配置，支持通过 context 传递超时与取消信号。
-func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, content []byte, err error) {
+// getConfig 从 Nacos 获取配置，支持通过 context 传递超时与取消信号。
+func (c *Client) getConfig(ctx context.Context, params *Params) (format string, content []byte, err error) {
+	tracer := otel.Tracer("nacoscli")
+	ctx, span := tracer.Start(ctx, "nacos.get_config", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("nacos.data_id", params.DataID),
+		attribute.String("nacos.group", params.Group),
+		requestIDAttr(ctx),
+	)
 	if err = params.valid(); err != nil {
 		return "", nil, err
 	}
 
-	// 优先响应 context 取消
 	select {
 	case <-ctx.Done():
 		return "", nil, ctx.Err()
 	default:
 	}
 
-	// 读取配置内容
 	data, err := c.configClient.GetConfig(vo.ConfigParam{
 		DataId: params.DataID,
 		Group:  params.Group,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", nil, fmt.Errorf("从 Nacos 获取配置失败: %w", err)
 	}
 
+	span.SetAttributes(attribute.Int("nacos.config_length", len(data)))
+	span.SetStatus(codes.Ok, "config fetched")
 	return params.Format, []byte(data), nil
 }
 
@@ -151,26 +173,11 @@ func (c *Client) Close() error {
 // ---------------------------------------------------------------------------
 
 // GetConfig 从 Nacos 配置中心获取配置并返回配置内容与格式。
-//
-// 参数:
-//   - params: 查询参数，包含 Group/DataID/Format 等必填字段，以及可选的连接参数。
-//   - opts: 连接配置选项。当 opts 与 params 中的连接参数（IPAddr/Port/Scheme/
-//     ContextPath/NamespaceID）冲突时，opts 优先级更高：WithClientConfig 会覆盖
-//     NamespaceID/TimeoutMs/Auth 等，WithServerConfigs 会覆盖 IPAddr/Port 等。
-//
-// 返回值:
-//   - string: 配置文件的格式（json/yaml/toml）。
-//   - []byte: 配置文件的内容。
-//   - error: 获取或关闭过程中的错误。
-//
-// 注意：此函数每次调用都会创建并销毁一个 Nacos 客户端，适合一次性使用场景。
-// 高频获取配置时应使用 NewClient 创建客户端后反复调用其 GetConfig 方法。
 func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 	if err := params.valid(); err != nil {
 		return "", nil, err
 	}
 
-	// 将 Params 中的连接参数转为 Option（opts 中的选项优先级更高）
 	baseOpts := []Option{
 		WithIPAddr(params.IPAddr),
 		WithPort(params.Port),
@@ -180,23 +187,22 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 	}
 	mergedOpts := append(baseOpts, opts...)
 
-	client, err := NewClient(mergedOpts...)
+	client, err := newConfigClient(mergedOpts...)
 	if err != nil {
 		return "", nil, err
 	}
 
-	// 使用带超时的默认 context
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	format, data, err := client.GetConfig(ctx, params)
+	format, data, err := client.getConfig(ctx, params)
 	if closeErr := client.Close(); closeErr != nil && err == nil {
 		return "", nil, closeErr
 	}
 	return format, data, err
 }
 
-// NewNamingClient 创建一个 Nacos 服务注册与发现客户端。
+// NewClient 创建一个 Nacos 服务注册与发现客户端。
 //
 // 参数:
 //   - nacosIPAddr: Nacos 服务器地址，当 opts 中指定 WithServerConfigs 时被覆盖。
@@ -207,10 +213,10 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 // 返回值:
 //   - naming_client.INamingClient: Nacos 服务注册与发现客户端实例。
 //   - error: 创建客户端过程中的错误。
-func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string, opts ...Option) (naming_client.INamingClient, error) {
+func NewClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string, opts ...Option) (naming_client.INamingClient, error) {
 	baseOpts := []Option{
 		WithIPAddr(nacosIPAddr),
-		WithPort(uint64(nacosPort)),
+		WithPort(nacosPort),
 		WithNamespaceID(nacosNamespaceID),
 	}
 	mergedOpts := append(baseOpts, opts...)
@@ -218,28 +224,7 @@ func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string,
 	o := defaultOptions()
 	o.apply(mergedOpts...)
 
-	clientConfig := o.clientConfig
-	if clientConfig == nil {
-		clientConfig = &constant.ClientConfig{
-			NamespaceId:         o.namespaceID,
-			TimeoutMs:           o.timeoutMs,
-			NotLoadCacheAtStart: true,
-			LogDir:              os.TempDir() + "/nacos/log",
-			CacheDir:            os.TempDir() + "/nacos/cache",
-			Username:            o.username,
-			Password:            o.password,
-		}
-	}
-
-	serverConfigs := o.serverConfigs
-	if serverConfigs == nil {
-		serverConfigs = []constant.ServerConfig{
-			{
-				IpAddr: o.ipAddr,
-				Port:   o.port,
-			},
-		}
-	}
+	clientConfig, serverConfigs := buildConfigs(o)
 
 	return clients.NewNamingClient(
 		vo.NacosClientParam{
@@ -247,4 +232,14 @@ func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string,
 			ServerConfigs: serverConfigs,
 		},
 	)
+}
+
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("nacoscli.request_id", reqID)
+		}
+	}
+	return attribute.String("nacoscli.request_id", "")
 }

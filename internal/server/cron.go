@@ -124,8 +124,8 @@ func (s *cronServer) String() string {
 }
 
 // NewCronServer creates a new cron server
-func NewCronServer(tasks []*gocron.Task, opts ...CRONOption) app.IServer {
-	o := defaultCRONOptions()
+func NewCronServer(tasks []*gocron.Task, opts ...CronOption) app.IServer {
+	o := defaultCronOptions()
 	o.apply(opts...)
 	return &cronServer{
 		tasks:     tasks,

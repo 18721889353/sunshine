@@ -11,16 +11,17 @@ type Option func(*options)
 
 // options 包含了 etcd 客户端的各种配置选项。
 type options struct {
-	dialTimeout time.Duration // 连接超时时间，单位为秒
+	dialTimeout time.Duration // 连接超时时间
 
 	username string // 认证用户名
 	password string // 认证密码
 
 	isSecure           bool   // 是否启用安全模式
-	serverNameOverride string // etcd 域名
-	certFile           string // 证书文件路径
+	serverNameOverride string // TLS 服务器域名覆盖
+	certFile           string // TLS 证书文件路径
+	caFile             string // CA 证书文件路径（双向 TLS 时使用）
 
-	autoSyncInterval    time.Duration // 成员列表自动同步的时间间隔
+	autoSyncInterval     time.Duration // 成员列表自动同步的时间间隔
 	dialKeepAliveTime    time.Duration // 保持连接的时间间隔
 	dialKeepAliveTimeout time.Duration // 保持连接的超时时间
 
@@ -31,7 +32,7 @@ type options struct {
 // defaultOptions 返回默认的 options 配置。
 func defaultOptions() *options {
 	return &options{
-		dialTimeout:          5 * time.Second, // 默认连接超时时间为 5 秒
+		dialTimeout:          5 * time.Second,  // 默认连接超时时间为 5 秒
 		dialKeepAliveTime:    20 * time.Second, // 默认保持连接的时间间隔为 20 秒
 		dialKeepAliveTimeout: 10 * time.Second, // 默认保持连接的超时时间为 10 秒
 	}
@@ -60,11 +61,15 @@ func WithAuth(username string, password string) Option {
 }
 
 // WithSecure 设置 TLS 安全连接。
-func WithSecure(serverNameOverride string, certFile string) Option {
+// caFile 为空时使用单向 TLS，非空时启用双向 TLS（mTLS）。
+func WithSecure(serverNameOverride string, certFile string, caFile ...string) Option {
 	return func(o *options) {
 		o.isSecure = true
 		o.serverNameOverride = serverNameOverride
 		o.certFile = certFile
+		if len(caFile) > 0 {
+			o.caFile = caFile[0]
+		}
 	}
 }
 

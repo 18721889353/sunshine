@@ -186,6 +186,7 @@ etcdInfo:
     isSecure: false                 # 是否启用 TLS 安全连接
     serverNameOverride: ""          # TLS 服务器域名覆盖
     certFile: ""                    # TLS 证书文件路径
+    caFile: ""                      # CA 证书文件路径（双向 mTLS 时填写）
   etcdRegistry:
     namespace: "/microservices"    # etcd 键前缀命名空间
     ttl: 15s                        # 注册租约 TTL（租约到期后自动摘除）
@@ -200,7 +201,7 @@ nacosInfo:
   nacosServer:
     ipAddr: ""                      # Nacos 服务器地址
     port: 8848                       # Nacos 服务器端口（8848=HTTP, 9848=gRPC）
-    scheme: ""                       # 协议，http 或 grpc（空=使用 SDK 默认）
+    scheme: ""                       # 协议，http 或 grpc（空=使用 SDK 默认） "https" 即启用 TLS
     contextPath: "/nacos"           # Nacos 上下文路径
   nacosClient:
     namespaceID: ""                  # 命名空间 ID（空=public 命名空间）

@@ -12,6 +12,10 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/model"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
@@ -26,14 +30,14 @@ var (
 // Registry 是基于 Nacos 的服务注册表，实现了 registry.Registry 接口。
 type Registry struct {
 	client      naming_client.INamingClient // Nacos 命名客户端
-	scheme      string                 // 端点 scheme（grpc / http）
-	clusterName string                 // 集群名称
-	groupName   string                 // 分组名称
+	scheme      string                      // 端点 scheme（grpc / http）
+	clusterName string                      // 集群名称
+	groupName   string                      // 分组名称
 
-	opts          *options          // 全部选项
-	checkInterval time.Duration       // 实例存在性校验间隔
-	cancelCheck   context.CancelFunc  // 用于停止检查 goroutine
-	stored        *storedInstance     // 最近一次注册的实例信息（供 verify 使用）
+	opts          *options           // 全部选项
+	checkInterval time.Duration      // 实例存在性校验间隔
+	cancelCheck   context.CancelFunc // 用于停止检查 goroutine
+	stored        *storedInstance    // 最近一次注册的实例信息（供 verify 使用）
 }
 
 // storedInstance 保存已注册的服务实例快照，供 verify 和 re-register 使用。
@@ -48,16 +52,16 @@ type storedInstance struct {
 type Option func(o *options)
 
 type options struct {
-	clusterName   string
-	groupName     string
-	scheme        string
-	checkInterval time.Duration
-	weight        float64
-	ephemeral     bool
-	healthy       bool
+	clusterName     string
+	groupName       string
+	scheme          string
+	checkInterval   time.Duration
+	weight          float64
+	ephemeral       bool
+	healthy         bool
 	registerEnabled bool
-	backoffInit   time.Duration
-	backoffMax    time.Duration
+	backoffInit     time.Duration
+	backoffMax      time.Duration
 }
 
 // WithClusterName 设置 Nacos 集群名称。
@@ -142,6 +146,15 @@ func New(client naming_client.INamingClient, opts ...Option) *Registry {
 // Register 向 Nacos 注册一个服务实例。
 // 注册成功后启动后台校验 goroutine，定期检查实例是否仍存在（防误删）。
 func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstance) error {
+	tracer := otel.Tracer("nacos_registry")
+	ctx, span := tracer.Start(ctx, "nacos.register", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("nacos.service_name", service.Name),
+		attribute.String("nacos.service_id", service.ID),
+		requestIDAttr(ctx),
+	)
 	if len(service.Endpoints) == 0 {
 		return fmt.Errorf("服务实例端点地址不能为空")
 	}
@@ -185,11 +198,21 @@ func (r *Registry) Register(ctx context.Context, service *registry.ServiceInstan
 		go r.checkInstanceLoop(checkCtx)
 	}
 
+	span.SetStatus(codes.Ok, "registered")
 	return nil
 }
 
 // Deregister 从 Nacos 注销一个服务实例。
 func (r *Registry) Deregister(ctx context.Context, service *registry.ServiceInstance) error {
+	tracer := otel.Tracer("nacos_registry")
+	_, span := tracer.Start(ctx, "nacos.deregister", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("nacos.service_name", service.Name),
+		attribute.String("nacos.service_id", service.ID),
+		requestIDAttr(ctx),
+	)
 	// 停止校验 goroutine
 	r.stopCheck()
 	r.stored = nil
@@ -210,7 +233,14 @@ func (r *Registry) Deregister(ctx context.Context, service *registry.ServiceInst
 		GroupName:   r.groupName,
 		Ephemeral:   true,
 	})
-	return err
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "deregistered")
+	return nil
 }
 
 // Close 关闭 Nacos 服务注册表。
@@ -244,7 +274,7 @@ func (r *Registry) checkInstanceLoop(ctx context.Context) {
 }
 
 // verifyAndReRegister 检查已注册实例是否存在，不存在则指数退避无限重试重新注册。
-// 只有在 Select 查询失败（网络问题）时才 return，等下次 tick。
+// Select 查询失败（网络问题）时自动进入退避重试循环，不等下次 tick。
 func (r *Registry) verifyAndReRegister(ctx context.Context) {
 	inst := r.stored
 	if inst == nil {
@@ -258,7 +288,9 @@ func (r *Registry) verifyAndReRegister(ctx context.Context) {
 		Clusters:    []string{r.clusterName},
 	})
 	if err != nil {
-		logger.WarnWithCtx(ctx, "nacos: verify instance failed", logger.String("service", inst.serviceName), logger.Err(err))
+		logger.WarnWithCtx(ctx, "nacos: verify instance failed, retry with backoff",
+			logger.String("service", inst.serviceName), logger.Err(err))
+		r.reVerifyWithBackoff(ctx, inst)
 		return
 	}
 
@@ -276,6 +308,53 @@ func (r *Registry) verifyAndReRegister(ctx context.Context) {
 		logger.Uint64("port", inst.port))
 
 	r.reRegisterInstanceWithBackoff(ctx, inst)
+}
+
+// reVerifyWithBackoff 在 SelectInstances 查询失败时启动退避重试循环。
+// 避免网络抖动导致错过下次 tick 的 30 秒盲区。
+func (r *Registry) reVerifyWithBackoff(ctx context.Context, inst *storedInstance) {
+	backoff := r.opts.backoffInit
+	maxBackoff := r.opts.backoffMax
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		instances, err := r.client.SelectInstances(vo.SelectInstancesParam{
+			ServiceName: inst.serviceName,
+			GroupName:   r.groupName,
+			HealthyOnly: true,
+			Clusters:    []string{r.clusterName},
+		})
+		if err == nil {
+			// 查询成功，检查实例是否仍在
+			for _, ins := range instances {
+				if ins.Ip == inst.host && ins.Port == inst.port {
+					logger.InfoWithCtx(ctx, "nacos: re-verify succeeded, instance exists")
+					return
+				}
+			}
+			// 实例已不存在，走重注册
+			logger.WarnWithCtx(ctx, "nacos: instance not found after re-verify, re-registering")
+			r.reRegisterInstanceWithBackoff(ctx, inst)
+			return
+		}
+
+		logger.WarnWithCtx(ctx, "nacos: re-verify failed, retry after backoff",
+			logger.Duration("backoff", backoff), logger.Err(err))
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
 }
 
 // reRegisterInstanceWithBackoff 无限重试注册实例，直到成功或 context 取消。
@@ -330,16 +409,29 @@ func (r *Registry) reRegisterInstanceWithBackoff(ctx context.Context, inst *stor
 
 // GetService 根据服务名称获取服务实例列表。
 func (r *Registry) GetService(ctx context.Context, name string) ([]*registry.ServiceInstance, error) {
+	tracer := otel.Tracer("nacos_registry")
+	_, span := tracer.Start(ctx, "nacos.get_service", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("nacos.service_name", name),
+		requestIDAttr(ctx),
+	)
 	instances, err := r.client.SelectInstances(vo.SelectInstancesParam{
 		ServiceName: name,
 		GroupName:   r.groupName,
 		HealthyOnly: true,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
 
-	return instancesToServiceInstances(instances, r.scheme), nil
+	result := instancesToServiceInstances(instances, r.scheme)
+	span.SetAttributes(attribute.Int("nacos.instance_count", len(result)))
+	span.SetStatus(codes.Ok, "service queried")
+	return result, nil
 }
 
 // Watch 根据服务名称创建一个观察者，使用 Nacos Subscribe 机制监听服务变化。
@@ -403,4 +495,14 @@ func instancesToServiceInstances(instances []model.Instance, scheme string) []*r
 		})
 	}
 	return result
+}
+
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if ctx != nil {
+		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+			return attribute.String("nacos.request_id", reqID)
+		}
+	}
+	return attribute.String("nacos.request_id", "")
 }

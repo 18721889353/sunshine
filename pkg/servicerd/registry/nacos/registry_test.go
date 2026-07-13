@@ -18,19 +18,19 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockNamingClient struct {
-	registerInstanceFn        func(param vo.RegisterInstanceParam) (bool, error)
-	batchRegisterInstanceFn   func(param vo.BatchRegisterInstanceParam) (bool, error)
-	deregisterInstanceFn      func(param vo.DeregisterInstanceParam) (bool, error)
-	updateInstanceFn          func(param vo.UpdateInstanceParam) (bool, error)
-	getServiceFn              func(param vo.GetServiceParam) (model.Service, error)
-	selectAllInstancesFn      func(param vo.SelectAllInstancesParam) ([]model.Instance, error)
-	selectInstancesFn         func(param vo.SelectInstancesParam) ([]model.Instance, error)
+	registerInstanceFn         func(param vo.RegisterInstanceParam) (bool, error)
+	batchRegisterInstanceFn    func(param vo.BatchRegisterInstanceParam) (bool, error)
+	deregisterInstanceFn       func(param vo.DeregisterInstanceParam) (bool, error)
+	updateInstanceFn           func(param vo.UpdateInstanceParam) (bool, error)
+	getServiceFn               func(param vo.GetServiceParam) (model.Service, error)
+	selectAllInstancesFn       func(param vo.SelectAllInstancesParam) ([]model.Instance, error)
+	selectInstancesFn          func(param vo.SelectInstancesParam) ([]model.Instance, error)
 	selectOneHealthyInstanceFn func(param vo.SelectOneHealthInstanceParam) (*model.Instance, error)
-	subscribeFn               func(param *vo.SubscribeParam) error
-	unsubscribeFn             func(param *vo.SubscribeParam) error
-	getAllServicesInfoFn      func(param vo.GetAllServiceInfoParam) (model.ServiceList, error)
-	serverHealthyFn           func() bool
-	closeClientFn             func()
+	subscribeFn                func(param *vo.SubscribeParam) error
+	unsubscribeFn              func(param *vo.SubscribeParam) error
+	getAllServicesInfoFn       func(param vo.GetAllServiceInfoParam) (model.ServiceList, error)
+	serverHealthyFn            func() bool
+	closeClientFn              func()
 }
 
 func (m *mockNamingClient) RegisterInstance(param vo.RegisterInstanceParam) (bool, error) {
@@ -543,16 +543,34 @@ func TestVerifyAndReRegister_NilStored(t *testing.T) {
 }
 
 func TestVerifyAndReRegister_SelectError(t *testing.T) {
+	selectCount := 0
 	mock := &mockNamingClient{
 		selectInstancesFn: func(param vo.SelectInstancesParam) ([]model.Instance, error) {
+			selectCount++
 			return nil, errors.New("select error")
 		},
 	}
 	r := New(mock)
 	r.stored = &storedInstance{serviceName: "svc", host: "127.0.0.1", port: 8282}
 
-	// Select 出错时不 panic，不触发 re-register
-	r.verifyAndReRegister(context.Background())
+	// Select 出错时进入退避重试循环，context 取消后退出
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.verifyAndReRegister(ctx)
+	}()
+
+	// 验证退避重试至少执行了 2 次 Select
+	time.Sleep(50 * time.Millisecond)
+	assert.GreaterOrEqual(t, selectCount, 2, "should retry with backoff")
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("reVerifyWithBackoff did not exit after context cancel")
+	}
 }
 
 // ---------------------------------------------------------------------------

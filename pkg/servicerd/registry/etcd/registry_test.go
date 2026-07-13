@@ -18,7 +18,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockLease struct {
-	grantFn    func(ctx context.Context, ttl int64) (*clientv3.LeaseGrantResponse, error)
+	grantFn     func(ctx context.Context, ttl int64) (*clientv3.LeaseGrantResponse, error)
 	keepAliveFn func(ctx context.Context, id clientv3.LeaseID) (<-chan *clientv3.LeaseKeepAliveResponse, error)
 }
 
@@ -102,9 +102,9 @@ func (m *mockKV) Txn(ctx context.Context) clientv3.Txn { return nil }
 // ---------------------------------------------------------------------------
 
 type mockWatcher struct {
-	watchFn          func(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan
+	watchFn           func(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan
 	requestProgressFn func(ctx context.Context) error
-	closeFn          func() error
+	closeFn           func() error
 }
 
 func (m *mockWatcher) Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {

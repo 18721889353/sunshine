@@ -19,7 +19,7 @@ func GetConfigFromNacos(configFile string) error {
 	// 将 Nacos 连接配置转换为查询参数
 	params := &nacoscli.Params{
 		IPAddr:      nacosConf.Nacos.IPAddr,
-		Port:        uint64(nacosConf.Nacos.Port),
+		Port:        nacosConf.Nacos.Port,
 		NamespaceID: nacosConf.Nacos.NamespaceID,
 		Scheme:      nacosConf.Nacos.Scheme,
 		ContextPath: nacosConf.Nacos.ContextPath,

@@ -21,8 +21,6 @@ func TestNewServerNameExampleRPCConn(t *testing.T) {
 	config.Get().App.EnableTrace = true
 	config.Get().App.EnableCircuitBreaker = true
 
-
-
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
 		config.Get().GrpcClient[0].RegistryDiscoveryType = "etcd"
 		NewServerNameExampleRPCConn()

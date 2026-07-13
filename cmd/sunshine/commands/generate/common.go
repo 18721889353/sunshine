@@ -779,6 +779,7 @@ func changeOutPath(outPath string, serverName string) string {
 // 参数:
 //   - selectFiles: 按目录分组的待生成文件映射，key 为目录路径，value 为文件名列表。
 //   - replaceFiles: 可选的文件替换映射，会覆盖 selectFiles 中同目录的文件列表。
+//
 // 返回值:
 //   - 拼接后的完整文件路径列表（格式: 目录/文件名）。
 func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]string) []string {

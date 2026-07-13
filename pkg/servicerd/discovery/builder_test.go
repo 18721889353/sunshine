@@ -65,10 +65,10 @@ func (w *mockWatcher) Stop() error {
 // ---------------------------------------------------------------------------
 
 type mockClientConn struct {
-	updateStateFn     func(state resolver.State) error
-	reportErrorFn     func(err error)
-	newAddressFn      func(addresses []resolver.Address)
-	newServiceConfigFn func(serviceConfig string)
+	updateStateFn        func(state resolver.State) error
+	reportErrorFn        func(err error)
+	newAddressFn         func(addresses []resolver.Address)
+	newServiceConfigFn   func(serviceConfig string)
 	parseServiceConfigFn func(serviceConfigJSON string) *serviceconfig.ParseResult
 }
 
@@ -241,11 +241,11 @@ func TestDiscoveryResolver_Update_DuplicateEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	stateCount := 0
 	r := &discoveryResolver{
-		w:      &mockWatcher{},
-		cc:     &mockClientConn{},
-		ctx:    ctx,
-		cancel: cancel,
-		insecure: true,
+		w:                &mockWatcher{},
+		cc:               &mockClientConn{},
+		ctx:              ctx,
+		cancel:           cancel,
+		insecure:         true,
 		debugLogDisabled: true,
 	}
 
@@ -392,12 +392,12 @@ func TestParseAttributes(t *testing.T) {
 
 func TestParseEndpoint_DifferentFormats(t *testing.T) {
 	tests := []struct {
-		name       string
-		endpoints  []string
-		scheme     string
-		isSecure   bool
-		wantAddr   string
-		wantErr    bool
+		name      string
+		endpoints []string
+		scheme    string
+		isSecure  bool
+		wantAddr  string
+		wantErr   bool
 	}{
 		{"grpc insecure", []string{"grpc://127.0.0.1:8282"}, "grpc", false, "127.0.0.1:8282", false},
 		{"grpc secure", []string{"grpc://127.0.0.1:8282?isSecure=true"}, "grpc", true, "127.0.0.1:8282", false},

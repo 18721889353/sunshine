@@ -2,10 +2,11 @@
 package config
 
 import (
-	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 	"strconv"
 	"strings"
 	"time"
+
+	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
@@ -40,7 +41,11 @@ func (c *EtcdClient) BuildClientOptions() []etcdcli.Option {
 		}
 	}
 	if c.IsSecure {
-		opts = append(opts, etcdcli.WithSecure(c.ServerNameOverride, c.CertFile))
+		if c.CaFile != "" {
+			opts = append(opts, etcdcli.WithSecure(c.ServerNameOverride, c.CertFile, c.CaFile))
+		} else {
+			opts = append(opts, etcdcli.WithSecure(c.ServerNameOverride, c.CertFile))
+		}
 	}
 
 	return opts
@@ -86,7 +91,7 @@ func (c *NacosClient) BuildClientOptions() []nacoscli.Option {
 		opts = append(opts, nacoscli.WithAuth(c.Username, c.Password))
 	}
 	if c.TimeoutMs > 0 {
-		opts = append(opts, nacoscli.WithTimeoutMs(uint64(c.TimeoutMs)))
+		opts = append(opts, nacoscli.WithTimeoutMs(c.TimeoutMs))
 	}
 
 	return opts
@@ -124,7 +129,6 @@ func (r *NacosRegistry) BuildRegistryOptions() []nacosRegistry.Option {
 
 	return opts
 }
-
 
 // BuildNamingClientOptions 从 NacosInfo 配置构建 nacoscli.Option 列表。
 // 组合了 NacosServer（网络连接）和 NacosClient（客户端行为）的配置。

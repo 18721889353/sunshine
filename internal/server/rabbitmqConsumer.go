@@ -128,8 +128,8 @@ func (s *rabbitmqConsumerServer) String() string {
 }
 
 // NewRabbitmqConsumerServer 创建新的RabbitMQ消费者服务
-func NewRabbitmqConsumerServer(consumers []mq.Consumer, opts ...RABBITQMCONSUMEROption) app.IServer {
-	o := defaultRABBITQMCONSUMEROptions()
+func NewRabbitmqConsumerServer(consumers []mq.Consumer, opts ...RabbitmqConsumerOption) app.IServer {
+	o := defaultRabbitmqConsumerOptions()
 	o.apply(opts...)
 	return &rabbitmqConsumerServer{
 		iRegistry: o.iRegistry,

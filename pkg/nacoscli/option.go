@@ -7,11 +7,11 @@ import (
 // options 包含 Nacos 客户端的全部配置选项。
 type options struct {
 	ipAddr      string // 服务器地址
-	port        uint64 // 端口
+	port        int    // 端口
 	scheme      string // 协议，http 或 grpc
 	contextPath string // 路径
 	namespaceID string // 命名空间 ID
-	timeoutMs   uint64 // 请求超时时间（毫秒）
+	timeoutMs   int    // 请求超时时间（毫秒）
 	username    string // 认证用户名
 	password    string // 认证密码
 
@@ -46,7 +46,7 @@ func WithIPAddr(ipAddr string) Option {
 }
 
 // WithPort 设置 Nacos 服务器端口。
-func WithPort(port uint64) Option {
+func WithPort(port int) Option {
 	return func(o *options) {
 		o.port = port
 	}
@@ -74,7 +74,7 @@ func WithNamespaceID(namespaceID string) Option {
 }
 
 // WithTimeoutMs 设置 Nacos 客户端请求超时时间（毫秒），默认 5000。
-func WithTimeoutMs(timeoutMs uint64) Option {
+func WithTimeoutMs(timeoutMs int) Option {
 	return func(o *options) {
 		o.timeoutMs = timeoutMs
 	}

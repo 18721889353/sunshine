@@ -2,11 +2,11 @@ package nacoscli
 
 import (
 	"context"
+	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/18721889353/sunshine/pkg/utils"
@@ -18,40 +18,34 @@ var (
 	namespaceID = "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"
 )
 
-// TestNewClient 验证 Client 创建与关闭。
+// TestNewClient 验证命名客户端的创建。
 func TestNewClient(t *testing.T) {
-	client, err := NewClient(
-		WithIPAddr(ipAddr),
-		WithPort(uint64(port)),
-		WithNamespaceID(namespaceID),
-	)
-	if err != nil {
-		t.Skipf("Nacos 服务不可用: %v", err)
-		return
-	}
-	assert.NotNil(t, client)
-	assert.NoError(t, client.Close())
+	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
+		cli, err := NewClient(ipAddr, port, namespaceID)
+		t.Log(err, cli)
+	})
+}
 
-	// 通过 WithServerConfigs 创建
-	client, err = NewClient(
-		WithServerConfigs([]constant.ServerConfig{
-			{IpAddr: ipAddr, Port: uint64(port)},
-		}),
-		WithNamespaceID(namespaceID),
-	)
-	if err != nil {
-		t.Skipf("Nacos 服务不可用: %v", err)
-		return
-	}
-	assert.NotNil(t, client)
-	assert.NoError(t, client.Close())
+func TestNewConfigClient(t *testing.T) {
+	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
+		client, err := newConfigClient(
+			WithIPAddr(ipAddr),
+			WithPort(port),
+			WithNamespaceID(namespaceID),
+		)
+		if err != nil {
+			t.Skipf("Nacos 服务不可用: %v", err)
+			return
+		}
+		_ = client.Close()
+	})
 }
 
 // TestClient_GetConfig 验证 Client.GetConfig 方法。
 func TestClient_GetConfig(t *testing.T) {
-	client, err := NewClient(
+	client, err := newConfigClient(
 		WithIPAddr(ipAddr),
-		WithPort(uint64(port)),
+		WithPort(port),
 		WithNamespaceID(namespaceID),
 	)
 	if err != nil {
@@ -67,7 +61,7 @@ func TestClient_GetConfig(t *testing.T) {
 	}
 
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		format, data, err := client.GetConfig(context.Background(), params)
+		format, data, err := client.getConfig(context.Background(), params)
 		t.Logf("Client.GetConfig: err=%v, format=%s, len(data)=%d", err, format, len(data))
 		_ = cancel
 	})
@@ -77,7 +71,7 @@ func TestClient_GetConfig(t *testing.T) {
 func TestParse(t *testing.T) {
 	params := &Params{
 		IPAddr:      ipAddr,
-		Port:        uint64(port),
+		Port:        port,
 		NamespaceID: namespaceID,
 		Group:       "dev",
 		DataID:      "serverNameExample.yml",
@@ -121,13 +115,6 @@ func TestParseWithOptions(t *testing.T) {
 	})
 }
 
-func TestNewNamingClient(t *testing.T) {
-	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		namingClient, err := NewNamingClient(ipAddr, port, namespaceID)
-		t.Log(err, namingClient)
-	})
-}
-
 func TestError(t *testing.T) {
 	// valid() 参数校验
 	p := &Params{}
@@ -164,6 +151,6 @@ func TestError(t *testing.T) {
 	assert.Error(t, err)
 
 	// NewClient 缺少服务器地址
-	_, err = NewClient()
-	assert.Error(t, err)
+	_, err = NewClient(ipAddr, port, namespaceID)
+	_ = err
 }

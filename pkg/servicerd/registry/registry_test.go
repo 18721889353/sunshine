@@ -98,8 +98,6 @@ func TestWithMetadata(t *testing.T) {
 	})
 }
 
-
-
 func TestOptionsInterface(t *testing.T) {
 	t.Run("Option type assertion", func(t *testing.T) {
 		var opt Option = WithVersion("v1")

@@ -185,6 +185,7 @@ type ExchangeDeclareOptions struct {
 
 type EtcdClient struct {
 	AutoSyncInterval     string `yaml:"autoSyncInterval" json:"autoSyncInterval"`
+	CaFile               string `yaml:"caFile" json:"caFile"`
 	CertFile             string `yaml:"certFile" json:"certFile"`
 	DialKeepAliveTime    string `yaml:"dialKeepAliveTime" json:"dialKeepAliveTime"`
 	DialKeepAliveTimeout string `yaml:"dialKeepAliveTimeout" json:"dialKeepAliveTimeout"`

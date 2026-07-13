@@ -2,15 +2,17 @@ package initial
 
 import (
 	"fmt"
+	"strconv"
+
+	"github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
+
+	"github.com/18721889353/sunshine/internal/cron"
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
-	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
-	"strconv"
 
-	"github.com/18721889353/sunshine/internal/cron"
 	// Import cron tasks for initialization
 	_ "github.com/18721889353/sunshine/internal/cron/tasks"
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
@@ -76,7 +78,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 
 	switch cfg.App.RegistryDiscoveryType {
 	case "etcd":
-		cli, err := etcdcli.Init(cfg.EtcdInfo.ServerEndpoint(), cfg.EtcdInfo.EtcdClient.BuildClientOptions()...)
+		cli, err := etcdcli.NewClient(cfg.EtcdInfo.ServerEndpoint(), cfg.EtcdInfo.EtcdClient.BuildClientOptions()...)
 		if err != nil {
 			panic(err)
 		}
@@ -85,11 +87,11 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 
 	case "nacos":
 		ipAddr, port, namespaceID := cfg.NacosInfo.ServerEndpoint()
-		cli, err := nacoscli.NewNamingClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
+		cli, err := nacoscli.NewClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
 		if err != nil {
 			panic(err)
 		}
-		iRegistry = nacosRegistry.New(cli, cfg.NacosInfo.NacosRegistry.BuildRegistryOptions()...)
+		iRegistry = nacos.New(cli, cfg.NacosInfo.NacosRegistry.BuildRegistryOptions()...)
 		logField = logger.String("nacosAddress", cfg.NacosInfo.AddrDisplay())
 	}
 

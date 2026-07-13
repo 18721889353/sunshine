@@ -4,31 +4,29 @@ import (
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 )
 
-// RABBITQMCONSUMEROption setting up rabbitmqConsumer
-type RABBITQMCONSUMEROption func(*rabbitmqConsumerOptions)
+// RabbitmqConsumerOption setting up rabbitmqConsumer
+type RabbitmqConsumerOption func(*rabbitmqConsumerOptions)
 
 type rabbitmqConsumerOptions struct {
-	isProd    bool
 	instance  *registry.ServiceInstance
 	iRegistry registry.Registry
 }
 
-func defaultRABBITQMCONSUMEROptions() *rabbitmqConsumerOptions {
+func defaultRabbitmqConsumerOptions() *rabbitmqConsumerOptions {
 	return &rabbitmqConsumerOptions{
-		isProd:    false,
 		instance:  nil,
 		iRegistry: nil,
 	}
 }
 
-func (o *rabbitmqConsumerOptions) apply(opts ...RABBITQMCONSUMEROption) {
+func (o *rabbitmqConsumerOptions) apply(opts ...RabbitmqConsumerOption) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
-// WithRABBITQMCONSUMERRegistry registration services
-func WithRABBITQMCONSUMERRegistry(iRegistry registry.Registry, instance *registry.ServiceInstance) RABBITQMCONSUMEROption {
+// WithRabbitmqConsumerRegistry registration services
+func WithRabbitmqConsumerRegistry(iRegistry registry.Registry, instance *registry.ServiceInstance) RabbitmqConsumerOption {
 	return func(o *rabbitmqConsumerOptions) {
 		o.iRegistry = iRegistry
 		o.instance = instance

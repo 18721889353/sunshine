@@ -3,17 +3,18 @@ package rpcclient
 import (
 	"context"
 	"fmt"
-	"github.com/18721889353/sunshine/pkg/nacoscli"
-	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"google.golang.org/grpc"
+
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"github.com/18721889353/sunshine/pkg/nacoscli"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
-	"google.golang.org/grpc"
+	nacosRegistry "github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/grpc/grpccli"
@@ -68,20 +69,20 @@ func NewServerNameExampleRPCConn() {
 		)
 		if grpcClientCfg.RegistryDiscoveryType == "etcd" {
 			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name // format: discovery:///serverName
-			cli, err := etcdcli.Init(cfg.EtcdInfo.ServerEndpoint(), cfg.EtcdInfo.EtcdClient.BuildClientOptions()...)
+			cli, err := etcdcli.NewClient(cfg.EtcdInfo.ServerEndpoint(), cfg.EtcdInfo.EtcdClient.BuildClientOptions()...)
 			if err != nil {
-				panic(fmt.Sprintf("etcdcli.Init error: %v, addr: %v", err, cfg.EtcdInfo.ServerEndpoint()))
+				panic(fmt.Sprintf("etcdcli.NewClient error: %v, addr: %v", err, cfg.EtcdInfo.ServerEndpoint()))
 			}
-			iDiscovery := etcd.New(cli)
+			iDiscovery := etcd.New(cli, cfg.EtcdInfo.EtcdRegistry.BuildRegistryOptions()...)
 			discoverOption = grpccli.WithDiscovery(iDiscovery)
 		}
 
 		if grpcClientCfg.RegistryDiscoveryType == "nacos" {
 			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name
 			ipAddr, port, namespaceID := cfg.NacosInfo.ServerEndpoint()
-			cli, err := nacoscli.NewNamingClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
+			cli, err := nacoscli.NewClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
 			if err != nil {
-				panic(fmt.Sprintf("nacoscli.NewNamingClient error: %v, addr: %s:%d", err, cfg.NacosInfo.NacosServer.IPAddr, cfg.NacosInfo.NacosServer.Port))
+				panic(fmt.Sprintf("nacoscli.NewClient error: %v, addr: %s:%d", err, cfg.NacosInfo.NacosServer.IPAddr, cfg.NacosInfo.NacosServer.Port))
 			}
 			iDiscovery := nacosRegistry.New(cli, cfg.NacosInfo.NacosRegistry.BuildRegistryOptions()...)
 			discoverOption = grpccli.WithDiscovery(iDiscovery)
