@@ -48,21 +48,19 @@ nacos:
 
 
 # ETCD 安装
-#步骤 1：创建 Docker 共享网络
-docker network create etcd-net
+##步骤 1：创建 Docker 共享网络
+#docker network create etcd-net
 
 #步骤 2：安装并启动 etcd (带密码验证)
-docker run -d --name etcd \
---network etcd-net \
--p 2379:2379 \
--p 2380:2380 \
--e ALLOW_NONE_AUTHENTICATION=no \
--e ETCD_ROOT_PASSWORD=sunshine \
-bitnami/etcd:latest
-  
-docker run -d \
---name etcdkeeper \
---network etcd-net \
--p 8080:8080 \
-evildecay/etcdkeeper \
--h 0.0.0.0 -p 8080
+#docker run -d --name etcd \
+#--network etcd-net \
+#-p 2379:2379 \
+#-p 2380:2380 \
+#-e ALLOW_NONE_AUTHENTICATION=no \
+#-e ETCD_ROOT_PASSWORD=sunshine \
+#bitnami/etcd:latest
+
+#安装客户端管理工具
+# docker run --name workbench --network etcd-net -p 8080:8002 -d tzfun/etcd-workbench:latest
+#桌面版
+#https://github.com/tzfun/etcd-workbench/releases
