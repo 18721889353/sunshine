@@ -92,7 +92,10 @@ func NewServerNameExampleRPCConn() {
 			isUseDiscover = true
 			endpoint = discoveryEndpoint
 			cliOptions = append(cliOptions, discoverOption)
-			cliOptions = append(cliOptions, grpccli.WithEnableLoadBalance()) // load balance
+			// 根据 YAML 配置决定是否启用负载均衡
+			if grpcClientCfg.EnableLoadBalance {
+				cliOptions = append(cliOptions, grpccli.WithEnableLoadBalance()) // load balance
+			}
 		}
 	}
 

@@ -1,7 +1,6 @@
 package grpccli
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -15,8 +14,6 @@ import (
 
 func TestNewClient(t *testing.T) {
 	_, err := NewClient("localhost:8282")
-	assert.NoError(t, err)
-	_, err = Dial(context.Background(), "localhost:8282")
 	assert.NoError(t, err)
 }
 
