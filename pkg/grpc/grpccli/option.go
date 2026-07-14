@@ -21,8 +21,8 @@ import (
 
 // 安全连接类型常量
 var (
-	secureOneWay = "one-way"  // 单向认证：客户端验证服务端证书
-	secureTwoWay = "two-way"  // 双向认证：客户端和服务端互相验证
+	secureOneWay = "one-way" // 单向认证：客户端验证服务端证书
+	secureTwoWay = "two-way" // 双向认证：客户端和服务端互相验证
 )
 
 // Option gRPC 客户端配置选项函数类型

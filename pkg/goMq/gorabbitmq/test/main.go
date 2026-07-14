@@ -46,7 +46,6 @@ func main() {
 	// 1. 初始化配置（雪花 ID + MySQL + Redis 需要）
 	config.Set(&config.Config{
 		App: config.App{
-			MachineID:   1,
 			EnableTrace: true, // 启用链路追踪
 		},
 		Database: config.Database{

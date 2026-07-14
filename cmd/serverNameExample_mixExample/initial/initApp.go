@@ -176,10 +176,9 @@ func InitApp() {
 		database.InitElasticsearch()
 		logger.InfoWithCtx(initCtx, "[Elasticsearch] was initialized")
 	}
-	if int64(cfg.App.MachineID) > 0 {
-		database.GetSnowNode()
-		logger.InfoWithCtx(initCtx, "init SnowNode succeeded")
-	}
+	// SnowNode 始终初始化（MachineID 由本机 IP 自动计算，保证分布式唯一性）
+	database.GetSnowNode()
+	logger.InfoWithCtx(initCtx, "init SnowNode succeeded")
 	if cfg.Rabbitmq.Enable {
 		if err := database.InitRabbitmq(); err != nil {
 			panic(err)

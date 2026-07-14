@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/utils"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -158,7 +159,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	// logger interceptor, to print simple messages, replace interceptor.UnaryServerLog with interceptor.UnaryServerSimpleLog
 	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerLog(
 		interceptor.WithMaxLen(config.Get().Logger.MaxLen),
-		interceptor.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
+		interceptor.WithLogFrom(config.Get().App.Name+"_"+utils.GetLocalIP()),
 		interceptor.WithReplaceGRPCLogger(),
 	))
 

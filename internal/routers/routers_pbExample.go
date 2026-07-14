@@ -3,9 +3,10 @@ package routers
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/utils"
 
 	"google.golang.org/grpc/metadata"
 
@@ -97,7 +98,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
 		middleware.WithMaxLen(config.Get().Logger.MaxLen),
-		middleware.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
+		middleware.WithLogFrom(config.Get().App.Name+"_"+utils.GetLocalIP()),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
 	// 将签名添加为全局中间件

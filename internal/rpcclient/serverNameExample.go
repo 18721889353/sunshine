@@ -3,7 +3,6 @@ package rpcclient
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/grpc/grpccli"
 	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/utils"
 )
 
 var (
@@ -47,7 +47,7 @@ func NewServerNameExampleRPCConn() {
 	var cliOptions = []grpccli.Option{
 		grpccli.WithUnaryInterceptors(
 			interceptor.UnaryClientLog(
-				interceptor.WithLogFrom(config.Get().App.Name+strconv.Itoa(config.Get().App.MachineID)),
+				interceptor.WithLogFrom(config.Get().App.Name+"_"+utils.GetLocalIP()),
 				interceptor.WithMaxLen(config.Get().Logger.MaxLen),
 				interceptor.WithReplaceGRPCLogger(),
 			),
