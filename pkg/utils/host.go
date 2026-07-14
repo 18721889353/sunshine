@@ -7,6 +7,23 @@ import (
 	"os"
 )
 
+// GetLocalIP 获取本机非回环IPv4地址，用于服务注册时确保实例ID唯一。
+// 如果获取失败，返回 "unknown"。
+func GetLocalIP() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "unknown"
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+			if ipNet.IP.To4() != nil {
+				return ipNet.IP.String()
+			}
+		}
+	}
+	return "unknown"
+}
+
 // GetHostname get hostname
 func GetHostname() string {
 	name, err := os.Hostname()

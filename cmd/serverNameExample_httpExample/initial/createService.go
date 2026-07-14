@@ -6,6 +6,8 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 
+	"github.com/18721889353/sunshine/pkg/utils"
+
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
@@ -57,7 +59,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 	instanceEndpoint := fmt.Sprintf("%s://%s:%d", scheme, host, port)
 	cfg := config.Get()
 
-	id := cfg.App.Name + "_" + scheme + "_" + host + "_" + strconv.Itoa(port)
+	id := cfg.App.Name + "_" + scheme + "_" + utils.GetLocalIP() + "_" + strconv.Itoa(port)
 	instance := registry.NewServiceInstance(id, cfg.App.Name, []string{instanceEndpoint})
 
 	var (
