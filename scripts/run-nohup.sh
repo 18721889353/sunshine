@@ -7,6 +7,8 @@ serverName="serverNameExample_mixExample"
 cmdStr="cmd/${serverName}/${serverName}"
 pidFile="cmd/${serverName}/${serverName}.pid"
 configFile=$1
+enableCC=$2
+cmdArg=$3
 
 
 function checkResult() {
@@ -15,6 +17,12 @@ function checkResult() {
         exit ${result}
     fi
 }
+
+# 简写处理：./scripts/run-nohup.sh true 相当于 ./scripts/run-nohup.sh "" true
+if [ "$configFile" = "true" ] && [ -z "$enableCC" ]; then
+    enableCC="true"
+    configFile=""
+fi
 
 function stopService(){
     local NAME=$1
@@ -51,11 +59,19 @@ function startService() {
     go build -o ${cmdStr} cmd/${NAME}/main.go
     checkResult $?
 
+    # 默认配置文件和启用配置中心处理
+    if [ -z "$configFile" ] && [ "$enableCC" = "true" ]; then
+      configFile="configs/${NAME}_cc.yml"
+    fi
+    if [ -z "$configFile" ]; then
+      configFile="configs/${NAME}.yml"
+    fi
+
     # running server, append log to file
-    if test -f "$configFile"; then
-        nohup ${cmdStr} -c $configFile >> ${NAME}.log 2>&1 &
+    if [ "$enableCC" = "true" ]; then
+        nohup ${cmdStr} -enable-cc -c $configFile >> ${NAME}.log 2>&1 &
     else
-        nohup ${cmdStr} >> ${NAME}.log 2>&1 &
+        nohup ${cmdStr} -c $configFile >> ${NAME}.log 2>&1 &
     fi
 
     local pid=$!
@@ -79,10 +95,10 @@ function startService() {
 }
 
 stopService ${serverName}
-if [ "$1"x != "stop"x ] ;then
+if [ "$cmdArg"x = "stop"x ] || [ "$1"x = "stop"x ] ;then
+    echo "Service ${serverName} has stopped"
+else
     sleep 1
     startService ${serverName}
     checkResult $?
-else
-    echo "Service ${serverName} has stopped"
 fi

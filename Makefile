@@ -122,17 +122,24 @@ image-build-sunshine:
 
 .PHONY: run
 # $ ./cmd/fuliApiGo/fuliApiGo.exe -enable-cc -c configs/fuliApiGo_cc.yml
-# 构建并运行服务，可指定配置文件路径
-# make run CONFIGFILE=configs/fuliApiGo_cc.yml ENABLE_CC=true
-# make run ENABLE_CC=true
+# 构建并运行服务，支持多种参数组合
+#   make run                          # 默认 configs/fuliApiGo.yml
+#   make run ENABLE_CC=true           # 启用配置中心，默认 configs/fuliApiGo_cc.yml
+#   make run CONFIGFILE=configs/my.yml              # 指定配置文件
+#   make run CONFIGFILE=configs/my.yml ENABLE_CC=true  # 指定配置+配置中心
+#   make run CMD=stop                 # 仅停止服务
 run:
-	@bash scripts/run.sh "$(CONFIGFILE)" "$(ENABLE_CC)"
+	@bash scripts/run.sh "$(CONFIGFILE)" "$(ENABLE_CC)" "$(CMD)"
 
 
 .PHONY: run-nohup
-# 后台运行服务（使用 nohup），如需停止服务则传递 CMD=stop 参数，例如：make run-nohup CMD=stop
+# 后台运行服务（使用 nohup），用法同 make run
+#   make run-nohup                          # 默认 configs/fuliApiGo.yml
+#   make run-nohup ENABLE_CC=true           # 启用配置中心
+#   make run-nohup CONFIGFILE=configs/my.yml ENABLE_CC=true
+#   make run-nohup CMD=stop                 # 仅停止服务
 run-nohup:
-	@bash scripts/run-nohup.sh $(CMD)
+	@bash scripts/run-nohup.sh "$(CONFIGFILE)" "$(ENABLE_CC)" "$(CMD)"
 
 
 .PHONY: run-docker

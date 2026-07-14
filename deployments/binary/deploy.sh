@@ -24,10 +24,10 @@ else
   rm -rf /tmp/${serviceName}-binary*
 fi
 
-# running service
+# running service, pass all arguments to run.sh
 cd ~/app/${serviceName}-binary
 chmod +x run.sh
-./run.sh
+./run.sh "$1" "$2" "$3"
 checkResult $?
 
 echo "server directory is ~/app/${serviceName}-binary"
