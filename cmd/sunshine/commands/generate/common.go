@@ -784,13 +784,17 @@ func changeOutPath(outPath string, serverName string) string {
 //   - 拼接后的完整文件路径列表（格式: 目录/文件名）。
 func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]string) []string {
 	files := []string{}
-	// 所有生成器自动包含 nacos.go（配置中心拉取功能）和 register_helper.go（配置构建辅助方法）
+	// 所有生成器自动包含 nacos.go（配置中心拉取功能）、nacos_encrypt.go（Nacos凭据加解密）和 register_helper.go（配置构建辅助方法）
 	if v, ok := selectFiles["internal/config"]; ok {
 		hasNacos := false
+		hasNacosEncrypt := false
 		hasRegisterHelper := false
 		for _, f := range v {
 			if f == "nacos.go" {
 				hasNacos = true
+			}
+			if f == "nacos_encrypt.go" {
+				hasNacosEncrypt = true
 			}
 			if f == "register_helper.go" {
 				hasRegisterHelper = true
@@ -798,6 +802,9 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 		}
 		if !hasNacos {
 			selectFiles["internal/config"] = append(v, "nacos.go")
+		}
+		if !hasNacosEncrypt {
+			selectFiles["internal/config"] = append(selectFiles["internal/config"], "nacos_encrypt.go")
 		}
 		if !hasRegisterHelper {
 			selectFiles["internal/config"] = append(selectFiles["internal/config"], "register_helper.go")

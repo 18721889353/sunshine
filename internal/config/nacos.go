@@ -16,6 +16,11 @@ func GetConfigFromNacos(configFile string) error {
 		return fmt.Errorf("读取 Nacos 连接配置失败: %w", err)
 	}
 
+	// 解密 Nacos 凭据（支持 ENC(hex) 格式），必须在连接 Nacos 前完成
+	if err = DecryptNacosCredentials(nacosConf); err != nil {
+		return fmt.Errorf("解密 Nacos 凭据失败: %w", err)
+	}
+
 	// 将 Nacos 连接配置转换为查询参数
 	params := &nacoscli.Params{
 		IPAddr:      nacosConf.Nacos.IPAddr,
@@ -48,5 +53,6 @@ func GetConfigFromNacos(configFile string) error {
 	}
 
 	Set(appConfig)
+
 	return nil
 }
