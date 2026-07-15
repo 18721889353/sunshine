@@ -215,7 +215,7 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
-			selectFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"userExample_http.go"}
 			selectFiles["internal/handler"] = []string{"userExample_logic.go.exp.tpl"}
 			fields = commonHandlerPbExtendedFields(r)
 		} else {

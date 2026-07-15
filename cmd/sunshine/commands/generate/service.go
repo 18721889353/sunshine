@@ -217,7 +217,7 @@ func (g *serviceGenerator) generateCode() (string, error) {
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
-			selectFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"userExample_rpc.go"}
 			selectFiles["internal/service"] = []string{"userExample.go.exp.tpl"}
 			fields = commonServiceExtendedFields(r)
 		} else {

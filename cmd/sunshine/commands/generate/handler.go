@@ -214,7 +214,7 @@ func (g *handlerGenerator) generateCode() (string, error) {
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
-			selectFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
+			selectFiles["internal/ecode"] = []string{"userExample_http.go"}
 			selectFiles["internal/handler"] = []string{"userExample.go.exp.tpl"}
 			selectFiles["internal/routers"] = []string{"userExample.go.exp.tpl"}
 			selectFiles["internal/types"] = []string{"userExample_types.go.exp.tpl"}

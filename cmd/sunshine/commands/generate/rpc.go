@@ -261,13 +261,13 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	if crudInfo.CheckCommonType() {
 		g.isCommonStyle = true
 		selectFiles["internal/cache"] = []string{"userExample.go"}
-		selectFiles["internal/dao"] = []string{"userExample.go.tpl"}
-		selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go.tpl"}
+		selectFiles["internal/dao"] = []string{"userExample.go"}
+		selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go"}
 		selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.tpl"}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
-			selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go.exp.tpl"}
+			selectFiles["internal/dao"] = []string{"userExample.go"}
+			selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go"}
 			selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.exp.tpl"}
 			fields = commonGRPCExtendedFields(r)
 		} else {

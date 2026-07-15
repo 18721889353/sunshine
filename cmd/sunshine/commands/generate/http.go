@@ -266,15 +266,15 @@ func (g *httpGenerator) generateCode() (string, error) {
 	if crudInfo.CheckCommonType() {
 		g.isCommonStyle = true
 		selectFiles["internal/cache"] = []string{"userExample.go"}
-		selectFiles["internal/dao"] = []string{"userExample.go.tpl"}
-		selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go.tpl"}
+		selectFiles["internal/dao"] = []string{"userExample.go"}
+		selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go"}
 		selectFiles["internal/handler"] = []string{"userExample.go.tpl"}
 		selectFiles["internal/routers"] = []string{"routers.go", "userExample.go.tpl"}
 		selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go.tpl"}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
-			selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go.exp.tpl"}
+			selectFiles["internal/dao"] = []string{"userExample.go"}
+			selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go"}
 			selectFiles["internal/handler"] = []string{"userExample.go.exp.tpl"}
 			selectFiles["internal/routers"] = []string{"routers.go", "userExample.go.exp.tpl"}
 			selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go.exp.tpl"}

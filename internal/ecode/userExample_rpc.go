@@ -7,7 +7,7 @@ import (
 // userExample business-level rpc error codes.
 // the _userExampleNO value range is 1~100, if the same error code is used, it will cause panic.
 var (
-	_userExampleNO       = 2
+	_userExampleNO       = 37
 	_userExampleName     = "userExample"
 	_userExampleBaseCode = errcode.RCode(_userExampleNO)
 
@@ -16,6 +16,11 @@ var (
 	StatusUpdateByIDUserExample = errcode.NewRPCStatus(_userExampleBaseCode+3, "failed to update "+_userExampleName)
 	StatusGetByIDUserExample    = errcode.NewRPCStatus(_userExampleBaseCode+4, "failed to get "+_userExampleName+" details")
 	StatusListUserExample       = errcode.NewRPCStatus(_userExampleBaseCode+5, "failed to list of "+_userExampleName)
+
+	StatusDeleteByIDsUserExample    = errcode.NewRPCStatus(_userExampleBaseCode+6, "failed to delete by batch ids "+_userExampleName)
+	StatusGetByConditionUserExample = errcode.NewRPCStatus(_userExampleBaseCode+7, "failed to get "+_userExampleName+" by conditions")
+	StatusListByIDsUserExample      = errcode.NewRPCStatus(_userExampleBaseCode+8, "failed to list by batch ids "+_userExampleName)
+	StatusListByLastIDUserExample   = errcode.NewRPCStatus(_userExampleBaseCode+9, "failed to list by last id "+_userExampleName)
 
 	// error codes are globally unique, adding 1 to the previous error code
 )
