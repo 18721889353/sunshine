@@ -197,7 +197,7 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 				"userExample.proto",
 			},
 			"internal/cache": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/dao": {
 				"userExample.go.tpl",
@@ -214,7 +214,7 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 		}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
 			selectFiles["internal/handler"] = []string{"userExample_logic.go.exp.tpl"}
 			fields = commonHandlerPbExtendedFields(r)
@@ -352,9 +352,6 @@ func (g *handlerPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
-		"internal/dao": {
-			"userExample.go.exp.tpl",
-		},
 		"internal/ecode": {
 			"userExample_http.go.exp.tpl",
 		},
@@ -365,7 +362,6 @@ func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerLogicFile+expSuffix+tplSuffix, startMark, endMark)...)
 
@@ -382,10 +378,6 @@ func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.
 			Old: "userExample_logic.go.exp.tpl",
 			New: "userExample.go",
 		},
-		{
-			Old: "userExample.go.exp.tpl",
-			New: "userExample.go",
-		},
 	}...)
 
 	return replaceFiles, fields
@@ -394,7 +386,6 @@ func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.
 func commonHandlerPbFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerPbFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, []replacer.Field{
 		{
@@ -417,7 +408,6 @@ func commonHandlerPbFields(r replacer.Replacer) []replacer.Field {
 func commonHandlerPbExtendedFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerPbFile+expSuffix+tplSuffix, startMark, endMark)...)
 
 	fields = append(fields, []replacer.Field{
@@ -431,10 +421,6 @@ func commonHandlerPbExtendedFields(r replacer.Replacer) []replacer.Field {
 		},
 		{
 			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 	}...)

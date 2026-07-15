@@ -260,7 +260,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 	}
 	if crudInfo.CheckCommonType() {
 		g.isCommonStyle = true
-		selectFiles["internal/cache"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/cache"] = []string{"userExample.go"}
 		selectFiles["internal/dao"] = []string{"userExample.go.tpl"}
 		selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go.tpl"}
 		selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.tpl"}

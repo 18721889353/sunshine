@@ -26,7 +26,7 @@ import (
 const (
 	// UserExampleCachePrefixKeyLock cache prefix key, must end with a colon
 	UserExampleCachePrefixKeyLock = "lock:userExample:"
-	// UserExampleCachePrefixKey 用户示例数据缓存前缀
+	// UserExampleCachePrefixKey 缓存数据前缀
 	UserExampleCachePrefixKey = "data:userExample:"
 	// UserExampleExpireTime expire time
 	UserExampleExpireTime = 30 * time.Minute

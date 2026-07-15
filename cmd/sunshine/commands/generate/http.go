@@ -265,7 +265,7 @@ func (g *httpGenerator) generateCode() (string, error) {
 	}
 	if crudInfo.CheckCommonType() {
 		g.isCommonStyle = true
-		selectFiles["internal/cache"] = []string{"userExample.go.tpl"}
+		selectFiles["internal/cache"] = []string{"userExample.go"}
 		selectFiles["internal/dao"] = []string{"userExample.go.tpl"}
 		selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go.tpl"}
 		selectFiles["internal/handler"] = []string{"userExample.go.tpl"}

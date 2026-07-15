@@ -182,14 +182,14 @@ func (g *daoGenerator) generateCode() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// 所有类型都使用 userExample.go.exp.tpl 模板生成（如果启用了扩展 API）
+	// 使用 userExample.go 作为 Self-Testing Template（可直接编译验证）
 	if g.isExtendedAPI {
 		selectFiles = map[string][]string{
 			"internal/cache": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/dao": {
-				"userExample.go.exp.tpl",
+				"userExample.go",
 			},
 			"internal/model": {
 				"userExample.go",
@@ -204,10 +204,10 @@ func (g *daoGenerator) generateCode() (string, error) {
 	} else if crudInfo.CheckCommonType() {
 		selectFiles = map[string][]string{
 			"internal/cache": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/dao": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/model": {
 				"userExample.go",
@@ -292,15 +292,7 @@ func (g *daoGenerator) addFields(r replacer.Replacer) []replacer.Field {
 func commonDaoFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
 
 	return fields
 }
@@ -308,20 +300,8 @@ func commonDaoFields(r replacer.Replacer) []replacer.Field {
 func commonDaoExtendedFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, cacheFile+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample.go.exp.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
 
 	return fields
 }

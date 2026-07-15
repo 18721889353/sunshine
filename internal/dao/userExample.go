@@ -27,33 +27,33 @@ import (
 	"github.com/18721889353/sunshine/pkg/utils"
 )
 
-// randPool 全局随机数生成器池（线程安全，无锁竞争）
+// UserExampleRandPool 全局随机数生成器池（线程安全，无锁竞争）
 // 使用 sync.Pool 为每个 goroutine 提供独立的随机数生成器，避免锁竞争
-var randPool = sync.Pool{
+var UserExampleRandPool = sync.Pool{
 	New: func() interface{} {
 		return rand.New(rand.NewSource(time.Now().UnixNano()))
 	},
 }
 
-// QueryOption 查询选项函数类型（使用选项模式替代变长布尔参数）
-type QueryOption func(*queryOptions)
+// UserExampleQueryOption 查询选项函数类型（使用选项模式替代变长布尔参数）
+type UserExampleQueryOption func(*userExampleQueryOptions)
 
-// queryOptions 查询选项配置
-type queryOptions struct {
+// userExampleQueryOptions 查询选项配置
+type userExampleQueryOptions struct {
 	forceMaster bool // 是否强制使用主库
 }
 
-// WithForceMaster 强制使用主库查询
-// 示例：dao.GetByID(ctx, id, dao.WithForceMaster())
-func WithForceMaster() QueryOption {
-	return func(o *queryOptions) {
+// UserExampleWithForceMaster 强制使用主库查询
+// 示例：dao.GetByID(ctx, id, dao.UserExampleWithForceMaster())
+func UserExampleWithForceMaster() UserExampleQueryOption {
+	return func(o *userExampleQueryOptions) {
 		o.forceMaster = true
 	}
 }
 
-// applyOptions 应用选项配置（默认强制主库）
-func applyOptions(opts ...QueryOption) *queryOptions {
-	o := &queryOptions{
+// userExampleApplyOptions 应用选项配置（默认强制主库）
+func userExampleApplyOptions(opts ...UserExampleQueryOption) *userExampleQueryOptions {
+	o := &userExampleQueryOptions{
 		forceMaster: true,
 	}
 	for _, opt := range opts {
@@ -62,13 +62,13 @@ func applyOptions(opts ...QueryOption) *queryOptions {
 	return o
 }
 
-// getRandomExpireTime 生成随机化的缓存过期时间，防止缓存雪崩
+// UserExampleGetRandomExpireTime 生成随机化的缓存过期时间，防止缓存雪崩
 // 基础时间 ±5 分钟随机偏移，避免大量缓存在同一时间失效
 // 返回值：baseDuration + random(-300s ~ +300s)
-func getRandomExpireTime(base time.Duration) time.Duration {
+func UserExampleGetRandomExpireTime(base time.Duration) time.Duration {
 	// 从池中获取随机数生成器（无锁竞争，高性能）
-	randGen := randPool.Get().(*rand.Rand) //nolint:errcheck // sync.Pool 保证返回 *rand.Rand 类型
-	defer randPool.Put(randGen)            // 确保放回池中供复用
+	randGen := UserExampleRandPool.Get().(*rand.Rand) //nolint:errcheck // sync.Pool 保证返回 *rand.Rand 类型
+	defer UserExampleRandPool.Put(randGen)            // 确保放回池中供复用
 	// 生成 -300 ~ +300 秒的随机偏移（对应 CacheExpireTimeOffsetSeconds）
 	offsetSeconds := randGen.Int63n(601) - 300 // 0-600 秒范围，减去 300 得到 -300~+300 秒
 
@@ -99,14 +99,14 @@ type UserExampleDao interface {
 	UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, updates *model.UserExample) error
 	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
 
-	GetByID(ctx context.Context, id uint64, opts ...QueryOption) (*model.UserExample, error)
-	GetByColumns(ctx context.Context, params *query.Params, opts ...QueryOption) ([]*model.UserExample, int64, error)
-	GetOneByColumns(ctx context.Context, params *query.Params, opts ...QueryOption) (*model.UserExample, error)
-	GetByCondition(ctx context.Context, c *query.Conditions, opts ...QueryOption) (ids []uint64, err error)
-	GetByIDs(ctx context.Context, ids []uint64, opts ...QueryOption) (map[uint64]*model.UserExample, error)
-	CountByCondition(ctx context.Context, c *query.Conditions, opts ...QueryOption) (int64, error)
-	ExistsByCondition(ctx context.Context, c *query.Conditions, opts ...QueryOption) (bool, error)
-	GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...QueryOption) (int64, error)
+	GetByID(ctx context.Context, id uint64, opts ...UserExampleQueryOption) (*model.UserExample, error)
+	GetByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) ([]*model.UserExample, int64, error)
+	GetOneByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) (*model.UserExample, error)
+	GetByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (ids []uint64, err error)
+	GetByIDs(ctx context.Context, ids []uint64, opts ...UserExampleQueryOption) (map[uint64]*model.UserExample, error)
+	CountByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (int64, error)
+	ExistsByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (bool, error)
+	GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...UserExampleQueryOption) (int64, error)
 }
 
 // userExampleCacheManager 统一管理缓存操作
@@ -179,7 +179,7 @@ func (m *userExampleCacheManager) handleCacheFallback(ctx context.Context, id ui
 			return nil, dbErr
 		}
 		// 尝试设置缓存（失败仅记录日志）
-		expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+		expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 		if cacheErr := m.cache.Set(ctx, id, table, expireTime); cacheErr != nil {
 			logger.WarnWithCtx(ctx, "cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", id))
 		}
@@ -240,7 +240,7 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 				return nil, dbErr
 			}
 			// 设置缓存（使用随机化过期时间防止雪崩）
-			expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+			expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 			if cacheErr := m.cache.Set(ctx, id, table, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
 			}
@@ -293,7 +293,7 @@ func (m *userExampleCacheManager) cacheConditionResult(ctx context.Context, cach
 	if record == nil {
 		return
 	}
-	expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+	expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 	// 缓存 ID
 	if cacheErr := m.cache.SetIDByKey(ctx, cacheKey, record.ID, expireTime); cacheErr != nil {
 		logger.WarnWithCtx(ctx, "cache.SetIDByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("id", record.ID))
@@ -388,6 +388,8 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 //   - 缓存读取错误：仅记录日志，回退到数据库查询
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
+//
+//nolint:gocognit
 func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
 	cacheKey := m.getConditionCacheKey(key)
 
@@ -435,7 +437,7 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
 				}
 			}
-			expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+			expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 			if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.SetIDsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 			}
@@ -486,7 +488,7 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
 			}
 		}
-		expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+		expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 		if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
 			logger.WarnWithCtx(ctx, "cache.SetIDsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
 		}
@@ -533,7 +535,7 @@ func (m *userExampleCacheManager) getByIDs(ctx context.Context, ids []uint64, qu
 }
 
 // findMissedIDs 查找缓存未命中的 ID
-func findMissedIDs(ids []uint64, itemMap map[uint64]*model.UserExample) []uint64 {
+func (m *userExampleCacheManager) findMissedIDs(ids []uint64, itemMap map[uint64]*model.UserExample) []uint64 {
 	var missedIDs []uint64
 	for _, id := range ids {
 		if _, ok := itemMap[id]; !ok {
@@ -575,7 +577,7 @@ func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint6
 	}
 
 	// 查找未命中的 ID
-	missedIDs := findMissedIDs(ids, itemMap)
+	missedIDs := m.findMissedIDs(ids, itemMap)
 
 	// 获取未命中的数据
 	if len(missedIDs) > 0 {
@@ -591,7 +593,7 @@ func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint6
 				itemMap[record.ID] = record
 			}
 			// 批量设置缓存（使用随机化过期时间）
-			expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+			expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 			if cacheErr := m.cache.MultiSet(ctx, records, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", missedIDs))
 			}
@@ -1162,8 +1164,8 @@ func (d *userExampleDao) ExecByCustomFunc(ctx context.Context, updateFunc func(*
 	return err
 }
 
-func (d *userExampleDao) GetByID(ctx context.Context, id uint64, opts ...QueryOption) (*model.UserExample, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) GetByID(ctx context.Context, id uint64, opts ...UserExampleQueryOption) (*model.UserExample, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		record := &model.UserExample{}
@@ -1276,7 +1278,7 @@ func (d *userExampleDao) queryByColumnsWithDB(db *gorm.DB, params *query.Params,
 
 // handleColumnsCacheHit 处理分页查询缓存命中的情况
 // 从缓存中获取总数和 ID 列表，然后通过 ID 批量获取完整记录
-func (d *userExampleDao) handleColumnsCacheHit(ctx context.Context, fullCacheKey string, optsConfig *queryOptions, cachedTotal uint64) (interface{}, bool, error) {
+func (d *userExampleDao) handleColumnsCacheHit(ctx context.Context, fullCacheKey string, optsConfig *userExampleQueryOptions, cachedTotal uint64) (interface{}, bool, error) {
 	ids, idsErr := d.cache.GetIDsByKey(ctx, fullCacheKey+":ids")
 	if idsErr != nil || len(ids) == 0 {
 		return nil, false, nil // 缓存未完全命中
@@ -1320,7 +1322,7 @@ func (d *userExampleDao) cacheColumnsResult(ctx context.Context, fullCacheKey st
 	}
 
 	// 生成随机化过期时间
-	expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+	expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 
 	// 缓存总数
 	if setErr := d.cache.SetIDByKey(ctx, fullCacheKey+":total", uint64(res.total), expireTime); setErr != nil {
@@ -1352,7 +1354,7 @@ func (d *userExampleDao) cacheColumnsResult(ctx context.Context, fullCacheKey st
 }
 
 // queryColumnsWithoutCache 无缓存模式查询
-func (d *userExampleDao) queryColumnsWithoutCache(ctx context.Context, singleflightKey string, params *query.Params, queryStr string, args []interface{}, optsConfig *queryOptions) ([]*model.UserExample, int64, error) {
+func (d *userExampleDao) queryColumnsWithoutCache(ctx context.Context, singleflightKey string, params *query.Params, queryStr string, args []interface{}, optsConfig *userExampleQueryOptions) ([]*model.UserExample, int64, error) {
 	val, sfErr, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1381,7 +1383,7 @@ func (d *userExampleDao) queryColumnsWithoutCache(ctx context.Context, singlefli
 }
 
 // executeColumnsQueryWithCache 使用缓存执行查询
-func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singleflightKey, fullCacheKey, cacheKey string, params *query.Params, queryStr string, args []interface{}, optsConfig *queryOptions) (interface{}, error) {
+func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singleflightKey, fullCacheKey, cacheKey string, params *query.Params, queryStr string, args []interface{}, optsConfig *userExampleQueryOptions) (interface{}, error) {
 	val, sfErr, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
 		// 先从缓存获取总数和 ID 列表
 		cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total")
@@ -1446,8 +1448,8 @@ func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singl
 	return val, sfErr
 }
 
-func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, opts ...QueryOption) ([]*model.UserExample, int64, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) ([]*model.UserExample, int64, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
@@ -1504,8 +1506,8 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 
 // GetOneByColumns 根据列信息获取单条记录
 // 参数同 GetByColumns，返回第一条匹配的记录
-func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params, opts ...QueryOption) (*model.UserExample, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) (*model.UserExample, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 	queryStr, args, err := params.ConvertToGormConditions()
 	if err != nil {
 		return nil, fmt.Errorf("GetOneByColumns: convert query conditions failed, params=%+v: %w", params, err)
@@ -1573,8 +1575,8 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 //			Value: "male",
 //		},
 //	}
-func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions, opts ...QueryOption) (ids []uint64, err error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (ids []uint64, err error) {
+	optsConfig := userExampleApplyOptions(opts...)
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -1629,8 +1631,8 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 	})
 }
 
-func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...QueryOption) (map[uint64]*model.UserExample, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...UserExampleQueryOption) (map[uint64]*model.UserExample, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 	// 无缓存模式直接查询（支持强制主库查询）
 	if d.cacheManager == nil {
 		var records []*model.UserExample
@@ -1664,8 +1666,8 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...Que
 	})
 }
 
-func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions, opts ...QueryOption) (int64, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (int64, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -1723,7 +1725,7 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		}
 
 		// 缓存计数结果（包括 0，避免重复查询，使用随机化过期时间）
-		expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+		expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 		if setErr := d.cache.SetIDByKey(ctx, countCacheKey, uint64(count), expireTime); setErr != nil {
 			logger.WarnWithCtx(ctx, "cache: failed to set count", logger.Err(setErr), logger.String("key", countCacheKey))
 		}
@@ -1739,8 +1741,8 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 	return count, nil
 }
 
-func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions, opts ...QueryOption) (bool, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (bool, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
@@ -1804,7 +1806,7 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		if exists {
 			cacheValue = 1
 		}
-		expireTime := getRandomExpireTime(cache.UserExampleExpireTime)
+		expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 		if setErr := d.cache.SetIDByKey(ctx, existsCacheKey, cacheValue, expireTime); setErr != nil {
 			logger.WarnWithCtx(ctx, "cache: failed to set exists result", logger.Err(setErr), logger.String("key", existsCacheKey))
 		}
@@ -1846,8 +1848,8 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 //		Order("cp_dealer.id DESC")
 //}, &result1, 0, 10)
 
-func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...QueryOption) (int64, error) {
-	optsConfig := applyOptions(opts...)
+func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...UserExampleQueryOption) (int64, error) {
+	optsConfig := userExampleApplyOptions(opts...)
 	var total int64 = -1 // 使用 -1 表示未计算总数
 
 	// 构建查询（支持强制主库查询）

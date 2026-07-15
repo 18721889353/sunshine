@@ -199,7 +199,7 @@ func (g *serviceGenerator) generateCode() (string, error) {
 				"userExample.proto",
 			},
 			"internal/cache": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/dao": {
 				"userExample.go.tpl",
@@ -216,7 +216,7 @@ func (g *serviceGenerator) generateCode() (string, error) {
 		}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
 			selectFiles["internal/service"] = []string{"userExample.go.exp.tpl"}
 			fields = commonServiceExtendedFields(r)
@@ -354,9 +354,6 @@ func (g *serviceGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
-		"internal/dao": {
-			"userExample.go.exp.tpl",
-		},
 		"internal/ecode": {
 			"systemCode_rpc.go", "userExample_rpc.go.exp.tpl",
 		},
@@ -371,7 +368,6 @@ func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceClientFile+expSuffix+tplSuffix, startMark, endMark)...)
@@ -380,10 +376,6 @@ func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 		{
 			Old: "userExample_rpc.go.exp.tpl",
 			New: "userExample_rpc.go",
-		},
-		{
-			Old: "userExample.go.exp.tpl",
-			New: "userExample.go",
 		},
 		{
 			Old: "userExample_client_test.go.exp.tpl",
@@ -397,7 +389,6 @@ func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 func commonServiceFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceFile+tplSuffix, startMark, endMark)...)
 
@@ -418,7 +409,6 @@ func commonServiceFields(r replacer.Replacer) []replacer.Field {
 func commonServiceExtendedFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, serviceFile+expSuffix+tplSuffix, startMark, endMark)...)
 
@@ -429,10 +419,6 @@ func commonServiceExtendedFields(r replacer.Replacer) []replacer.Field {
 		},
 		{
 			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 	}...)

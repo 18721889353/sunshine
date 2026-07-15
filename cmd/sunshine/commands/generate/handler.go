@@ -190,7 +190,7 @@ func (g *handlerGenerator) generateCode() (string, error) {
 		g.isCommonStyle = true
 		selectFiles = map[string][]string{
 			"internal/cache": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/dao": {
 				"userExample.go.tpl",
@@ -213,7 +213,7 @@ func (g *handlerGenerator) generateCode() (string, error) {
 		}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
 			selectFiles["internal/handler"] = []string{"userExample.go.exp.tpl"}
 			selectFiles["internal/routers"] = []string{"userExample.go.exp.tpl"}
@@ -319,9 +319,6 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
-		"internal/dao": {
-			"userExample.go.exp.tpl",
-		},
 		"internal/ecode": {
 			"systemCode_http.go", "userExample_http.go.exp.tpl",
 		},
@@ -343,7 +340,6 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerTestFile+expSuffix+tplSuffix, startMark, endMark)...)
@@ -357,10 +353,6 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 			Old: "userExample_http.go.exp.tpl",
 			New: "userExample_http.go",
 		},
-		{
-			Old: "userExample.go.exp.tpl",
-			New: "userExample.go",
-		},
 	}...)
 
 	return replaceFiles, fields
@@ -369,7 +361,6 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 func commonHandlerFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, typesFile+tplSuffix, startMark, endMark)...)
 
@@ -394,7 +385,6 @@ func commonHandlerFields(r replacer.Replacer) []replacer.Field {
 func commonHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix+tplSuffix, startMark, endMark)...)
 
@@ -409,10 +399,6 @@ func commonHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
 		},
 		{
 			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.exp.tpl",
 			New: "userExample.go",
 		},
 	}...)
