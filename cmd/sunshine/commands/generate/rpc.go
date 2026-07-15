@@ -263,12 +263,12 @@ func (g *rpcGenerator) generateCode() (string, error) {
 		selectFiles["internal/cache"] = []string{"userExample.go"}
 		selectFiles["internal/dao"] = []string{"userExample.go"}
 		selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go"}
-		selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.tpl"}
+		selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go"}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go"}
-			selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go.exp.tpl"}
+			selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go"}
 			fields = commonGRPCExtendedFields(r)
 		} else {
 			fields = commonGRPCFields(r)

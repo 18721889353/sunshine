@@ -208,7 +208,7 @@ func (g *handlerGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 			"internal/types": {
-				"userExample_types.go.tpl",
+				"userExample_types.go",
 			},
 		}
 		var fields []replacer.Field
@@ -217,7 +217,7 @@ func (g *handlerGenerator) generateCode() (string, error) {
 			selectFiles["internal/ecode"] = []string{"userExample_http.go"}
 			selectFiles["internal/handler"] = []string{"userExample.go"}
 			selectFiles["internal/routers"] = []string{"userExample.go"}
-			selectFiles["internal/types"] = []string{"userExample_types.go.exp.tpl"}
+			selectFiles["internal/types"] = []string{"userExample_types.go"}
 			fields = commonHandlerExtendedFields(r)
 		} else {
 			fields = commonHandlerFields(r)
@@ -329,13 +329,13 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 			"routers.go", "userExample.go",
 		},
 		"internal/types": {
-			"swagger_types.go", "userExample_types.go.exp.tpl",
+			"swagger_types.go", "userExample_types.go",
 		},
 	}
 	if codeName == codeNameHandler {
 		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
 		replaceFiles["internal/routers"] = []string{"userExample.go"}
-		replaceFiles["internal/types"] = []string{"userExample_types.go.exp.tpl"}
+		replaceFiles["internal/types"] = []string{"userExample_types.go"}
 	}
 
 	var fields []replacer.Field

@@ -202,23 +202,23 @@ func (g *serviceGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 			"internal/dao": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/ecode": {
-				"userExample_rpc.go.tpl",
+				"userExample_rpc.go",
 			},
 			"internal/model": {
 				"userExample.go",
 			},
 			"internal/service": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 		}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"userExample_rpc.go"}
-			selectFiles["internal/service"] = []string{"userExample.go.exp.tpl"}
+			selectFiles["internal/service"] = []string{"userExample.go"}
 			fields = commonServiceExtendedFields(r)
 		} else {
 			fields = commonServiceFields(r)
@@ -358,12 +358,12 @@ func serviceExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 			"systemCode_rpc.go", "userExample_rpc.go.exp.tpl",
 		},
 		"internal/service": {
-			"service.go", "service_test.go", "userExample.go.exp.tpl", "userExample_client_test.go.exp.tpl",
+			"service.go", "service_test.go", "userExample.go", "userExample_client_test.go",
 		},
 	}
 	if codeName == codeNameService {
 		replaceFiles["internal/ecode"] = []string{"userExample_rpc.go.exp.tpl"}
-		replaceFiles["internal/service"] = []string{"userExample.go.exp.tpl", "userExample_client_test.go.exp.tpl"}
+		replaceFiles["internal/service"] = []string{"userExample.go", "userExample_client_test.go"}
 	}
 
 	var fields []replacer.Field
