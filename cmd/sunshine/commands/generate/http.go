@@ -271,23 +271,6 @@ func (g *httpGenerator) generateCode() (string, error) {
 		selectFiles["internal/handler"] = []string{"userExample.go"}
 		selectFiles["internal/routers"] = []string{"routers.go", "userExample.go"}
 		selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go"}
-		var fields []replacer.Field
-		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go"}
-			selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go"}
-			selectFiles["internal/handler"] = []string{"userExample.go"}
-			selectFiles["internal/routers"] = []string{"routers.go", "userExample.go"}
-			selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go"}
-			fields = commonHTTPExtendedFields(r)
-		} else {
-			fields = commonHTTPFields(r)
-		}
-		contentFields, replaceErr := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if replaceErr != nil {
-			return "", replaceErr
-		}
-		g.fields = append(g.fields, contentFields...)
-		g.fields = append(g.fields, fields...)
 	}
 
 	replaceFiles := make(map[string][]string)
@@ -332,10 +315,6 @@ func (g *httpGenerator) generateCode() (string, error) {
 		}
 	}
 
-	// Update sunshine command path in protoc.sh script
-	if err = updateSunshineCmdInScript(r.GetOutputDir()); err != nil {
-		return "", err
-	}
 	if saveErr := saveGenInfo(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir()); saveErr != nil {
 		fmt.Printf("save gen info error: %v\n", saveErr)
 	}
@@ -355,7 +334,6 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	fields = append(fields, deleteFieldsMark(r, typesFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, handlerTestFile, startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, httpFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, httpFile+".noregistry", startMark, endMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerFileBuild, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, dockerComposeFile, wellStartMark, wellEndMark)...)
@@ -366,7 +344,7 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	//fields = append(fields, deleteAllFieldsMark(r, makeFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteAllFieldsMark(r, protoShellFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteAllFieldsMark(r, appConfigFile, wellStartMark, wellEndMark)...)
+
 	//fields = append(fields, deleteFieldsMark(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, replaceFileContentMark(r, readmeFile,
 		setReadmeTitle(g.moduleName, g.serverName, codeNameHTTP, g.suitedMonoRepo))...)
@@ -447,10 +425,6 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: g.moduleName + pkgPathSuffix,
 			New: "github.com/18721889353/sunshine/pkg",
 		},
-		{ // replace the sunshine version of the go.mod file
-			Old: sunshineTemplateVersionMark,
-			New: getLocalSunshineTemplateVersion(),
-		},
 		{
 			Old: "sunshine api docs",
 			New: g.serverName + apiDocsSuffix,
@@ -510,10 +484,6 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: g.dbDSN,
 		},
 		{
-			Old: "root:123456@192.168.3.37:5432/account?sslmode=disable",
-			New: adaptPgDsn(g.dbDSN),
-		},
-		{
 			Old: showDbNameMark,
 			New: CurrentDbDriver(g.dbDriver),
 		},
@@ -528,7 +498,6 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 	}...)
 
-	fields = append(fields, getHTTPServiceFields()...)
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameHTTP, g.moduleName, g.serverName)
@@ -538,10 +507,3 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	return fields
 }
 
-func commonHTTPFields(r replacer.Replacer) []replacer.Field {
-	return commonHandlerFields(r)
-}
-
-func commonHTTPExtendedFields(r replacer.Replacer) []replacer.Field {
-	return commonHandlerExtendedFields(r)
-}

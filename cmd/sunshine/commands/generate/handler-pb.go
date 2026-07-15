@@ -221,11 +221,6 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 		} else {
 			fields = commonHandlerPbFields(r)
 		}
-		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if err != nil {
-			return "", err
-		}
-		g.fields = append(g.fields, contentFields...)
 		g.fields = append(g.fields, fields...)
 	}
 
@@ -353,7 +348,7 @@ func (g *handlerPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/ecode": {
-			"userExample_http.go.exp.tpl",
+			"userExample_http.go",
 		},
 		"internal/handler": {
 			"userExample_logic.go", "userExample_logic_test.go",
@@ -362,68 +357,13 @@ func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerLogicFile+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_http.go.exp.tpl",
-			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample_logic_test.go.exp.tpl",
-			New: "userExample_test.go",
-		},
-		{
-			Old: "userExample_logic.go.exp.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
 	return replaceFiles, fields
 }
 
 func commonHandlerPbFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, handlerPbFile+tplSuffix, startMark, endMark)...)
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_http.go.tpl",
-			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample_logic.go.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return fields
+	return nil
 }
 
 func commonHandlerPbExtendedFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, handlerPbFile+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_http.go.exp.tpl",
-			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample_logic.go.exp.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return fields
+	return nil
 }

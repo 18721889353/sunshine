@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/huandu/xstrings"
@@ -27,7 +25,7 @@ import (
 )
 
 const (
-	defaultGoModVersion = "go 1.22"
+	defaultGoModVersion = "go 1.25"
 
 	// TplNameSunshine name of the template
 	TplNameSunshine = "sunshine"
@@ -56,8 +54,6 @@ const (
 
 	wellPrefix    = "## "
 	pkgPathSuffix = "/pkg"
-	expSuffix     = ".exp"
-	tplSuffix     = ".tpl"
 	apiDocsSuffix = " api docs"
 )
 
@@ -81,7 +77,6 @@ var (
 	typesFile         = "types/userExample_types.go"
 	handlerFileMark   = "// todo generate the request and response struct to here"
 	handlerTestFile   = "handler/userExample_test.go"
-	handlerPbFile     = "handler/userExample_logic.go"
 	handlerPbTestFile = "handler/userExample_logic_test.go"
 
 	handlerLogicFile = "handler/userExample_logic.go"
@@ -95,7 +90,6 @@ var (
 
 	serviceTestFile   = "service/userExample_test.go"
 	serviceClientFile = "service/userExample_client_test.go"
-	serviceFile       = "service/userExample.go"
 	serviceFileMark   = "// todo generate the service struct code here"
 
 	dockerFile     = "scripts/build/Dockerfile"
@@ -123,17 +117,13 @@ var (
 	protoShellFileGRPCMark = "# todo generate grpc files here"
 	protoShellFileMark     = "# todo generate api template code command here"
 
-	appConfigFile      = "configs/serverNameExample.yml"
 	appConfigFileMark  = "# todo generate http or rpc server configuration here"
 	appConfigFileMark2 = "# todo generate the database configuration here"
-	appConfigFileMark3 = "# todo generate the registry and discovery configuration here"
 
 	expectedSQLForDeletion = "expectedSQLForDeletion := \"UPDATE .*\""
 
 	//deploymentConfigFile     = "kubernetes/serverNameExample-configmap.yml"
 	//deploymentConfigFileMark = "# todo generate the database configuration for deployment here"
-
-	sunshineTemplateVersionMark = "// todo generate the local sunshine template code version here"
 
 	configmapFileMark = "# todo generate server configuration code here"
 
@@ -485,11 +475,6 @@ func getDBConfigCode(dbDriver string) string {
 	return dbConfigCode
 }
 
-// GetDBConfigurationCode get db config code
-func GetDBConfigurationCode(dbDriver string) string {
-	return getDBConfigCode(dbDriver)
-}
-
 func getInitDBCode(dbDriver string) string {
 	initDBCode := ""
 	switch strings.ToLower(dbDriver) {
@@ -504,27 +489,6 @@ func getInitDBCode(dbDriver string) string {
 // GetInitDataBaseCode get init db code
 func GetInitDataBaseCode(dbDriver string) string {
 	return getInitDBCode(dbDriver)
-}
-
-func getLocalSunshineTemplateVersion() string {
-	dir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Println("os.UserHomeDir error:", err)
-		return ""
-	}
-
-	versionFile := dir + "/.sunshine/.github/version"
-	data, err := os.ReadFile(versionFile)
-	if err != nil {
-		fmt.Printf("read file %s error: %v\n", versionFile, err)
-		return ""
-	}
-
-	v := string(data)
-	if v == "" {
-		return ""
-	}
-	return fmt.Sprintf("github.com/18721889353/sunshine %s", v)
 }
 
 func getEmbedTimeCode(isEmbed bool) string {
@@ -898,6 +862,19 @@ func wrapPoint(s string) string {
 	return "`" + s + "`"
 }
 
+// setReadmeTitle 生成 README.md 的标题和项目信息表格内容。
+// 参数:
+//   - moduleName: Go 模块名称。
+//   - serverName: 服务名称。
+//   - serverType: 服务类型（http / grpc / http-pb 等）。
+//   - suitedMonoRepo: 是否为单体仓库模式。
+// 返回值:
+//   - 格式化后的 Markdown 标题和表格字符串，包含服务名称、类型、模块名和仓库类型。
+//
+// 仓库类型逻辑:
+//   - mono-repo: suitedMonoRepo 为 true。
+//   - monolith: 非单体仓库且服务类型为 HTTP。
+//   - multi-repo: 其他情况。
 func setReadmeTitle(moduleName string, serverName string, serverType string, suitedMonoRepo bool) string {
 	var repoType string
 	if suitedMonoRepo {
@@ -922,7 +899,11 @@ func setReadmeTitle(moduleName string, serverName string, serverType string, sui
 `, wrapPoint(serverName), wrapPoint(serverType), wrapPoint(moduleName), wrapPoint(repoType))
 }
 
-// GetGoModFields get go mod fields
+// GetGoModFields 返回 go.mod 文件中需要替换的字段列表，用于将模板项目中的包路径和 Go 版本替换为实际值。
+// 参数:
+//   - moduleName: 目标项目的 Go 模块名称，用于替换默认的 sunshine 包路径。
+// 返回值:
+//   - 包含两个替换字段：sunshine 包路径替换为 moduleName，默认 Go 版本替换为本地版本。
 func GetGoModFields(moduleName string) []replacer.Field {
 	return []replacer.Field{
 		{
@@ -933,22 +914,21 @@ func GetGoModFields(moduleName string) []replacer.Field {
 			Old: defaultGoModVersion,
 			New: getLocalGoVersion(),
 		},
-		{
-			Old: sunshineTemplateVersionMark,
-			New: getLocalSunshineTemplateVersion(),
-		},
 	}
 }
 
-// AddLocalReplaceField add replace directive for local development
-// Deprecated: Use appendReplaceDirective instead
-func AddLocalReplaceField(fields []replacer.Field) []replacer.Field {
-	return fields
-}
-
-// appendReplaceDirective appends replace directive to go.mod file after generation
-// 仅当 sunshine 从本地源码运行时才添加，通过 go install 安装时不添加
-// 编译后的二进制启动 Web UI 也不添加（用户独立项目）
+// appendReplaceDirective 在 go.mod 文件中追加 replace 指令，使生成的项目在开发时指向本地 sunshine 源码。
+// 参数:
+//   - outputDir: 生成项目的输出目录。
+//   - _: 保留参数，暂未使用。
+// 返回值:
+//   - 如果通过编译后的二进制启动（SUNSHINE_COMPILED_BINARY=true）或 sunshine 非本地源码安装，
+//     则不添加 replace 指令，返回 nil。
+//   - 如果文件写入失败，返回对应的错误。
+//
+// 仅在以下条件同时满足时才会添加 replace 指令:
+//  1. 不是通过编译后二进制启动的 Web UI。
+//  2. sunshine 目录包含 cmd、pkg、internal 子目录（即本地源码运行）。
 func appendReplaceDirective(outputDir string, _ string) error {
 	// 检测是否通过编译后的二进制启动的 Web UI，如果是则不添加 replace 指令
 	if os.Getenv("SUNSHINE_COMPILED_BINARY") == "true" {
@@ -987,86 +967,13 @@ func appendReplaceDirective(outputDir string, _ string) error {
 	return err
 }
 
-// getSunshineCmdForScript returns the sunshine command path for generated scripts
-// If running from local source code, return the absolute path with forward slashes (for bash scripts)
-// If installed via go install, return "sunshine" (use system PATH)
-// 暂未使用,保留供将来扩展
-// func getSunshineCmdForScript() string {
-// First, check if SUNSHINE_SRC_DIR environment variable is set
-// if envDir := os.Getenv("SUNSHINE_SRC_DIR"); envDir != "" {
-// 	exePath, err := os.Executable()
-// 	if err == nil {
-// 		return filepath.ToSlash(exePath)
-// 	}
-// }
-
-// Check current working directory
-// if wd, err := os.Getwd(); err == nil {
-// 	// Check if we're in sunshine source directory
-// 	if gofile.IsExists(filepath.Join(wd, "cmd")) &&
-// 		gofile.IsExists(filepath.Join(wd, "pkg")) &&
-// 		gofile.IsExists(filepath.Join(wd, "internal")) {
-// 		exePath, err := os.Executable()
-// 		if err == nil {
-// 			return filepath.ToSlash(exePath)
-// 		}
-// 	}
-// }
-
-// Check executable path
-// exePath, err := os.Executable()
-// if err != nil {
-// 	return "sunshine"
-// }
-
-// Check if sunshine is running from source code directory
-// (contains cmd, pkg, internal directories)
-// exeDir := filepath.Dir(exePath)
-// for i := 0; i < 10; i++ {
-// 	if gofile.IsExists(filepath.Join(exeDir, "cmd")) &&
-// 		gofile.IsExists(filepath.Join(exeDir, "pkg")) &&
-// 		gofile.IsExists(filepath.Join(exeDir, "internal")) {
-// 		// Found source directory, always use forward slashes for bash scripts
-// 		return filepath.ToSlash(exePath)
-// 	}
-// 	parent := filepath.Dir(exeDir)
-// 	if parent == exeDir {
-// 		break
-// 	}
-// 	exeDir = parent
-// }
-
-// Not running from source directory, assume installed via go install
-// return "sunshine"
-// }
-
-// updateSunshineCmdInScript updates the sunshine command in protoc.sh script
-// Note: This function is now deprecated. The sunshine command path is automatically detected from go.mod replace directive.
-func updateSunshineCmdInScript(_ string) error {
-	// No longer needed - sunshine path is auto-detected from go.mod
-	return nil
-}
-
-func adaptPgDsn(dsn string) string {
-	if !strings.Contains(dsn, "postgres://") {
-		dsn = "postgres://" + dsn
-	}
-	dsn = utils.DeleteBrackets(dsn)
-
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return dsn
-	}
-
-	if u.RawQuery == "" {
-		u.RawQuery = "sslmode=disable"
-	} else if u.Query().Get("sslmode") == "" {
-		u.RawQuery = "sslmode=disable&" + u.RawQuery
-	}
-
-	return strings.ReplaceAll(u.String(), "postgres://", "")
-}
-
+// unmarshalCrudInfo 将 JSON 字符串反序列化为 CRUD 元数据对象。
+// 参数:
+//   - str: CRUD 信息的 JSON 字符串。
+//
+// 返回值:
+//   - 解析后的 CrudInfo 指针。
+//   - 如果字符串为空或反序列化失败，返回对应的错误。
 func unmarshalCrudInfo(str string) (*parser.CrudInfo, error) {
 	if str == "" {
 		return nil, errors.New("crud info is empty")
@@ -1079,74 +986,14 @@ func unmarshalCrudInfo(str string) (*parser.CrudInfo, error) {
 	return crudInfo, nil
 }
 
-func getTemplateFiles(files map[string][]string) []string {
-	var templateFiles []string
-	for dir, filenames := range files {
-		for _, filename := range filenames {
-			if strings.HasSuffix(filename, tplSuffix) {
-				templateFiles = append(templateFiles, dir+"/"+filename)
-			}
-		}
-	}
-	return templateFiles
-}
-
-func replaceFilesContent(r replacer.Replacer, files []string, crudInfo *parser.CrudInfo) ([]replacer.Field, error) {
-	var fields []replacer.Field
-
-	for _, file := range files {
-		field, err := replaceTemplateFileContent(r, file, crudInfo)
-		if err != nil {
-			return nil, err
-		}
-		if field.Old == "" {
-			continue
-		}
-		fields = append(fields, field)
-	}
-	return fields, nil
-}
-
-func replaceTemplateFileContent(r replacer.Replacer, file string, crudInfo *parser.CrudInfo) (field replacer.Field, err error) {
-	var data []byte
-	data, err = r.ReadFile(file)
-	if err != nil {
-		return field, err
-	}
-
-	content := string(data)
-	if strings.Contains(content, "{{{.ColumnNameCamelFCL}}}") {
-		content = strings.ReplaceAll(content, "{{{.ColumnNameCamelFCL}}}", fmt.Sprintf("{%s}", crudInfo.ColumnNameCamelFCL))
-	}
-
-	defer func() {
-		if e := recover(); e != nil {
-			err = fmt.Errorf("%v", e)
-		}
-	}()
-	tpl := template.Must(template.New(file).Parse(content))
-	buf := new(bytes.Buffer)
-	err = tpl.Execute(buf, crudInfo)
-	if err != nil {
-		return field, err
-	}
-
-	dstContent := buf.String()
-	if !strings.Contains(dstContent, "utils.") {
-		dstContent = strings.ReplaceAll(dstContent, `"github.com/18721889353/sunshine/pkg/utils"`, "")
-	}
-	if !strings.Contains(dstContent, "math.MaxInt32") {
-		dstContent = strings.ReplaceAll(dstContent, `"math"`, "")
-	}
-
-	field = replacer.Field{
-		Old: string(data),
-		New: dstContent,
-	}
-
-	return field, nil
-}
-
+// SetSelectFiles 根据数据库驱动类型设置待生成的基础文件列表到 selectFiles 映射中。
+// 参数:
+//   - dbDriver: 数据库驱动类型（当前仅支持 "mysql"）。
+//   - selectFiles: 待生成文件的目录到文件名的映射，函数会向其中添加依赖的基础文件。
+//
+// 返回值:
+//   - 如果驱动类型不支持，返回对应的错误信息。
+//
 // nolint
 func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 	dbDriver = strings.ToLower(dbDriver)
@@ -1158,52 +1005,4 @@ func SetSelectFiles(dbDriver string, selectFiles map[string][]string) error {
 		return errors.New("unsupported db driver: " + dbDriver)
 	}
 	return nil
-}
-
-func getHTTPServiceFields() []replacer.Field {
-	return []replacer.Field{
-		{
-			Old: appConfigFileMark3,
-			New: "",
-		},
-		{
-			Old: "http.go.noregistry",
-			New: "http.go",
-		},
-		{
-			Old: "http_option.go.noregistry",
-			New: "http_option.go",
-		},
-		{
-			Old: `registryDiscoveryType: ""`,
-			New: `registryDiscoveryType: ""`,
-		},
-	}
-}
-
-func getGRPCServiceFields() []replacer.Field {
-	return []replacer.Field{
-		{
-			Old: appConfigFileMark3,
-			New: `# consul settings
-#consul:
-#  addr: "192.168.3.37:8500"
-
-
-# etcd settings
-#etcd:
-#  addrs: ["192.168.3.37:2379"]
-
-
-# nacos settings, used in service registration discovery
-#nacosRd:
-#  ipAddr: "192.168.3.37"
-#  port: 8848
-#  namespaceID: "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"   # namespace id`,
-		},
-		{
-			Old: `registryDiscoveryType: ""`,
-			New: `registryDiscoveryType: ""`,
-		},
-	}
 }

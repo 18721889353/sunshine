@@ -264,21 +264,6 @@ func (g *rpcGenerator) generateCode() (string, error) {
 		selectFiles["internal/dao"] = []string{"userExample.go"}
 		selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go"}
 		selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go"}
-		var fields []replacer.Field
-		if g.isExtendedAPI {
-			selectFiles["internal/dao"] = []string{"userExample.go"}
-			selectFiles["internal/ecode"] = []string{"systemCode_rpc.go", "userExample_rpc.go"}
-			selectFiles["internal/service"] = []string{"service.go", "service_test.go", "userExample.go"}
-			fields = commonGRPCExtendedFields(r)
-		} else {
-			fields = commonGRPCFields(r)
-		}
-		contentFields, replaceErr := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if replaceErr != nil {
-			return "", replaceErr
-		}
-		g.fields = append(g.fields, contentFields...)
-		g.fields = append(g.fields, fields...)
 	}
 
 	if g.suitedMonoRepo {
@@ -326,10 +311,6 @@ func (g *rpcGenerator) generateCode() (string, error) {
 		}
 	}
 
-	// Update sunshine command path in protoc.sh script
-	if err = updateSunshineCmdInScript(r.GetOutputDir()); err != nil {
-		return "", err
-	}
 
 	if g.suitedMonoRepo {
 		if err := moveProtoFileToAPIDir(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir()); err != nil {
@@ -366,7 +347,7 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	fields = append(fields, deleteAllFieldsMark(r, makeFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteAllFieldsMark(r, protoShellFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteAllFieldsMark(r, appConfigFile, wellStartMark, wellEndMark)...)
+
 	//fields = append(fields, deleteFieldsMark(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, replaceFileContentMark(r, readmeFile,
 		setReadmeTitle(g.moduleName, g.serverName, codeNameGRPC, g.suitedMonoRepo))...)
@@ -460,10 +441,6 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			Old: g.moduleName + pkgPathSuffix,
 			New: "github.com/18721889353/sunshine/pkg",
 		},
-		{ // replace the sunshine version of the go.mod file
-			Old: sunshineTemplateVersionMark,
-			New: getLocalSunshineTemplateVersion(),
-		},
 		{
 			Old: "api/userExample/v1",
 			New: fmt.Sprintf("api/%s/v1", g.serverName),
@@ -527,10 +504,6 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: g.dbDSN,
 		},
 		{
-			Old: "root:123456@192.168.3.37:5432/account?sslmode=disable",
-			New: adaptPgDsn(g.dbDSN),
-		},
-		{
 			Old: showDbNameMark,
 			New: CurrentDbDriver(g.dbDriver),
 		},
@@ -541,7 +514,6 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 	}...)
 
-	fields = append(fields, getGRPCServiceFields()...)
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameGRPC, g.moduleName, g.serverName)
@@ -551,10 +523,3 @@ func (g *rpcGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	return fields
 }
 
-func commonGRPCFields(r replacer.Replacer) []replacer.Field {
-	return commonServiceFields(r)
-}
-
-func commonGRPCExtendedFields(r replacer.Replacer) []replacer.Field {
-	return commonServiceExtendedFields(r)
-}

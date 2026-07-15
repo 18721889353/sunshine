@@ -15,7 +15,12 @@ import (
 	"github.com/18721889353/sunshine/pkg/jy2struct"
 )
 
-// ConfigCommand convert yaml to struct command
+// ConfigCommand 创建 config 子命令，用于将 YAML 配置文件转换为 Go 结构体代码。
+// 支持两种模式:
+//  1. 指定服务目录（--server-dir），自动扫描 configs 目录下的所有 YAML 文件。
+//  2. 指定单个 YAML 文件（--yaml-file），转换为独立的 Go 结构体文件。
+// 返回值:
+//   - 配置了 RunE 逻辑的 cobra.Command 指针。
 func ConfigCommand() *cobra.Command {
 	var (
 		ysArgs = jy2struct.Args{
@@ -76,6 +81,13 @@ func ConfigCommand() *cobra.Command {
 	return cmd
 }
 
+// runGenConfigCommand 遍历所有配置文件，调用 jy2struct 进行 YAML 转 Go 结构体转换，
+// 并通过 saveFile 将生成的代码写入对应的 .go 文件。
+// 参数:
+//   - files: 输出文件路径到配置信息的映射。
+//   - ysArgs: jy2struct 转换参数（格式、标签等）。
+// 返回值:
+//   - 如果任一文件转换或写入失败，返回对应的错误。
 func runGenConfigCommand(files map[string]configType, ysArgs jy2struct.Args) error {
 	for outputFile, config := range files {
 		ysArgs.Format = "yaml"
@@ -102,12 +114,22 @@ func runGenConfigCommand(files map[string]configType, ysArgs jy2struct.Args) err
 	return nil
 }
 
+// configType 描述一个配置文件的来源和目标信息。
 type configType struct {
 	configFile     string
 	isConfigCenter bool
 }
 
-// read all yaml file directories from the config directory, one is .yml and the other is cc.yml
+// getYAMLFile 扫描服务目录下的 configs 文件夹，收集所有 .yml 或 .yaml 配置文件。
+// 参数:
+//   - serverDir: 服务根目录路径。
+// 返回值:
+//   - 输出 Go 文件路径到配置信息的映射。
+//   - 如果目录不存在、同时存在 .yml 和 .yaml 或没有配置文件，返回对应的错误。
+//
+// 文件名约定:
+//   - 以 cc.yml / cc.yaml 结尾的视为配置中心文件（生成 Center 结构体）。
+//   - 其他视为普通配置文件（生成 Config 结构体）。
 func getYAMLFile(serverDir string) (map[string]configType, error) {
 	// generate target file:configuration file
 	files := make(map[string]configType)
@@ -156,6 +178,13 @@ func getYAMLFile(serverDir string) (map[string]configType, error) {
 	return files, nil
 }
 
+// saveFile 将生成的 Go 代码写入目标文件，并打印转换路径信息。
+// 参数:
+//   - inputFile: 源 YAML 配置文件路径（仅用于日志展示）。
+//   - outputFile: 目标 Go 文件路径。
+//   - code: 要写入的 Go 代码内容。
+// 返回值:
+//   - 如果文件写入失败，返回对应的错误。
 func saveFile(inputFile string, outputFile string, code string) error {
 	err := os.WriteFile(outputFile, []byte(code), 0666)
 	if err != nil {
@@ -166,6 +195,12 @@ func saveFile(inputFile string, outputFile string, code string) error {
 	return nil
 }
 
+// convertToGoFile 将单个 YAML 文件转换为 Go 结构体代码并写入指定输出目录。
+// 参数:
+//   - ysArgs: jy2struct 转换参数，包含输入文件路径等信息。
+//   - outPath: 输出目录路径，为空时自动创建以时间戳命名的目录。
+// 返回值:
+//   - 如果转换或文件写入失败，返回对应的错误。
 func convertToGoFile(ysArgs jy2struct.Args, outPath string) error {
 	ysArgs.Name = "Config"
 	data, err := jy2struct.Convert(&ysArgs)

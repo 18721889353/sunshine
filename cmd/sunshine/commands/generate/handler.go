@@ -222,11 +222,6 @@ func (g *handlerGenerator) generateCode() (string, error) {
 		} else {
 			fields = commonHandlerFields(r)
 		}
-		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if err != nil {
-			return "", err
-		}
-		g.fields = append(g.fields, contentFields...)
 		g.fields = append(g.fields, fields...)
 	}
 
@@ -320,7 +315,7 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/ecode": {
-			"systemCode_http.go", "userExample_http.go.exp.tpl",
+			"systemCode_http.go", "userExample_http.go",
 		},
 		"internal/handler": {
 			"userExample.go",
@@ -333,75 +328,20 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 		},
 	}
 	if codeName == codeNameHandler {
-		replaceFiles["internal/ecode"] = []string{"userExample_http.go.exp.tpl"}
+		replaceFiles["internal/ecode"] = []string{"userExample_http.go"}
 		replaceFiles["internal/routers"] = []string{"userExample.go"}
 		replaceFiles["internal/types"] = []string{"userExample_types.go"}
 	}
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_types.go.exp.tpl",
-			New: "userExample_types.go",
-		},
-		{
-			Old: "userExample_http.go.exp.tpl",
-			New: "userExample_http.go",
-		},
-	}...)
-
 	return replaceFiles, fields
 }
 
 func commonHandlerFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, typesFile+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_http.go.tpl",
-			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample_types.go.tpl",
-			New: "userExample_types.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return fields
+	return nil
 }
 
 func commonHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, typesFile+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_http.go.exp.tpl",
-			New: "userExample_http.go",
-		},
-		{
-			Old: "userExample_types.go.exp.tpl",
-			New: "userExample_types.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return fields
+	return nil
 }

@@ -179,7 +179,7 @@ func (g *serviceAndHandlerGenerator) generateCode() (string, error) {
 			"userExample.go", "userExample_test.go",
 		},
 		"internal/handler": {
-			"userExample.go.service",
+			"userExample.go",
 		},
 		"internal/model": {
 			"userExample.go",
@@ -225,11 +225,6 @@ func (g *serviceAndHandlerGenerator) generateCode() (string, error) {
 		} else {
 			fields = commonServiceHandlerFields(r)
 		}
-		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if err != nil {
-			return "", err
-		}
-		g.fields = append(g.fields, contentFields...)
 		g.fields = append(g.fields, fields...)
 	}
 
@@ -366,7 +361,7 @@ func (g *serviceAndHandlerGenerator) addFields(r replacer.Replacer) []replacer.F
 func serviceHandlerExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/ecode": {
-			"userExample_rpc.go.exp.tpl",
+			"userExample_rpc.go",
 		},
 		"internal/handler": {
 			"userExample.go",
@@ -378,64 +373,13 @@ func serviceHandlerExtendedAPI(r replacer.Replacer) (map[string][]string, []repl
 
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceLogicFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceClientFile+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample_rpc.go.exp.tpl",
-			New: "userExample_rpc.go",
-		},
-		{
-			Old: "userExample_client_test.go.exp.tpl",
-			New: "userExample_client_test.go",
-		},
-		{
-			Old: "userExample.go.service.exp.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
 	return replaceFiles, fields
 }
 
 func commonServiceHandlerFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceFile+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample.go.service.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return fields
+	return nil
 }
 
 func commonServiceHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, serviceFile+expSuffix+tplSuffix, startMark, endMark)...)
-
-	fields = append(fields, []replacer.Field{
-		{
-			Old: "userExample.go.service.exp.tpl",
-			New: "userExample.go",
-		},
-		{
-			Old: "userExample.go.tpl",
-			New: "userExample.go",
-		},
-	}...)
-
-	return fields
+	return nil
 }

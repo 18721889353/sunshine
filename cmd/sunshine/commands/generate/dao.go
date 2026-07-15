@@ -195,12 +195,6 @@ func (g *daoGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 		}
-		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if err != nil {
-			return "", err
-		}
-		g.fields = append(g.fields, contentFields...)
-		g.fields = append(g.fields, commonDaoExtendedFields(r)...)
 	} else if crudInfo.CheckCommonType() {
 		selectFiles = map[string][]string{
 			"internal/cache": {
@@ -213,13 +207,6 @@ func (g *daoGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 		}
-		fields := commonDaoFields(r)
-		contentFields, err := replaceFilesContent(r, getTemplateFiles(selectFiles), crudInfo)
-		if err != nil {
-			return "", err
-		}
-		g.fields = append(g.fields, contentFields...)
-		g.fields = append(g.fields, fields...)
 	}
 
 	replaceFiles := make(map[string][]string)
@@ -285,23 +272,6 @@ func (g *daoGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		fs := SubServerCodeFields(g.moduleName, g.serverName)
 		fields = append(fields, fs...)
 	}
-
-	return fields
-}
-
-func commonDaoFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+tplSuffix, startMark, endMark)...)
-
-	return fields
-}
-
-func commonDaoExtendedFields(r replacer.Replacer) []replacer.Field {
-	var fields []replacer.Field
-
-	fields = append(fields, deleteFieldsMark(r, daoTestFile+expSuffix+tplSuffix, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, cacheFile+tplSuffix, startMark, endMark)...)
 
 	return fields
 }

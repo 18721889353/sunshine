@@ -21,9 +21,6 @@ app:
   openSign: true                  # 是否开启签名认证, true:开启, false:关闭
   openCron: false                 # 是否开启定时任务, true:开启, false:关闭
 
-# 待生成的http或rpc服务配置
-# 删除模板代码开始
-
 # http服务设置
 http:
   port: 8001                      # 监听端口
@@ -67,7 +64,6 @@ grpcClient:
       appID: ""                   # 应用ID
       appKey: ""                  # 应用密钥
 
-# 删除模板代码结束
 
 # 日志设置
 logger:
@@ -125,10 +121,6 @@ sls:
   enableHealthCheck: false         # 是否启用健康检查，默认 false
   healthCheckInterval: 30         # 健康检查间隔(秒)，默认 30 秒 最少5秒
   sendTimeout: 5                  # 发送超时时间(秒)，默认 5 秒
-
-# 待生成的数据库配置
-# 删除模板代码开始
-
 # 数据库设置
 database:
   driver: "mysql"                 # 数据库驱动
@@ -148,7 +140,7 @@ database:
     # 设置主库mysql dsn, 数组类型, 非必填字段, 如果只有一个主库, 无需设置mastersDsn字段, 默认dsn字段即为mysql主库
     mastersDsn:
       - "root:jianguo123@(127.0.0.1:3306)/hello?parseTime=true&loc=UTC&charset=utf8mb4"
-# 删除模板代码结束
+
 
 # redis设置
 redis:

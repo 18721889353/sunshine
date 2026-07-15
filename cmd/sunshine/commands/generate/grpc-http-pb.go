@@ -191,10 +191,6 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 		}
 	}
 
-	// Update sunshine command path in protoc.sh script
-	if err = updateSunshineCmdInScript(r.GetOutputDir()); err != nil {
-		return err
-	}
 
 	if err = saveProtobufFiles(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir(), protobufFiles); err != nil {
 		return err
@@ -232,7 +228,7 @@ func (g *httpAndGRPCPbGenerator) addFields(r replacer.Replacer) []replacer.Field
 	fields = append(fields, deleteAllFieldsMark(r, makeFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteFieldsMark(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, deleteAllFieldsMark(r, protoShellFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteAllFieldsMark(r, appConfigFile, wellStartMark, wellEndMark)...)
+
 	//fields = append(fields, deleteFieldsMark(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, replaceFileContentMark(r, readmeFile,
 		setReadmeTitle(g.moduleName, g.serverName, codeNameGRPCHTTP, g.suitedMonoRepo))...)
@@ -296,10 +292,6 @@ func (g *httpAndGRPCPbGenerator) addFields(r replacer.Replacer) []replacer.Field
 		{
 			Old: g.moduleName + pkgPathSuffix,
 			New: "github.com/18721889353/sunshine/pkg",
-		},
-		{ // replace the sunshine version of the go.mod file
-			Old: sunshineTemplateVersionMark,
-			New: getLocalSunshineTemplateVersion(),
 		},
 		{
 			Old: "sunshine api docs",
@@ -369,7 +361,6 @@ func (g *httpAndGRPCPbGenerator) addFields(r replacer.Replacer) []replacer.Field
 		},
 	}...)
 
-	fields = append(fields, getGRPCServiceFields()...)
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameGRPCHTTP, g.moduleName, g.serverName)

@@ -399,7 +399,6 @@ func replaceTemplateFilePath(file string, m map[string]interface{}) (string, err
 // trimExt 去除文件扩展名
 func trimExt(file string) string {
 	file = strings.TrimSuffix(file, ".tmpl")
-	file = strings.TrimSuffix(file, ".tpl")
 	file = strings.TrimSuffix(file, ".template")
 	return file
 }

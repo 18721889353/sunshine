@@ -38,14 +38,37 @@ func CacheCommand(parentName string) *cobra.Command {
 		Use:   "cache",
 		Short: "生成缓存代码",
 		Long:  "根据指定的模块名、缓存名、键值类型等参数，生成基于 Redis 的缓存管理代码。",
-		Example: color.HiBlackString(fmt.Sprintf(`  # 生成键值缓存代码
-  sunshine %s cache --module-name=yourModuleName --cache-name=userToken --key-name=id --key-type=uint64 --value-name=token --value-type=string
+		Example: color.HiBlackString(fmt.Sprintf(`  # =====================================================================
+  # 基本用法：生成 string 类型的键值缓存
+  # 执行后会生成: internal/cache/{moduleName}Cache.go（含 Get/Set/Del 三个方法）
+  # =====================================================================
+  sunshine %[1]s cache \
+    --module-name=myModule \
+    --cache-name=userToken \
+    --prefix-key=user:token: \
+    --key-name=id --key-type=uint64 \
+    --value-name=token --value-type=string \
+    --suited-mono-repo=false --server-name=user-service \
+    --out=/d/Temp/web
 
-  # 生成缓存代码并指定输出目录，注意：如果最新生成的文件已存在，将取消代码生成
-  sunshine %s cache --module-name=yourModuleName --cache-name=token --prefix-key=user:token --key-name=id --key-type=uint64 --value-name=token --value-type=string --out=./yourServerDir
 
-  # 如果希望生成的代码适配单体仓库结构，需要设置参数 --suited-mono-repo=true --server-name=yourServerName`,
-			parentName, parentName)),
+  # =====================================================================
+  # 参数说明：
+  #   --module-name   Go 模块名（必填，除非 out 目录已有 gen.info）
+  #   --cache-name    缓存业务名，生成 GetCacheName/SetCacheName/DelCacheName 方法（必填）
+  #   --prefix-key    Redis key 前缀，默认 cache-name + ":"
+  #   --key-name      方法参数名（必填）
+  #   --key-type      键 Go 类型，如 uint64 / string（必填）
+  #   --value-name    值变量名（必填）
+  #   --value-type    值 Go 类型，如 string / *User（必填）
+  #   --out           输出目录（可选，默认 ./cache_<时间戳>）
+  #   --server-name   服务名（mono-repo 模式必填）
+  #   --suited-mono-repo 是否启用单体仓库模式（可选，默认 false）
+  #
+  # 提示：
+  #   - value-type 为 *User 等指针类型时，自动使用 "variable := &Type{}" 声明
+  #   - 如果 --out 目录已有 docs/gen.info 文件，会自动读取 moduleName 等配置
+`, parentName, parentName)),
 		// 命令执行逻辑
 		RunE: func(_ *cobra.Command, _ []string) error {
 			// 从输出目录中读取之前保存的模块名和服务器名（如果存在）
