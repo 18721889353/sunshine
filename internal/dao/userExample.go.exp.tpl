@@ -11,10 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/grpc/metadata"
-
-	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/consts"
 
@@ -163,6 +159,19 @@ func (m *{{.TableNameCamelFCL}}CacheManager) handleCacheFallback(ctx context.Con
 
 	// 回退到数据库查询
 	val, sfErr, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
+		// 尝试获取分布式刷新锁（双层击穿防护）
+		lockKey := "lock:refresh:" + m.getCacheKey(id)
+		if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
+			if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+				return record, nil
+			}
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			}
+		}
 		table, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
@@ -170,7 +179,6 @@ func (m *{{.TableNameCamelFCL}}CacheManager) handleCacheFallback(ctx context.Con
 			}
 			return nil, dbErr
 		}
-		// 尝试设置缓存（失败仅记录日志）
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 		if cacheErr := m.cache.Set(ctx, id, table, expireTime); cacheErr != nil {
 			logger.WarnWithCtx(ctx, "cache.Set error after fallback", logger.Err(cacheErr), logger.Any("id", id))
@@ -196,8 +204,30 @@ func (m *{{.TableNameCamelFCL}}CacheManager) get(ctx context.Context, id uint64,
 
 	// 缓存未命中，从数据库获取
 	if errors.Is(err, database.ErrCacheNotFound) {
-		// 使用 singleflight 防止并发请求同时访问数据库
+		// 【双层击穿防护】
+		//   1. sfg.Do: 本实例内合并并发请求
+		//   2. Redis锁: 跨实例协调，Redis异常时自动降级，sfg兜底
 		val, sfErr, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
+			// ---- 第一层：跨实例协调 - 尝试获取分布式刷新锁 ----
+			lockKey := "lock:refresh:" + m.getCacheKey(id)
+			if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
+				// 获取锁成功，我是全局刷新者
+				// Double Check：等锁期间可能已被其他实例写入
+				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
+					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+					}
+					return record, nil
+				}
+				// 释放锁（在查DB前释放，减少锁持有时间）
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+			}
+			// 锁获取失败（Redis异常或别人持锁），降级到本实例查询
+			// sfg已保证本实例内只有一个 goroutine 到达此处
+
+			// ---- 第二层：查DB写缓存 ----
 			table, dbErr := queryFunc()
 			if dbErr != nil {
 				// 设置占位符缓存防止缓存穿透
@@ -277,9 +307,23 @@ func (m *{{.TableNameCamelFCL}}CacheManager) cacheConditionResult(ctx context.Co
 // executeConditionQueryWithSingleflight 使用 singleflight 执行条件查询并缓存结果
 func (m *{{.TableNameCamelFCL}}CacheManager) executeConditionQueryWithSingleflight(ctx context.Context, key string, cacheKey string, queryFunc func() (*model.{{.TableNameCamel}}, error)) (*model.{{.TableNameCamel}}, error) {
 	val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
+		// 尝试获取分布式刷新锁
+		lockKey := "lock:refresh:" + cacheKey
+		if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
+			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
+				if record, hit, hitErr := m.handleConditionCacheHit(ctx, cacheKey, cachedID); hit {
+					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+					}
+					return record, hitErr
+				}
+			}
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			}
+		}
 		record, dbErr := queryFunc()
 		if dbErr != nil {
-			// 设置占位符缓存防止缓存穿透
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
 					logger.WarnWithCtx(ctx, "cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
@@ -288,8 +332,6 @@ func (m *{{.TableNameCamelFCL}}CacheManager) executeConditionQueryWithSingleflig
 			}
 			return nil, dbErr
 		}
-
-		// 如果记录存在，缓存结果
 		m.cacheConditionResult(ctx, cacheKey, record)
 		return record, nil
 	})
@@ -377,6 +419,19 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 			}
 
 			// 设置缓存（使用随机化过期时间）
+			// 尝试获取分布式刷新锁
+			lockKey := "lock:refresh:" + cacheKey
+			if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
+				if _, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
+					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+					}
+					return result, nil
+				}
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+			}
 			expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 			if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.SetIDsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
@@ -415,6 +470,19 @@ func (m *{{.TableNameCamelFCL}}CacheManager) getByCondition(ctx context.Context,
 		}
 
 		// 尝试设置缓存（失败仅记录日志）
+		// 尝试获取分布式刷新锁
+		lockKey := "lock:refresh:" + cacheKey
+		if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
+			if _, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+				return result, nil
+			}
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			}
+		}
 		expireTime := {{.TableNameCamel}}GetRandomExpireTime(cache.{{.TableNameCamel}}ExpireTime)
 		if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
 			logger.WarnWithCtx(ctx, "cache.SetIDsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
@@ -699,7 +767,6 @@ func (d *{{.TableNameCamelFCL}}Dao) executeDelayedDelete(ctx context.Context, id
 
 // delayedDoubleDelete 延迟双删缓存，确保缓存一致性
 // 参数：
-//   - ctx: 背景上下文（应使用 context.Background() 避免受原始请求影响）
 //   - id: 记录 ID（0 表示不按 ID 删除）
 //   - ids: 批量 ID 列表（nil 表示不批量删除）
 //   - deleteType: 删除类型（"condition"=只删除条件缓存，"all"=删除所有缓存）
@@ -708,31 +775,19 @@ func (d *{{.TableNameCamelFCL}}Dao) delayedDoubleDelete(ctx context.Context, id 
 		return
 	}
 
+	// 使用 WithoutCancel 隔离上游取消信号，同时保留 request_id、trace 等上下文 values
+	bgCtx := context.WithoutCancel(ctx)
 	go func() {
-		// panic 保护，防止异步 goroutine 崩溃
 		defer func() {
 			if r := recover(); r != nil {
-				logger.WarnWithCtx(ctx, "delayedDoubleDelete panic recovered",
+				logger.WarnWithCtx(bgCtx, "delayedDoubleDelete panic recovered",
 					logger.Any("recover", r),
 					logger.Any("id", id),
 					logger.String("deleteType", deleteType))
 			}
 		}()
-
-		// 使用 select 监听 ctx.Done()，避免 ctx 被取消后 goroutine 仍在睡眠
-		// 高并发场景下防止 goroutine 堆积
-		select {
-		case <-time.After(consts.DaoDelayedDeleteInterval):
-			// 延迟 consts.DaoDelayedDeleteInterval 后再次删除缓存，防止主从同步延迟导致的脏数据
-			d.executeDelayedDelete(ctx, id, ids, deleteType)
-		case <-ctx.Done():
-			// ctx 被取消或超时，直接退出 goroutine
-			logger.InfoWithCtx(ctx, "delayedDoubleDelete: context canceled before sleep completed",
-				logger.Any("id", id),
-				logger.String("deleteType", deleteType),
-				logger.Err(ctx.Err()))
-			return
-		}
+		time.Sleep(consts.DaoDelayedDeleteInterval)
+		d.executeDelayedDelete(bgCtx, id, ids, deleteType)
 	}()
 }
 
@@ -755,9 +810,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByID(ctx context.Context, id uint64) e
 
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), id, nil, consts.DaoDeleteTypeCondition)
+	d.delayedDoubleDelete(d.buildDelayedDeleteContext(ctx), id, nil, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDs(ctx context.Context, ids []uint64) error {
@@ -797,9 +850,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDs(ctx context.Context, ids []uint6
 
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只批量删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), 0, ids, consts.DaoDeleteTypeCondition)
+	d.delayedDoubleDelete(ctx, 0, ids, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
@@ -828,9 +879,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByCondition(ctx context.Context, c *qu
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), 0, nil, consts.DaoDeleteTypeAll)
+	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
@@ -855,9 +904,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTx(ctx context.Context, tx *gorm.DB,
 
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), id, nil, consts.DaoDeleteTypeCondition)
+	d.delayedDoubleDelete(ctx, id, nil, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
@@ -893,9 +940,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByIDsTx(ctx context.Context, tx *gorm.
 
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只批量删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), 0, ids, consts.DaoDeleteTypeCondition)
+	d.delayedDoubleDelete(ctx, 0, ids, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
@@ -924,9 +969,7 @@ func (d *{{.TableNameCamelFCL}}Dao) DeleteByTxCondition(ctx context.Context, tx 
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), 0, nil, consts.DaoDeleteTypeAll)
+	d.delayedDoubleDelete(d.buildDelayedDeleteContext(ctx), 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) ClearCache(ctx context.Context) error {
@@ -965,16 +1008,8 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByID(ctx context.Context, table *model
 
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), table.ID, nil, "condition")
+	d.delayedDoubleDelete(ctx, table.ID, nil, "condition")
 	return nil
-}
-// buildDelayedDeleteContext 构建用于延迟删除的背景上下文
-func (d *{{.TableNameCamelFCL}}Dao) buildDelayedDeleteContext(ctx context.Context) context.Context {
-	return metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	}))
 }
 
 // executeUpdateByCondition 执行按条件更新的核心逻辑
@@ -1011,7 +1046,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByCondition(ctx context.Context, c *qu
 	}
 
 	// 延迟双删（第二次删除）
-	d.delayedDoubleDelete(d.buildDelayedDeleteContext(ctx), 0, nil, consts.DaoDeleteTypeAll)
+	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
 func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.{{.TableNameCamel}}) error {
@@ -1033,9 +1068,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByTx(ctx context.Context, tx *gorm.DB,
 
 	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
 	// 只删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), table.ID, nil, "condition")
+	d.delayedDoubleDelete(ctx, table.ID, nil, "condition")
 	return nil
 }
 // UpdateByConditionTx 在事务中根据条件更新记录
@@ -1057,7 +1090,7 @@ func (d *{{.TableNameCamelFCL}}Dao) UpdateByConditionTx(ctx context.Context, tx 
 	}
 
 	// 延迟双删（第二次删除）
-	d.delayedDoubleDelete(d.buildDelayedDeleteContext(ctx), 0, nil, consts.DaoDeleteTypeAll)
+	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
 
@@ -1120,9 +1153,7 @@ func (d *{{.TableNameCamelFCL}}Dao) ExecByCustomFunc(ctx context.Context, update
 
 	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
 	// 注意：自定义函数可能影响任意数据，必须删除所有类型缓存
-	d.delayedDoubleDelete(metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-		string(logger.ContextKeyRequestID): interceptor.CtxRequestIDField(ctx).String,
-	})), 0, nil, consts.DaoDeleteTypeAll)
+	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 
 	return err
 }
@@ -1280,7 +1311,7 @@ func (d *{{.TableNameCamelFCL}}Dao) handleColumnsCacheHit(ctx context.Context, f
 func (d *{{.TableNameCamelFCL}}Dao) cacheColumnsResult(ctx context.Context, fullCacheKey string, res struct {
 	records []*model.{{.TableNameCamel}}
 	total   int64
-}, _ string) {
+}) {
 	if len(res.records) > consts.DaoMaxCacheableRecords || res.total <= 0 {
 		return // 数据量过大或无数据，不缓存
 	}
@@ -1359,6 +1390,22 @@ func (d *{{.TableNameCamelFCL}}Dao) executeColumnsQueryWithCache(ctx context.Con
 		}
 
 		// 缓存未命中，从数据库查询（支持强制主库查询）
+		// 尝试获取分布式刷新锁
+		lockKey := "lock:refresh:" + fullCacheKey
+		if lock, lockErr := d.cache.GetLock(ctx, lockKey); lockErr == nil {
+			// Double Check：等锁期间可能已被其他实例写入
+			if cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total"); cacheErr == nil {
+				if result, hit, hitErr := d.handleColumnsCacheHit(ctx, fullCacheKey, optsConfig, cachedTotal); hit {
+					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+					}
+					return result, hitErr
+				}
+			}
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			}
+		}
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
@@ -1389,7 +1436,7 @@ func (d *{{.TableNameCamelFCL}}Dao) executeColumnsQueryWithCache(ctx context.Con
 		}
 
 		// 缓存结果
-		d.cacheColumnsResult(ctx, fullCacheKey, res, cacheKey)
+		d.cacheColumnsResult(ctx, fullCacheKey, res)
 
 		return result, nil
 	})
@@ -1649,6 +1696,19 @@ func (d *{{.TableNameCamelFCL}}Dao) CountByCondition(ctx context.Context, c *que
 
 	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
 	val, sfErr, _ := d.sfg.Do(countCacheKey, func() (interface{}, error) {
+		// 尝试获取分布式刷新锁
+		lockKey := "lock:refresh:" + countCacheKey
+		if lock, lockErr := d.cache.GetLock(ctx, lockKey); lockErr == nil {
+			if cachedCount, cacheErr := d.cache.GetIDByKey(ctx, countCacheKey); cacheErr == nil {
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+				return int64(cachedCount), nil
+			}
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			}
+		}
 		var count int64
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1712,6 +1772,19 @@ func (d *{{.TableNameCamelFCL}}Dao) ExistsByCondition(ctx context.Context, c *qu
 
 	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
 	val, sfErr, _ := d.sfg.Do(existsCacheKey, func() (interface{}, error) {
+		// 尝试获取分布式刷新锁
+		lockKey := "lock:refresh:" + existsCacheKey
+		if lock, lockErr := d.cache.GetLock(ctx, lockKey); lockErr == nil {
+			if cachedValue, cacheErr := d.cache.GetIDByKey(ctx, existsCacheKey); cacheErr == nil {
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+				return cachedValue > 0, nil
+			}
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			}
+		}
 		var exists bool
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
