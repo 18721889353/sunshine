@@ -200,13 +200,13 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 			"internal/dao": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/ecode": {
-				"userExample_http.go.tpl",
+				"userExample_http.go",
 			},
 			"internal/handler": {
-				"userExample_logic.go.tpl",
+				"userExample_logic.go",
 			},
 			"internal/model": {
 				"userExample.go",
@@ -216,7 +216,7 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"userExample_http.go"}
-			selectFiles["internal/handler"] = []string{"userExample_logic.go.exp.tpl"}
+			selectFiles["internal/handler"] = []string{"userExample_logic.go"}
 			fields = commonHandlerPbExtendedFields(r)
 		} else {
 			fields = commonHandlerPbFields(r)
@@ -356,7 +356,7 @@ func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.
 			"userExample_http.go.exp.tpl",
 		},
 		"internal/handler": {
-			"userExample_logic.go.exp.tpl", "userExample_logic_test.go.exp.tpl",
+			"userExample_logic.go", "userExample_logic_test.go",
 		},
 	}
 

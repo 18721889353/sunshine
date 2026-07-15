@@ -204,10 +204,10 @@ func (g *serviceAndHandlerGenerator) generateCode() (string, error) {
 				"userExample.go",
 			},
 			"internal/dao": {
-				"userExample.go.tpl",
+				"userExample.go",
 			},
 			"internal/handler": {
-				"userExample.go.service.tpl",
+				"userExample.go",
 			},
 			"internal/model": {
 				"userExample.go",
@@ -219,7 +219,7 @@ func (g *serviceAndHandlerGenerator) generateCode() (string, error) {
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
-			selectFiles["internal/handler"] = []string{"userExample.go.service.exp.tpl"}
+			selectFiles["internal/handler"] = []string{"userExample.go"}
 			selectFiles["internal/service"] = []string{"userExample.go.exp.tpl"}
 			fields = commonServiceHandlerExtendedFields(r)
 		} else {
@@ -369,7 +369,7 @@ func serviceHandlerExtendedAPI(r replacer.Replacer) (map[string][]string, []repl
 			"userExample_rpc.go.exp.tpl",
 		},
 		"internal/handler": {
-			"userExample.go.service.exp.tpl",
+			"userExample.go",
 		},
 		"internal/service": {
 			"userExample.go.exp.tpl", "userExample_client_test.go.exp.tpl",
