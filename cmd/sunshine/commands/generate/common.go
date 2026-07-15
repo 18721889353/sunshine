@@ -375,6 +375,16 @@ func saveEmptySwaggerJSON(outputDir string) error {
 }
 
 // get moduleName and serverName from directory
+// getNamesFromOutDir 从指定目录的 docs/gen.info 文件中读取之前保存的项目配置信息。
+// 参数:
+//   - dir: 生成项目的输出目录路径。
+// 返回值:
+//   - moduleName: Go 模块名称。
+//   - serverName: 服务器名称。
+//   - suitedMonoRepo: 是否为单体仓库模式。
+//
+// gen.info 文件格式为 "moduleName,serverName,suitedMonoRepo"，由 saveGenInfo 生成。
+// 如果目录为空、文件不存在或格式异常，均返回零值。
 func getNamesFromOutDir(dir string) (moduleName string, serverName string, suitedMonoRepo bool) {
 	if dir == "" {
 		return "", "", false
