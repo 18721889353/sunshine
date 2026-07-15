@@ -269,14 +269,14 @@ func (g *httpGenerator) generateCode() (string, error) {
 		selectFiles["internal/dao"] = []string{"userExample.go"}
 		selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go"}
 		selectFiles["internal/handler"] = []string{"userExample.go.tpl"}
-		selectFiles["internal/routers"] = []string{"routers.go", "userExample.go.tpl"}
+		selectFiles["internal/routers"] = []string{"routers.go", "userExample.go"}
 		selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go.tpl"}
 		var fields []replacer.Field
 		if g.isExtendedAPI {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"systemCode_http.go", "userExample_http.go"}
 			selectFiles["internal/handler"] = []string{"userExample.go.exp.tpl"}
-			selectFiles["internal/routers"] = []string{"routers.go", "userExample.go.exp.tpl"}
+			selectFiles["internal/routers"] = []string{"routers.go", "userExample.go"}
 			selectFiles["internal/types"] = []string{"swagger_types.go", "userExample_types.go.exp.tpl"}
 			fields = commonHTTPExtendedFields(r)
 		} else {
