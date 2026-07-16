@@ -11,13 +11,20 @@ func GRPCServiceCode() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "rpc-pb",
-		Short: "Merge the generated grpc related code into the template file",
-		Long:  "Merge the generated grpc related code into the template file.",
-		Example: color.HiBlackString(`  # Merge go template file in local server directory
-  sunshine merge rpc-pb
+		Short: "合并生成的 gRPC 相关代码到模板文件",
+		Long:  "合并生成的 gRPC 相关代码到模板文件。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：合并 gRPC 代码到模板文件
+  # 会自动备份到 /tmp/sunshine_merge_backup_code
+  # =====================================================================
+  sunshine merge rpc-pb \
+    --dir=/path/to/server/directory
 
-  # Merge go template file in specified directory
-  sunshine merge rpc-pb --dir=/path/to/server/directory`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir   输入目录（可选，默认当前目录）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -28,7 +35,7 @@ func GRPCServiceCode() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "input directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "输入目录")
 
 	return cmd
 }

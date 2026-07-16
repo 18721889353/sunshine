@@ -23,16 +23,22 @@ func ConvertSwagJSONCommand(parentName string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "swagger",
-		Short: "Convert 64-bit fields type string to integer",
-		Long:  "Convert 64-bit fields type string to integer.",
-		Example: color.HiBlackString(fmt.Sprintf(`  # Convent file docs/apis.swagger.json.
-  sunshine %s swagger
+		Short: "将 64 位字段类型从 string 转为 integer",
+		Long:  "将 Swagger JSON 文件中 64 位整数字段的类型从 string 转为 integer。",
+		Example: color.HiBlackString(fmt.Sprintf(`  # =====================================================================
+  # 基本用法：转换 Swagger JSON 文件中的 64 位字段类型
+  # 默认处理 docs/apis.swagger.json 文件
+  # =====================================================================
+  sunshine %[1]s swagger \
+    --file=docs/apis.swagger.json \
+    --is-sort
 
-  # Convent file test/swagger.json
-  sunshine %s swagger --file=test/swagger.json
 
-  # Convent file docs/apis.swagger.json and sort json key.
-  sunshine %s swagger --is-sort`, parentName, parentName, parentName)),
+  # =====================================================================
+  # 参数说明：
+  #   --file    输入 JSON 文件路径（可选，默认 docs/apis.swagger.json）
+  #   --is-sort 是否对 JSON 字段排序（可选，默认 false）
+`, parentName)),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -51,8 +57,8 @@ func ConvertSwagJSONCommand(parentName string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&isSort, "is-sort", "s", false, "formatting json, json's fields are sorted in ascending")
-	cmd.Flags().StringVarP(&jsonFile, "file", "f", "docs/apis.swagger.json", "input json file")
+	cmd.Flags().BoolVarP(&isSort, "is-sort", "s", false, "是否对 JSON 字段排序")
+	cmd.Flags().StringVarP(&jsonFile, "file", "f", "docs/apis.swagger.json", "输入 JSON 文件路径")
 
 	return cmd
 }

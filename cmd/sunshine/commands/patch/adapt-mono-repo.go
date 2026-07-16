@@ -22,25 +22,26 @@ func AdaptMonoRepoCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "adapt-mono-repo",
-		Short: "Adapt to mono-repo in api directory code",
-		Long:  "Adapt to mono-repo in api directory code.",
-		Example: color.HiBlackString(`  # Adapt to mono-repo code in local server directory
-  sunshine patch adapt-mono-repo
+		Short: "适配 api 目录代码到单体仓库模式",
+		Long:  "适配 api 目录代码到单体仓库模式。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：适配 api 目录代码到单体仓库模式
+  # =====================================================================
+  sunshine patch adapt-mono-repo \
+    --dir=/path/to/server/directory
 
-  # Adapt to mono-repo code in specified directory
-  sunshine patch adapt-mono-repo --dir=/path/to/server/directory`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir   输入目录（可选，默认当前目录）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			mdName, srvName, _ := getNamesFromOutDir(dir)
-			if mdName != "" {
-				moduleName = mdName
-			} else if moduleName == "" {
+			if moduleName == "" {
 				return errors.New(`can't get info from docs/gen.info`)
 			}
-			if srvName != "" {
-				serverName = srvName
-			} else if serverName == "" {
+			if serverName == "" {
 				return errors.New(`can't get info from docs/gen.info`)
 			}
 
@@ -69,7 +70,7 @@ func AdaptMonoRepoCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "input directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "输入目录")
 
 	return cmd
 }

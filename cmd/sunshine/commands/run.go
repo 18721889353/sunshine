@@ -25,13 +25,23 @@ func OpenUICommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run",
-		Short: "Run code generation UI service",
-		Long:  "Run code generation UI service.",
-		Example: color.HiBlackString(`  # Running ui service, local browser access only.
-  sunshine run
+		Short: "运行代码生成 UI 服务",
+		Long:  "运行代码生成 UI 服务。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：运行代码生成 UI 服务
+  # =====================================================================
+  sunshine run \
+    --port=24631 \
+    --addr=http://192.168.1.10:24631 \
+    --log=false
 
-  # Running ui service, can be accessed from other host browsers.
-  sunshine run -a http://your-host-ip:24631`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --port   sunshine 服务监听端口（可选，默认 24631）
+  #   --addr   前端页面请求 sunshine 服务的地址（可选）
+  #   --log    是否启用服务日志（可选，默认 false）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 
@@ -53,9 +63,9 @@ func OpenUICommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().IntVarP(&port, "port", "p", 24631, "port on which the sunshine service listens")
-	cmd.Flags().StringVarP(&sunshineAddr, "addr", "a", "", "address of the front-end page requesting the sunshine service, e.g. http://192.168.1.10:24631 or https://your-domain.com")
-	cmd.Flags().BoolVarP(&isLog, "log", "l", false, "enable service logging")
+	cmd.Flags().IntVarP(&port, "port", "p", 24631, "sunshine 服务监听端口")
+	cmd.Flags().StringVarP(&sunshineAddr, "addr", "a", "", "前端页面请求 sunshine 服务的地址，格式: http://192.168.1.10:24631")
+	cmd.Flags().BoolVarP(&isLog, "log", "l", false, "是否启用服务日志")
 	return cmd
 }
 

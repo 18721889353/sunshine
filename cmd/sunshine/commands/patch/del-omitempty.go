@@ -20,13 +20,21 @@ func DeleteJSONOmitemptyCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "del-omitempty",
-		Short: "Delete json tag omitempty",
-		Long:  "Delete json tag omitempty.",
-		Example: color.HiBlackString(`  # Delete all files that include the omitempty character
-  sunshine patch del-omitempty --dir=./api
+		Short: "删除 JSON 标签中的 omitempty",
+		Long:  "删除 JSON 标签中的 omitempty。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：删除 JSON 标签中的 omitempty
+  # =====================================================================
+  sunshine patch del-omitempty \
+    --dir=./api \
+    --suffix-name=pb.go
 
-  # Delete the specified suffix file including the omitempty character
-  sunshine patch del-omitempty --dir=./api --suffix-name=pb.go`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir         输入目录（必填）
+  #   --suffix-name 指定文件名后缀（可选），为空则处理所有文件
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -40,11 +48,11 @@ func DeleteJSONOmitemptyCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", "", "input directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", "", "输入目录")
 	if err := cmd.MarkFlagRequired("dir"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&suffixName, "suffix-name", "s", "", "specified suffix file name, if empty it means all files")
+	cmd.Flags().StringVarP(&suffixName, "suffix-name", "s", "", "指定文件名后缀，为空则处理所有文件")
 
 	return cmd
 }

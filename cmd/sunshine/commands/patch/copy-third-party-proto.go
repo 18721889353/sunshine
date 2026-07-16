@@ -20,13 +20,21 @@ func CopyThirdPartyProtoCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "copy-third-party-proto",
-		Short: "Copy third-party proto files",
-		Long:  "Copy third-party proto files to local directory.",
-		Example: color.HiBlackString(`  # Copy third-party proto files to current directory
-  sunshine patch copy-third-party-proto
+		Short: "复制第三方 proto 文件",
+		Long:  "复制第三方 proto 文件到指定目录。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：复制第三方 proto 文件
+  # =====================================================================
+  sunshine patch copy-third-party-proto \
+    --out=./yourServerDir \
+    --is-log-exist=false
 
-  # Copy third-party proto files to yourServerDir
-  sunshine patch copy-third-party-proto --out=./yourServerDir`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --out          输出目录（可选，默认当前目录）
+  #   --is-log-exist 是否输出文件已存在日志（可选，默认 false）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -49,8 +57,8 @@ func CopyThirdPartyProtoCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&outPath, "out", "o", ".", "output directory")
-	cmd.Flags().BoolVarP(&isLogExist, "is-log-exist", "l", false, "is log file exist")
+	cmd.Flags().StringVarP(&outPath, "out", "o", ".", "输出目录")
+	cmd.Flags().BoolVarP(&isLogExist, "is-log-exist", "l", false, "是否输出文件已存在日志")
 
 	return cmd
 }

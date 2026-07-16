@@ -30,7 +30,7 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 十三 | sync.Map 操作规范 — 计数漂移保护 | Range 内联 I/O 去中间切片 |
 | 十四 | Ctx 变体设计规范 | Ctx 变体 + 构造函数接收 Context |
 | 十五 | Option 配置传播模式 | defaultXxx+apply + 冲突处理 |
-| 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 |
+| 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 + 端到端测试策略 |
 | 十七 | goroutine panic recover 策略 | 终止型退出清理 + 循环型继续执行 |
 
 ## 一、errcheck — 错误必须显式处理
@@ -893,6 +893,42 @@ func newMockBackend(bufSize int) *mockBackend
 // ✅ 分离
 // rabbitmq_backend_test.go              — 单元测试（mock 模拟）
 // rabbitmq_backend_integration_test.go   — 集成测试（需真实服务，默认跳过）
+
+### 测试策略：仅保留端到端测试
+
+代码生成类命令（如 `generate/` 下各子命令）的测试策略：
+
+| 原则 | 说明 |
+|------|------|
+| **只写端到端测试** | 测试必须执行完整的代码生成流程（`generateCode()` / `convertToGoFile()`），生成真实文件到 `testdata/` 目录供查看，不写单方法测试 |
+| **不写 mock 测试** | 不对 `addFields`、`getYAMLFile`、`saveFile` 等内部方法单独写单元测试或 mock 测试 |
+| **真实数据用例** | 使用贴近生产环境的真实配置数据（多层 YAML 结构、真实表名字段等），不造假数据 |
+| **输出到 testdata** | 生成的文件复制到 `testdata/<test-name>/` 目录下，与 `cache_test.go` 的 `testdata/cache-gen/` 模式一致 |
+| **预清理** | 每次运行前清理旧的临时目录和 testdata 目录，避免残留干扰 |
+| **验证内容** | 验证生成文件包含预期结构体和字段名，验证占位符已被替换，验证标记代码已被清理 |
+
+```go
+// ✅ 正确：端到端测试，生成文件到 testdata
+func TestXxx_GenerateToTestdata(t *testing.T) {
+    tmpOut := filepath.Join(os.TempDir(), "sunshine-test", "xxx-gen")
+    os.RemoveAll(tmpOut)
+    testDataDir := filepath.Join("testdata", "xxx-gen")
+    os.RemoveAll(testDataDir)
+
+    // 执行完整生成流程
+    outPath, err := gen.generateCode()
+
+    // 复制到 testdata 供查看
+    targetFile := filepath.Join(testDataDir, relPath)
+    copyFile(t, generatedFile, targetFile)
+
+    // 验证内容
+    content := string(data)
+    if !strings.Contains(content, "expectedType") { t.Error(...) }
+}
+```
+
+**判断标准**：测试需要生成可查看的实物文件（`.go`/`.proto` 等）到 `testdata/` 目录并做内容验证，才是端到端测试。仅调内部方法断言返回值不是端到端测试。
 
 ## 十七、goroutine 必须添加 panic recover（两种策略）
 

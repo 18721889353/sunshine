@@ -25,22 +25,30 @@ func CopyGOModCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "copy-go-mod",
-		Short: "Copy go mod files",
-		Long:  "Copy go mod files to local directory.",
-		Example: color.HiBlackString(`  # Copy go mod files to current directory
-  sunshine patch copy-go-mod --module-name=yourModuleName
+		Short: "复制 go.mod 文件",
+		Long:  "复制 go.mod 和 go.sum 文件到指定目录。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：复制 go.mod 文件到当前目录
+  # =====================================================================
+  sunshine patch copy-go-mod \
+    --module-name=yourModuleName \
+    --out=./yourServerDir \
+    --is-force-replace=false \
+    --is-log-exist=false
 
-  # Copy go mod files to yourServerDir, module name from out directory
-  sunshine patch copy-go-mod --out=./yourServerDir`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --module-name     Go 模块名（必填），对应 go.mod 中的 module 声明
+  #   --out             输出目录（可选，默认当前目录）
+  #   --is-force-replace 是否强制替换已存在的 go.mod 文件（可选，默认 false）
+  #   --is-log-exist    是否输出文件已存在的日志（可选，默认 false）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if moduleName == "" {
-				mn, _, _ := getNamesFromOutDir(outPath)
-				if mn == "" {
-					return errors.New("module-name is required, please use --module-name to set it")
-				}
-				moduleName = mn
+				return errors.New("module-name is required, please use --module-name to set it")
 			}
 
 			goModFile := outPath + gofile.GetPathDelimiter() + "go.mod"
@@ -70,10 +78,10 @@ func CopyGOModCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
-	cmd.Flags().StringVarP(&outPath, "out", "o", ".", "output directory")
-	cmd.Flags().BoolVarP(&isLogExist, "is-log-exist", "l", false, "whether to log file exist")
-	cmd.Flags().BoolVarP(&isForceReplace, "is-force-replace", "f", false, "whether to force  replace the go.mod file")
+	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "Go 模块名，对应 go.mod 文件中的 module 声明")
+	cmd.Flags().StringVarP(&outPath, "out", "o", ".", "输出目录")
+	cmd.Flags().BoolVarP(&isLogExist, "is-log-exist", "l", false, "是否输出文件已存在日志")
+	cmd.Flags().BoolVarP(&isForceReplace, "is-force-replace", "f", false, "是否强制替换已存在的 go.mod 文件")
 
 	return cmd
 }

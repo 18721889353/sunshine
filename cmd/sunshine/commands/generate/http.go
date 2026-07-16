@@ -36,24 +36,42 @@ func HTTPCommand() *cobra.Command {
 	//nolint
 	cmd := &cobra.Command{
 		Use:   "http",
-		Short: "Generate web service code based on sql",
-		Long:  "Generate web service code based on sql.",
-		Example: color.HiBlackString(`  # Generate web service code.
-  sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+		Short: "基于 SQL 生成 Web 服务代码",
+		Long:  "基于 SQL 表结构自动生成完整的 Web 服务代码，包含 handler、dao、cache、model、router 等。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：根据数据库表生成完整的 Web 服务代码
+  # 执行后会生成: internal/handler/、internal/dao/、internal/cache/、internal/model/ 等
+  # =====================================================================
+  sunshine web http \
+    --module-name=yourModuleName \
+    --server-name=yourServerName \
+    --project-name=yourProjectName \
+    --db-driver=mysql \
+    --db-dsn=root:123456@(192.168.3.37:3306)/test \
+    --db-table=user \
+    --embed=true \
+    --extended-api=true \
+    --json-name-type=1 \
+    --repo-addr=192.168.3.37:9443/user-name \
+    --suited-mono-repo=false \
+    --out=./yourServerDir
 
-  # Generate web service code with multiple table names.
-  sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # Generate web service code with extended api.
-  sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
-
-  # Generate web service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
-
-  # Generate web service code and specify the docker image repository address.
-  sunshine web http --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
-
-  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
+  # =====================================================================
+  # 参数说明：
+  #   --module-name     Go 模块名（必填），对应 go.mod 中的 module 声明
+  #   --server-name     服务名（必填）
+  #   --project-name    项目名（必填），用于部署名称
+  #   --db-driver       数据库驱动类型（默认 mysql）
+  #   --db-dsn          数据库连接地址（必填）
+  #   --db-table        数据库表名（必填），多表用逗号分隔
+  #   --embed           是否嵌入 gorm.Model 结构体（可选，默认 false）
+  #   --extended-api    是否生成扩展 CRUD API（可选，默认 false）
+  #   --suited-mono-repo 是否适配单体仓库结构（可选，默认 false）
+  #   --json-name-type  JSON 标签风格，0:下划线, 1:驼峰（可选，默认 1）
+  #   --repo-addr       Docker 镜像仓库地址（可选），不含 http 和仓库名
+  #   --out             输出目录（可选，默认 ./serverName_http_<时间戳>）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -82,7 +100,7 @@ func HTTPCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			g := &httpGenerator{
+			var g = &httpGenerator{
 				moduleName:     moduleName,
 				serverName:     serverName,
 				projectName:    projectName,
@@ -111,7 +129,7 @@ func HTTPCommand() *cobra.Command {
 					return err
 				}
 
-				hg := &handlerGenerator{
+				var hg = &handlerGenerator{
 					moduleName:    moduleName,
 					dbDriver:      sqlArgs.DBDriver,
 					codes:         codes,
@@ -142,33 +160,33 @@ using help:
 		},
 	}
 
-	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
+	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "Go 模块名，对应 go.mod 文件中的 module 声明")
 	if err := cmd.MarkFlagRequired("module-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
+	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "服务名称")
 	if err := cmd.MarkFlagRequired("server-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
+	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "项目名称，用于部署名称")
 	if err := cmd.MarkFlagRequired("project-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动类型，当前支持 mysql")
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database") //nolint
 	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
+	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "数据库表名，多个表名用逗号分隔")
 	if err := cmd.MarkFlagRequired("db-table"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "whether to embed gorm.model struct")
-	cmd.Flags().BoolVarP(&sqlArgs.IsExtendedAPI, "extended-api", "a", false, "whether to generate extended crud api, additional includes: DeleteByIDs, GetByCondition, ListByIDs, ListByLatestID")
-	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "whether the generated code is suitable for mono-repo")
-	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "json tags name type, 0:snake case, 1:camel case")
-	cmd.Flags().StringVarP(&repoAddr, "repo-addr", "r", "", "docker image repository address, excluding http and repository names")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./serverName_http_<time>, if suited-mono-repo = true, output directory is serverName")
+	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "是否嵌入 gorm.Model 结构体")
+	cmd.Flags().BoolVarP(&sqlArgs.IsExtendedAPI, "extended-api", "a", false, "是否生成扩展 CRUD API，额外包含: DeleteByIDs, GetByCondition, ListByIDs, ListByLatestID")
+	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "是否适配单体仓库结构")
+	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "JSON 标签命名风格，0:下划线, 1:驼峰")
+	cmd.Flags().StringVarP(&repoAddr, "repo-addr", "r", "", "Docker 镜像仓库地址，不含 http 和仓库名")
+	cmd.Flags().StringVarP(&outPath, "out", "o", "", "输出目录，默认为 ./serverName_http_<时间戳>，如果 suited-mono-repo=true 则输出到服务名目录")
 
 	return cmd
 }
@@ -327,25 +345,25 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 	var fields []replacer.Field
 	fields = append(fields, g.fields...)
-	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, databaseInitDBFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, typesFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerTestFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, httpFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, dockerFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, dockerFileBuild, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, dockerComposeFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, k8sDeploymentFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, k8sServiceFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, imageBuildFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, imageBuildLocalFile, wellStartMark, wellEndMark)...)
-	//fields = append(fields, deleteAllFieldsMark(r, makeFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteAllFieldsMark(r, protoShellFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, modelFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, databaseInitDBFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, daoFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, daoTestFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, typesFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, handlerTestFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, httpFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, dockerFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, dockerFileBuild, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, dockerComposeFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, k8sDeploymentFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, k8sServiceFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, imageBuildFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, imageBuildLocalFile, wellStartMark, wellEndMark)...)
+	//fields = append(fields, genDeleteAllMarkFields(r, makeFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteAllMarkFields(r, protoShellFile, wellStartMark, wellEndMark)...)
 
-	//fields = append(fields, deleteFieldsMark(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
+	//fields = append(fields, genDeleteMarkFields(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, replaceFileContentMark(r, readmeFile,
 		setReadmeTitle(g.moduleName, g.serverName, codeNameHTTP, g.suitedMonoRepo))...)
 	fields = append(fields, []replacer.Field{
@@ -498,7 +516,6 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 		},
 	}...)
 
-
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameHTTP, g.moduleName, g.serverName)
 		fields = append(fields, fs...)
@@ -506,4 +523,3 @@ func (g *httpGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 	return fields
 }
-

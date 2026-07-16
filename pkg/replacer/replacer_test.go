@@ -1,7 +1,6 @@
 package replacer
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"testing"
@@ -9,9 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
-
-//go:embed testDir
-var fs embed.FS
 
 func TestNewWithFS(t *testing.T) {
 	type args struct {
@@ -27,20 +23,6 @@ func TestNewWithFS(t *testing.T) {
 			args: args{
 				fn: func() Replacer {
 					replacer, err := New("testDir")
-					if err != nil {
-						panic(err)
-					}
-					return replacer
-				},
-			},
-			wantErr: false,
-		},
-
-		{
-			name: "NewFS",
-			args: args{
-				fn: func() Replacer {
-					replacer, err := NewFS("testDir", fs)
 					if err != nil {
 						panic(err)
 					}
@@ -106,8 +88,6 @@ func TestSaveTemplateFiles(t *testing.T) {
 
 func TestReplacerError(t *testing.T) {
 	_, err := New("/notfound")
-	assert.Error(t, err)
-	_, err = NewFS("/notfound", embed.FS{})
 	assert.Error(t, err)
 
 	r, err := New("testDir")

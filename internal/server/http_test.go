@@ -46,20 +46,6 @@ func TestHTTPServer(t *testing.T) {
 		assert.NotNil(t, server)
 		cancel()
 	})
-
-	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		server := NewHTTPServer_pbExample(addr,
-			WithHTTPIsProd(true),
-			WithHTTPRegistry(&iRegistry{}, &registry.ServiceInstance{}),
-		)
-		assert.NotNil(t, server)
-		cancel()
-	})
-	utils.SafeRunWithTimeout(time.Second, func(cancel context.CancelFunc) {
-		server := NewHTTPServer_pbExample(addr)
-		assert.NotNil(t, server)
-		cancel()
-	})
 }
 
 func TestHTTPServerMock(t *testing.T) {
@@ -105,6 +91,10 @@ func TestHTTPServerMock(t *testing.T) {
 }
 
 type iRegistry struct{}
+
+func (i *iRegistry) Close() error {
+	return nil
+}
 
 func (i *iRegistry) Register(ctx context.Context, service *registry.ServiceInstance) error {
 	return nil

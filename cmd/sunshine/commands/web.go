@@ -11,8 +11,8 @@ import (
 func GenWebCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "web",                                             // 命令的使用方式，用户在命令行中输入的命令
-		Short:         "Generate model, cache, dao, handler, http code",  // 命令的简短描述
-		Long:          "Generate model, cache, dao, handler, http code.", // 命令的详细描述
+		Short:         "生成 Web 服务代码（model/cache/dao/handler/http 等）",  // 命令的简短描述
+		Long:          "生成 Web 服务代码，包含 model、cache、dao、handler、http 等。", // 命令的详细描述
 		SilenceErrors: true,                                              // 设置为静默错误输出，不显示错误信息
 		SilenceUsage:  true,                                              // 设置为静默使用信息输出，不显示使用信息
 	}

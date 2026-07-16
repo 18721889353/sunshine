@@ -8,19 +8,16 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/utils"
 
-	"github.com/18721889353/sunshine/internal/cron"
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
 
-	// Import cron tasks for initialization
-	_ "github.com/18721889353/sunshine/internal/cron/tasks"
-	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
-
-	// Import rabbitmq consumers for initialization
-	_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
+	//// Import cron tasks for initialization
+	//_ "github.com/18721889353/sunshine/internal/cron/tasks"
+	//// Import rabbitmq consumers for initialization
+	//_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
 
 	"github.com/18721889353/sunshine/pkg/app"
 
@@ -44,14 +41,14 @@ func CreateServices() []app.IServer {
 	httpServer := server.NewHTTPServer(httpAddr, httpOpts...)
 	servers = append(servers, httpServer)
 
-	if cfg.App.OpenCron {
-		// 添加cron服务示例
-		servers = append(servers, server.NewCronServer(cron.GetTasks()))
-	}
-	if cfg.Rabbitmq.Enable {
-		// 添加mq消费者服务示例
-		servers = append(servers, server.NewRabbitmqConsumerServer(mq.GetConsumers()))
-	}
+	//if cfg.App.OpenCron {
+	//	// 添加cron服务示例
+	//	servers = append(servers, server.NewCronServer(cron.GetTasks()))
+	//}
+	//if cfg.Rabbitmq.Enable {
+	//	// 添加mq消费者服务示例
+	//	servers = append(servers, server.NewRabbitmqConsumerServer(mq.GetConsumers()))
+	//}
 	return servers
 }
 

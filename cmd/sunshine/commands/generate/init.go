@@ -1,14 +1,13 @@
 package generate
 
 import (
-	"embed" // 导入嵌入文件系统包
-	"fmt"   // 导入格式化输入输出包
-	"os"    // 导入操作系统包
+	"fmt"
+	"os"
 	"path/filepath"
-	"strings" // 导入字符串处理包
+	"strings"
 
-	"github.com/18721889353/sunshine/pkg/gofile"   // 导入文件操作包
-	"github.com/18721889353/sunshine/pkg/replacer" // 导入替换器包
+	"github.com/18721889353/sunshine/pkg/gofile"
+	"github.com/18721889353/sunshine/pkg/replacer"
 )
 
 const warnSymbol = "⚠ " // 警告符号
@@ -29,7 +28,18 @@ var Replacers = map[string]replacer.Replacer{}
 // SunshineDir .sunshine 目录的路径 - 动态检测
 var SunshineDir = getSunshineDir()
 
-// getSunshineDir 动态获取 sunshine 项目根目录
+// getSunshineDir 动态获取 sunshine 项目根目录路径
+//
+// 按优先级依次尝试以下策略：
+//  1. 环境变量 SUNSHINE_TEMPLATE_DIR
+//  2. 从 go.mod 的 replace 指令中解析路径
+//  3. 从可执行文件路径向上查找项目根目录
+//  4. 从当前工作目录向上查找项目根目录
+//  5. 回退到用户主目录下的 .sunshine
+//
+// 返回值：
+//
+//	string - 项目根目录路径，所有策略均失败则返回空字符串
 func getSunshineDir() string {
 	// 1. 优先使用环境变量
 	if envDir := os.Getenv("SUNSHINE_TEMPLATE_DIR"); envDir != "" {
@@ -38,7 +48,7 @@ func getSunshineDir() string {
 
 	// 2. 从当前目录的 go.mod 中读取 replace 指令(适用于在生成的项目中调用)
 	if gofile.IsExists("go.mod") {
-		data, err := os.ReadFile("go.mod")
+		data, err := gofile.ReadFile("go.mod")
 		if err == nil {
 			lines := strings.Split(string(data), "\n")
 			for _, line := range lines {
@@ -57,9 +67,7 @@ func getSunshineDir() string {
 	}
 
 	// 3. 从可执行文件路径向上查找项目根目录
-	exePath, err := os.Executable()
-	if err == nil {
-		dir := filepath.Dir(exePath)
+	if dir := gofile.GetRunPath(); dir != "" {
 		if found := searchUpward(dir, 10, "cmd", "pkg", "internal"); found != "" {
 			return found
 		}
@@ -74,16 +82,12 @@ func getSunshineDir() string {
 	}
 
 	// 5. 回退到 ~/.sunshine
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Printf("get user home directory error: %v\n", err)
+	homeDir := gofile.HomeDir()
+	if homeDir == "" {
+		fmt.Println("get user home directory error")
 		return ""
 	}
-	if homeDir != "" {
-		return filepath.Join(homeDir, ".sunshine")
-	}
-
-	return ""
+	return filepath.Join(homeDir, ".sunshine")
 }
 
 // searchUpward 向上查找包含指定目录的路径
@@ -107,13 +111,6 @@ func searchUpward(startDir string, maxDepth int, checkDirs ...string) string {
 		dir = parent
 	}
 	return ""
-}
-
-// Template 模板信息结构体
-type Template struct {
-	Name     string   // 模板名称
-	FS       embed.FS // 嵌入的文件系统
-	FilePath string   // 文件路径
 }
 
 // Init 初始化模板
@@ -149,7 +146,15 @@ func Init() error {
 	return nil
 }
 
-// detectLocalSunshineSource 检测是否在 sunshine 源码目录运行
+// detectLocalSunshineSource 检测是否在 sunshine 源码目录中运行，并返回本地源码路径
+//
+// 按优先级依次尝试以下策略：
+//  1. 从当前工作目录向上查找包含 go.mod 的源码根目录
+//  2. 从可执行文件路径向上查找（适用于 make proto 等间接调用场景）
+//  3. 从 go.mod 的 replace 指令中解析本地源码路径
+//
+// 返回值：
+//   string - 本地 sunshine 源码根目录路径，未检测到则返回空字符串
 func detectLocalSunshineSource() string {
 	// 1. 从当前工作目录向上查找
 	if wd, err := os.Getwd(); err == nil {
@@ -159,8 +164,8 @@ func detectLocalSunshineSource() string {
 	}
 
 	// 2. 从可执行文件路径向上查找(适用于 make proto 调用的情况)
-	if exePath, err := os.Executable(); err == nil {
-		if found := searchUpwardWithGoMod(filepath.Dir(exePath), 10); found != "" {
+	if dir := gofile.GetRunPath(); dir != "" {
+		if found := searchUpwardWithGoMod(dir, 10); found != "" {
 			return found
 		}
 	}
@@ -193,7 +198,7 @@ func findFromGoModReplace() string {
 	if !gofile.IsExists("go.mod") {
 		return ""
 	}
-	data, err := os.ReadFile("go.mod")
+	data, err := gofile.ReadFile("go.mod")
 	if err != nil {
 		return ""
 	}
@@ -213,21 +218,14 @@ func findFromGoModReplace() string {
 	return ""
 }
 
-// InitFS 初始化嵌入文件系统的模板
-func InitFS(name string, filePath string, fs embed.FS) {
-	var err error
-	// 检查模板名称是否已存在
-	if _, ok := Replacers[name]; ok {
-		panic(fmt.Sprintf("template name \"%s\" already exists", name))
-	}
-	// 创建新的嵌入文件系统替换器并存储
-	Replacers[name], err = replacer.NewFS(filePath, fs)
-	if err != nil {
-		panic(err)
-	}
-}
-
-// isShowCommand 判断是否显示命令
+// isShowCommand 判断是否仅显示命令信息，不执行实际生成操作
+//
+// 当用户执行 "sunshine"、"sunshine init" 或 "sunshine -h" 等命令时，
+// 只需展示帮助信息或初始化提示，无需继续执行模板生成流程。
+//
+// 返回值：
+//
+//	bool - 如果是仅显示命令则返回 true
 func isShowCommand() bool {
 	l := len(os.Args)
 
@@ -250,14 +248,3 @@ func isShowCommand() bool {
 
 	return false
 }
-
-// getHomeDir 获取用户的主目录(暂未使用,保留供将来扩展)
-// func getHomeDir() string {
-// 	dir, err := os.UserHomeDir()
-// 	if err != nil {
-// 		fmt.Println("can't get home directory'")
-// 		return ""
-// 	}
-//
-// 	return dir
-// }

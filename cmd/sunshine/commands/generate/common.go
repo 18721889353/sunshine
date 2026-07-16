@@ -156,6 +156,16 @@ var StartMark = startMark
 // EndMark is the end mark used in code generation templates
 var EndMark = endMark
 
+// symbolConvert 将 Go 行注释标记 // 转换为脚本语言注释标记 #
+//
+// 参数：
+//
+//	str            - 包含 "//" 的字符串
+//	additionalChar - 可选的附加字符，拼接到转换结果末尾
+//
+// 返回值：
+//
+//	[]byte - 转换后的字节切片
 func symbolConvert(str string, additionalChar ...string) []byte {
 	char := ""
 	if len(additionalChar) > 0 {
@@ -165,10 +175,33 @@ func symbolConvert(str string, additionalChar ...string) []byte {
 	return []byte(strings.Replace(str, "//", "#", 1) + char)
 }
 
+// convertServerName 将服务名中的连字符替换为下划线
+//
+// 参数：
+//
+//	serverName - 原始服务名称（可能包含 - ）
+//
+// 返回值：
+//
+//	string - 转换后的服务名称（下划线格式）
 func convertServerName(serverName string) string {
 	return strings.ReplaceAll(serverName, "-", "_")
 }
 
+// convertProjectAndServerName 转换项目和服务器名称，并校验服务名后缀
+//
+// 校验服务名不能以 "-test" 或 "_test" 结尾，否则返回错误。
+//
+// 参数：
+//
+//	projectName - 项目名称
+//	serverName  - 服务名称
+//
+// 返回值：
+//
+//	string - 转换后的项目名（kebab-case）
+//	string - 转换后的服务名（下划线格式）
+//	error  - 如果服务名以 "-test" 或 "_test" 结尾则返回错误
 func convertProjectAndServerName(projectName, serverName string) (pn string, sn string, err error) {
 	if strings.HasSuffix(serverName, "-test") {
 		err = fmt.Errorf(`the server name (%s) suffix "-test" is not supported for code generation, please delete suffix "-test" or change it to another name. `, serverName)
@@ -182,6 +215,17 @@ func convertProjectAndServerName(projectName, serverName string) (pn string, sn 
 	return pn, sn, err
 }
 
+// adjustmentOfIDType 根据 id 风格调整 handler 代码中的 ID 类型
+//
+// 参数：
+//
+//	handlerCodes  - handler 代码字符串
+//	_             - 保留参数，暂未使用
+//	isCommonStyle - 是否为通用 ID 风格
+//
+// 返回值：
+//
+//	string - 调整后的 handler 代码
 func adjustmentOfIDType(handlerCodes string, _ string, isCommonStyle bool) string {
 	if isCommonStyle {
 		return handlerCodes
@@ -189,6 +233,15 @@ func adjustmentOfIDType(handlerCodes string, _ string, isCommonStyle bool) strin
 	return idTypeToUint64(idTypeFixToUint64(handlerCodes))
 }
 
+// idTypeFixToUint64 将 ByIDRequest 结构体中的 ID 字段类型修复为 uint64
+//
+// 参数：
+//
+//	handlerCodes - handler 代码字符串
+//
+// 返回值：
+//
+//	string - 修复后的 handler 代码
 func idTypeFixToUint64(handlerCodes string) string {
 	subStart := "ByIDRequest struct {"
 	subEnd := "`" + `json:"id" binding:""` + "`"
@@ -201,6 +254,15 @@ func idTypeFixToUint64(handlerCodes string) string {
 	return handlerCodes
 }
 
+// idTypeToUint64 将 ObjDetail 结构体中的 ID 字段类型转换为 uint64
+//
+// 参数：
+//
+//	handlerCodes - handler 代码字符串
+//
+// 返回值：
+//
+//	string - 转换后的 handler 代码
 func idTypeToUint64(handlerCodes string) string {
 	subStart := "ObjDetail struct {"
 	subEnd := "`" + `json:"id"` + "`"
@@ -213,30 +275,30 @@ func idTypeToUint64(handlerCodes string) string {
 	return handlerCodes
 }
 
-// idTypeToStr 将ID类型转换为string(暂未使用,保留供将来扩展)
-// func idTypeToStr(handlerCodes string) string {
-// 	subStart := "ObjDetail struct {"
-// 	subEnd := "`" + `json:"id"` + "`"
-// 	if subBytes := gofile.FindSubBytesNotIn([]byte(handlerCodes), []byte(subStart), []byte(subEnd)); len(subBytes) > 0 {
-// 		old := subStart + string(subBytes) + subEnd
-// 		newStr := subStart + "\n\tID string " + subEnd + " // convert to string id\n"
-// 		handlerCodes = strings.ReplaceAll(handlerCodes, old, newStr)
-// 	}
+// genDeleteMarkFields 生成删除模板文件中标记的代码块
 //
-// 	return handlerCodes
-// }
-
-func deleteFieldsMark(r replacer.Replacer, filename string, startMark []byte, endMark []byte) []replacer.Field {
+// 在模板文件中查找 startMark 和 endMark 之间的内容，生成清空该内容的替换字段。
+//
+// 参数：
+//
+//	r         - 替换器实例
+//	filename  - 文件名
+//	startMark - 起始标记
+//	endMark   - 结束标记
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
+func genDeleteMarkFields(r replacer.Replacer, filename string, startMark []byte, endMark []byte) []replacer.Field {
 	var fields []replacer.Field
 
 	data, err := r.ReadFile(filename)
 	if err != nil {
-		//fmt.Printf("readFile error: %v\n", err)
 		return fields
 	}
 	if subBytes := gofile.FindSubBytes(data, startMark, endMark); len(subBytes) > 0 {
 		fields = append(fields,
-			replacer.Field{ // clear marked template code
+			replacer.Field{
 				Old: string(subBytes),
 				New: "",
 			},
@@ -246,12 +308,37 @@ func deleteFieldsMark(r replacer.Replacer, filename string, startMark []byte, en
 	return fields
 }
 
-// DeleteCodeMark delete code mark fragment
+// DeleteCodeMark 删除代码标记片段（导出方法）
+//
+// 参数：
+//
+//	r         - 替换器实例
+//	filename  - 文件名
+//	startMark - 起始标记
+//	endMark   - 结束标记
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
 func DeleteCodeMark(r replacer.Replacer, filename string, startMark []byte, endMark []byte) []replacer.Field {
-	return deleteFieldsMark(r, filename, startMark, endMark)
+	return genDeleteMarkFields(r, filename, startMark, endMark)
 }
 
-func deleteAllFieldsMark(r replacer.Replacer, filename string, startMark []byte, endMark []byte) []replacer.Field {
+// genDeleteAllMarkFields 生成删除模板文件中所有标记的代码块
+//
+// 在模板文件中查找所有 startMark 和 endMark 之间的内容，生成清空这些内容的替换字段。
+//
+// 参数：
+//
+//	r         - 替换器实例
+//	filename  - 文件名
+//	startMark - 起始标记
+//	endMark   - 结束标记
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
+func genDeleteAllMarkFields(r replacer.Replacer, filename string, startMark []byte, endMark []byte) []replacer.Field {
 	var fields []replacer.Field
 
 	data, err := r.ReadFile(filename)
@@ -262,7 +349,7 @@ func deleteAllFieldsMark(r replacer.Replacer, filename string, startMark []byte,
 	allSubBytes := gofile.FindAllSubBytes(data, startMark, endMark)
 	for _, subBytes := range allSubBytes {
 		fields = append(fields,
-			replacer.Field{ // clear marked template code
+			replacer.Field{
 				Old: string(subBytes),
 				New: "",
 			},
@@ -272,6 +359,17 @@ func deleteAllFieldsMark(r replacer.Replacer, filename string, startMark []byte,
 	return fields
 }
 
+// replaceFileContentMark 替换文件的全部内容
+//
+// 参数：
+//
+//	r          - 替换器实例
+//	filename   - 文件名
+//	newContent - 新的文件内容
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
 func replaceFileContentMark(r replacer.Replacer, filename string, newContent string) []replacer.Field {
 	var fields []replacer.Field
 
@@ -289,7 +387,16 @@ func replaceFileContentMark(r replacer.Replacer, filename string, newContent str
 	return fields
 }
 
-// resolving mirror repository host and name
+// parseImageRepoAddr 解析镜像仓库地址，分离仓库主机和镜像名称
+//
+// 参数：
+//
+//	addr - 完整的镜像仓库地址
+//
+// 返回值：
+//
+//	string - 仓库主机地址
+//	string - 镜像名称
 func parseImageRepoAddr(addr string) (host string, name string) {
 	splits := strings.Split(addr, "/")
 
@@ -305,6 +412,17 @@ func parseImageRepoAddr(addr string) (host string, name string) {
 
 // ------------------------------------------------------------------------------------------
 
+// parseProtobufFiles 解析 protobuf 文件列表，检查服务名和类型导入依赖
+//
+// 参数：
+//
+//	protobufFile - protobuf 文件路径（支持模糊匹配）
+//
+// 返回值：
+//
+//	[]string - 匹配的 protobuf 文件路径列表
+//	bool     - 是否依赖 api/types/types.proto
+//	error    - 如果文件不是 .proto 扩展名或未找到服务名则返回错误
 func parseProtobufFiles(protobufFile string) ([]string, bool, error) {
 	if filepath.Ext(protobufFile) != ".proto" {
 		return nil, false, fmt.Errorf("%v is not a protobuf file", protobufFile)
@@ -332,7 +450,16 @@ func parseProtobufFiles(protobufFile string) ([]string, bool, error) {
 	return protobufFiles, countImportTypes > 0, nil
 }
 
-// ParseFuzzyProtobufFiles parse fuzzy protobuf files
+// ParseFuzzyProtobufFiles 解析模糊匹配的 protobuf 文件列表，支持逗号分隔多个文件
+//
+// 参数：
+//
+//	protobufFile - protobuf 文件路径，多个文件用逗号分隔
+//
+// 返回值：
+//
+//	[]string - 所有匹配的 protobuf 文件路径列表
+//	error    - 如果解析失败则返回错误
 func ParseFuzzyProtobufFiles(protobufFile string) ([]string, error) {
 	var protoFiles []string
 	ss := strings.Split(protobufFile, ",")
@@ -346,7 +473,18 @@ func ParseFuzzyProtobufFiles(protobufFile string) ([]string, error) {
 	return protoFiles, nil
 }
 
-// save the moduleName and serverName to the specified file for external use
+// saveGenInfo 将模块名、服务名和仓库模式信息保存到 docs/gen.info 文件中
+//
+// 参数：
+//
+//	moduleName    - Go 模块名称
+//	serverName    - 服务名称
+//	suitedMonoRepo - 是否为单体仓库模式
+//	outputDir     - 输出目录
+//
+// 返回值：
+//
+//	error - 如果目录创建或文件写入失败则返回错误
 func saveGenInfo(moduleName string, serverName string, suitedMonoRepo bool, outputDir string) error {
 	genInfo := moduleName + "," + serverName + "," + strconv.FormatBool(suitedMonoRepo)
 	dir := outputDir + "/docs"
@@ -361,6 +499,15 @@ func saveGenInfo(moduleName string, serverName string, suitedMonoRepo bool, outp
 	return nil
 }
 
+// saveEmptySwaggerJSON 在输出目录中创建空的 Swagger JSON 文件
+//
+// 参数：
+//
+//	outputDir - 输出目录
+//
+// 返回值：
+//
+//	error - 如果目录创建或文件写入失败则返回错误
 func saveEmptySwaggerJSON(outputDir string) error {
 	dir := outputDir + "/docs"
 	if err := os.MkdirAll(dir, 0766); err != nil {
@@ -374,36 +521,19 @@ func saveEmptySwaggerJSON(outputDir string) error {
 	return nil
 }
 
-// get moduleName and serverName from directory
-// getNamesFromOutDir 从指定目录的 docs/gen.info 文件中读取之前保存的项目配置信息。
-// 参数:
-//   - dir: 生成项目的输出目录路径。
-// 返回值:
-//   - moduleName: Go 模块名称。
-//   - serverName: 服务器名称。
-//   - suitedMonoRepo: 是否为单体仓库模式。
+// saveProtobufFiles 将 protobuf 文件保存到目标目录，并替换包名和 go_package
 //
-// gen.info 文件格式为 "moduleName,serverName,suitedMonoRepo"，由 saveGenInfo 生成。
-// 如果目录为空、文件不存在或格式异常，均返回零值。
-func getNamesFromOutDir(dir string) (moduleName string, serverName string, suitedMonoRepo bool) {
-	if dir == "" {
-		return "", "", false
-	}
-	data, err := os.ReadFile(dir + "/docs/gen.info")
-	if err != nil {
-		return "", "", false
-	}
-
-	ms := strings.Split(string(data), ",")
-	if len(ms) == 2 {
-		return ms[0], ms[1], false
-	} else if len(ms) >= 3 {
-		return ms[0], ms[1], ms[2] == "true"
-	}
-
-	return "", "", false
-}
-
+// 参数：
+//
+//	moduleName    - Go 模块名称
+//	serverName    - 服务名称
+//	suitedMonoRepo - 是否为单体仓库模式
+//	outputDir     - 输出目录
+//	protobufFiles - protobuf 文件路径列表
+//
+// 返回值：
+//
+//	error - 如果目录创建或文件写入失败则返回错误
 func saveProtobufFiles(moduleName string, serverName string, suitedMonoRepo bool, outputDir string, protobufFiles []string) error {
 	if suitedMonoRepo {
 		outputDir = strings.TrimSuffix(outputDir, serverName)
@@ -437,6 +567,15 @@ func saveProtobufFiles(moduleName string, serverName string, suitedMonoRepo bool
 	return nil
 }
 
+// isExistServiceName 检查 protobuf 数据中是否包含 service 定义
+//
+// 参数：
+//
+//	data - protobuf 文件内容
+//
+// 返回值：
+//
+//	bool - 如果存在 service 定义则返回 true
 func isExistServiceName(data []byte) bool {
 	servicePattern := `\nservice (\w+)`
 	re := regexp.MustCompile(servicePattern)
@@ -444,10 +583,31 @@ func isExistServiceName(data []byte) bool {
 	return len(matchArr) >= 2
 }
 
+// isDependImport 检查 protobuf 数据是否依赖指定的包
+//
+// 参数：
+//
+//	protoData - protobuf 文件内容
+//	pkgName   - 包名
+//
+// 返回值：
+//
+//	bool - 如果包含该包引用则返回 true
 func isDependImport(protoData []byte, pkgName string) bool {
 	return bytes.Contains(protoData, []byte(pkgName))
 }
 
+// replacePackage 替换 protobuf 文件中的 package 和 go_package 声明
+//
+// 参数：
+//
+//	data       - protobuf 文件内容
+//	moduleName - Go 模块名称
+//	serverName - 服务名称
+//
+// 返回值：
+//
+//	[]byte - 替换后的 protobuf 文件内容
 func replacePackage(data []byte, moduleName string, serverName string) []byte {
 	if bytes.Contains(data, []byte("\r\n")) {
 		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
@@ -474,6 +634,15 @@ func replacePackage(data []byte, moduleName string, serverName string) []byte {
 	return data
 }
 
+// getDBConfigCode 根据数据库驱动类型获取对应的数据库配置代码片段
+//
+// 参数：
+//
+//	dbDriver - 数据库驱动类型
+//
+// 返回值：
+//
+//	string - 数据库配置代码字符串
 func getDBConfigCode(dbDriver string) string {
 	dbConfigCode := ""
 	switch strings.ToLower(dbDriver) {
@@ -485,6 +654,15 @@ func getDBConfigCode(dbDriver string) string {
 	return dbConfigCode
 }
 
+// getInitDBCode 根据数据库驱动类型获取数据库初始化代码片段
+//
+// 参数：
+//
+//	dbDriver - 数据库驱动类型
+//
+// 返回值：
+//
+//	string - 数据库初始化代码字符串，不支持的驱动会 panic
 func getInitDBCode(dbDriver string) string {
 	initDBCode := ""
 	switch strings.ToLower(dbDriver) {
@@ -496,11 +674,28 @@ func getInitDBCode(dbDriver string) string {
 	return initDBCode
 }
 
-// GetInitDataBaseCode get init db code
+// GetInitDataBaseCode 获取数据库初始化代码（导出方法）
+//
+// 参数：
+//
+//	dbDriver - 数据库驱动类型
+//
+// 返回值：
+//
+//	string - 数据库初始化代码字符串
 func GetInitDataBaseCode(dbDriver string) string {
 	return getInitDBCode(dbDriver)
 }
 
+// getEmbedTimeCode 根据是否嵌入时间字段返回对应的时间转换代码
+//
+// 参数：
+//
+//	isEmbed - 是否嵌入了 createdAt/updatedAt 字段
+//
+// 返回值：
+//
+//	string - 时间转换代码字符串
 func getEmbedTimeCode(isEmbed bool) string {
 	if isEmbed {
 		return embedTimeCode
@@ -508,6 +703,15 @@ func getEmbedTimeCode(isEmbed bool) string {
 	return ""
 }
 
+// getExpectedSQLForDeletion 根据是否嵌入时间字段返回预期的删除 SQL 语句
+//
+// 参数：
+//
+//	isEmbed - 是否嵌入了时间字段
+//
+// 返回值：
+//
+//	string - 删除 SQL 语句
 func getExpectedSQLForDeletion(isEmbed bool) string {
 	if !isEmbed {
 		return strings.ReplaceAll(expectedSQLForDeletion, "UPDATE", "DELETE")
@@ -516,6 +720,15 @@ func getExpectedSQLForDeletion(isEmbed bool) string {
 	return expectedSQLForDeletion
 }
 
+// getExpectedSQLForDeletionField 根据是否嵌入时间字段生成删除 SQL 的字段替换规则
+//
+// 参数：
+//
+//	isEmbed - 是否嵌入了时间字段
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
 func getExpectedSQLForDeletionField(isEmbed bool) []replacer.Field {
 	var fields []replacer.Field
 	esql := getExpectedSQLForDeletion(isEmbed)
@@ -542,6 +755,16 @@ func getExpectedSQLForDeletionField(isEmbed bool) []replacer.Field {
 	return fields
 }
 
+// convertYamlConfig 将 YAML 配置文件转换为带缩进的配置文本（每行前加 4 空格）
+//
+// 参数：
+//
+//	configFile - YAML 配置文件路径
+//
+// 返回值：
+//
+//	string - 转换后的配置文本
+//	error  - 如果文件读取失败则返回错误
 func convertYamlConfig(configFile string) (string, error) {
 	f, err := os.Open(configFile)
 	if err != nil {
@@ -565,6 +788,18 @@ func convertYamlConfig(configFile string) (string, error) {
 	return strings.Join(modifiedLines, "\n"), nil
 }
 
+// generateConfigmap 生成 Kubernetes ConfigMap 配置文件
+//
+// 将服务配置嵌入到 ConfigMap 模板中并写入文件。
+//
+// 参数：
+//
+//	serverName - 服务名称
+//	outPath    - 输出路径
+//
+// 返回值：
+//
+//	error - 如果文件读取或写入失败则返回错误
 func generateConfigmap(serverName string, outPath string) error {
 	configFile := fmt.Sprintf(outPath+"/configs/%s.yml", serverName)
 	configmapFile := fmt.Sprintf(outPath+"/deployments/kubernetes/%s-configmap.yml", serverName)
@@ -580,6 +815,16 @@ func generateConfigmap(serverName string, outPath string) error {
 	return os.WriteFile(configmapFile, []byte(data), 0666)
 }
 
+// removeElements 从字符串切片中移除指定的元素
+//
+// 参数：
+//
+//	slice    - 原始字符串切片
+//	elements - 要移除的元素列表
+//
+// 返回值：
+//
+//	[]string - 移除指定元素后的新切片
 func removeElements(slice []string, elements ...string) []string {
 	if len(elements) == 0 {
 		return slice
@@ -597,6 +842,18 @@ func removeElements(slice []string, elements ...string) []string {
 	return result
 }
 
+// moveProtoFileToAPIDir 将 proto 文件从 api 目录移动到目标服务器的 api 子目录
+//
+// 参数：
+//
+//	moduleName    - Go 模块名称
+//	serverName    - 服务名称
+//	suitedMonoRepo - 是否为单体仓库模式
+//	outputDir     - 输出目录
+//
+// 返回值：
+//
+//	error - 如果文件移动失败则返回错误
 func moveProtoFileToAPIDir(moduleName string, serverName string, suitedMonoRepo bool, outputDir string) error {
 	apiDir := outputDir + gofile.GetPathDelimiter() + "api"
 	protoFiles, err := gofile.ListFiles(apiDir, gofile.WithNoAbsolutePath(), gofile.WithSuffix(".proto"))
@@ -645,6 +902,19 @@ HOST_ADDR=$1`
 	}
 )
 
+// serverCodeFields 生成单体仓库模式下服务端代码的路径替换字段
+//
+// 将模块路径替换为包含服务名的子目录路径，适配 proto、script、docs 等文件的路径。
+//
+// 参数：
+//
+//	serverType - 服务类型（http/grpc 等）
+//	moduleName - Go 模块名称
+//	serverName - 服务名称
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
 func serverCodeFields(serverType string, moduleName string, serverName string) []replacer.Field {
 	return []replacer.Field{
 		{
@@ -722,7 +992,16 @@ func serverCodeFields(serverType string, moduleName string, serverName string) [
 	}
 }
 
-// SubServerCodeFields sub server code fields
+// SubServerCodeFields 生成子服务的路径替换字段（导出方法）
+//
+// 参数：
+//
+//	moduleName - Go 模块名称
+//	serverName - 服务名称
+//
+// 返回值：
+//
+//	[]replacer.Field - 替换字段列表
 func SubServerCodeFields(moduleName string, serverName string) []replacer.Field {
 	return []replacer.Field{
 		{
@@ -740,6 +1019,16 @@ func SubServerCodeFields(moduleName string, serverName string) []replacer.Field 
 	}
 }
 
+// changeOutPath 根据输出路径和服务名生成最终输出目录
+//
+// 参数：
+//
+//	outPath    - 输出路径
+//	serverName - 服务名称
+//
+// 返回值：
+//
+//	string - 最终的输出目录路径
 func changeOutPath(outPath string, serverName string) string {
 	switch outPath {
 	case "", ".", "./", ".\\", serverName, "./" + serverName, ".\\" + serverName:
@@ -804,6 +1093,11 @@ type Version struct {
 	goVersion string
 }
 
+// getLocalGoVersion 获取本地安装的 Go 版本号
+//
+// 返回值：
+//
+//	string - 格式为 "go X.Y" 的版本号，获取失败则返回默认版本
 func getLocalGoVersion() string {
 	result, err := gobash.Exec("go", "version")
 	if err != nil {
@@ -847,10 +1141,28 @@ func getLocalGoVersion() string {
 	return versionList[0].goVersion
 }
 
+// dbDriverErr 返回不支持的数据库驱动错误
+//
+// 参数：
+//
+//	driver - 数据库驱动类型
+//
+// 返回值：
+//
+//	error - 错误信息
 func dbDriverErr(driver string) error {
 	return errors.New("unsupported db driver: " + driver)
 }
 
+// flagTip 生成命令行参数提示信息
+//
+// 参数：
+//
+//	name - 标志名称列表，支持 1 个或 2 个标志
+//
+// 返回值：
+//
+//	string - 提示信息字符串
 func flagTip(name ...string) string {
 	if len(name) == 2 {
 		return fmt.Sprintf("if you specify the directory where the web or microservice generated by sunshine, the %s and %s flag can be ignored", name[0], name[1])
@@ -858,6 +1170,15 @@ func flagTip(name ...string) string {
 	return fmt.Sprintf("if you specify the directory where the web or microservice generated by sunshine, the %s flag can be ignored", name[0])
 }
 
+// cutPath 将绝对路径裁剪为相对路径，用 "." 替换当前工作目录前缀
+//
+// 参数：
+//
+//	srcFilePath - 源文件绝对路径
+//
+// 返回值：
+//
+//	string - 裁剪后的相对路径
 func cutPath(srcFilePath string) string {
 	dirPath, err := filepath.Abs(".")
 	if err != nil {
@@ -868,6 +1189,15 @@ func cutPath(srcFilePath string) string {
 	return strings.ReplaceAll(srcFilePath, "\\", "/")
 }
 
+// wrapPoint 将字符串用反引号包裹，用于 Markdown 内联代码展示
+//
+// 参数：
+//
+//	s - 原始字符串
+//
+// 返回值：
+//
+//	string - 用反引号包裹后的字符串
 func wrapPoint(s string) string {
 	return "`" + s + "`"
 }
@@ -878,6 +1208,7 @@ func wrapPoint(s string) string {
 //   - serverName: 服务名称。
 //   - serverType: 服务类型（http / grpc / http-pb 等）。
 //   - suitedMonoRepo: 是否为单体仓库模式。
+//
 // 返回值:
 //   - 格式化后的 Markdown 标题和表格字符串，包含服务名称、类型、模块名和仓库类型。
 //
@@ -912,6 +1243,7 @@ func setReadmeTitle(moduleName string, serverName string, serverType string, sui
 // GetGoModFields 返回 go.mod 文件中需要替换的字段列表，用于将模板项目中的包路径和 Go 版本替换为实际值。
 // 参数:
 //   - moduleName: 目标项目的 Go 模块名称，用于替换默认的 sunshine 包路径。
+//
 // 返回值:
 //   - 包含两个替换字段：sunshine 包路径替换为 moduleName，默认 Go 版本替换为本地版本。
 func GetGoModFields(moduleName string) []replacer.Field {
@@ -931,6 +1263,7 @@ func GetGoModFields(moduleName string) []replacer.Field {
 // 参数:
 //   - outputDir: 生成项目的输出目录。
 //   - _: 保留参数，暂未使用。
+//
 // 返回值:
 //   - 如果通过编译后的二进制启动（SUNSHINE_COMPILED_BINARY=true）或 sunshine 非本地源码安装，
 //     则不添加 replace 指令，返回 nil。

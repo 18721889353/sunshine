@@ -18,38 +18,59 @@ var _ Replacer = (*replacerInfo)(nil)
 
 // Replacer 接口定义了文件替换器的行为
 type Replacer interface {
-	SetReplacementFields(fields []Field)                                   // 设置替换字段
-	SetSubDirsAndFiles(subDirs []string, subFiles ...string)               // 设置子目录和文件列表
-	SetIgnoreSubDirs(dirs ...string)                                       // 设置忽略的子目录
-	SetIgnoreSubFiles(filenames ...string)                                 // 设置忽略的文件
-	SetOutputDir(absDir string, name ...string) error                      // 设置输出目录
-	GetOutputDir() string                                                  // 获取输出目录
-	GetSourcePath() string                                                 // 获取源目录
-	SaveFiles() error                                                      // 保存文件
-	ReadFile(filename string) ([]byte, error)                              // 读取文件内容
-	GetFiles() []string                                                    // 获取文件列表
-	SaveTemplateFiles(m map[string]interface{}, parentDir ...string) error // 保存模板文件
+	// SetReplacementFields 设置替换字段
+	SetReplacementFields(fields []Field)
+	// SetSubDirsAndFiles 设置子目录和文件列表，其他目录中的文件将被忽略
+	SetSubDirsAndFiles(subDirs []string, subFiles ...string)
+	// SetIgnoreSubDirs 设置忽略的子目录
+	SetIgnoreSubDirs(dirs ...string)
+	// SetIgnoreSubFiles 设置忽略的文件
+	SetIgnoreSubFiles(filenames ...string)
+	// SetOutputDir 设置输出目录
+	SetOutputDir(absDir string, name ...string) error
+	// GetOutputDir 获取输出目录
+	GetOutputDir() string
+	// GetSourcePath 获取源目录
+	GetSourcePath() string
+	// SaveFiles 保存文件
+	SaveFiles() error
+	// ReadFile 读取文件内容
+	ReadFile(filename string) ([]byte, error)
+	// GetFiles 获取文件列表
+	GetFiles() []string
+	// SaveTemplateFiles 保存模板文件
+	SaveTemplateFiles(m map[string]interface{}, parentDir ...string) error
 }
 
 // replacerInfo 替换器信息结构体
 type replacerInfo struct {
-	path              string   // 模板目录或文件
-	fs                embed.FS // 模板目录对应的二进制对象
-	isActual          bool     // true: 使用 os 操作文件，false: 使用 fs 操作文件
-	files             []string // 模板文件列表
-	ignoreFiles       []string // 忽略的文件列表，例如 ignore.txt 或 myDir/ignore.txt
-	ignoreDirs        []string // 忽略的子目录列表
-	replacementFields []Field  // 从模板文件转换为新文件时需要替换的字符
-	outPath           string   // 替换后文件保存的目录
+	path              string
+	fs                embed.FS
+	isActual          bool
+	files             []string
+	ignoreFiles       []string
+	ignoreDirs        []string
+	replacementFields []Field
+	outPath           string
 }
 
 // New 创建使用本地目录的替换器
+//
+// 参数：
+//
+//	path - 本地模板目录路径
+//
+// 返回值：
+//
+//	Replacer - 替换器实例
+//	error - 如果目录不存在或路径解析失败则返回错误
 func New(path string) (Replacer, error) {
 	files, err := gofile.ListFiles(path)
 	if err != nil {
 		return nil, err
 	}
-
+	//是跨平台的，它会根据操作系统自动处理路径分隔符
+	//处理操作系统特定的分隔符（Windows 是 \，Linux 是 /）。操作本地文件时，永远使用 filepath 包。
 	path, err = filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -62,43 +83,40 @@ func New(path string) (Replacer, error) {
 	}, nil
 }
 
-// NewFS 创建使用嵌入目录的替换器
-func NewFS(path string, fs embed.FS) (Replacer, error) {
-	files, err := listFiles(path, fs)
-	if err != nil {
-		return nil, err
-	}
-
-	return &replacerInfo{
-		path:              path,
-		fs:                fs,
-		isActual:          false,
-		files:             files,
-		replacementFields: []Field{},
-	}, nil
-}
-
-// Field 替换字段信息结构体
+// Field 替换字段信息结构体，定义单个字段的替换规则
+//
+// 字段说明：
+//   Old             - 要被替换的旧字符串
+//   New             - 替换后的新字符串
+//   IsCaseSensitive - 是否区分大小写匹配
+//                     当为 true 且首字符为字母时，会自动生成首字母大写和小写两个替换规则
 type Field struct {
-	Old             string // 要被替换的旧字段
-	New             string // 新字段
-	IsCaseSensitive bool   // 是否区分大小写
+	Old             string
+	New             string
+	IsCaseSensitive bool
 }
 
-// SetReplacementFields 设置替换字段，注意：旧字符不应包含关系，如果存在，设置 Field 时需注意优先级
+// SetReplacementFields 设置替换字段
+//
+// 注意：旧字符不应包含关系，如果存在，设置 Field 时需注意优先级。
+// 当字段区分大小写且首字符为字母时，会同时生成首字母大写和小写两个替换字段。
+//
+// 参数：
+//
+//	fields - 替换字段列表
 func (r *replacerInfo) SetReplacementFields(fields []Field) {
 	var newFields []Field
 	for _, field := range fields {
-		if field.IsCaseSensitive && isFirstAlphabet(field.Old) { // 分割首字母字段
+		if field.IsCaseSensitive && isFirstAlphabet(field.Old) {
 			if field.New == "" {
 				continue
 			}
 			newFields = append(newFields,
-				Field{ // 将首字母转换为大写
+				Field{
 					Old: strings.ToUpper(field.Old[:1]) + field.Old[1:],
 					New: strings.ToUpper(field.New[:1]) + field.New[1:],
 				},
-				Field{ // 将首字母转换为小写
+				Field{
 					Old: strings.ToLower(field.Old[:1]) + field.Old[1:],
 					New: strings.ToLower(field.New[:1]) + field.New[1:],
 				},
@@ -116,12 +134,17 @@ func (r *replacerInfo) GetFiles() []string {
 }
 
 // SetSubDirsAndFiles 设置指定子目录和文件的处理，其他目录中的文件将被忽略
+//
+// 参数：
+//
+//	subDirs  - 需要处理的子目录列表
+//	subFiles - 需要处理的文件列表（可变参数）
 func (r *replacerInfo) SetSubDirsAndFiles(subDirs []string, subFiles ...string) {
 	subDirs = r.convertPathsDelimiter(subDirs...)
 	subFiles = r.convertPathsDelimiter(subFiles...)
 
 	var files []string
-	isExistFile := make(map[string]struct{}) // 使用 map 避免重复文件
+	isExistFile := make(map[string]struct{})
 	for _, file := range r.files {
 		for _, dir := range subDirs {
 			if isSubPath(file, dir) {
@@ -150,19 +173,35 @@ func (r *replacerInfo) SetSubDirsAndFiles(subDirs []string, subFiles ...string) 
 }
 
 // SetIgnoreSubFiles 设置忽略的文件
+//
+// 参数：
+//
+//	filenames - 需要忽略的文件名列表（可变参数）
 func (r *replacerInfo) SetIgnoreSubFiles(filenames ...string) {
 	r.ignoreFiles = append(r.ignoreFiles, filenames...)
 }
 
 // SetIgnoreSubDirs 设置忽略的子目录
+//
+// 参数：
+//
+//	dirs - 需要忽略的子目录列表（可变参数）
 func (r *replacerInfo) SetIgnoreSubDirs(dirs ...string) {
 	dirs = r.convertPathsDelimiter(dirs...)
 	r.ignoreDirs = append(r.ignoreDirs, dirs...)
 }
 
-// SetOutputDir 设置输出目录，建议使用绝对路径，如果绝对路径为空，则根据参数名称在当前目录自动生成输出目录
+// SetOutputDir 设置输出目录
+//
+// 参数：
+//
+//	absPath - 绝对路径，如果为空则根据 name 参数在当前目录自动生成输出目录
+//	name    - 用于自动生成输出目录的子路径名称（可变参数）
+//
+// 返回值：
+//
+//	error - 如果路径解析失败则返回错误
 func (r *replacerInfo) SetOutputDir(absPath string, name ...string) error {
-	// 输出到指定目录
 	if absPath != "" {
 		abs, err := filepath.Abs(absPath)
 		if err != nil {
@@ -173,7 +212,6 @@ func (r *replacerInfo) SetOutputDir(absPath string, name ...string) error {
 		return nil
 	}
 
-	// 输出到当前目录
 	subPath := strings.Join(name, "_")
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -194,6 +232,15 @@ func (r *replacerInfo) GetSourcePath() string {
 }
 
 // ReadFile 读取文件内容
+//
+// 参数：
+//
+//	filename - 要读取的文件名
+//
+// 返回值：
+//
+//	[]byte - 文件内容
+//	error  - 如果文件不存在或读取失败则返回错误
 func (r *replacerInfo) ReadFile(filename string) ([]byte, error) {
 	filename = r.convertPathDelimiter(filename)
 
@@ -214,20 +261,28 @@ func (r *replacerInfo) ReadFile(filename string) ([]byte, error) {
 }
 
 // processFileContent 处理单个文件的内容替换
+//
+// 参数：
+//
+//	file - 文件路径
+//
+// 返回值：
+//
+//	[]byte - 替换后的文件内容
+//	error  - 如果文件读取失败则返回错误
 func (r *replacerInfo) processFileContent(file string) ([]byte, error) {
 	var data []byte
 	var err error
 
 	if r.isActual {
-		data, err = os.ReadFile(file) // 从本地文件读取
+		data, err = os.ReadFile(file)
 	} else {
-		data, err = r.fs.ReadFile(file) // 从嵌入的 FS 读取
+		data, err = r.fs.ReadFile(file)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// 替换文本内容
 	for _, field := range r.replacementFields {
 		data = bytes.ReplaceAll(data, []byte(field.Old), []byte(field.New))
 	}
@@ -235,12 +290,19 @@ func (r *replacerInfo) processFileContent(file string) ([]byte, error) {
 	return data, nil
 }
 
-// getProcessedFilePath 获取处理后的文件路径
+// getProcessedFilePath 获取处理后的文件路径，替换路径中的文件名和目录名
+//
+// 参数：
+//
+//	file - 原始文件路径
+//
+// 返回值：
+//
+//	string - 替换字段后的新文件路径
 func (r *replacerInfo) getProcessedFilePath(file string) string {
 	newFilePath := r.getNewFilePath(file)
 	dir, filename := filepath.Split(newFilePath)
 
-	// 替换文件名和目录名
 	for _, field := range r.replacementFields {
 		if strings.Contains(dir, field.Old) {
 			dir = strings.ReplaceAll(dir, field.Old, field.New)
@@ -257,7 +319,15 @@ func (r *replacerInfo) getProcessedFilePath(file string) string {
 	return newFilePath
 }
 
-// validateWriteFiles 验证文件写入合法性
+// validateWriteFiles 验证文件写入合法性，禁止将文件写入源目录
+//
+// 参数：
+//
+//	writeData - 待写入的文件路径与内容映射
+//
+// 返回值：
+//
+//	error - 如果存在禁止写入的文件则返回错误
 func (r *replacerInfo) validateWriteFiles(writeData map[string][]byte) error {
 	for file, data := range writeData {
 		if isForbiddenFile(file, r.path) {
@@ -267,7 +337,11 @@ func (r *replacerInfo) validateWriteFiles(writeData map[string][]byte) error {
 	return nil
 }
 
-// SaveFiles 根据设置保存文件
+// SaveFiles 根据替换字段设置保存所有文件
+//
+// 返回值：
+//
+//	error - 如果文件已存在、写入被禁止或保存失败则返回错误
 func (r *replacerInfo) SaveFiles() error {
 	if r.outPath == "" {
 		r.outPath = gofile.GetRunPath() + gofile.GetPathDelimiter() + "generate_" + time.Now().Format("150405")
@@ -276,41 +350,34 @@ func (r *replacerInfo) SaveFiles() error {
 	var existFiles []string
 	writeData := make(map[string][]byte)
 
-	// 处理所有文件
 	for _, file := range r.files {
 		if r.isInIgnoreDir(file) || r.isIgnoreFile(file) {
 			continue
 		}
 
-		// 处理文件内容
 		data, err := r.processFileContent(file)
 		if err != nil {
 			return err
 		}
 
-		// 获取新的文件路径
 		newFilePath := r.getProcessedFilePath(file)
 
-		// 检查文件是否存在
 		if gofile.IsExists(newFilePath) {
 			existFiles = append(existFiles, newFilePath)
 		}
 		writeData[newFilePath] = data
 	}
 
-	// 检查是否有已存在的文件
 	if len(existFiles) > 0 {
 		//nolint
 		return fmt.Errorf("检测到已存在的文件\n    %s\n代码生成已取消\n",
 			strings.Join(existFiles, "\n    "))
 	}
 
-	// 验证文件写入合法性
 	if err := r.validateWriteFiles(writeData); err != nil {
 		return err
 	}
 
-	// 保存所有文件
 	for file, data := range writeData {
 		err := saveToNewFile(file, data)
 		if err != nil {
@@ -321,7 +388,16 @@ func (r *replacerInfo) SaveFiles() error {
 	return nil
 }
 
-// SaveTemplateFiles 根据设置保存模板文件
+// SaveTemplateFiles 根据模板数据保存模板文件
+//
+// 参数：
+//
+//	m         - 模板数据映射，用于替换模板中的 {{.Field}} 占位符
+//	parentDir - 输出目录下的父级子目录（可变参数）
+//
+// 返回值：
+//
+//	error - 如果模板解析失败或文件已存在则返回错误
 func (r *replacerInfo) SaveTemplateFiles(m map[string]interface{}, parentDir ...string) error {
 	refDir := ""
 	if len(parentDir) > 0 {
@@ -356,7 +432,17 @@ func (r *replacerInfo) SaveTemplateFiles(m map[string]interface{}, parentDir ...
 	return nil
 }
 
-// replaceTemplateData 替换模板数据
+// replaceTemplateData 替换模板文件中的数据，使用 text/template 渲染
+//
+// 参数：
+//
+//	file - 模板文件路径
+//	m    - 模板数据映射
+//
+// 返回值：
+//
+//	[]byte - 渲染后的文件内容
+//	error  - 如果文件读取或模板解析执行失败则返回错误
 func replaceTemplateData(file string, m map[string]interface{}) ([]byte, error) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -378,7 +464,17 @@ func replaceTemplateData(file string, m map[string]interface{}) ([]byte, error) 
 	return builder.Bytes(), nil
 }
 
-// replaceTemplateFilePath 替换模板文件路径
+// replaceTemplateFilePath 替换文件路径中的模板占位符
+//
+// 参数：
+//
+//	file - 文件路径字符串
+//	m    - 模板数据映射
+//
+// 返回值：
+//
+//	string - 渲染后的文件路径
+//	error  - 如果模板解析执行失败则返回错误
 func replaceTemplateFilePath(file string, m map[string]interface{}) (string, error) {
 	if !strings.Contains(file, "{{") {
 		return file, nil
@@ -396,7 +492,15 @@ func replaceTemplateFilePath(file string, m map[string]interface{}) (string, err
 	return builder.String(), nil
 }
 
-// trimExt 去除文件扩展名
+// trimExt 去除文件扩展名，支持 .tmpl 和 .template 后缀
+//
+// 参数：
+//
+//	file - 文件名或文件路径
+//
+// 返回值：
+//
+//	string - 去除扩展名后的文件名或文件路径
 func trimExt(file string) string {
 	file = strings.TrimSuffix(file, ".tmpl")
 	file = strings.TrimSuffix(file, ".template")
@@ -404,6 +508,14 @@ func trimExt(file string) string {
 }
 
 // isIgnoreFile 判断文件是否在忽略列表中
+//
+// 参数：
+//
+//	file - 文件名或文件路径
+//
+// 返回值：
+//
+//	bool - 如果在忽略列表中则返回 true
 func (r *replacerInfo) isIgnoreFile(file string) bool {
 	isIgnore := false
 	for _, v := range r.ignoreFiles {
@@ -416,6 +528,14 @@ func (r *replacerInfo) isIgnoreFile(file string) bool {
 }
 
 // isInIgnoreDir 判断文件是否在忽略的子目录中
+//
+// 参数：
+//
+//	file - 文件名或文件路径
+//
+// 返回值：
+//
+//	bool - 如果在忽略的子目录中则返回 true
 func (r *replacerInfo) isInIgnoreDir(file string) bool {
 	isIgnore := false
 	dir, _ := filepath.Split(file)
@@ -429,6 +549,15 @@ func (r *replacerInfo) isInIgnoreDir(file string) bool {
 }
 
 // isForbiddenFile 判断文件是否被禁止写入指定目录
+//
+// 参数：
+//
+//	file - 要写入的文件路径
+//	path - 源目录路径
+//
+// 返回值：
+//
+//	bool - 如果文件路径包含源目录则返回 true
 func isForbiddenFile(file string, path string) bool {
 	if gofile.IsWindows() {
 		path = strings.ReplaceAll(path, "/", "\\")
@@ -437,7 +566,15 @@ func isForbiddenFile(file string, path string) bool {
 	return strings.Contains(file, path)
 }
 
-// getNewFilePath 获取新的文件路径
+// getNewFilePath 获取新的文件路径，将源路径前缀替换为输出路径
+//
+// 参数：
+//
+//	file - 原始文件路径
+//
+// 返回值：
+//
+//	string - 替换后的新文件路径
 func (r *replacerInfo) getNewFilePath(file string) string {
 	newFilePath := r.outPath + strings.Replace(file, r.path, "", 1)
 
@@ -448,7 +585,16 @@ func (r *replacerInfo) getNewFilePath(file string) string {
 	return newFilePath
 }
 
-// getNewFilePath2 获取新的文件路径（带父目录）
+// getNewFilePath2 获取新的文件路径，支持在输出目录下添加父级子目录
+//
+// 参数：
+//
+//	file   - 原始文件路径
+//	refDir - 输出目录下的父级子目录
+//
+// 返回值：
+//
+//	string - 替换后的新文件路径
 func (r *replacerInfo) getNewFilePath2(file string, refDir string) string {
 	if refDir == "" {
 		return r.getNewFilePath(file)
@@ -461,7 +607,15 @@ func (r *replacerInfo) getNewFilePath2(file string, refDir string) string {
 	return newFilePath
 }
 
-// 如果是 Windows，转换路径分隔符
+// convertPathDelimiter 转换路径分隔符，仅在非嵌入模式且系统为 Windows 时将 "/" 转换为 "\"
+//
+// 参数：
+//
+//	filePath - 文件路径
+//
+// 返回值：
+//
+//	string - 转换后的文件路径
 func (r *replacerInfo) convertPathDelimiter(filePath string) string {
 	if r.isActual && gofile.IsWindows() {
 		filePath = strings.ReplaceAll(filePath, "/", "\\")
@@ -469,7 +623,15 @@ func (r *replacerInfo) convertPathDelimiter(filePath string) string {
 	return filePath
 }
 
-// 如果是 Windows，批量转换路径分隔符
+// convertPathsDelimiter 批量转换路径分隔符，仅在非嵌入模式且系统为 Windows 时将 "/" 转换为 "\"
+//
+// 参数：
+//
+//	filePaths - 文件路径列表
+//
+// 返回值：
+//
+//	[]string - 转换后的文件路径列表
 func (r *replacerInfo) convertPathsDelimiter(filePaths ...string) []string {
 	if r.isActual && gofile.IsWindows() {
 		var filePathsTmp []string
@@ -481,16 +643,23 @@ func (r *replacerInfo) convertPathsDelimiter(filePaths ...string) []string {
 	return filePaths
 }
 
-// 保存新文件
+// saveToNewFile 将数据保存到新文件中，自动创建必要的目录
+//
+// 参数：
+//
+//	filePath - 文件保存路径
+//	data     - 文件内容
+//
+// 返回值：
+//
+//	error - 如果目录创建或文件写入失败则返回错误
 func saveToNewFile(filePath string, data []byte) error {
-	// 创建目录
 	dir, _ := filepath.Split(filePath)
 	err := os.MkdirAll(dir, 0766)
 	if err != nil {
 		return err
 	}
 
-	// 保存文件
 	err = os.WriteFile(filePath, data, 0666)
 	if err != nil {
 		return err
@@ -499,35 +668,15 @@ func saveToNewFile(filePath string, data []byte) error {
 	return nil
 }
 
-// 遍历嵌入目录中的所有文件，返回文件的绝对路径
-func listFiles(path string, fs embed.FS) ([]string, error) {
-	var files []string
-	err := walkDir(path, &files, fs)
-	return files, err
-}
-
-// 遍历嵌入目录
-func walkDir(dirPath string, allFiles *[]string, fs embed.FS) error {
-	files, err := fs.ReadDir(dirPath)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		deepFile := dirPath + "/" + file.Name()
-		if file.IsDir() {
-			if err := walkDir(deepFile, allFiles, fs); err != nil {
-				return err
-			}
-			continue
-		}
-		*allFiles = append(*allFiles, deepFile)
-	}
-
-	return nil
-}
-
-// 判断字符串的第一个字符是否为字母
+// isFirstAlphabet 判断字符串的第一个字符是否为字母
+//
+// 参数：
+//
+//	str - 输入的字符串
+//
+// 返回值：
+//
+//	bool - 如果第一个字符是字母则返回 true
 func isFirstAlphabet(str string) bool {
 	if len(str) == 0 {
 		return false
@@ -540,13 +689,31 @@ func isFirstAlphabet(str string) bool {
 	return false
 }
 
-// 判断文件路径是否为子路径
+// isSubPath 判断文件路径是否为指定子路径
+//
+// 参数：
+//
+//	filePath - 文件路径
+//	subPath  - 子路径
+//
+// 返回值：
+//
+//	bool - 如果文件路径包含子路径则返回 true
 func isSubPath(filePath string, subPath string) bool {
 	dir, _ := filepath.Split(filePath)
 	return strings.Contains(dir, subPath)
 }
 
-// 判断文件是否匹配
+// isMatchFile 判断文件路径是否匹配指定的文件名和目录
+//
+// 参数：
+//
+//	filePath - 文件路径
+//	sf       - 要匹配的文件名（可包含目录）
+//
+// 返回值：
+//
+//	bool - 如果文件名和目录都匹配则返回 true
 func isMatchFile(filePath string, sf string) bool {
 	dir1, file1 := filepath.Split(filePath)
 	dir2, file2 := filepath.Split(sf)

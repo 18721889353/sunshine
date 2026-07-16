@@ -37,3 +37,4 @@ cmd/sunshine/sunshine
 *.zip
 pkg/goexcel/files/
 *.env
+cmd/sunshine/commands/generate/testdata/

@@ -28,18 +28,31 @@ func ModelCommand(parentName string) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "model",                             // 命令的使用方式，用户在命令行中输入的命令
-		Short: "Generate model code based on sql",  // 命令的简短描述
-		Long:  "Generate model code based on sql.", // 命令的详细描述
-		Example: color.HiBlackString(fmt.Sprintf(`  # 生成模型代码。
-  sunshine %s model --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+		Use:   "model",
+		Short: "基于 SQL 生成 Model 层代码",
+		Long:  "基于 SQL 表结构自动生成数据模型（Model）代码。",
+		Example: color.HiBlackString(fmt.Sprintf(`  # =====================================================================
+  # 基本用法：根据数据库表生成 Model 代码
+  # 执行后会生成: internal/model/{table}.go
+  # =====================================================================
+  sunshine %[1]s model \
+    --db-driver=mysql \
+    --db-dsn=root:123456@(192.168.3.37:3306)/test \
+    --db-table=user \
+    --embed=true \
+    --json-name-type=1 \
+    --out=/d/Temp/web
 
-  # 生成多个表的模型代码。
-  sunshine %s model --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # 生成模型代码并指定输出目录，注意：如果最新生成的文件已经存在，则代码生成将被取消。
-  sunshine %s model --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir`,
-			parentName, parentName, parentName)),
+  # =====================================================================
+  # 参数说明：
+  #   --db-driver      数据库驱动类型（默认 mysql）
+  #   --db-dsn         数据库连接地址（必填），格式: user:password@(host:port)/database
+  #   --db-table       数据库表名（必填），多表用逗号分隔
+  #   --embed          是否嵌入 gorm.Model 结构体（可选，默认 false）
+  #   --json-name-type JSON 标签风格，0:下划线, 1:驼峰（可选，默认 1）
+  #   --out            输出目录（可选，默认 ./model_<时间戳>）
+`, parentName)),
 		SilenceErrors: true, // 设置为静默错误输出，不显示错误信息
 		SilenceUsage:  true, // 设置为静默使用信息输出，不显示使用信息
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -55,7 +68,7 @@ func ModelCommand(parentName string) *cobra.Command {
 					return err // 返回生成代码时的错误
 				}
 
-				g := &modelGenerator{
+				var g = &modelGenerator{
 					codes:   codes,   // 生成的代码
 					outPath: outPath, // 输出目录
 				}
@@ -75,18 +88,24 @@ func ModelCommand(parentName string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动，支持 mysql")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，例如 user:password@(host:port)/database") //nolint
+	// --db-driver / -k: 数据库驱动类型
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动类型，当前支持 mysql")
+	// --db-dsn / -d: 数据库连接地址
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database") //nolint
 	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "表名，多个表名用逗号分隔")
+	// --db-table / -t: 数据库表名
+	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "数据库表名，多个表用逗号分隔")
 	if err := cmd.MarkFlagRequired("db-table"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
+	// --embed / -e: 是否嵌入 gorm.Model
 	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "是否嵌入 gorm.Model 结构体")
-	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "JSON 标签名称类型，0: snake case, 1: camel case")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "输出目录，默认为 ./model_<时间>")
+	// --json-name-type / -j: JSON 标签命名风格
+	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "JSON 标签命名风格，0:下划线, 1:驼峰")
+	// --out / -o: 输出目录
+	cmd.Flags().StringVarP(&outPath, "out", "o", "", "输出目录，默认为 ./model_<时间戳>")
 
 	return cmd
 }
@@ -99,34 +118,40 @@ type modelGenerator struct {
 
 // generateCode 生成模型代码
 func (g *modelGenerator) generateCode() (string, error) {
-	subTplName := codeNameModel     // 子模板名称
+	subTplName := codeNameModel // 子模板名称
 	r := Replacers[TplNameSunshine] // 获取替换器
 	if r == nil {
-		return "", errors.New("replacer is nil") // 替换器为空时返回错误
+		return "", errors.New("replacer is nil")
 	}
 
 	// 指定子目录和文件
 	var subDirs []string
 	subFiles := []string{"internal/model/userExample.go"}
 
-	r.SetSubDirsAndFiles(subDirs, subFiles...) // 设置子目录和文件
-	fields := g.addFields(r)                   // 添加替换字段
-	r.SetReplacementFields(fields)             // 设置替换字段
+	r.SetSubDirsAndFiles(subDirs, subFiles...)
+	// 设置输出目录
 	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
 		return "", err
 	}
+	// 构建字段替换规则
+	fields := g.addFields(r)
+	// 应用替换规则
+	r.SetReplacementFields(fields)
+	// 保存文件
 	if err := r.SaveFiles(); err != nil {
-		return "", err // 保存文件时返回错误
+		return "", err
 	}
 
-	return r.GetOutputDir(), nil // 返回输出目录
+	return r.GetOutputDir(), nil
 }
 
 // addFields 添加替换字段
 func (g *modelGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...) // 删除标记字段
+	// 删除模板中的编译占位代码
+	fields = append(fields, genDeleteMarkFields(r, modelFile, startMark, endMark)...)
+	// 添加核心字段替换规则
 	fields = append(fields, []replacer.Field{
 		{ // 替换 model/userExample.go 文件的内容
 			Old: modelFileMark,

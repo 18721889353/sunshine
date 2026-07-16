@@ -10,10 +10,9 @@ import (
 func MergeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "merge",
-		Short: "Merge the generated code into the template file",
-		Long: `Merge the generated code into the template file, you don't worry about it affecting
-the logic code you have already written, in case of accidents, you can find the
-pre-merge code in the directory /tmp/sunshine_merge_backup_code`,
+		Short: "合并生成的代码到模板文件",
+		Long: `合并生成的代码到模板文件，不会影响已编写的逻辑代码。
+合并前会自动备份到 /tmp/sunshine_merge_backup_code 目录。`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}

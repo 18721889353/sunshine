@@ -11,13 +11,20 @@ func GinHandlerCode() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "http-pb",
-		Short: "Merge the generated http related code into the template file",
-		Long:  "Merge the generated http related code into the template file.",
-		Example: color.HiBlackString(`  # Merge go template file in local server directory
-  sunshine merge http-pb
+		Short: "合并生成的 HTTP 相关代码到模板文件",
+		Long:  "合并生成的 HTTP 相关代码到模板文件。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：合并 HTTP 代码到模板文件
+  # 会自动备份到 /tmp/sunshine_merge_backup_code
+  # =====================================================================
+  sunshine merge http-pb \
+    --dir=/path/to/server/directory
 
-  # Merge go template file in specified directory
-  sunshine merge http-pb --dir=/path/to/server/directory`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir   输入目录（可选，默认当前目录）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -29,7 +36,7 @@ func GinHandlerCode() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "input directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", ".", "输入目录")
 
 	return cmd
 }

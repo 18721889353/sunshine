@@ -24,23 +24,26 @@ func ModifyProtoPackageCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "modify-proto-package",
-		Short: "Modifies the package and go_package names of proto files",
-		Long:  "Modifies the package and go_package names of proto files.",
-		Example: color.HiBlackString(`  # Modify the package and go_package names of all proto files in the api directory.
-  sunshine patch modify-proto-package --dir=api --module-name=foo
+		Short: "修改 proto 文件的 package 和 go_package 名称",
+		Long:  "修改 proto 文件的 package 和 go_package 名称。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：修改 proto 文件的 package 和 go_package 名称
+  # =====================================================================
+  sunshine patch modify-proto-package \
+    --dir=api \
+    --module-name=yourModuleName \
+    --server-dir=server
 
-  # Modify the package and go_package names of all proto files in the api directory, get module name from docs/gen.
-  sunshine patch modify-proto-package --dir=api --server-dir=server`),
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir         输入目录（必填）
+  #   --module-name Go 模块名（必填）
+  #   --server-dir  服务目录（可选），从 docs/gen.info 获取模块名
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if serverDir != "" {
-				mdName, _, _ := getNamesFromOutDir(serverDir)
-				if mdName != "" {
-					moduleName = mdName
-				}
-			}
-
 			if moduleName == "" {
 				return errors.New("'module-name' is required")
 			}
@@ -74,12 +77,12 @@ func ModifyProtoPackageCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", "", "input specified directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", "", "输入目录")
 	if err := cmd.MarkFlagRequired("dir"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&serverDir, "server-dir", "s", "", "server directory, get module name and server name from docs/gen.info")
-	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "go module name")
+	cmd.Flags().StringVarP(&serverDir, "server-dir", "s", "", "服务目录，从 docs/gen.info 获取模块名和服务名")
+	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "Go 模块名")
 
 	return cmd
 }

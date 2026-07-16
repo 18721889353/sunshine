@@ -35,34 +35,45 @@ func HandlerPbCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "handler-pb",
-		Short: "Generate handler and protobuf CRUD code based on sql",
-		Long:  "Generate handler and protobuf CRUD code based on sql.",
-		Example: color.HiBlackString(`  # Generate handler and protobuf code.
-  sunshine web handler-pb --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user
+		Short: "基于 SQL 生成 Handler 和 Protobuf CRUD 代码",
+		Long:  "基于 SQL 表结构自动生成 Handler 和 Protobuf CRUD 代码。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：根据数据库表生成 Handler + Protobuf CRUD 代码
+  # 执行后会生成: internal/handler/、internal/dao/、internal/cache/、api/xxx/v1/ 等
+  # =====================================================================
+  sunshine web handler-pb \
+    --module-name=yourModuleName \
+    --server-name=yourServerName \
+    --db-driver=mysql \
+    --db-dsn=root:123456@(192.168.3.37:3306)/test \
+    --db-table=user \
+    --embed=true \
+    --extended-api=true \
+    --json-name-type=1 \
+    --suited-mono-repo=false \
+    --out=./yourServerDir
 
-  # Generate handler and protobuf code with multiple table names.
-  sunshine web handler-pb --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=t1,t2
 
-  # Generate handler and protobuf code with extended api.
-  sunshine web handler-pb --module-name=yourModuleName --server-name=yourServerName --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --extended-api=true
-
-  # Generate handler and protobuf code and specify the server directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine web handler-pb --db-driver=mysql --db-dsn=root:123456@(192.168.3.37:3306)/test --db-table=user --out=./yourServerDir
-
-  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
+  # =====================================================================
+  # 参数说明：
+  #   --module-name     Go 模块名（必填），对应 go.mod 中的 module 声明
+  #   --server-name     服务名（必填）
+  #   --db-driver       数据库驱动类型（默认 mysql）
+  #   --db-dsn          数据库连接地址（必填）
+  #   --db-table        数据库表名（必填），多表用逗号分隔
+  #   --embed           是否嵌入 gorm.Model 结构体（可选，默认 false）
+  #   --extended-api    是否生成扩展 CRUD API（可选，默认 false）
+  #   --suited-mono-repo 是否适配单体仓库结构（可选，默认 false）
+  #   --json-name-type  JSON 标签风格，0:下划线, 1:驼峰（可选，默认 1）
+  #   --out             输出目录（可选，默认 ./handler-pb_<时间戳>）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			mdName, srvName, smr := getNamesFromOutDir(outPath)
-			if mdName != "" {
-				moduleName = mdName
-				suitedMonoRepo = smr
-			} else if moduleName == "" {
+			if moduleName == "" {
 				return errors.New(`required flag(s) "module-name" not set, use "sunshine web handler-pb -h" for help`)
 			}
-			if srvName != "" {
-				serverName = srvName
-			} else if serverName == "" {
+			if serverName == "" {
 				return errors.New(`required flag(s) "server-name" not set, use "sunshine web handler-pb -h" for help`)
 			}
 
@@ -83,7 +94,7 @@ func HandlerPbCommand() *cobra.Command {
 					return err
 				}
 
-				g := &handlerPbGenerator{
+				var g = &handlerPbGenerator{
 					moduleName:     moduleName,
 					serverName:     serverName,
 					dbDriver:       sqlArgs.DBDriver,
@@ -112,24 +123,24 @@ using help:
 		},
 	}
 
-	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
+	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "Go 模块名，对应 go.mod 文件中的 module 声明")
 	//_ = cmd.MarkFlagRequired("module-name")
-	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
+	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "服务名称")
 	//_ = cmd.MarkFlagRequired("server-name")
-	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "database driver, support mysql")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "database content address, e.g. user:password@(host:port)/database") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动类型，当前支持 mysql")
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database") //nolint
 	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "table name, multiple names separated by commas")
+	cmd.Flags().StringVarP(&dbTables, "db-table", "t", "", "数据库表名，多个表名用逗号分隔")
 	if err := cmd.MarkFlagRequired("db-table"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "whether to embed gorm.model struct")
-	cmd.Flags().BoolVarP(&sqlArgs.IsExtendedAPI, "extended-api", "a", false, "whether to generate extended crud api, additional includes: DeleteByIDs, GetByCondition, ListByIDs, ListByLatestID")
-	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "whether the generated code is suitable for mono-repo")
-	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "json tags name type, 0:snake case, 1:camel case")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./handler-pb_<time>, "+flagTip("module-name", "server-name"))
+	cmd.Flags().BoolVarP(&sqlArgs.IsEmbed, "embed", "e", false, "是否嵌入 gorm.Model 结构体")
+	cmd.Flags().BoolVarP(&sqlArgs.IsExtendedAPI, "extended-api", "a", false, "是否生成扩展 CRUD API，额外包含: DeleteByIDs, GetByCondition, ListByIDs, ListByLatestID")
+	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "是否适配单体仓库结构")
+	cmd.Flags().IntVarP(&sqlArgs.JSONNamedType, "json-name-type", "j", 1, "JSON 标签命名风格，0:下划线, 1:驼峰")
+	cmd.Flags().StringVarP(&outPath, "out", "o", "", "输出目录，默认为 ./handler-pb_<时间戳>，"+flagTip("module-name", "server-name"))
 
 	return cmd
 }
@@ -147,6 +158,7 @@ type handlerPbGenerator struct {
 	fields []replacer.Field
 }
 
+// generateCode 生成 Handler + Protobuf 代码
 func (g *handlerPbGenerator) generateCode() (string, error) {
 	subTplName := codeNameHandlerPb
 	r, err := replacer.New(SunshineDir)
@@ -161,9 +173,9 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 		g.serverName = g.moduleName
 	}
 
-	// specify the subdirectory and files
-	subDirs := []string{}
-	subFiles := []string{}
+	// 指定子目录和文件
+	var subDirs []string
+	var subFiles []string
 
 	selectFiles := map[string][]string{
 		"api/serverNameExample/v1": {
@@ -243,11 +255,15 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 	subFiles = append(subFiles, getSubFiles(selectFiles, replaceFiles)...)
 
 	r.SetSubDirsAndFiles(subDirs, subFiles...)
+	// 设置输出目录
 	if err := r.SetOutputDir(g.outPath, subTplName); err != nil {
 		return "", err
 	}
+	// 构建字段替换规则
 	fields := g.addFields(r)
+	// 应用替换规则
 	r.SetReplacementFields(fields)
+	// 保存文件
 	if err := r.SaveFiles(); err != nil {
 		return "", err
 	}
@@ -261,15 +277,18 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 	return r.GetOutputDir(), nil
 }
 
+// addFields 添加字段替换规则
 func (g *handlerPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
+	// 合并预定义的替换字段
 	fields = append(fields, g.fields...)
-	fields = append(fields, deleteFieldsMark(r, modelFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, daoTestFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerLogicFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, handlerPbTestFile, startMark, endMark)...)
-	fields = append(fields, deleteFieldsMark(r, protoFile, startMark, endMark)...)
+	// 删除模板中的编译占位代码
+	fields = append(fields, genDeleteMarkFields(r, modelFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, daoFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, daoTestFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, handlerLogicFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, handlerPbTestFile, startMark, endMark)...)
+	fields = append(fields, genDeleteMarkFields(r, protoFile, startMark, endMark)...)
 	fields = append(fields, []replacer.Field{
 		{ // replace the contents of the model/userExample.go file
 			Old: modelFileMark,

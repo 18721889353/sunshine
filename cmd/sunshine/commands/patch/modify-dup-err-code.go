@@ -21,10 +21,19 @@ func ModifyDuplicateErrCodeCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "modify-dup-err-code",
-		Short: "Modify duplicate error codes",
-		Long:  "Modify duplicate error codes.",
-		Example: color.HiBlackString(`  # Modify duplicate error codes
-  sunshine patch modify-dup-err-code --dir=internal/ecode`),
+		Short: "修改重复的错误码",
+		Long:  "修改重复的错误码，自动递增到不重复的值。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：修改重复的错误码
+  # =====================================================================
+  sunshine patch modify-dup-err-code \
+    --dir=internal/ecode
+
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir   输入目录（可选，默认 internal/ecode）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -48,7 +57,7 @@ func ModifyDuplicateErrCodeCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", "internal/ecode", "input directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", "internal/ecode", "输入目录")
 
 	return cmd
 }

@@ -26,18 +26,32 @@ func RPCPbCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "rpc-pb",
-		Short: "Generate grpc service code based on protobuf file",
-		Long:  "Generate grpc service code based on protobuf file.",
-		Example: color.HiBlackString(`  # Generate grpc service code.
-  sunshine micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto
+		Short: "根据 protobuf 文件生成 gRPC 服务代码",
+		Long:  "根据 protobuf 文件生成 gRPC 服务代码。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：根据 protobuf 文件生成 gRPC 服务代码
+  # 执行后会生成: internal/server/（grpc.go）、internal/service/、internal/ecode/ 等
+  # =====================================================================
+  sunshine micro rpc-pb \
+    --module-name=yourModuleName \
+    --server-name=yourServerName \
+    --project-name=yourProjectName \
+    --protobuf-file=./demo.proto \
+    --repo-addr=192.168.3.37:9443/user-name \
+    --suited-mono-repo=false \
+    --out=./yourServerDir
 
-  # Generate grpc service code and specify the output directory, Note: code generation will be canceled when the latest generated file already exists.
-  sunshine micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --protobuf-file=./demo.proto --out=./yourServerDir
 
-  # Generate grpc service code and specify the docker image repository address.
-  sunshine micro rpc-pb --module-name=yourModuleName --server-name=yourServerName --project-name=yourProjectName --repo-addr=192.168.3.37:9443/user-name --protobuf-file=./demo.proto
-
-  # If you want the generated code to suited to mono-repo, you need to set the parameter --suited-mono-repo=true`),
+  # =====================================================================
+  # 参数说明：
+  #   --module-name     Go 模块名（必填），对应 go.mod 中的 module 声明
+  #   --server-name     服务名（必填）
+  #   --project-name    项目名（必填），用于部署名称
+  #   --protobuf-file   proto 文件路径（必填），支持 * 通配符
+  #   --suited-mono-repo 是否适配单体仓库结构（可选，默认 false）
+  #   --repo-addr       Docker 镜像仓库地址（可选），不含 http 和仓库名
+  #   --out             输出目录（可选，默认 ./serverName_rpc-pb_<时间戳>）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -51,7 +65,7 @@ func RPCPbCommand() *cobra.Command {
 				outPath = changeOutPath(outPath, serverName)
 			}
 
-			g := &rpcPbGenerator{
+			var g = &rpcPbGenerator{
 				moduleName:   moduleName,
 				serverName:   serverName,
 				projectName:  projectName,
@@ -73,25 +87,25 @@ func RPCPbCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "module-name is the name of the module in the go.mod file")
+	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "Go 模块名，对应 go.mod 文件中的 module 声明")
 	if err := cmd.MarkFlagRequired("module-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "server name")
+	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "服务名称")
 	if err := cmd.MarkFlagRequired("server-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "project name")
+	cmd.Flags().StringVarP(&projectName, "project-name", "p", "", "项目名称，用于部署名称")
 	if err := cmd.MarkFlagRequired("project-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&protobufFile, "protobuf-file", "f", "", "proto file")
+	cmd.Flags().StringVarP(&protobufFile, "protobuf-file", "f", "", "proto 文件路径，支持 * 通配符")
 	if err := cmd.MarkFlagRequired("protobuf-file"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "whether the generated code is suitable for mono-repo")
-	cmd.Flags().StringVarP(&repoAddr, "repo-addr", "r", "", "docker image repository address, excluding http and repository names")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "", "output directory, default is ./serverName_rpc-pb_<time>")
+	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "是否适配单体仓库结构")
+	cmd.Flags().StringVarP(&repoAddr, "repo-addr", "r", "", "Docker 镜像仓库地址，不含 http 和仓库名")
+	cmd.Flags().StringVarP(&outPath, "out", "o", "", "输出目录，默认为 ./serverName_rpc-pb_<时间戳>")
 
 	return cmd
 }
@@ -186,7 +200,6 @@ func (g *rpcPbGenerator) generateCode() error {
 		}
 	}
 
-
 	if err = saveProtobufFiles(g.moduleName, g.serverName, g.suitedMonoRepo, r.GetOutputDir(), protobufFiles); err != nil {
 		return err
 	}
@@ -211,18 +224,18 @@ func (g *rpcPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 
 	repoHost, _ := parseImageRepoAddr(g.repoAddr)
 
-	fields = append(fields, deleteFieldsMark(r, dockerFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, dockerFileBuild, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, dockerComposeFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, k8sDeploymentFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, k8sServiceFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, imageBuildFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, imageBuildLocalFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteAllFieldsMark(r, makeFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteFieldsMark(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
-	fields = append(fields, deleteAllFieldsMark(r, protoShellFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, dockerFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, dockerFileBuild, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, dockerComposeFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, k8sDeploymentFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, k8sServiceFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, imageBuildFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, imageBuildLocalFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteAllMarkFields(r, makeFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteMarkFields(r, gitIgnoreFile, wellStartMark, wellEndMark)...)
+	fields = append(fields, genDeleteAllMarkFields(r, protoShellFile, wellStartMark, wellEndMark)...)
 
-	//fields = append(fields, deleteFieldsMark(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
+	//fields = append(fields, genDeleteMarkFields(r, deploymentConfigFile, wellStartMark, wellEndMark)...)
 	fields = append(fields, replaceFileContentMark(r, readmeFile,
 		setReadmeTitle(g.moduleName, g.serverName, codeNameGRPCPb, g.suitedMonoRepo))...)
 	fields = append(fields, []replacer.Field{
@@ -333,7 +346,6 @@ func (g *rpcPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 			New: "",
 		},
 	}...)
-
 
 	if g.suitedMonoRepo {
 		fs := serverCodeFields(codeNameGRPCPb, g.moduleName, g.serverName)

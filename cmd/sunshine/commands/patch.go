@@ -10,8 +10,8 @@ import (
 func PatchCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "patch",
-		Short:         "Patch the generated code",
-		Long:          `Patch the generated code.`,
+		Short:         "修补生成的代码",
+		Long:          `修补生成的代码。`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}

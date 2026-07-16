@@ -20,10 +20,19 @@ func ModifyDuplicateNumCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "modify-dup-num",
-		Short: "Modify duplicate numbers",
-		Long:  "Modify duplicate numbers.",
-		Example: color.HiBlackString(`  # Modify duplicate numbers
-  sunshine patch modify-dup-num --dir=internal/ecode`),
+		Short: "修改重复的序号",
+		Long:  "修改重复的序号，自动调整为不重复的值。",
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：修改重复的序号
+  # =====================================================================
+  sunshine patch modify-dup-num \
+    --dir=internal/ecode
+
+
+  # =====================================================================
+  # 参数说明：
+  #   --dir   输入目录（可选，默认 internal/ecode）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -44,7 +53,7 @@ func ModifyDuplicateNumCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&dir, "dir", "d", "internal/ecode", "input directory")
+	cmd.Flags().StringVarP(&dir, "dir", "d", "internal/ecode", "输入目录")
 
 	return cmd
 }

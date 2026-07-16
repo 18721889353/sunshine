@@ -124,36 +124,3 @@ func NewHTTPServer(addr string, opts ...HTTPOption) app.IServer {
 		instance:  o.instance,
 	}
 }
-
-// delete the templates code start
-
-// NewHTTPServer_pbExample creates a new web server
-func NewHTTPServer_pbExample(addr string, opts ...HTTPOption) app.IServer { //nolint
-	o := defaultHTTPOptions()
-	o.apply(opts...)
-
-	if o.isProd {
-		gin.SetMode(gin.ReleaseMode)
-	} else {
-		gin.SetMode(gin.DebugMode)
-	}
-
-	router := routers.NewRouter_pbExample()
-	server := &http.Server{
-		Addr:    addr,
-		Handler: router,
-		//ReadTimeout:    time.Second*30,
-		//WriteTimeout:   time.Second*60,
-		IdleTimeout:    time.Second * 60, //当 HTTP 连接在 60 秒内没有任何活动时，服务器将主动关闭该连接
-		MaxHeaderBytes: 1 << 20,
-	}
-
-	return &httpServer{
-		addr:      addr,
-		server:    server,
-		iRegistry: o.iRegistry,
-		instance:  o.instance,
-	}
-}
-
-// delete the templates code end

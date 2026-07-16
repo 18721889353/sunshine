@@ -68,17 +68,10 @@ func CacheCommand(parentName string) *cobra.Command {
   # 提示：
   #   - value-type 为 *User 等指针类型时，自动使用 "variable := &Type{}" 声明
   #   - 如果 --out 目录已有 docs/gen.info 文件，会自动读取 moduleName 等配置
-`, parentName, parentName)),
+`, parentName)),
 		// 命令执行逻辑
 		RunE: func(_ *cobra.Command, _ []string) error {
-			// 从输出目录中读取之前保存的模块名和服务器名（如果存在）
-			mdName, srvName, smr := getNamesFromOutDir(outPath)
-			if mdName != "" {
-				// 如果目录中存在 gen.info 文件，使用其中保存的配置
-				moduleName = mdName
-				serverName = srvName
-				suitedMonoRepo = smr
-			} else if moduleName == "" {
+			if moduleName == "" {
 				// 否则必须通过命令行参数指定模块名
 				return errors.New(`required flag(s) "module-name" not set, use "sunshine micro cache -h" for help`)
 			}
@@ -142,24 +135,24 @@ using help:
 	cmd.Flags().StringVarP(&moduleName, "module-name", "m", "", "模块名称，对应 go.mod 文件中的 module 声明")
 	cmd.Flags().StringVarP(&cacheName, "cache-name", "c", "", "缓存业务名称，例如 userToken")
 	if err := cmd.MarkFlagRequired("cache-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
 	cmd.Flags().StringVarP(&prefixKey, "prefix-key", "p", "", "Redis 缓存键前缀，例如 user:token")
 	cmd.Flags().StringVarP(&keyName, "key-name", "k", "", "缓存键的参数名，例如 id、uid")
 	if err := cmd.MarkFlagRequired("key-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
 	cmd.Flags().StringVarP(&keyType, "key-type", "t", "", "缓存键的 Go 类型，例如 uint64、string")
 	if err := cmd.MarkFlagRequired("key-type"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
 	cmd.Flags().StringVarP(&valueName, "value-name", "v", "", "缓存值的变量名，例如 token、data")
 	if err := cmd.MarkFlagRequired("value-name"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
 	cmd.Flags().StringVarP(&valueType, "value-type", "w", "", "缓存值的 Go 类型，例如 string、*User")
 	if err := cmd.MarkFlagRequired("value-type"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
 	cmd.Flags().StringVarP(&serverName, "server-name", "s", "", "服务器名称，用于单体仓库模式")
 	cmd.Flags().BoolVarP(&suitedMonoRepo, "suited-mono-repo", "l", false, "是否适配单体仓库结构")
@@ -202,7 +195,7 @@ func (g *stringCacheGenerator) generateCode() (string, error) {
 
 	// 指定要处理的子目录和文件列表
 	// 这里只处理 cacheNameExample.go 模板文件
-	subDirs := []string{}
+	var subDirs []string
 	subFiles := []string{"internal/cache/cacheNameExample.go"}
 
 	// 配置替换器的子目录和文件
@@ -225,16 +218,29 @@ func (g *stringCacheGenerator) generateCode() (string, error) {
 }
 
 // addFields 构建缓存代码生成的字段替换规则
-// 该函数负责将模板中的占位符替换为实际的模块名、缓存名、键值类型等信息
+//
+// 依次添加以下替换规则：
+//  1. 删除模板中的编译占位代码块
+//  2. 处理值类型为指针时的特殊变量声明和取地址操作
+//  3. 添加核心字段替换规则（导入路径、接口名、结构体名、缓存名、键值类型等）
+//  4. 如果是单体仓库结构，添加服务器子目录路径替换规则
+//
+// 参数：
+//
+//	r - 替换器实例，用于获取文件列表
+//
+// 返回值：
+//
+//	[]replacer.Field - 字段替换规则列表
 func (g *stringCacheGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	var fields []replacer.Field
 
-	// 删除模板文件中标记的代码块（用于让 sunshine 项目本身能够编译通过的占位代码）
-	fields = append(fields, deleteFieldsMark(r, cacheFile, startMark, endMark)...)
+	// 生成删除模板文件中标记的代码块（用于让 sunshine 项目本身能够编译通过的占位代码）
+	fields = append(fields, genDeleteMarkFields(r, cacheFile, startMark, endMark)...)
 
 	// 处理值类型为指针的特殊情况（如 *User、*Token 等）
 	// 当 valueType 以 '*' 开头时，需要特殊处理变量声明和取地址操作
-	if g.valueType[0] == '*' {
+	if len(g.valueType) > 0 && g.valueType[0] == '*' {
 		fields = append(fields, []replacer.Field{
 			{
 				// 将 "var valueNameExample valueTypeExample" 替换为 "token := &SomeType{}"

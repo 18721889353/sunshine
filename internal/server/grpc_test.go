@@ -90,6 +90,10 @@ func TestGRPCServerMock(t *testing.T) {
 
 type gRegistry struct{}
 
+func (g gRegistry) Close() error {
+	return nil
+}
+
 func (g gRegistry) Register(ctx context.Context, service *registry.ServiceInstance) error {
 	return nil
 }

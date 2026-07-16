@@ -32,18 +32,29 @@ func CopyProtoCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "copy-proto",
-		Short: "Copy proto file from the grpc service directory",
-		Long: `Copy proto file from the grpc service, if the proto file exists, it will be forced to overwrite it,
-don't worry about losing the proto file after overwriting it, before copying proto it will be backed up to 
-the directory /tmp/sunshine_copy_backup_proto_files.`,
-		Example: color.HiBlackString(`  # Copy all proto files from a grpc service directory
-  sunshine patch copy-proto --server-dir=../grpc-server
+		Short: "从 gRPC 服务目录复制 proto 文件",
+		Long: `从 gRPC 服务目录复制 proto 文件，如果文件已存在则强制覆盖。
+覆盖前会自动备份到 /tmp/sunshine_copy_backup_proto_files 目录。`,
+		Example: color.HiBlackString(`  # =====================================================================
+  # 基本用法：从 gRPC 服务目录复制 proto 文件
+  # 覆盖前会自动备份到 /tmp/sunshine_copy_backup_proto_files
+  # =====================================================================
+  sunshine patch copy-proto \
+    --server-dir=../grpc-server \
+    --proto-file=name1.proto,name2.proto \
+    --target-module=yourModuleName \
+    --version-folder=v1 \
+    --out=api
 
-  # Copy all proto files from multiple grpc services directory
-  sunshine patch copy-proto --server-dir=../grpc-server1,../rpc-server2
 
-  # Copy the specified proto files in the grpc service directory
-  sunshine patch copy-proto --server-dir=../grpc-server --proto-file=name1.proto,name2.proto`),
+  # =====================================================================
+  # 参数说明：
+  #   --server-dir     gRPC 服务目录（必填），多个用逗号分隔
+  #   --proto-file     指定 proto 文件名（可选），多个用逗号分隔，为空则复制全部
+  #   --target-module  目标模块名（可选），默认从 docs/gen.info 读取
+  #   --version-folder proto 文件版本目录（可选，默认 v1）
+  #   --out            输出目录（可选，默认 api）
+`),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(_ *cobra.Command, _ []string) error {
@@ -97,14 +108,14 @@ the directory /tmp/sunshine_copy_backup_proto_files.`,
 		},
 	}
 
-	cmd.Flags().StringVarP(&serverDir, "server-dir", "s", "", "server directory, multiple names separated by commas")
+	cmd.Flags().StringVarP(&serverDir, "server-dir", "s", "", "gRPC 服务目录，多个用逗号分隔")
 	if err := cmd.MarkFlagRequired("server-dir"); err != nil {
-		fmt.Printf("mark flag required error: %v\n", err)
+		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
-	cmd.Flags().StringVarP(&protoFile, "proto-file", "p", "", "proto files, multiple names separated by commas")
-	cmd.Flags().StringVarP(&targetModule, "target-module", "t", "", "target module name, same module name as the target project's go.mod")
-	cmd.Flags().StringVarP(&versionFolder, "version-folder", "v", "v1", "proto file version folder")
-	cmd.Flags().StringVarP(&outPath, "out", "o", "api", "output directory, if the proto file already exists, it will be overwritten directly")
+	cmd.Flags().StringVarP(&protoFile, "proto-file", "p", "", "proto 文件名，多个用逗号分隔")
+	cmd.Flags().StringVarP(&targetModule, "target-module", "t", "", "目标模块名，与目标项目 go.mod 的 module 一致")
+	cmd.Flags().StringVarP(&versionFolder, "version-folder", "v", "v1", "proto 文件版本目录")
+	cmd.Flags().StringVarP(&outPath, "out", "o", "api", "输出目录，如果 proto 文件已存在则直接覆盖")
 	return cmd
 }
 
