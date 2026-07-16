@@ -63,13 +63,14 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 
 	r.Use(gin.Recovery())
 	r.Use(middleware.Cors())
+	cfg := config.Get()
 
-	if config.Get().HTTP.Timeout > 0 {
+	if cfg.HTTP.Timeout > 0 {
 		// if you need more fine-grained control over your routes, set the timeout in your routes, unsetting the timeout globally here.
-		r.Use(middleware.Timeout(time.Second * time.Duration(config.Get().HTTP.Timeout)))
+		r.Use(middleware.Timeout(time.Second * time.Duration(cfg.HTTP.Timeout)))
 	}
 
-	if config.Get().App.Env != "prod" {
+	if cfg.App.Env != "prod" {
 		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
 		// access path /apis/swagger/index.html
 		swagger.CustomRouter(r, "apis", docs.ApiDocs)
@@ -82,7 +83,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.GET("/codes", handlerfunc.ListCodes)
 
 	// profile performance analysis
-	if config.Get().App.EnableHTTPProfile {
+	if cfg.App.EnableHTTPProfile {
 		prof.Register(r, prof.WithIOWaitTime())
 	}
 
@@ -90,33 +91,33 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
 
 	// trace middleware（必须在 Logging 之前注册，这样 Logging 才能获取到 trace_id）
-	if config.Get().App.EnableTrace {
-		r.Use(middleware.Tracing(config.Get().App.Name))
-		//r.Use(otelgin.Middleware(config.Get().App.Name))
+	if cfg.App.EnableTrace {
+		r.Use(middleware.Tracing(cfg.App.Name))
+		//r.Use(otelgin.Middleware(cfg.App.Name))
 	}
 
 	// logger middleware, to print simple messages, replace middleware.Logging with middleware.SimpleLog
 	r.Use(middleware.Logging(
-		middleware.WithMaxLen(config.Get().Logger.MaxLen),
-		middleware.WithLogFrom(config.Get().App.Name+"_"+utils.GetLocalIP()),
+		middleware.WithMaxLen(cfg.Logger.MaxLen),
+		middleware.WithLogFrom(cfg.App.Name+"_"+utils.GetLocalIP()),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
 	// 将签名添加为全局中间件
-	if config.Get().App.OpenSign {
+	if cfg.App.OpenSign {
 		r.Use(
 			middleware.VerifySignatureMiddleware(
-				middleware.WithSignKey(config.Get().Sign.SignKey),
-				middleware.WithIgnoreURL(config.Get().Sign.IgnoreUrls.HTTP...),
-				middleware.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
+				middleware.WithSignKey(cfg.Sign.SignKey),
+				middleware.WithIgnoreURL(cfg.Sign.IgnoreUrls.HTTP...),
+				middleware.WithSignExpiredTime(time.Duration(cfg.Sign.SignExpiredTime)*time.Second),
 			),
 		)
 	}
 	// 将XSSMiddleware添加为全局中间件
-	if config.Get().App.OpenXSS {
+	if cfg.App.OpenXSS {
 		r.Use(middleware.XSSCrossMiddleware())
 	}
 	// metrics middleware
-	if config.Get().App.EnableMetrics {
+	if cfg.App.EnableMetrics {
 		r.Use(metrics.Metrics(r,
 			//metrics.WithMetricsPath("/metrics"),                // default is /metrics
 			metrics.WithIgnoreStatusCodes(http.StatusNotFound), // ignore 404 status codes
@@ -124,20 +125,20 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	}
 
 	// limit middleware
-	if config.Get().App.EnableLimit {
+	if cfg.App.EnableLimit {
 		r.Use(
 			middleware.SentinelMiddleware(
 				middleware.WithSentinelResourceExtractor(func(c *gin.Context) string {
 					return c.FullPath()
 				}),
-				middleware.WithSentinelRules(config.Get().Sentinel.Rules),
+				middleware.WithSentinelRules(cfg.Sentinel.Rules),
 			),
 		)
 		//r.Use(middleware.RateLimit())
 	}
 
 	// circuit breaker middleware
-	if config.Get().App.EnableCircuitBreaker {
+	if cfg.App.EnableCircuitBreaker {
 		r.Use(middleware.CircuitBreaker(
 			// set http code for circuit breaker, default already includes 500 and 503
 			middleware.WithValidCode(errcode.InternalServerError.Code()),
@@ -145,12 +146,12 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		))
 	}
 
-	if config.Get().App.OpenJwt {
+	if cfg.App.OpenJwt {
 		//全局权限验证
 		r.Use(
 			middleware.Auth(
 				middleware.WithSwitchHTTPCode(),
-				middleware.WithJwtIgnoreMethods(config.Get().Jwt.IgnoreMethods.HTTP...)),
+				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...)),
 		)
 	}
 	//r.Use(middleware.APILogMiddleware(middleware.WithApiLogFunc(customLogFunc)))

@@ -152,6 +152,9 @@ func (g *rpcPbGenerator) generateCode() error {
 		"internal/config": {
 			"serverNameExample.go",
 		},
+		"internal/database": {
+			"snow.go",
+		},
 		"internal/ecode": {
 			"systemCode_rpc.go",
 		},

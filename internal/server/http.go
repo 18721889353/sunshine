@@ -97,7 +97,14 @@ func (s *httpServer) String() string {
 	return "http service address " + s.addr
 }
 
-// NewHTTPServer creates a new http server
+// NewHTTPServer 创建并返回一个 HTTP 服务实例。
+//
+// 参数:
+//   - addr: 监听地址，格式为 ":port"。
+//   - opts: 可选参数，支持设置生产环境标识、注册中心、超时等选项。
+//
+// 返回值:
+//   - app.IServer: HTTP 服务接口实例。
 func NewHTTPServer(addr string, opts ...HTTPOption) app.IServer {
 	o := defaultHTTPOptions()
 	o.apply(opts...)
@@ -108,13 +115,16 @@ func NewHTTPServer(addr string, opts ...HTTPOption) app.IServer {
 		gin.SetMode(gin.DebugMode)
 	}
 
+	// 配置 http.Server 超时参数：读超时、写超时、请求头超时、空闲超时
 	router := routers.NewRouter()
 	server := &http.Server{
 		Addr:    addr,
 		Handler: router,
-		//ReadTimeout:    time.Second*30,
-		//WriteTimeout:   time.Second*60,
-		MaxHeaderBytes: 1 << 20,
+		ReadTimeout:       o.readTimeout,
+		WriteTimeout:      o.writeTimeout,
+		ReadHeaderTimeout: o.readHeaderTimeout,
+		IdleTimeout:       o.idleTimeout,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	return &httpServer{

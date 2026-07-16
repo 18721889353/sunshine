@@ -429,6 +429,15 @@ type SMTP struct {
 	Username string `yaml:"username" json:"username"`
 }
 
+type HTTP struct {
+	IdleTimeout       int `yaml:"idleTimeout" json:"idleTimeout"`
+	Port              int `yaml:"port" json:"port"`
+	ReadHeaderTimeout int `yaml:"readHeaderTimeout" json:"readHeaderTimeout"`
+	ReadTimeout       int `yaml:"readTimeout" json:"readTimeout"`
+	Timeout           int `yaml:"timeout" json:"timeout"`
+	WriteTimeout      int `yaml:"writeTimeout" json:"writeTimeout"`
+}
+
 type Sign struct {
 	IgnoreUrls      IgnoreMethods `yaml:"ignoreUrls" json:"ignoreUrls"`
 	SignExpiredTime int           `yaml:"signExpiredTime" json:"signExpiredTime"`
@@ -450,11 +459,6 @@ type NacosClient struct {
 
 type DeadQueueBindOption struct {
 	NoWait bool `yaml:"noWait" json:"noWait"`
-}
-
-type HTTP struct {
-	Port    int `yaml:"port" json:"port"`
-	Timeout int `yaml:"timeout" json:"timeout"`
 }
 
 type Queue struct {

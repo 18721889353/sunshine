@@ -24,7 +24,11 @@ app:
 # http服务设置
 http:
   port: 8001                      # 监听端口
-  timeout: 0                      # 请求超时时间(秒), 如果为0表示不设置, 如果大于0表示设置超时时间, 如果enableHTTPProfile为true, 需要设置为0或大于60秒
+  timeout: 0                      # Gin 中间件请求超时(秒), 0=不限制, 如果enableHTTPProfile为true需设为0或大于60
+  readTimeout: 10                  # http.Server 读取超时(秒), 0=不限制, 建议 >= timeout
+  writeTimeout: 10                 # http.Server 写入超时(秒), 0=不限制, 建议 > timeout 避免与中间件超时竞态
+  readHeaderTimeout: 5            # http.Server 请求头读取超时(秒), 0=不限制, 建议 5-10s 防范慢攻击
+  idleTimeout: 60                  # http.Server keep-alive 空闲超时(秒), 0=不限制, 建议 60-120s 防连接泄漏
 
 # grpc服务设置
 grpc:

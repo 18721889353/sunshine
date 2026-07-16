@@ -3,6 +3,7 @@ package initial
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
 
@@ -41,6 +42,24 @@ func CreateServices() []app.IServer {
 		httpOpts = append(httpOpts, server.WithHTTPRegistry(httpRegistry, httpInstance))
 	}
 	httpOpts = append(httpOpts, server.WithHTTPIsProd(cfg.App.Env == "prod"))
+	readTimeout := cfg.HTTP.Timeout
+	if cfg.HTTP.ReadTimeout > 0 {
+		readTimeout = cfg.HTTP.ReadTimeout
+	}
+	writeTimeout := cfg.HTTP.Timeout
+	if cfg.HTTP.WriteTimeout > 0 {
+		writeTimeout = cfg.HTTP.WriteTimeout
+	}
+	if readTimeout > 0 || writeTimeout > 0 || cfg.HTTP.ReadHeaderTimeout > 0 || cfg.HTTP.IdleTimeout > 0 {
+		httpOpts = append(httpOpts, server.WithHTTPReadTimeout(time.Duration(readTimeout)*time.Second))
+		httpOpts = append(httpOpts, server.WithHTTPWriteTimeout(time.Duration(writeTimeout)*time.Second))
+	}
+	if cfg.HTTP.ReadHeaderTimeout > 0 {
+		httpOpts = append(httpOpts, server.WithHTTPReadHeaderTimeout(time.Duration(cfg.HTTP.ReadHeaderTimeout)*time.Second))
+	}
+	if cfg.HTTP.IdleTimeout > 0 {
+		httpOpts = append(httpOpts, server.WithHTTPIdleTimeout(time.Duration(cfg.HTTP.IdleTimeout)*time.Second))
+	}
 	httpServer := server.NewHTTPServer(httpAddr, httpOpts...)
 	servers = append(servers, httpServer)
 

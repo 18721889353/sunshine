@@ -154,6 +154,9 @@ func (g *httpPbGenerator) generateCode() (string, error) {
 		"internal/config": {
 			"serverNameExample.go",
 		},
+		"internal/database": {
+			"snow.go",
+		},
 		"internal/ecode": {
 			"systemCode_http.go",
 		},
