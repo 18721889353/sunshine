@@ -15,13 +15,29 @@ function importPkg() {
     go mod tidy
 }
 
+function getModuleName() {
+  if [ -f "go.mod" ]; then
+    head -1 go.mod | awk '{print $2}'
+  fi
+}
+
 function generateTypesPbCode() {
-    sunshine patch gen-types-pb --out=./
+    moduleName=$(getModuleName)
+    if [ -z "$moduleName" ]; then
+        echo "Error: go.mod not found, cannot determine module name"
+        exit 1
+    fi
+    sunshine patch gen-types-pb --module-name="$moduleName" --out=./
     checkResult $?
 }
 
 function generateInitMysqlCode() {
-    sunshine patch gen-db-init --db-driver=mysql --out=./
+    moduleName=$(getModuleName)
+    if [ -z "$moduleName" ]; then
+        echo "Error: go.mod not found, cannot determine module name"
+        exit 1
+    fi
+    sunshine patch gen-db-init --db-driver=mysql --module-name="$moduleName" --out=./
     checkResult $?
     importPkg
 }

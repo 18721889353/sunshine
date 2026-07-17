@@ -1,21 +1,17 @@
 package routers
 
 import (
-	"context"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/utils"
 
-	"google.golang.org/grpc/metadata"
-
 	"github.com/18721889353/sunshine/internal/database"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-
-	"github.com/18721889353/sunshine/pkg/logger"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/handlerfunc"
@@ -30,10 +26,11 @@ import (
 )
 
 var (
+	// all middleware functions
+	allMiddlewareFns []func(c *middlewareConfig)
+
 	// all route functions
 	allRouteFns = make([]func(r *gin.Engine, groupPathMiddlewares map[string][]gin.HandlerFunc, singlePathMiddlewares map[string][]gin.HandlerFunc), 0)
-	// all middleware functions
-	allMiddlewareFns = []func(c *middlewareConfig){}
 )
 
 //func customLogFunc(c *gin.Context, reqBody []byte, respBody []byte, startTime time.Time, endTime time.Time, spendTime int64) {
@@ -57,7 +54,12 @@ var (
 //	}()
 //}
 
-// NewRouter_pbExample create a new router
+// NewRouter_pbExample 创建并返回一个支持 PB 路由注册的 gin.Engine 实例。
+// 与 NewRouter 的区别在于使用自定义 swagger 路径（/apis/swagger/index.html），
+// 并通过 allRouteFns / allMiddlewareFns 动态注册路由和中间件。
+//
+// 返回值:
+//   - *gin.Engine: 配置完成的路由引擎实例。
 func NewRouter_pbExample() *gin.Engine { //nolint
 	r := gin.New()
 
@@ -171,11 +173,16 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	return r
 }
 
+// middlewareConfig 存储 PB 路由的中间件配置，按路由分组和单一路径分别管理。
 type middlewareConfig struct {
 	groupPathMiddlewares  map[string][]gin.HandlerFunc // middleware functions corresponding to route group
 	singlePathMiddlewares map[string][]gin.HandlerFunc // middleware functions corresponding to a single route
 }
 
+// newMiddlewareConfig 创建并初始化 middlewareConfig 实例。
+//
+// 返回值:
+//   - *middlewareConfig: 初始化完成的路由中间件配置实例。
 func newMiddlewareConfig() *middlewareConfig {
 	return &middlewareConfig{
 		groupPathMiddlewares:  make(map[string][]gin.HandlerFunc),
@@ -183,62 +190,67 @@ func newMiddlewareConfig() *middlewareConfig {
 	}
 }
 
+// setGroupPath 为指定的路由分组添加一组中间件处理函数。
+// 如果多次调用同一 groupPath，中间件会以追加方式累积（通常用于不同模块叠加功能）。
+// 注意：本函数不负责去重，也不处理中间件顺序冲突，调用方需自行保证逻辑正确性。
 func (c *middlewareConfig) setGroupPath(groupPath string, handlers ...gin.HandlerFunc) { //nolint
-	if groupPath == "" {
+	// 1. 空路径或空处理程序直接返回，避免无效存储
+	if groupPath == "" || len(handlers) == 0 {
 		return
 	}
-	if groupPath[0] != '/' {
-		groupPath = "/" + groupPath
+	// 2. 规范化路径：
+	//    - 使用 path.Clean 去除多余的斜杠和相对路径（如 /api/../v1 -> /v1）
+	//    - 确保以 / 开头，否则补全
+	cleaned := path.Clean(groupPath)
+	if !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
 	}
-
-	handlerFns, ok := c.groupPathMiddlewares[groupPath]
-	if !ok {
-		c.groupPathMiddlewares[groupPath] = handlers
-		return
+	// 3. 去除尾部斜杠（与 Gin 的路由分组行为保持一致，通常分组路径不带尾部斜杠）
+	cleaned = strings.TrimSuffix(cleaned, "/")
+	if cleaned == "" {
+		cleaned = "/"
 	}
-
-	c.groupPathMiddlewares[groupPath] = append(handlerFns, handlers...)
+	// 4. 存储或追加中间件
+	existing, exists := c.groupPathMiddlewares[cleaned]
+	if !exists {
+		c.groupPathMiddlewares[cleaned] = handlers
+	} else {
+		// 追加新的处理程序（如需覆盖，可在此修改逻辑）
+		c.groupPathMiddlewares[cleaned] = append(existing, handlers...)
+	}
 }
 
+// setSinglePath 为指定的单个路由（HTTP 方法 + 路径）添加一组中间件处理函数。
+// 多次调用同一 (method, singlePath) 时，中间件以追加方式累积。
+// 注意：本函数不处理中间件去重或顺序冲突，调用方需自行保证逻辑正确性。
 func (c *middlewareConfig) setSinglePath(method string, singlePath string, handlers ...gin.HandlerFunc) { //nolint
-	if method == "" || singlePath == "" {
+	// 1. 校验必要参数：方法、路径、处理程序均不能为空
+	if method == "" || singlePath == "" || len(handlers) == 0 {
 		return
 	}
 
-	key := getSinglePathKey(method, singlePath)
-	handlerFns, ok := c.singlePathMiddlewares[key]
-	if !ok {
+	// 2. 规范化路径：
+	//    - 使用 path.Clean 去除多余的斜杠和相对路径（如 /api/../v1 -> /v1）
+	//    - 确保以 / 开头
+	//    - 去除尾部斜杠（与 Gin 路由注册行为一致，例如 "/user/" 与 "/user" 视为同一路由）
+	cleanedPath := path.Clean(singlePath)
+	if !strings.HasPrefix(cleanedPath, "/") {
+		cleanedPath = "/" + cleanedPath
+	}
+	cleanedPath = strings.TrimSuffix(cleanedPath, "/")
+	if cleanedPath == "" {
+		cleanedPath = "/"
+	}
+
+	// 3. 构造唯一键：方法大写 + "->" + 规范化路径
+	key := strings.ToUpper(method) + "->" + cleanedPath
+
+	// 4. 存储或追加中间件
+	existing, exists := c.singlePathMiddlewares[key]
+	if !exists {
 		c.singlePathMiddlewares[key] = handlers
-		return
+	} else {
+		// 追加新的处理程序（如需覆盖行为，可在此调整）
+		c.singlePathMiddlewares[key] = append(existing, handlers...)
 	}
-
-	c.singlePathMiddlewares[key] = append(handlerFns, handlers...)
-}
-
-func getSinglePathKey(method string, singlePath string) string { //nolint
-	return strings.ToUpper(method) + "->" + singlePath
-}
-
-// 自定义ctx，主要是从gin中获取需要的信息，通过ctx传递
-
-// MyCtx creates a custom context with client IP and metadata from gin.Context.
-func MyCtx(c *gin.Context) context.Context {
-	// 在这里获取client ip
-	clientIP := c.ClientIP()
-	ctx := middleware.WrapCtx(c)
-	//创建一个新的传出上下文
-	md := metadata.New(map[string]string{
-		"clientIP": clientIP,
-		// set metadata to be passed from http to rpc
-		string(logger.ContextKeyRequestID): middleware.GCtxRequestID(c),                    // request_id
-		middleware.HeaderAuthorizationKey:  c.GetHeader(middleware.HeaderAuthorizationKey), // authorization
-	})
-	return metadata.NewOutgoingContext(ctx, md)
-	//ctx = metadata.NewIncomingContext(ctx, md)
-	////return ctx
-	//ctx = context.WithValue(ctx, "clientIP", clientIP)
-	//ctx = context.WithValue(ctx, string(logger.ContextKeyRequestID), c.GetString(string(logger.ContextKeyRequestID)))
-	//dump.P(metautils.ExtractOutgoing(ctx).Get(middleware.HeaderAuthorizationKey), ctx.Value("clientIP"), ctx.Value(string(logger.ContextKeyRequestID)), ctx.Value(middleware.HeaderAuthorizationKey))
-	//// 赋值到ctx
-	//return context.WithValue(ctx, middleware.HeaderAuthorizationKey, c.GetHeader(middleware.HeaderAuthorizationKey))
 }

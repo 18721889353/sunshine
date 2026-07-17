@@ -102,7 +102,11 @@ go run main.go micro rpc --module-name=hello --server-name=hello --project-name=
 
 #基于protobuf创建grpc网关服务
 
-go run main.go micro rpc-gw-pb --module-name=test --server-name=test --project-name=test --repo-addr= --protobuf-file=/d/Temp/greeter.proto --suited-mono-repo=false --out=/d/Temp/web
+go run main.go micro rpc-gw-pb --module-name=hello --server-name=hello --project-name=hello --repo-addr= --protobuf-file=/d/Temp/greeter.proto --suited-mono-repo=false --out=/d/Temp/web
+
+#生成grpc服务连接代码
+
+go run main.go micro rpc-conn --module-name=hello --rpc-server-name=hello --suited-mono-repo=false --out=/d/Temp/web
 
 #基于sql生成dao cache model 代码
 
@@ -116,9 +120,6 @@ go run main.go web handler-pb --module-name=hello --server-name=hello --db-drive
 
 go run main.go web cache --module-name=adminService --cache-name=getUserToken --prefix-key=user:token: --key-name=uid --key-type=string --value-name=token --value-type=string --suited-mono-repo=false --out=/d/Temp/web
 
-#生成grpc服务连接代码
-
-go run main.go micro rpc-conn --module-name=hello --rpc-server-name=ping --suited-mono-repo=false --out=/d/Temp/web
 
 #生成Model代码
 

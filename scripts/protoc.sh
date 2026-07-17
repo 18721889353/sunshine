@@ -106,8 +106,19 @@ function patchTypesPbFile() {
   done
 }
 
+function getModuleName() {
+  if [ -f "go.mod" ]; then
+    head -1 go.mod | awk '{print $2}'
+  fi
+}
+
 function autoDetectInitDbFile() {
-  sunshine patch gen-db-init --out=. > /dev/null
+  moduleName=$(getModuleName)
+  if [ -z "$moduleName" ]; then
+    echo "Warning: go.mod not found, skip gen-db-init"
+    return
+  fi
+  sunshine patch gen-db-init --module-name="$moduleName" --out=. > /dev/null
 }
 
 function generateByAllProto(){
@@ -232,8 +243,9 @@ sunshine patch del-omitempty --dir=$protoBasePath --suffix-name=pb.go > /dev/nul
 # modify duplicate numbers and error codes
 sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
-sunshine patch gen-db-init --db-driver=mysql --out=./
-sunshine patch gen-types-pb --out=./
+moduleName=$(getModuleName)
+sunshine patch gen-db-init --db-driver=mysql --module-name="$moduleName" --out=./
+sunshine patch gen-types-pb --module-name="$moduleName" --out=./
 sunshine config --server-dir=.
 echo -e "${colorGreen}generated code done.${markEnd}"
 echo ""

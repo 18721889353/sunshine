@@ -26,9 +26,20 @@ if [ "$genServerType"x != "http"x ]; then
     fi
 fi
 
+function getModuleName() {
+  if [ -f "../go.mod" ]; then
+    head -1 ../go.mod | awk '{print $2}'
+  fi
+}
+
 if [ "$genServerType"x = "grpc"x ]; then
     if [ ! -d "../api/types" ]; then
-        sunshine patch gen-types-pb --out=.
+        moduleName=$(getModuleName)
+        if [ -z "$moduleName" ]; then
+            echo "Error: go.mod not found, cannot determine module name"
+            exit 1
+        fi
+        sunshine patch gen-types-pb --module-name="$moduleName" --out=.
         checkResult $?
         mv -f api/types ../api
         rmdir api

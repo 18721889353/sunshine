@@ -1008,4 +1008,96 @@ func (dd *DistributedDispatcher) receiveOnce(ctx context.Context, msgCh <-chan *
 | 读写/心跳循环 | `msgFromWsToCh`、`StartHeartbeat` | 终止型：recover → 清理 → 退出 |
 | 消息消费循环 | `receiveLoop`、worker 池、订阅协程 | 循环型：recover → 继续循环 |
 | 一次性任务 | `go func()` 执行单个异步操作 | 终止型：recover → 记录日志 |
+
+## 十八、详细中文注释规范
+
+对于需要清晰表达业务逻辑的方法，采用以下**详细中文注释**风格，让阅读者一眼看懂每个步骤的目的和注意事项。
+
+### 参考示例：`setGroupPath`
+
+```go
+// setGroupPath 为指定的路由分组添加一组中间件处理函数。
+// 如果多次调用同一 groupPath，中间件会以追加方式累积（通常用于不同模块叠加功能）。
+// 注意：本函数不负责去重，也不处理中间件顺序冲突，调用方需自行保证逻辑正确性。
+func (c *middlewareConfig) setGroupPath(groupPath string, handlers ...gin.HandlerFunc) {
+    // 1. 空路径或空处理程序直接返回，避免无效存储
+    if groupPath == "" || len(handlers) == 0 {
+        return
+    }
+    // 2. 规范化路径：
+    //    - 使用 path.Clean 去除多余的斜杠和相对路径（如 /api/../v1 -> /v1）
+    //    - 确保以 / 开头，否则补全
+    cleaned := path.Clean(groupPath)
+    if !strings.HasPrefix(cleaned, "/") {
+        cleaned = "/" + cleaned
+    }
+    // 3. 去除尾部斜杠（与 Gin 的路由分组行为保持一致，通常分组路径不带尾部斜杠）
+    cleaned = strings.TrimSuffix(cleaned, "/")
+    if cleaned == "" {
+        cleaned = "/"
+    }
+    // 4. 存储或追加中间件
+    existing, exists := c.groupPathMiddlewares[cleaned]
+    if !exists {
+        c.groupPathMiddlewares[cleaned] = handlers
+    } else {
+        // 追加新的处理程序（如需覆盖，可在此修改逻辑）
+        c.groupPathMiddlewares[cleaned] = append(existing, handlers...)
+    }
+}
+```
+
+| 要素 | 说明 |
+|------|------|
+| **函数级注释** | 方法名开头 + 一句话功能 + 业务场景 + 注意事项（`注意：`） |
+| **步骤编号** | 方法体内用 `// 1.` `// 2.` 等编号，清晰表达执行流程 |
+| **why 注释** | 不仅写"做什么"，还写"为什么这么做" |
+| **边界说明** | 各分支、异常情况、设计意图都在注释中说明 |
+
+### 附录：`setSinglePath`（同风格对照）
+
+```go
+// setSinglePath 为指定的单个路由（HTTP 方法 + 路径）添加一组中间件处理函数。
+// 多次调用同一 (method, singlePath) 时，中间件以追加方式累积。
+// 注意：本函数不处理中间件去重或顺序冲突，调用方需自行保证逻辑正确性。
+func (c *middlewareConfig) setSinglePath(method string, singlePath string, handlers ...gin.HandlerFunc) {
+    // 1. 校验必要参数：方法、路径、处理程序均不能为空
+    if method == "" || singlePath == "" || len(handlers) == 0 {
+        return
+    }
+
+    // 2. 规范化路径：
+    //    - 使用 path.Clean 去除多余的斜杠和相对路径（如 /api/../v1 -> /v1）
+    //    - 确保以 / 开头
+    //    - 去除尾部斜杠（与 Gin 路由注册行为一致，例如 "/user/" 与 "/user" 视为同一路由）
+    cleanedPath := path.Clean(singlePath)
+    if !strings.HasPrefix(cleanedPath, "/") {
+        cleanedPath = "/" + cleanedPath
+    }
+    cleanedPath = strings.TrimSuffix(cleanedPath, "/")
+    if cleanedPath == "" {
+        cleanedPath = "/"
+    }
+
+    // 3. 构造唯一键：方法大写 + "->" + 规范化路径
+    key := strings.ToUpper(method) + "->" + cleanedPath
+
+    // 4. 存储或追加中间件
+    existing, exists := c.singlePathMiddlewares[key]
+    if !exists {
+        c.singlePathMiddlewares[key] = handlers
+    } else {
+        // 追加新的处理程序（如需覆盖行为，可在此调整）
+        c.singlePathMiddlewares[key] = append(existing, handlers...)
+    }
+}
+```
+
+### 适用场景
+
+| 方法类型 | 推荐注释风格 | 示例 |
+|----------|-------------|------|
+| 业务逻辑类 | 详细中文注释 + 步骤编号 + why 说明 | `setGroupPath`、`setSinglePath` |
+| 简单工具方法 | 一行函数级注释即可 | `newMiddlewareConfig` |
+| 接口/构造函数 | 函数级注释 + 返回值说明 | `NewRouter_pbExample` |
 ```

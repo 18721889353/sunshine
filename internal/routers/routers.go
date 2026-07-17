@@ -54,7 +54,14 @@ var (
 //	}()
 //}
 
-// NewRouter create a new router
+// NewRouter 创建并返回一个 gin.Engine 实例，配置完整的中间件链和路由注册。
+//
+// 包含以下中间件（按注册顺序）：Recovery、CORS、超时、请求ID、链路追踪、日志、
+// 签名校验、XSS 防护、Metrics、限流、熔断、JWT 鉴权。
+// 同时注册健康检查、性能分析、Swagger 文档等基础路由。
+//
+// 返回值:
+//   - *gin.Engine: 配置完成的路由引擎实例。
 func NewRouter() *gin.Engine {
 	r := gin.New()
 
@@ -164,6 +171,13 @@ func NewRouter() *gin.Engine {
 	return r
 }
 
+// registerRouters 在指定分组路径下注册路由函数集合。
+//
+// 参数:
+//   - r: gin 路由引擎实例。
+//   - groupPath: 路由分组路径，如 "/api/v1"。
+//   - routerFns: 路由注册函数列表，每个函数接收一个 *gin.RouterGroup。
+//   - middlewares: 可选，应用于该分组的中间件函数列表。
 func registerRouters(r *gin.Engine, groupPath string, routerFns []func(*gin.RouterGroup), middlewares ...gin.HandlerFunc) {
 	group := r.Group(groupPath, middlewares...)
 	for _, fn := range routerFns {

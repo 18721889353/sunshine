@@ -155,7 +155,7 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 			"serverNameExample.go",
 		},
 		"internal/database": {
-			"snow.go",
+			"init.go", "redis.go", "mysql.go", "snow.go", "goRabbitmq.go", "es.go",
 		},
 		"internal/ecode": {
 			"systemCode_http.go", "systemCode_rpc.go",
