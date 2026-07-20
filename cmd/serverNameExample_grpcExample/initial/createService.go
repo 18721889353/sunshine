@@ -60,7 +60,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 	cfg := config.Get()
 
 	id := cfg.App.Name + "_" + scheme + "_" + utils.GetLocalIP() + "_" + strconv.Itoa(port)
-	instance := registry.NewServiceInstance(id, cfg.App.Name, []string{instanceEndpoint})
+	instance := registry.NewServiceInstance(id, cfg.App.Name, []string{instanceEndpoint}, registry.WithVersion(cfg.App.Version))
 
 	var (
 		iRegistry registry.Registry
