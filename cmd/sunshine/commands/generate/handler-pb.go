@@ -229,9 +229,9 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/ecode"] = []string{"userExample_http.go"}
 			selectFiles["internal/handler"] = []string{"userExample_logic.go"}
-			fields = commonHandlerPbExtendedFields(r)
+			fields = commonHandlerPbExtendedFields()
 		} else {
-			fields = commonHandlerPbFields(r)
+			fields = commonHandlerPbFields()
 		}
 		g.fields = append(g.fields, fields...)
 	}
@@ -243,7 +243,7 @@ func (g *handlerPbGenerator) generateCode() (string, error) {
 		if g.isExtendedAPI {
 			var fields []replacer.Field
 			if !crudInfo.CheckCommonType() {
-				replaceFiles, fields = handlerPbExtendedAPI(r)
+				replaceFiles, fields = handlerPbExtendedAPI()
 			}
 			g.fields = append(g.fields, fields...)
 		}
@@ -364,7 +364,7 @@ func (g *handlerPbGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	return fields
 }
 
-func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
+func handlerPbExtendedAPI() (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/ecode": {
 			"userExample_http.go",
@@ -379,10 +379,10 @@ func handlerPbExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.
 	return replaceFiles, fields
 }
 
-func commonHandlerPbFields(r replacer.Replacer) []replacer.Field {
+func commonHandlerPbFields() []replacer.Field {
 	return nil
 }
 
-func commonHandlerPbExtendedFields(r replacer.Replacer) []replacer.Field {
+func commonHandlerPbExtendedFields() []replacer.Field {
 	return nil
 }

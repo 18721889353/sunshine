@@ -624,8 +624,8 @@ func hasSubDir(dirPath string, subDir string) bool {
 // 返回值：
 //
 //	bool - 如果是目录则返回 true，路径不存在或无法访问时返回 false
-func IsDir(path string) bool {
-	info, err := os.Stat(path)
+func IsDir(p string) bool {
+	info, err := os.Stat(p)
 	if err != nil {
 		return false
 	}
@@ -641,8 +641,8 @@ func IsDir(path string) bool {
 // 返回值：
 //
 //	bool - 如果是文件则返回 true，路径不存在或无法访问时返回 false
-func IsFile(path string) bool {
-	info, err := os.Stat(path)
+func IsFile(p string) bool {
+	info, err := os.Stat(p)
 	if err != nil {
 		return false
 	}
@@ -659,8 +659,8 @@ func IsFile(path string) bool {
 //
 //	int64 - 文件大小（字节）
 //	error - 如果文件不存在或无法访问则返回错误
-func GetFileSize(path string) (int64, error) {
-	info, err := os.Stat(path)
+func GetFileSize(p string) (int64, error) {
+	info, err := os.Stat(p)
 	if err != nil {
 		return 0, err
 	}
@@ -677,8 +677,8 @@ func GetFileSize(path string) (int64, error) {
 //
 //	[]byte - 文件内容
 //	error  - 如果文件不存在或读取失败则返回错误
-func ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path)
+func ReadFile(p string) ([]byte, error) {
+	return os.ReadFile(p)
 }
 
 // WriteFile 将数据写入文件，自动创建所需目录。如果文件不存在则创建，存在则覆盖。
@@ -691,11 +691,11 @@ func ReadFile(path string) ([]byte, error) {
 // 返回值：
 //
 //	error - 如果文件创建或写入失败则返回错误
-func WriteFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+func WriteFile(p string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0666)
+	return os.WriteFile(p, data, 0666)
 }
 
 // RemoveFile 删除文件
@@ -707,8 +707,8 @@ func WriteFile(path string, data []byte) error {
 // 返回值：
 //
 //	error - 如果文件不存在或删除失败则返回错误
-func RemoveFile(path string) error {
-	return os.Remove(path)
+func RemoveFile(p string) error {
+	return os.Remove(p)
 }
 
 // RemoveDir 删除目录及其所有子内容
@@ -720,8 +720,8 @@ func RemoveFile(path string) error {
 // 返回值：
 //
 //	error - 如果目录不存在或删除失败则返回错误
-func RemoveDir(path string) error {
-	return os.RemoveAll(path)
+func RemoveDir(p string) error {
+	return os.RemoveAll(p)
 }
 
 // CopyFile 复制文件到目标路径，自动创建目标目录
@@ -741,7 +741,7 @@ func CopyFile(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
 
@@ -773,23 +773,29 @@ func CopyDir(src, dst string) error {
 	dst = filepath.Clean(dst)
 
 	rel, err := filepath.Rel(src, dst)
-	if err == nil && !strings.HasPrefix(rel, "..") {
+	if err != nil {
+		return fmt.Errorf("cannot compute relative path: %w", err)
+	}
+	if !strings.HasPrefix(rel, "..") {
 		return fmt.Errorf("cannot copy directory into itself: %s -> %s", src, dst)
 	}
 
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		relPath, _ := filepath.Rel(src, path)
+		relPath, err := filepath.Rel(src, p)
+		if err != nil {
+			return fmt.Errorf("cannot compute relative path for %s: %w", p, err)
+		}
 		targetPath := filepath.Join(dst, relPath)
 
 		if d.IsDir() {
 			return os.MkdirAll(targetPath, 0755)
 		}
 
-		return CopyFile(path, targetPath)
+		return CopyFile(p, targetPath)
 	})
 }
 
@@ -864,8 +870,8 @@ func TempDirIn(dir, pattern string) (string, error) {
 //
 //	os.FileMode - 文件权限模式
 //	error       - 如果文件不存在或无法访问则返回错误
-func GetFileMode(path string) (os.FileMode, error) {
-	info, err := os.Stat(path)
+func GetFileMode(p string) (os.FileMode, error) {
+	info, err := os.Stat(p)
 	if err != nil {
 		return 0, err
 	}

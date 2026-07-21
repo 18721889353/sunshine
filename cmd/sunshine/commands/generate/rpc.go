@@ -296,7 +296,7 @@ func (g *rpcGenerator) generateCode() (string, error) {
 		g.fields = append(g.fields, getExpectedSQLForDeletionField(g.isEmbed)...)
 		if g.isExtendedAPI {
 			var fields []replacer.Field
-			replaceFiles, fields = serviceExtendedAPI(r, codeNameGRPC)
+			replaceFiles, fields = serviceExtendedAPI(codeNameGRPC)
 			g.fields = append(g.fields, fields...)
 		}
 

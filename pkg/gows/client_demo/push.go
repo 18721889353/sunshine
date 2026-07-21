@@ -26,15 +26,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/18721889353/sunshine/internal/config"
 	"sync"
 
+	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/pkg/gows"
 	"github.com/18721889353/sunshine/pkg/logger"
 )
-
-// rabbitmqURLKey 用于从 context 传递自定义 RabbitMQ URL（预留）。
-type rabbitmqURLKey struct{}
 
 var (
 	pushBackend     *gows.RabbitMQBackend
@@ -46,7 +43,7 @@ var (
 //   - 直接使用 gows 的 Publish API，与 gw 网关使用同一套消息协议
 //   - 无需手动序列化 PubSubMessage，无需关心 exchange/routing_key 细节
 //   - 内部自带 ProducerPool（连接池），复用 TCP 连接，性能更优
-func getPushBackend(ctx context.Context) *gows.RabbitMQBackend {
+func getPushBackend(_ context.Context) *gows.RabbitMQBackend {
 	pushBackendOnce.Do(func() {
 		pushBackend = gows.NewRabbitMQBackend(
 			config.Get().Websocket.Distributed.RabbitmqURL,

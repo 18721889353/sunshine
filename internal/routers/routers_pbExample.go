@@ -257,7 +257,9 @@ func (c *middlewareConfig) setSinglePath(method string, singlePath string, handl
 
 // getSinglePathKey 根据 HTTP 方法和路径生成中间件配置的唯一键。
 // 该函数与 setSinglePath 内部使用的键生成逻辑保持一致，
-// 用于在测试或外部调用中获取正确的 map key。
+// 仅在测试中使用。
+//
+//nolint:unused
 func getSinglePathKey(method, singlePath string) string {
 	cleanedPath := path.Clean(singlePath)
 	if !strings.HasPrefix(cleanedPath, "/") {

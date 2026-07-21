@@ -232,9 +232,9 @@ func (g *serviceAndHandlerGenerator) generateCode() (string, error) {
 			selectFiles["internal/dao"] = []string{"userExample.go"}
 			selectFiles["internal/handler"] = []string{"userExample.go"}
 			selectFiles["internal/service"] = []string{"userExample.go"}
-			fields = commonServiceHandlerExtendedFields(r)
+			fields = commonServiceHandlerExtendedFields()
 		} else {
-			fields = commonServiceHandlerFields(r)
+			fields = commonServiceHandlerFields()
 		}
 		g.fields = append(g.fields, fields...)
 	}
@@ -246,7 +246,7 @@ func (g *serviceAndHandlerGenerator) generateCode() (string, error) {
 		if g.isExtendedAPI {
 			var fields []replacer.Field
 			if !crudInfo.CheckCommonType() {
-				replaceFiles, fields = serviceHandlerExtendedAPI(r)
+				replaceFiles, fields = serviceHandlerExtendedAPI()
 			}
 			g.fields = append(g.fields, fields...)
 		}
@@ -376,7 +376,7 @@ func (g *serviceAndHandlerGenerator) addFields(r replacer.Replacer) []replacer.F
 	return fields
 }
 
-func serviceHandlerExtendedAPI(r replacer.Replacer) (map[string][]string, []replacer.Field) {
+func serviceHandlerExtendedAPI() (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/ecode": {
 			"userExample_rpc.go",
@@ -394,10 +394,10 @@ func serviceHandlerExtendedAPI(r replacer.Replacer) (map[string][]string, []repl
 	return replaceFiles, fields
 }
 
-func commonServiceHandlerFields(r replacer.Replacer) []replacer.Field {
+func commonServiceHandlerFields() []replacer.Field {
 	return nil
 }
 
-func commonServiceHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
+func commonServiceHandlerExtendedFields() []replacer.Field {
 	return nil
 }

@@ -230,9 +230,9 @@ func (g *handlerGenerator) generateCode() (string, error) {
 			selectFiles["internal/handler"] = []string{"userExample.go"}
 			selectFiles["internal/routers"] = []string{"userExample.go"}
 			selectFiles["internal/types"] = []string{"userExample_types.go"}
-			fields = commonHandlerExtendedFields(r)
+			fields = commonHandlerExtendedFields()
 		} else {
-			fields = commonHandlerFields(r)
+			fields = commonHandlerFields()
 		}
 		g.fields = append(g.fields, fields...)
 	}
@@ -333,7 +333,7 @@ func (g *handlerGenerator) addFields(r replacer.Replacer) []replacer.Field {
 	return fields
 }
 
-func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
+func handlerExtendedAPI(_ replacer.Replacer, codeName string) (map[string][]string, []replacer.Field) {
 	replaceFiles := map[string][]string{
 		"internal/ecode": {
 			"systemCode_http.go", "userExample_http.go",
@@ -359,10 +359,10 @@ func handlerExtendedAPI(r replacer.Replacer, codeName string) (map[string][]stri
 	return replaceFiles, fields
 }
 
-func commonHandlerFields(r replacer.Replacer) []replacer.Field {
+func commonHandlerFields() []replacer.Field {
 	return nil
 }
 
-func commonHandlerExtendedFields(r replacer.Replacer) []replacer.Field {
+func commonHandlerExtendedFields() []replacer.Field {
 	return nil
 }

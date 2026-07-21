@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Profile 类型别名，用于 iota 常量定义
+// ProfileType 类型别名，用于 iota 常量定义
 type ProfileType int
 
 const (
@@ -41,7 +41,7 @@ var profileTypeNames = map[ProfileType]string{
 const (
 	// DefaultDuration 默认采样时长（秒）
 	DefaultDuration = 60
-	// DefaultOutputDir 默认输出目录名格式（追加到系统临时目录后）
+	// DefaultOutputDirSuffix 默认输出目录名格式（追加到系统临时目录后）
 	DefaultOutputDirSuffix = "_profile"
 	// TimeFormat 采样文件时间戳格式
 	TimeFormat = "20060102T150405"
