@@ -29,7 +29,8 @@ type httpServer struct {
 // Start http service
 func (s *httpServer) Start() error {
 	if s.iRegistry != nil {
-		ctx, _ := context.WithTimeout(context.Background(), 5*time.Second) //nolint
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err := s.iRegistry.Register(ctx, s.instance); err != nil {
 			return err
 		}

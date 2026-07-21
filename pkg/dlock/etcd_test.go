@@ -23,7 +23,7 @@ func TestEtcdLock_Lock(t *testing.T) {
 
 func getEtcdLock() Locker {
 	endpoints := []string{"127.0.0.1:2379"}
-	cli, err := etcdcli.Init(endpoints,
+	cli, err := etcdcli.NewClient(endpoints,
 		etcdcli.WithDialTimeout(time.Second*2),
 		etcdcli.WithAuth("", ""),
 		etcdcli.WithAutoSyncInterval(0),

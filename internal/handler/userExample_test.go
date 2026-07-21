@@ -273,7 +273,7 @@ func Test_userExampleHandler_List(t *testing.T) {
 	client := gohttp.New()
 	result := make(map[string]interface{})
 	resp, err := client.Request(context.Background()).
-		SetBody(&types.ListUserExamplesRequest{query.Params{
+		SetBody(&types.ListUserExamplesRequest{Params: query.Params{
 			Page:  0,
 			Limit: 10,
 			Sort:  "ignore count", // ignore test count
@@ -295,7 +295,7 @@ func Test_userExampleHandler_List(t *testing.T) {
 
 	// get error test
 	_, err = client.Request(context.Background()).
-		SetBody(&types.ListUserExamplesRequest{query.Params{
+		SetBody(&types.ListUserExamplesRequest{Params: query.Params{
 			Page:  0,
 			Limit: 10,
 			Sort:  "unknown-column",

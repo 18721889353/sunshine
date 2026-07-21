@@ -4,11 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/18721889353/sunshine/pkg/grpc/gtls/certfile"
 	"github.com/IBM/sarama"
 	"github.com/IBM/sarama/mocks"
-	"go.uber.org/zap"
-
-	"github.com/18721889353/sunshine/pkg/grpc/gtls/certfile"
 )
 
 var (
@@ -136,7 +134,6 @@ func TestInitAsyncProducer(t *testing.T) {
 		AsyncProducerWithFlushFrequency(time.Second),
 		AsyncProducerWithFlushBytes(16*1024),
 		AsyncProducerWithTLS(certfile.Path("two-way/server/server.pem"), certfile.Path("two-way/server/server.key"), certfile.Path("two-way/ca.pem"), true),
-		AsyncProducerWithZapLogger(zap.NewExample()),
 		AsyncProducerWithHandleFailed(func(msg *sarama.ProducerMessage) error {
 			t.Logf("handle failed message: %v", msg)
 			return nil
@@ -230,7 +227,7 @@ func TestSyncProducer(t *testing.T) {
 func TestAsyncProducer(t *testing.T) {
 	ap := mocks.NewAsyncProducer(t, nil)
 	ap.ExpectInputAndSucceed()
-	p := &AsyncProducer{Producer: ap, exit: make(chan struct{}), zapLogger: zap.NewExample()}
+	p := &AsyncProducer{Producer: ap, exit: make(chan struct{})}
 	defer p.Close()
 	go p.handleResponse(nil)
 

@@ -3,7 +3,6 @@ package dlock
 import (
 	"context"
 	"errors"
-	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
@@ -38,14 +37,11 @@ func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 	if ttl <= 0 {
 		ttl = defaultTTL
 	}
-	expiration := time.Duration(ttl) * time.Second
-	ctx, _ := context.WithTimeout(context.Background(), expiration) //nolint
 
 	// 创建一个新的 etcd 会话
 	session, err := concurrency.NewSession(
 		client,
 		concurrency.WithTTL(ttl),
-		concurrency.WithContext(ctx),
 	)
 	if err != nil {
 		return nil, err

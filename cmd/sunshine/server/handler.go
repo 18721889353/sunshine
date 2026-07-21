@@ -146,7 +146,8 @@ func handleGenerateCode(c *gin.Context, outPath string, arg string) {
 	out = os.TempDir() + gofile.GetPathDelimiter() + "sunshine-generate-code" + gofile.GetPathDelimiter() + out
 	args = append(args, fmt.Sprintf("--out=%s", out))
 
-	ctx, _ := context.WithTimeout(context.Background(), time.Minute*2) // nolint
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
+	defer cancel()
 	// 使用当前运行的二进制文件路径，而不是系统中的 sunshine 命令
 	binPath, _ := os.Executable()
 	result := gobash.Run(ctx, binPath, args...)
@@ -193,7 +194,8 @@ func handleGenerateCode(c *gin.Context, outPath string, arg string) {
 	recordObj().set(c.ClientIP(), outPath, params)
 
 	go func() {
-		ctx, _ := context.WithTimeout(context.Background(), time.Minute*10)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*10)
+		defer cancel()
 
 		for {
 			select {

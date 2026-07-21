@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"go.uber.org/zap"
 
 	"github.com/18721889353/sunshine/pkg/grpc/gtls/certfile"
 )
@@ -63,7 +62,6 @@ func TestInitConsumerGroup(t *testing.T) {
 		ConsumerWithOffsetsAutoCommitEnable(true),
 		ConsumerWithOffsetsAutoCommitInterval(time.Second),
 		ConsumerWithTLS(certfile.Path("two-way/server/server.pem"), certfile.Path("two-way/server/server.key"), certfile.Path("two-way/ca.pem"), true),
-		ConsumerWithZapLogger(zap.NewNop()),
 	)
 	if err != nil {
 		t.Log(err)
@@ -129,7 +127,6 @@ func TestInitConsumer(t *testing.T) {
 		ConsumerWithVersion(sarama.V3_6_0_0),
 		ConsumerWithClientID("my-client-id"),
 		ConsumerWithTLS(certfile.Path("two-way/server/server.pem"), certfile.Path("two-way/server/server.key"), certfile.Path("two-way/ca.pem"), true),
-		ConsumerWithZapLogger(zap.NewNop()),
 	)
 	if err != nil {
 		t.Log(err)
@@ -242,7 +239,6 @@ func TestConsumerGroup(t *testing.T) {
 	g := &ConsumerGroup{
 		Group:            group,
 		groupID:          myGroup,
-		zapLogger:        zap.NewExample(),
 		autoCommitEnable: false,
 	}
 	defer g.Close()
@@ -262,7 +258,6 @@ func TestConsumerGroup(t *testing.T) {
 	go g.ConsumeCustom(ctx, topics, &defaultConsumerHandler{
 		ctx:              ctx,
 		handleMessageFn:  handleMsgFn,
-		zapLogger:        g.zapLogger,
 		autoCommitEnable: g.autoCommitEnable,
 	})
 
@@ -306,8 +301,7 @@ func TestConsumerPartition(t *testing.T) {
 	}
 
 	c := &Consumer{
-		C:         master,
-		zapLogger: zap.NewExample(),
+		C: master,
 	}
 	defer c.Close()
 

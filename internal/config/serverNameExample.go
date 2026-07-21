@@ -48,7 +48,6 @@ type Config struct {
 	Sls           Sls           `yaml:"sls" json:"sls"`
 	Sms           Sms           `yaml:"sms" json:"sms"`
 	Websocket     Websocket     `yaml:"websocket" json:"websocket"`
-	都是__生成go结构体命令 string        `yaml:"都是# 生成go结构体命令" json:"都是# 生成go结构体命令"`
 }
 
 type Sms struct {
