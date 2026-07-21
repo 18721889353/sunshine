@@ -3,6 +3,7 @@
 package routers
 
 import (
+	"net"
 	"net/http"
 	"time"
 
@@ -80,9 +81,14 @@ func NewRouter() *gin.Engine {
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
 
-	// profile performance analysis
+	// pprof 性能分析路由
+	// 生产环境自动启用 IP 白名单鉴权，防止敏感信息泄露；dev/test 环境免鉴权方便调试
 	if cfg.App.EnableHTTPProfile {
-		prof.Register(r, prof.WithIOWaitTime())
+		pprofOpts := []prof.Option{prof.WithIOWaitTime()}
+		if cfg.App.Env == "prod" {
+			pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList)))
+		}
+		prof.Register(r, pprofOpts...)
 	}
 
 	if cfg.App.Env != "prod" {
@@ -182,5 +188,37 @@ func registerRouters(r *gin.Engine, groupPath string, routerFns []func(*gin.Rout
 	group := r.Group(groupPath, middlewares...)
 	for _, fn := range routerFns {
 		fn(group)
+	}
+}
+
+// pprofIPWhitelist 返回一个 Gin 中间件，仅允许指定 IP/CIDR 列表内的 IP 访问 pprof。
+// 支持两种格式：纯 IP（如 127.0.0.1）和 CIDR（如 10.0.0.0/8）。
+// 如果传入的列表为空，使用默认内网段。
+func pprofIPWhitelist(cidrs []string) gin.HandlerFunc {
+	if len(cidrs) == 0 {
+		cidrs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128"}
+	}
+	ipNets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		if _, ipNet, err := net.ParseCIDR(cidr); err == nil {
+			ipNets = append(ipNets, ipNet)
+		} else if ip := net.ParseIP(cidr); ip != nil {
+			// 纯 IP 自动转为 /32（IPv4）或 /128（IPv6）
+			mask := net.CIDRMask(32, 32)
+			if ip.To4() == nil {
+				mask = net.CIDRMask(128, 128)
+			}
+			ipNets = append(ipNets, &net.IPNet{IP: ip.Mask(mask), Mask: mask})
+		}
+	}
+	return func(c *gin.Context) {
+		realIP := c.ClientIP()
+		for _, ipNet := range ipNets {
+			if ipNet.Contains(net.ParseIP(realIP)) {
+				c.Next()
+				return
+			}
+		}
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 	}
 }

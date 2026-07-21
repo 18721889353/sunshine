@@ -86,10 +86,11 @@ func New(path string) (Replacer, error) {
 // Field 替换字段信息结构体，定义单个字段的替换规则
 //
 // 字段说明：
-//   Old             - 要被替换的旧字符串
-//   New             - 替换后的新字符串
-//   IsCaseSensitive - 是否区分大小写匹配
-//                     当为 true 且首字符为字母时，会自动生成首字母大写和小写两个替换规则
+//
+//	Old             - 要被替换的旧字符串
+//	New             - 替换后的新字符串
+//	IsCaseSensitive - 是否区分大小写匹配
+//	                  当为 true 且首字符为字母时，会自动生成首字母大写和小写两个替换规则
 type Field struct {
 	Old             string
 	New             string

@@ -118,7 +118,7 @@ type modelGenerator struct {
 
 // generateCode 生成模型代码
 func (g *modelGenerator) generateCode() (string, error) {
-	subTplName := codeNameModel // 子模板名称
+	subTplName := codeNameModel     // 子模板名称
 	r := Replacers[TplNameSunshine] // 获取替换器
 	if r == nil {
 		return "", errors.New("replacer is nil")

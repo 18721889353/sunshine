@@ -10,11 +10,11 @@ import (
 // 该命令用于生成 Web 项目的模型、缓存、数据访问对象、处理器和 HTTP 代码。
 func GenWebCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "web",                                             // 命令的使用方式，用户在命令行中输入的命令
-		Short:         "生成 Web 服务代码（model/cache/dao/handler/http 等）",  // 命令的简短描述
+		Use:           "web",                                            // 命令的使用方式，用户在命令行中输入的命令
+		Short:         "生成 Web 服务代码（model/cache/dao/handler/http 等）",    // 命令的简短描述
 		Long:          "生成 Web 服务代码，包含 model、cache、dao、handler、http 等。", // 命令的详细描述
-		SilenceErrors: true,                                              // 设置为静默错误输出，不显示错误信息
-		SilenceUsage:  true,                                              // 设置为静默使用信息输出，不显示使用信息
+		SilenceErrors: true,                                             // 设置为静默错误输出，不显示错误信息
+		SilenceUsage:  true,                                             // 设置为静默使用信息输出，不显示使用信息
 	}
 
 	// 添加各个子命令到根命令

@@ -233,24 +233,25 @@ type ServerSecure struct {
 }
 
 type App struct {
-	CacheType             string  `yaml:"cacheType" json:"cacheType"`
-	EnableCircuitBreaker  bool    `yaml:"enableCircuitBreaker" json:"enableCircuitBreaker"`
-	EnableHTTPProfile     bool    `yaml:"enableHTTPProfile" json:"enableHTTPProfile"`
-	EnableLimit           bool    `yaml:"enableLimit" json:"enableLimit"`
-	EnableMetrics         bool    `yaml:"enableMetrics" json:"enableMetrics"`
-	EnableStat            bool    `yaml:"enableStat" json:"enableStat"`
-	EnableTrace           bool    `yaml:"enableTrace" json:"enableTrace"`
-	Env                   string  `yaml:"env" json:"env"`
-	Host                  string  `yaml:"host" json:"host"`
-	Name                  string  `yaml:"name" json:"name"`
-	OpenCron              bool    `yaml:"openCron" json:"openCron"`
-	OpenHTTP              bool    `yaml:"openHttp" json:"openHttp"`
-	OpenJwt               bool    `yaml:"openJwt" json:"openJwt"`
-	OpenSign              bool    `yaml:"openSign" json:"openSign"`
-	OpenXSS               bool    `yaml:"openXSS" json:"openXSS"`
-	RegistryDiscoveryType string  `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
-	TracingSamplingRate   float64 `yaml:"tracingSamplingRate" json:"tracingSamplingRate"`
-	Version               string  `yaml:"version" json:"version"`
+	CacheType             string   `yaml:"cacheType" json:"cacheType"`
+	EnableCircuitBreaker  bool     `yaml:"enableCircuitBreaker" json:"enableCircuitBreaker"`
+	EnableHTTPProfile     bool     `yaml:"enableHTTPProfile" json:"enableHTTPProfile"`
+	EnableLimit           bool     `yaml:"enableLimit" json:"enableLimit"`
+	EnableMetrics         bool     `yaml:"enableMetrics" json:"enableMetrics"`
+	EnableStat            bool     `yaml:"enableStat" json:"enableStat"`
+	EnableTrace           bool     `yaml:"enableTrace" json:"enableTrace"`
+	Env                   string   `yaml:"env" json:"env"`
+	Host                  string   `yaml:"host" json:"host"`
+	Name                  string   `yaml:"name" json:"name"`
+	OpenCron              bool     `yaml:"openCron" json:"openCron"`
+	OpenHTTP              bool     `yaml:"openHttp" json:"openHttp"`
+	OpenJwt               bool     `yaml:"openJwt" json:"openJwt"`
+	OpenSign              bool     `yaml:"openSign" json:"openSign"`
+	OpenXSS               bool     `yaml:"openXSS" json:"openXSS"`
+	PprofIPWhiteList      []string `yaml:"pprofIPWhiteList" json:"pprofIPWhiteList"`
+	RegistryDiscoveryType string   `yaml:"registryDiscoveryType" json:"registryDiscoveryType"`
+	TracingSamplingRate   float64  `yaml:"tracingSamplingRate" json:"tracingSamplingRate"`
+	Version               string   `yaml:"version" json:"version"`
 }
 
 type GrpcClient struct {

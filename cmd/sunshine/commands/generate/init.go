@@ -154,7 +154,8 @@ func Init() error {
 //  3. 从 go.mod 的 replace 指令中解析本地源码路径
 //
 // 返回值：
-//   string - 本地 sunshine 源码根目录路径，未检测到则返回空字符串
+//
+//	string - 本地 sunshine 源码根目录路径，未检测到则返回空字符串
 func detectLocalSunshineSource() string {
 	// 1. 从当前工作目录向上查找
 	if wd, err := os.Getwd(); err == nil {

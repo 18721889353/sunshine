@@ -128,8 +128,8 @@ func NewHTTPServer(addr string, opts ...HTTPOption) app.IServer {
 	//    idleTimeout:          keep-alive 空闲超时（0=不限制），控制长连接复用
 	//    MaxHeaderBytes:        限制请求头最大字节数（1MB），防止恶意大请求头攻击
 	server := &http.Server{
-		Addr:    addr,
-		Handler: router,
+		Addr:              addr,
+		Handler:           router,
 		ReadTimeout:       o.readTimeout,
 		WriteTimeout:      o.writeTimeout,
 		ReadHeaderTimeout: o.readHeaderTimeout,

@@ -9,6 +9,8 @@ app:
   enableStat: false               # 是否开启打印统计, true:开启, false:关闭
   enableMetrics: false            # 是否开启指标收集, true:开启, false:关闭
   enableHTTPProfile: true         # 是否开启性能分析, true:开启, false:关闭
+  pprofIPWhiteList:               # pprof IP 白名单（空=仅 prod 环境用默认内网段）
+    - 127.0.0.1
   enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭
   enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭
   enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭, 如果为true必须设置jaeger配置
@@ -382,8 +384,8 @@ websocket:
   upgrade:
     # ==================== upgrade & 连接基础 ====================
     cors: true              # upgrade 总开关（false=拒绝所有来源）
-    allowedOrigins: []      # 允许的来源域名/IP 白名单，空列表且 cors=true 时允许所有
-                            # 示例: ["http://localhost:8080","https://example.com","192.168.1.1"]
+    allowedOrigins: [ ]      # 允许的来源域名/IP 白名单，空列表且 cors=true 时允许所有
+    # 示例: ["http://localhost:8080","https://example.com","192.168.1.1"]
     readBufferSize: 0        # 读缓冲区大小（字节），0=4096
     writeBufferSize: 0       # 写缓冲区大小（字节），0=4096
     enableCompression: true  # WebSocket 压缩开关（true=启用，false=禁用）

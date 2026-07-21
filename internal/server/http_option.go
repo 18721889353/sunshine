@@ -10,13 +10,13 @@ import (
 type HTTPOption func(*httpOptions)
 
 type httpOptions struct {
-	isProd             bool
-	instance           *registry.ServiceInstance
-	iRegistry          registry.Registry
-	readTimeout        time.Duration // HTTP 读取超时（0=不限制）
-	writeTimeout       time.Duration // HTTP 写入超时（0=不限制）
-	readHeaderTimeout  time.Duration // HTTP 请求头读取超时（0=不限制）
-	idleTimeout        time.Duration // HTTP keep-alive 空闲超时（0=不限制）
+	isProd            bool
+	instance          *registry.ServiceInstance
+	iRegistry         registry.Registry
+	readTimeout       time.Duration // HTTP 读取超时（0=不限制）
+	writeTimeout      time.Duration // HTTP 写入超时（0=不限制）
+	readHeaderTimeout time.Duration // HTTP 请求头读取超时（0=不限制）
+	idleTimeout       time.Duration // HTTP keep-alive 空闲超时（0=不限制）
 }
 
 func defaultHTTPOptions() *httpOptions {

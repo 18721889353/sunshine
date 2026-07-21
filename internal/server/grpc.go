@@ -307,7 +307,13 @@ func (s *grpcServer) registerProfMux() {
 	if s.mux == nil {
 		s.mux = http.NewServeMux()
 	}
-	prof.Register(s.mux, prof.WithIOWaitTime())
+
+	pprofOpts := []prof.HTTPOption{prof.WithIOWaitTime()}
+	// 生产环境自动启用 IP 白名单鉴权，防止敏感信息泄露；dev/test 环境免鉴权方便调试
+	if config.Get().App.Env == "prod" {
+		pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(config.Get().App.PprofIPWhiteList)))
+	}
+	prof.Register(s.mux, pprofOpts...)
 }
 
 func (s *grpcServer) addHTTPRouter() {
@@ -343,4 +349,40 @@ func NewGRPCServer(addr string, opts ...GrpcOption) app.IServer {
 	s.server = grpc.NewServer(s.getOptions()...)
 	service.RegisterAllService(s.server) // register for all services
 	return s
+}
+
+// pprofIPWhitelist 返回 HTTP 中间件，仅允许指定 IP/CIDR 列表内的 IP 访问 pprof。
+// 支持两种格式：纯 IP（如 127.0.0.1）和 CIDR（如 10.0.0.0/8）。
+// 如果传入的列表为空，使用默认内网段。
+func pprofIPWhitelist(cidrs []string) func(http.Handler) http.Handler {
+	if len(cidrs) == 0 {
+		cidrs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	}
+	ipNets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		if _, ipNet, err := net.ParseCIDR(cidr); err == nil {
+			ipNets = append(ipNets, ipNet)
+		} else if ip := net.ParseIP(cidr); ip != nil {
+			mask := net.CIDRMask(32, 32)
+			if ip.To4() == nil {
+				mask = net.CIDRMask(128, 128)
+			}
+			ipNets = append(ipNets, &net.IPNet{IP: ip.Mask(mask), Mask: mask})
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			realIP := r.RemoteAddr
+			if host, _, err := net.SplitHostPort(realIP); err == nil {
+				realIP = host
+			}
+			for _, ipNet := range ipNets {
+				if ipNet.Contains(net.ParseIP(realIP)) {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			http.Error(w, "Forbidden", http.StatusForbidden)
+		})
+	}
 }
