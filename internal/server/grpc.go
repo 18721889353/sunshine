@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/utils"
@@ -372,9 +373,24 @@ func pprofIPWhitelist(cidrs []string) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			realIP := r.RemoteAddr
-			if host, _, err := net.SplitHostPort(realIP); err == nil {
-				realIP = host
+			// 优先从 X-Forwarded-For 和 X-Real-IP 获取真实客户端 IP
+			// 兼容网关代理场景（Nginx、Kong、API Gateway 等）
+			realIP := r.Header.Get("X-Real-IP")
+			if realIP == "" {
+				if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+					// X-Forwarded-For: client, proxy1, proxy2 → 取第一个
+					if i := strings.IndexByte(xff, ','); i > 0 {
+						realIP = strings.TrimSpace(xff[:i])
+					} else {
+						realIP = strings.TrimSpace(xff)
+					}
+				}
+			}
+			if realIP == "" {
+				realIP = r.RemoteAddr
+				if host, _, err := net.SplitHostPort(realIP); err == nil {
+					realIP = host
+				}
 			}
 			for _, ipNet := range ipNets {
 				if ipNet.Contains(net.ParseIP(realIP)) {
