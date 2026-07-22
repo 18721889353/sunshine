@@ -248,17 +248,17 @@ sentinel:
   limitRules:
     - resource: "/api/v1/hello"     # 资源名称，支持路由匹配
       tokenCalculateStrategy: "direct"  # 限流策略: direct=直接阈值, warmUp=预热
-      controlBehavior: "reject"         # 流量效果: reject=直接拒绝, throttling=匀速排队
-      threshold: 100.0                   # QPS 阈值（根据实际压测调整）
+      controlBehavior: "reject"         # 流量效果: reject=直接拒绝, throttling=匀速排队 直接拒绝，不建议排队（排队容易引发线程/协程堆积）
+      threshold: 140.0                   # QPS 阈值（根据实际压测调整） 压测结果 200 QPS * 0.7 = 140
       statIntervalInMs: 1000             # 统计时间窗口(毫秒)
   # 熔断规则
   breakerRules:
     - resource: "/api/v1/hello"     # 资源名称
       strategy: "errorRatio"            # 熔断策略: errorRatio=错误比例, errorCount=错误计数, slowRequestRatio=慢调用比例
-      retryTimeoutMs: 3000               # 熔断开启后的恢复探测时间(毫秒)
-      minRequestAmount: 10               # 触发熔断的最小请求数
-      statIntervalMs: 10000              # 统计时间窗口(毫秒)
-      threshold: 0.5                     # 阈值: 错误比例0.5=50%, 或慢调用RT(毫秒)
+      retryTimeoutMs: 5000               # 熔断开启后的恢复探测时间(毫秒) 熔断后等待 5 秒再尝试恢复
+      minRequestAmount: 200               # 触发熔断的最小请求数 必须积累 200 个请求才判断，防止冷启动误杀
+      statIntervalMs: 20000              # 统计时间窗口(毫秒) 统计 20 秒的滑动窗口
+      threshold: 0.5                     # 阈值: 错误比例0.5=50%, 或慢调用RT(毫秒) 错误率 50% 触发熔断（一般业务留 50% 余量，核心下单可改为 0.3）
 
 # RabbitMQ设置
 rabbitmq:
