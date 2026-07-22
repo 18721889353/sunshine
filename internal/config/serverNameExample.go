@@ -237,7 +237,6 @@ type App struct {
 	EnableHTTPProfile     bool     `yaml:"enableHTTPProfile" json:"enableHTTPProfile"`
 	EnableLimit           bool     `yaml:"enableLimit" json:"enableLimit"`
 	EnableMetrics         bool     `yaml:"enableMetrics" json:"enableMetrics"`
-	EnableStat            bool     `yaml:"enableStat" json:"enableStat"`
 	EnableTrace           bool     `yaml:"enableTrace" json:"enableTrace"`
 	Env                   string   `yaml:"env" json:"env"`
 	Host                  string   `yaml:"host" json:"host"`

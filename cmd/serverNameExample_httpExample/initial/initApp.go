@@ -18,7 +18,6 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/18721889353/sunshine/pkg/stat"
 	"github.com/18721889353/sunshine/pkg/tracer"
 )
 
@@ -152,15 +151,6 @@ func InitApp() {
 			cfg.Jaeger.Endpoint, // 添加 endpoint 参数
 		)
 		logger.InfoWithCtx(initCtx, "[tracer] was initialized")
-	}
-
-	// initializing the print system and process resources
-	if cfg.App.EnableStat {
-		stat.Init(
-			stat.WithPrintInterval(time.Minute),                                         // 打印统计信息间隔
-			stat.WithAlarm(stat.WithCPUThreshold(0.85), stat.WithMemoryThreshold(0.85)), // invalid if it is windows, the default threshold for cpu and memory is 0.8, you can modify them
-		)
-		logger.InfoWithCtx(initCtx, "[resource statistics] was initialized")
 	}
 
 	// initializing database
