@@ -132,7 +132,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	// limit middleware
 	if cfg.App.EnableLimit {
 		var sentinelRules []*flow.Rule
-		for _, r := range cfg.Sentinel.Rules {
+		for _, r := range cfg.Sentinel.LimitRules {
 			sentinelRules = append(sentinelRules, &flow.Rule{
 				Resource:               r.Resource,
 				TokenCalculateStrategy: middleware.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),

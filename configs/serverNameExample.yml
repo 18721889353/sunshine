@@ -245,7 +245,7 @@ jwt:
 # Sentinel 流量防护配置（限流 + 熔断）
 sentinel:
   # 限流规则
-  rules:
+  limitRules:
     - resource: "/api/v1/hello"     # 资源名称，支持路由匹配
       tokenCalculateStrategy: "direct"  # 限流策略: direct=直接阈值, warmUp=预热
       controlBehavior: "reject"         # 流量效果: reject=直接拒绝, throttling=匀速排队

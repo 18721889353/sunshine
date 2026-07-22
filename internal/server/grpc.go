@@ -250,7 +250,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	// limit interceptor
 	if config.Get().App.EnableLimit {
 		var flowRules []*flow.Rule
-		for _, r := range config.Get().Sentinel.Rules {
+		for _, r := range config.Get().Sentinel.LimitRules {
 			flowRules = append(flowRules, &flow.Rule{
 				Resource:               r.Resource,
 				TokenCalculateStrategy: interceptor.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
@@ -326,7 +326,7 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 	// limit interceptor
 	if config.Get().App.EnableLimit {
 		var flowRules []*flow.Rule
-		for _, r := range config.Get().Sentinel.Rules {
+		for _, r := range config.Get().Sentinel.LimitRules {
 			flowRules = append(flowRules, &flow.Rule{
 				Resource:               r.Resource,
 				TokenCalculateStrategy: interceptor.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),

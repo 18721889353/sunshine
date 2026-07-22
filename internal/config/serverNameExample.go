@@ -205,7 +205,7 @@ type NacosRegistry struct {
 
 type Sentinel struct {
 	BreakerRules []BreakerRules `yaml:"breakerRules" json:"breakerRules"`
-	Rules        []Rules        `yaml:"rules" json:"rules"`
+	LimitRules   []LimitRules   `yaml:"limitRules" json:"limitRules"`
 }
 
 type ClientSecure struct {
@@ -307,7 +307,7 @@ type NacosServer struct {
 	Scheme      string `yaml:"scheme" json:"scheme"`
 }
 
-type Rules struct {
+type LimitRules struct {
 	ControlBehavior        string  `yaml:"controlBehavior" json:"controlBehavior"`
 	Resource               string  `yaml:"resource" json:"resource"`
 	StatIntervalInMs       int     `yaml:"statIntervalInMs" json:"statIntervalInMs"`
