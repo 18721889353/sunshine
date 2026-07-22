@@ -3,6 +3,7 @@
 package routers
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -219,6 +220,6 @@ func pprofIPWhitelist(cidrs []string) gin.HandlerFunc {
 				return
 			}
 		}
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("Forbidden: IP %s 不在白名单中", realIP)})
 	}
 }

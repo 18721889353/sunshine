@@ -400,7 +400,7 @@ func pprofIPWhitelist(cidrs []string) func(http.Handler) http.Handler {
 					return
 				}
 			}
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			http.Error(w, fmt.Sprintf("Forbidden: IP %s 不在白名单中", realIP), http.StatusForbidden)
 		})
 	}
 }

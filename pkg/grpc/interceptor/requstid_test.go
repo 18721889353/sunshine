@@ -573,5 +573,5 @@ func TestCtxRequestID(t *testing.T) {
 func TestSetContextRequestIDKey(t *testing.T) {
 	SetContextRequestIDKey("my_request_id")
 	SetContextRequestIDKey("foo_bar") // invalid key, sync.Once
-	SetContextRequestIDKey("xx") // invalid key
+	SetContextRequestIDKey("xx")      // invalid key
 }
