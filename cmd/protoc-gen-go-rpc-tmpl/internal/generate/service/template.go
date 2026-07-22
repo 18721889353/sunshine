@@ -391,7 +391,8 @@ import (
 func Test_service_{{.LowerName}}_methods(t *testing.T) {
 	conn := getRPCClientConnForTest()
 	cli := {{.ProtoPkgName}}.New{{.Name}}Client(conn)
-	ctx, _ := context.WithTimeout(context.Background(), time.Second*30)
+    ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+    defer cancel()
 
 	tests := []struct {
 		name    string
@@ -435,7 +436,9 @@ func Test_service_{{.LowerName}}_methods(t *testing.T) {
 					{{- end}}
 				}
 
-				ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
 				stream, err := cli.{{.MethodName}}(ctx, req)
 				if err != nil {
 					return nil, err
