@@ -70,6 +70,11 @@ func initWSDispatcher() {
 			config.Get().Websocket.Distributed.RabbitmqURL,
 			config.Get().Websocket.Distributed.Exchange,
 		)
+		backend.SetPoolCap(
+			config.Get().Websocket.Distributed.PoolInitialCap,
+			config.Get().Websocket.Distributed.PoolMaxCap,
+		)
+		backend.SetReceiveChanSize(config.Get().Websocket.Distributed.ReceiveChanSize)
 		dd := gows.NewDispatcher(backend,
 			gows.WithWorkerPool(config.Get().Websocket.Distributed.WorkerPool),
 			gows.WithMaxConnections(config.Get().Websocket.Distributed.MaxConnections),

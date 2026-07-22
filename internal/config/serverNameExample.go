@@ -363,7 +363,10 @@ type Distributed struct {
 	EnableDistributed bool   `yaml:"enableDistributed" json:"enableDistributed"`
 	Exchange          string `yaml:"exchange" json:"exchange"`
 	MaxConnections    int    `yaml:"maxConnections" json:"maxConnections"`
+	PoolInitialCap    int    `yaml:"poolInitialCap" json:"poolInitialCap"`
+	PoolMaxCap        int    `yaml:"poolMaxCap" json:"poolMaxCap"`
 	RabbitmqURL       string `yaml:"rabbitmqURL" json:"rabbitmqURL"`
+	ReceiveChanSize   int    `yaml:"receiveChanSize" json:"receiveChanSize"`
 	WorkerPool        int    `yaml:"workerPool" json:"workerPool"`
 }
 

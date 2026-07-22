@@ -41,6 +41,11 @@ type RabbitMQBackend struct {
 	connMu     sync.Mutex                            // 保护 mqConn 初始化
 	mqConnOpts []gorabbitmq.ConnectionOption         // RabbitMQ 连接选项
 
+	poolInitialCap int // RabbitMQ 连接池初始连接数
+	poolMaxCap     int // RabbitMQ 连接池最大连接数
+
+	receiveChanSize int // 接收消息通道缓冲区大小
+
 	// Direct Exchange (UID 消息路由)
 	directExchangeOnce sync.Once
 	directExchange     *gorabbitmq.Exchange
@@ -81,10 +86,36 @@ type uidConsumerState struct {
 //   - exchange+":broadcast" (Fanout): 用于广播消息
 func NewRabbitMQBackend(url string, exchange string, connOpts ...gorabbitmq.ConnectionOption) *RabbitMQBackend {
 	return &RabbitMQBackend{
-		url:            url,
-		exchange:       exchange,
-		mqConnOpts:     connOpts,
-		broadcastMsgCh: make(chan *PubSubMessage, defaultReceiveChanSize),
+		url:             url,
+		exchange:        exchange,
+		mqConnOpts:      connOpts,
+		broadcastMsgCh:  make(chan *PubSubMessage, defaultReceiveChanSize),
+		poolInitialCap:  defaultPoolInitialCap,
+		poolMaxCap:      defaultPoolMaxCap,
+		receiveChanSize: defaultReceiveChanSize,
+	}
+}
+
+// SetPoolCap 设置 RabbitMQ 连接池容量参数。
+// 应在首次发布消息前调用，否则将使用默认值。
+//
+// 参数:
+//   - initialCap: 初始连接数，<=0 则使用默认值。
+//   - maxCap: 最大连接数，<=0 则使用默认值。
+func (b *RabbitMQBackend) SetPoolCap(initialCap, maxCap int) {
+	if initialCap > 0 {
+		b.poolInitialCap = initialCap
+	}
+	if maxCap > 0 {
+		b.poolMaxCap = maxCap
+	}
+}
+
+// SetReceiveChanSize 设置接收消息通道缓冲区大小。
+// 应在首次订阅广播前调用，否则将使用默认值。
+func (b *RabbitMQBackend) SetReceiveChanSize(size int) {
+	if size > 0 {
+		b.receiveChanSize = size
 	}
 }
 
@@ -92,8 +123,9 @@ func NewRabbitMQBackend(url string, exchange string, connOpts ...gorabbitmq.Conn
 // 注意：此方式无法创建 ProducerPool（无 URL），所有路径使用 per-publish Producer。
 func NewRabbitMQBackendFromConn(conn *gorabbitmq.Connection, exchange string) *RabbitMQBackend {
 	b := &RabbitMQBackend{
-		exchange:       exchange,
-		broadcastMsgCh: make(chan *PubSubMessage, defaultReceiveChanSize),
+		exchange:        exchange,
+		broadcastMsgCh:  make(chan *PubSubMessage, defaultReceiveChanSize),
+		receiveChanSize: defaultReceiveChanSize,
 	}
 	b.mqConn.Store(conn)
 	return b
@@ -151,8 +183,8 @@ func (b *RabbitMQBackend) getOrCreatePool(ctx context.Context) (*gorabbitmq.Pool
 	}
 
 	pool, err := gorabbitmq.NewPool(ctx, b.url,
-		gorabbitmq.WithInitialCap(defaultPoolInitialCap),
-		gorabbitmq.WithMaxCap(defaultPoolMaxCap),
+		gorabbitmq.WithInitialCap(b.poolInitialCap),
+		gorabbitmq.WithMaxCap(b.poolMaxCap),
 		gorabbitmq.WithConnOptions(b.mqConnOpts...),
 	)
 	if err != nil {
@@ -160,7 +192,7 @@ func (b *RabbitMQBackend) getOrCreatePool(ctx context.Context) (*gorabbitmq.Pool
 	}
 
 	// 创建 Fanout + Direct ProducerPool（共享同一连接池）
-	fanoutPP, err := gorabbitmq.NewProducerPool(pool, b.getFanoutExchange(), defaultPoolMaxCap,
+	fanoutPP, err := gorabbitmq.NewProducerPool(pool, b.getFanoutExchange(), b.poolMaxCap,
 		gorabbitmq.WithProducerMsgDurable(true),
 	)
 	if err != nil {
@@ -171,7 +203,7 @@ func (b *RabbitMQBackend) getOrCreatePool(ctx context.Context) (*gorabbitmq.Pool
 		return nil, fmt.Errorf("rabbitmq create fanout producer pool: %w", err)
 	}
 
-	directPP, err := gorabbitmq.NewProducerPool(pool, b.getDirectExchange(), defaultPoolMaxCap,
+	directPP, err := gorabbitmq.NewProducerPool(pool, b.getDirectExchange(), b.poolMaxCap,
 		gorabbitmq.WithProducerMsgDurable(true),
 	)
 	if err != nil {
@@ -337,7 +369,7 @@ func (b *RabbitMQBackend) SubscribeBroadcast(ctx context.Context) (<-chan *PubSu
 	}
 
 	if b.broadcastMsgCh == nil {
-		b.broadcastMsgCh = make(chan *PubSubMessage, defaultReceiveChanSize)
+		b.broadcastMsgCh = make(chan *PubSubMessage, b.receiveChanSize)
 	}
 
 	b.rabbitMQClosed.Store(false)
@@ -410,7 +442,7 @@ func (b *RabbitMQBackend) Subscribe(ctx context.Context, uid string) (<-chan *Pu
 	if err != nil {
 		return nil, err
 	}
-	ch := make(chan *PubSubMessage, defaultReceiveChanSize)
+	ch := make(chan *PubSubMessage, b.receiveChanSize)
 	subCtx, subCancel := context.WithCancel(ctx)
 
 	uidQueue := fmt.Sprintf("ws:%s:uid:%s", b.exchange, uid)

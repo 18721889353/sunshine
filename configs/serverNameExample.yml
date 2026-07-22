@@ -430,3 +430,6 @@ websocket:
     exchange: "ws:messages"   # WebSocket 消息交换机名称
     workerPool: 0              # Worker 协程数（分布式模式），0=默认 4，建议 2~16
     maxConnections: 0          # 最大连接数（分布式模式），0=不限制
+    poolInitialCap: 5          # RabbitMQ 连接池初始连接数
+    poolMaxCap: 10             # RabbitMQ 连接池最大连接数
+    receiveChanSize: 1024      # 接收消息通道缓冲区大小

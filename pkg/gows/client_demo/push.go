@@ -49,6 +49,11 @@ func getPushBackend(_ context.Context) *gows.RabbitMQBackend {
 			config.Get().Websocket.Distributed.RabbitmqURL,
 			config.Get().Websocket.Distributed.Exchange,
 		)
+		pushBackend.SetPoolCap(
+			config.Get().Websocket.Distributed.PoolInitialCap,
+			config.Get().Websocket.Distributed.PoolMaxCap,
+		)
+		pushBackend.SetReceiveChanSize(config.Get().Websocket.Distributed.ReceiveChanSize)
 	})
 	return pushBackend
 }
