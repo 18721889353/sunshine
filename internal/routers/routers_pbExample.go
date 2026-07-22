@@ -21,6 +21,9 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/swagger"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
 
+	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
+	"github.com/alibaba/sentinel-golang/core/flow"
+
 	"github.com/18721889353/sunshine/docs"
 	"github.com/18721889353/sunshine/internal/config"
 )
@@ -128,24 +131,40 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 
 	// limit middleware
 	if cfg.App.EnableLimit {
+		var sentinelRules []*flow.Rule
+		for _, r := range cfg.Sentinel.Rules {
+			sentinelRules = append(sentinelRules, &flow.Rule{
+				Resource:               r.Resource,
+				TokenCalculateStrategy: middleware.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
+				ControlBehavior:        middleware.ParseControlBehavior(r.ControlBehavior),
+				Threshold:              r.Threshold,
+				StatIntervalInMs:       uint32(r.StatIntervalInMs),
+			})
+		}
 		r.Use(
 			middleware.SentinelMiddleware(
 				middleware.WithSentinelResourceExtractor(func(c *gin.Context) string {
 					return c.FullPath()
 				}),
-				middleware.WithSentinelRules(cfg.Sentinel.Rules),
+				middleware.WithSentinelFlowRules(sentinelRules),
 			),
 		)
-		//r.Use(middleware.RateLimit())
 	}
 
 	// circuit breaker middleware
 	if cfg.App.EnableCircuitBreaker {
-		r.Use(middleware.CircuitBreaker(
-			// set http code for circuit breaker, default already includes 500 and 503
-			middleware.WithValidCode(errcode.InternalServerError.Code()),
-			middleware.WithValidCode(errcode.ServiceUnavailable.Code()),
-		))
+		var breakerRules []*circuitbreaker.Rule
+		for _, r := range cfg.Sentinel.BreakerRules {
+			breakerRules = append(breakerRules, &circuitbreaker.Rule{
+				Resource:         r.Resource,
+				Strategy:         middleware.ParseBreakerStrategy(r.Strategy),
+				RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
+				MinRequestAmount: uint64(r.MinRequestAmount),
+				StatIntervalMs:   uint32(r.StatIntervalMs),
+				Threshold:        r.Threshold,
+			})
+		}
+		r.Use(middleware.CircuitBreaker(middleware.WithCircuitBreakerRules(breakerRules)))
 	}
 
 	if cfg.App.OpenJwt {

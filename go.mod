@@ -55,7 +55,6 @@ require (
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sashabaranov/go-openai v1.41.1
-	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/shopspring/decimal v1.4.0
 	github.com/spf13/cast v1.7.1
 	github.com/spf13/cobra v1.9.1
@@ -103,6 +102,7 @@ require (
 	github.com/mozillazg/go-httpheader v0.2.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.59.0 // indirect
+	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 )
 

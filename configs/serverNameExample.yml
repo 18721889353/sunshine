@@ -169,7 +169,7 @@ jaeger:
 etcdInfo:
   etcdServer:
     addrs: # ETCD地址列表
-      - "127.0.0.1:2379"
+      - "43.143.78.234:2379"
   etcdClient:
     username: ""                   # 认证用户名（etcd 启用 auth 时填写）
     password: ""                   # 认证密码
@@ -184,9 +184,9 @@ etcdInfo:
     caFile: ""                      # CA 证书文件路径（双向 mTLS 时填写）
   etcdRegistry:
     namespace: "/microservices"    # etcd 键前缀命名空间
-    ttl: 15s                        # 注册租约 TTL（租约到期后自动摘除）
+    ttl: 30s                        # 注册租约 TTL（租约到期后自动摘除）
     maxRetry: 5                     # 重注册最大重试次数
-    checkInterval: 3                # key 存在性校验间隔（心跳响应次数，3=每3次心跳校验1次）
+    checkInterval: 1                # key 存在性校验间隔（心跳响应次数，1=每1次心跳校验1次）
     # 重试退避
     backoffInit: 1s                 # 重注册指数退避初始间隔
     backoffMax: 30s                 # 重注册指数退避最大间隔
@@ -242,27 +242,37 @@ jwt:
       - "/api.adminService.v1.adminLoginService/Captcha"
       - "/api.adminService.v1.adminLoginService/Login"
 
-# Sentinel设置
+# Sentinel 流量防护配置（限流 + 熔断）
 sentinel:
-  rules: # 规则列表
-    - resource: "default"         # 资源名称
-      threshold: 1.0              # 阈值
-      statIntervalInMs: 2000      # 统计时间窗口(毫秒)
+  # 限流规则
+  rules:
+    - resource: "/api/v1/hello"     # 资源名称，支持路由匹配
+      tokenCalculateStrategy: "direct"  # 限流策略: direct=直接阈值, warmUp=预热
+      controlBehavior: "reject"         # 流量效果: reject=直接拒绝, throttling=匀速排队
+      threshold: 100.0                   # QPS 阈值（根据实际压测调整）
+      statIntervalInMs: 1000             # 统计时间窗口(毫秒)
+  # 熔断规则
+  breakerRules:
+    - resource: "/api/v1/hello"     # 资源名称
+      strategy: "errorRatio"            # 熔断策略: errorRatio=错误比例, errorCount=错误计数, slowRequestRatio=慢调用比例
+      retryTimeoutMs: 3000               # 熔断开启后的恢复探测时间(毫秒)
+      minRequestAmount: 10               # 触发熔断的最小请求数
+      statIntervalMs: 10000              # 统计时间窗口(毫秒)
+      threshold: 0.5                     # 阈值: 错误比例0.5=50%, 或慢调用RT(毫秒)
 
 # RabbitMQ设置
 rabbitmq:
   enable: false                   # 是否启用rabbitmq
   pool: # 连接池配置
     url: "amqp://user:password@host:5672/"  # 连接URL
-    initialCap: 50                # 初始连接数
-    maxCap: 100                   # 最大连接数
-    healthCheckPeriod: 30         # 健康检查间隔(秒)
+    initialCap: 10                # 初始连接数
+    maxCap: 25                    # 最大连接数
+    healthCheckPeriod: 60         # 健康检查间隔(秒)
     maxIdle: 300                  # 最大空闲时间(秒)
-    antsCap: 0                    # 如果您希望使用动态调整的协程池，可以将 antsCap 设置为 0
-    reconnectTime: 3              # 设置重连时间间隔选项(秒)
+    reconnectTime: 5              # 设置重连时间间隔选项(秒)
     dialTimeout: 5                # 设置连接超时时间选项(秒)
-    heartbeat: 20                 # 设置心跳间隔选项(秒)
-    statsLogOpen: true            # 统计日志打印 true开false关
+    heartbeat: 30                 # 设置心跳间隔选项(秒)
+    statsLogOpen: false            # 统计日志打印 true开false关
   DoingOrder: # 订单处理配置
     enable: false                  # 是否启用
     queueType: "dead"             # 队列类型 普通死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay

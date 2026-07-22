@@ -129,19 +129,6 @@ type Upgrade struct {
 	WriteBufferSize   int           `yaml:"writeBufferSize" json:"writeBufferSize"`
 }
 
-type Pool struct {
-	AntsCap           int    `yaml:"antsCap" json:"antsCap"`
-	DialTimeout       int    `yaml:"dialTimeout" json:"dialTimeout"`
-	HealthCheckPeriod int    `yaml:"healthCheckPeriod" json:"healthCheckPeriod"`
-	Heartbeat         int    `yaml:"heartbeat" json:"heartbeat"`
-	InitialCap        int    `yaml:"initialCap" json:"initialCap"`
-	MaxCap            int    `yaml:"maxCap" json:"maxCap"`
-	MaxIdle           int    `yaml:"maxIdle" json:"maxIdle"`
-	ReconnectTime     int    `yaml:"reconnectTime" json:"reconnectTime"`
-	StatsLogOpen      bool   `yaml:"statsLogOpen" json:"statsLogOpen"`
-	URL               string `yaml:"url" json:"url"`
-}
-
 type ClientToken struct {
 	AppID  string `yaml:"appID" json:"appID"`
 	AppKey string `yaml:"appKey" json:"appKey"`
@@ -214,6 +201,11 @@ type NacosRegistry struct {
 	Healthy         bool   `yaml:"healthy" json:"healthy"`
 	RegisterEnabled bool   `yaml:"registerEnabled" json:"registerEnabled"`
 	Weight          int    `yaml:"weight" json:"weight"`
+}
+
+type Sentinel struct {
+	BreakerRules []BreakerRules `yaml:"breakerRules" json:"breakerRules"`
+	Rules        []Rules        `yaml:"rules" json:"rules"`
 }
 
 type ClientSecure struct {
@@ -315,6 +307,14 @@ type NacosServer struct {
 	Scheme      string `yaml:"scheme" json:"scheme"`
 }
 
+type Rules struct {
+	ControlBehavior        string  `yaml:"controlBehavior" json:"controlBehavior"`
+	Resource               string  `yaml:"resource" json:"resource"`
+	StatIntervalInMs       int     `yaml:"statIntervalInMs" json:"statIntervalInMs"`
+	Threshold              float64 `yaml:"threshold" json:"threshold"`
+	TokenCalculateStrategy string  `yaml:"tokenCalculateStrategy" json:"tokenCalculateStrategy"`
+}
+
 type Redis struct {
 	DialTimeout  int    `yaml:"dialTimeout" json:"dialTimeout"`
 	Dsn          string `yaml:"dsn" json:"dsn"`
@@ -325,6 +325,18 @@ type Redis struct {
 	PoolTimeout  int    `yaml:"poolTimeout" json:"poolTimeout"`
 	ReadTimeout  int    `yaml:"readTimeout" json:"readTimeout"`
 	WriteTimeout int    `yaml:"writeTimeout" json:"writeTimeout"`
+}
+
+type Pool struct {
+	DialTimeout       int    `yaml:"dialTimeout" json:"dialTimeout"`
+	HealthCheckPeriod int    `yaml:"healthCheckPeriod" json:"healthCheckPeriod"`
+	Heartbeat         int    `yaml:"heartbeat" json:"heartbeat"`
+	InitialCap        int    `yaml:"initialCap" json:"initialCap"`
+	MaxCap            int    `yaml:"maxCap" json:"maxCap"`
+	MaxIdle           int    `yaml:"maxIdle" json:"maxIdle"`
+	ReconnectTime     int    `yaml:"reconnectTime" json:"reconnectTime"`
+	StatsLogOpen      bool   `yaml:"statsLogOpen" json:"statsLogOpen"`
+	URL               string `yaml:"url" json:"url"`
 }
 
 type Websocket struct {
@@ -443,6 +455,15 @@ type Sign struct {
 	SignKey         string        `yaml:"signKey" json:"signKey"`
 }
 
+type BreakerRules struct {
+	MinRequestAmount int     `yaml:"minRequestAmount" json:"minRequestAmount"`
+	Resource         string  `yaml:"resource" json:"resource"`
+	RetryTimeoutMs   int     `yaml:"retryTimeoutMs" json:"retryTimeoutMs"`
+	StatIntervalMs   int     `yaml:"statIntervalMs" json:"statIntervalMs"`
+	Strategy         string  `yaml:"strategy" json:"strategy"`
+	Threshold        float64 `yaml:"threshold" json:"threshold"`
+}
+
 type NacosInfo struct {
 	NacosClient   NacosClient   `yaml:"nacosClient" json:"nacosClient"`
 	NacosRegistry NacosRegistry `yaml:"nacosRegistry" json:"nacosRegistry"`
@@ -468,16 +489,6 @@ type Queue struct {
 	WriteMsgType   int `yaml:"writeMsgType" json:"writeMsgType"`
 	WriteQueueSize int `yaml:"writeQueueSize" json:"writeQueueSize"`
 	WriteTimeout   int `yaml:"writeTimeout" json:"writeTimeout"`
-}
-
-type Rules struct {
-	Resource         string  `yaml:"resource" json:"resource"`
-	StatIntervalInMs int     `yaml:"statIntervalInMs" json:"statIntervalInMs"`
-	Threshold        float64 `yaml:"threshold" json:"threshold"`
-}
-
-type Sentinel struct {
-	Rules []Rules `yaml:"rules" json:"rules"`
 }
 
 type Args struct {

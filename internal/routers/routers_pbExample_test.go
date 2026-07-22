@@ -41,12 +41,12 @@ func Test_middlewareConfig(t *testing.T) {
 
 	c.setGroupPath("/api/v1", middleware.Auth())
 	assert.Equal(t, 1, len(c.groupPathMiddlewares["/api/v1"]))
-	c.setGroupPath("/api/v1", middleware.RateLimit(), middleware.RequestID())
+	c.setGroupPath("/api/v1", middleware.SentinelMiddleware(), middleware.RequestID())
 	assert.Equal(t, 3, len(c.groupPathMiddlewares["/api/v1"]))
 
 	c.setSinglePath("DELETE", "/api/v1/userExample/:id", middleware.Auth())
 	assert.Equal(t, 1, len(c.singlePathMiddlewares[getSinglePathKey("DELETE", "/api/v1/userExample/:id")]))
-	c.setSinglePath("POST", "/api/v1/userExample/list", middleware.RateLimit(), middleware.RequestID())
+	c.setSinglePath("POST", "/api/v1/userExample/list", middleware.SentinelMiddleware(), middleware.RequestID())
 	assert.Equal(t, 2, len(c.singlePathMiddlewares[getSinglePathKey("POST", "/api/v1/userExample/list")]))
 }
 

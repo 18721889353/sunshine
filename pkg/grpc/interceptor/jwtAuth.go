@@ -1,3 +1,5 @@
+// Package interceptor provides commonly used grpc client-side and server-side interceptors,
+// including authentication, logging, rate limiting, circuit breaking, and metrics collection.
 package interceptor
 
 import (
