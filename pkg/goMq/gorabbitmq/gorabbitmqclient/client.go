@@ -315,3 +315,14 @@ func isConnectionError(err error) bool {
 		strings.Contains(msg, "504") || // channel error
 		strings.Contains(msg, "320") // connection forced close
 }
+
+// Stats 返回连接池的实时统计信息。
+// 可用于监控、调试或通过 HTTP 接口暴露。
+func (r *RabbitMQ) Stats(ctx context.Context) map[string]interface{} {
+	if r.pool == nil {
+		return map[string]interface{}{
+			"error": "pool is nil",
+		}
+	}
+	return r.pool.Stats(ctx)
+}

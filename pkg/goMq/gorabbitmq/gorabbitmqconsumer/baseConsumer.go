@@ -135,39 +135,66 @@ func (bc *BaseConsumer) Start(ctx context.Context, connection *gorabbitmq.Connec
 		}
 		// 创建指定数量的消费者
 		for i := 0; i < consumerNum; i++ {
-			// 构建基础选项
-			consumerOpts := bc.buildBaseOptions(queueConfig, i)
+			// 构建基础选项（两消费者共用：QoS、MsgDurable、AutoAck、Consume配置）
+			baseOpts := bc.buildBaseOptions(queueConfig, i)
 
-			if queueConfig.QueueType == "dead" {
+			// 根据队列类型追加对应的选项配置
+			switch queueConfig.QueueType {
+			case "dead":
+				consumerOpts := append([]gorabbitmq.ConsumerOption(nil), baseOpts...)
 				consumerOpts = append(consumerOpts, bc.buildDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, normalQueueName, normalRoutineKey)...)
-			}
-			if queueConfig.QueueType == "normal" {
+				consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
+
+				consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
+				if err != nil {
+					logger.PanicWithCtx(ctx, "异步消息队列 failed to create rabbitmq consumer error", logger.Err(err))
+				}
+				bc.consumersMutex.Lock()
+				bc.consumers = append(bc.consumers, consumer)
+				bc.consumersMutex.Unlock()
+
+				consumer.Consume(context.WithValue(ctx, QueueTypeKey, "normal"), bc.handleMessage)
+				logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
+
+			case "normal":
+				consumerOpts := append([]gorabbitmq.ConsumerOption(nil), baseOpts...)
 				consumerOpts = append(consumerOpts, bc.buildNormalLetterOptions(exchange, queueConfig, normalQueueName)...)
-			}
+				consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
 
-			if queueConfig.QueueType == "customerDead" {
-				consumerOpts = append(consumerOpts, bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName)...)
-			}
+				consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
+				if err != nil {
+					logger.PanicWithCtx(ctx, "异步消息队列 failed to create rabbitmq consumer error", logger.Err(err))
+				}
+				bc.consumersMutex.Lock()
+				bc.consumers = append(bc.consumers, consumer)
+				bc.consumersMutex.Unlock()
 
-			// 添加消费者名称
-			consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
+				consumer.Consume(context.WithValue(ctx, QueueTypeKey, "normal"), bc.handleMessage)
+				logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
 
-			consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
-			if err != nil {
-				logger.PanicWithCtx(ctx, "异步消息队列 failed to create rabbitmq consumer error", logger.Err(err))
-			}
-			bc.consumersMutex.Lock()
-			bc.consumers = append(bc.consumers, consumer)
-			bc.consumersMutex.Unlock()
+			case "customerDead":
+				// 一次构建选项，复用于正常和重试两个消费者（参照 main.go 模式）
+				customerDeadOpts := bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName)
 
-			// 启动异步消费 (底层 consumer.go)
-			// 将上下文向下传递给具体的底层消费逻辑
-			consumer.Consume(context.WithValue(ctx, QueueTypeKey, "normal"), bc.handleMessage)
-			logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
+				// 正常队列消费者：baseOpts + customerDeadOpts + 名称
+				consumerOpts := append([]gorabbitmq.ConsumerOption(nil), baseOpts...)
+				consumerOpts = append(consumerOpts, customerDeadOpts...)
+				consumerOpts = append(consumerOpts, gorabbitmq.WithConsumerName(bc.name))
 
-			// 自定义死信模式：额外创建重试队列消费者
-			if queueConfig.QueueType == "customerDead" {
-				errConsumerOpts := bc.buildCustomerDeadLetterOptions(exchange, queueConfig, deadQueueName, deadRoutingKey, errQueueName, errRoutingKey, normalQueueName)
+				consumer, err := gorabbitmq.NewConsumer(exchange, normalQueueName, connection, consumerOpts...)
+				if err != nil {
+					logger.PanicWithCtx(ctx, "异步消息队列 failed to create rabbitmq consumer error", logger.Err(err))
+				}
+				bc.consumersMutex.Lock()
+				bc.consumers = append(bc.consumers, consumer)
+				bc.consumersMutex.Unlock()
+
+				consumer.Consume(context.WithValue(ctx, QueueTypeKey, "normal"), bc.handleMessage)
+				logger.InfoWithCtx(ctx, "队列 "+normalQueueName+" 消费者 "+strconv.Itoa(i+1)+" 已启动")
+
+				// 重试队列消费者：复用同一套 baseOpts + customerDeadOpts
+				errConsumerOpts := append([]gorabbitmq.ConsumerOption(nil), baseOpts...)
+				errConsumerOpts = append(errConsumerOpts, customerDeadOpts...)
 				errConsumerOpts = append(errConsumerOpts, gorabbitmq.WithConsumerName(bc.name))
 
 				errConsumer, err := gorabbitmq.NewConsumer(exchange, errQueueName, connection, errConsumerOpts...)
@@ -213,8 +240,6 @@ func (bc *BaseConsumer) buildBaseOptions(cfg config.DoingOrder, index int) []gor
 			gorabbitmq.WithQosPrefetchSize(cfg.ConsumerOption.PrefetchSize),
 			gorabbitmq.WithQosPrefetchGlobal(cfg.ConsumerOption.Global),
 		),
-		gorabbitmq.WithConsumerMsgDurable(cfg.ConsumerOption.MsgDurable),
-		gorabbitmq.WithConsumerAutoAck(cfg.ConsumerOption.IsAutoAck),
 		// 添加消费选项
 		gorabbitmq.WithConsumerConsumeOptions(
 			gorabbitmq.WithConsumeConsumer(name),
@@ -223,6 +248,8 @@ func (bc *BaseConsumer) buildBaseOptions(cfg config.DoingOrder, index int) []gor
 			gorabbitmq.WithConsumeNoWait(cfg.ConsumerOption.NoWait),
 			gorabbitmq.WithConsumeArgs(nil),
 		),
+		gorabbitmq.WithConsumerMsgDurable(cfg.ConsumerOption.MsgDurable),
+		gorabbitmq.WithConsumerAutoAck(cfg.ConsumerOption.IsAutoAck),
 	}
 }
 
