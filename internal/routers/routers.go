@@ -140,42 +140,51 @@ func NewRouter() *gin.Engine {
 		))
 	}
 
-	// limit middleware
-	if cfg.App.EnableLimit {
+	// Sentinel combined middleware: rate limiting + circuit breaker
+	// IMPORTANT: Both SentinelGin.SentinelMiddleware and CircuitBreaker call sentinel.Entry()
+	// internally. Using them as separate middlewares would create 2 entries per request,
+	// doubling all traffic statistics and making rate limiting effectively 2x stricter.
+	// Therefore, we always pass both flow and breaker rules to a single SentinelMiddleware.
+	if cfg.App.EnableLimit || cfg.App.EnableCircuitBreaker {
 		var sentinelRules []*flow.Rule
-		for _, r := range cfg.Sentinel.LimitRules {
-			sentinelRules = append(sentinelRules, &flow.Rule{
-				Resource:               r.Resource,
-				TokenCalculateStrategy: middleware.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
-				ControlBehavior:        middleware.ParseControlBehavior(r.ControlBehavior),
-				Threshold:              r.Threshold,
-				StatIntervalInMs:       uint32(r.StatIntervalInMs),
-			})
+		if cfg.App.EnableLimit {
+			for _, r := range cfg.Sentinel.LimitRules {
+				sentinelRules = append(sentinelRules, &flow.Rule{
+					Resource:               r.Resource,
+					TokenCalculateStrategy: middleware.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
+					ControlBehavior:        middleware.ParseControlBehavior(r.ControlBehavior),
+					Threshold:              r.Threshold,
+					StatIntervalInMs:       uint32(r.StatIntervalInMs),
+				})
+			}
 		}
+
+		var breakerRules []*circuitbreaker.Rule
+		if cfg.App.EnableCircuitBreaker {
+			for _, r := range cfg.Sentinel.BreakerRules {
+				breakerRules = append(breakerRules, &circuitbreaker.Rule{
+					Resource:         r.Resource,
+					Strategy:         middleware.ParseBreakerStrategy(r.Strategy),
+					RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
+					MinRequestAmount: uint64(r.MinRequestAmount),
+					StatIntervalMs:   uint32(r.StatIntervalMs),
+					Threshold:        r.Threshold,
+				})
+			}
+		}
+
+		// 需要构建一个 opts 切片，避免 WithSentinelFlowRules 覆盖默认值
+		// 当 EnableLimit=false 时，sentinelRules 为空，WithSentinelFlowRules 不会覆盖
+		// 同理 EnableCircuitBreaker=false 时，WithSentinelCircuitBreakerRules 也不会覆盖
 		r.Use(
 			middleware.SentinelMiddleware(
 				middleware.WithSentinelResourceExtractor(func(c *gin.Context) string {
 					return c.FullPath()
 				}),
 				middleware.WithSentinelFlowRules(sentinelRules),
+				middleware.WithSentinelCircuitBreakerRules(breakerRules),
 			),
 		)
-	}
-
-	// circuit breaker middleware
-	if cfg.App.EnableCircuitBreaker {
-		var breakerRules []*circuitbreaker.Rule
-		for _, r := range cfg.Sentinel.BreakerRules {
-			breakerRules = append(breakerRules, &circuitbreaker.Rule{
-				Resource:         r.Resource,
-				Strategy:         middleware.ParseBreakerStrategy(r.Strategy),
-				RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
-				MinRequestAmount: uint64(r.MinRequestAmount),
-				StatIntervalMs:   uint32(r.StatIntervalMs),
-				Threshold:        r.Threshold,
-			})
-		}
-		r.Use(middleware.CircuitBreaker(middleware.WithCircuitBreakerRules(breakerRules)))
 	}
 
 	if cfg.App.OpenJwt {
