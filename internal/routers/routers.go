@@ -86,12 +86,9 @@ func NewRouter() *gin.Engine {
 	r.GET("/codes", handlerfunc.ListCodes)
 
 	// pprof 性能分析路由
-	// 生产环境自动启用 IP 白名单鉴权，防止敏感信息泄露；dev/test 环境免鉴权方便调试
+	// 自动启用 IP 白名单鉴权，防止敏感信息泄露；列表为空时默认仅允许内网访问
 	if cfg.App.EnableHTTPProfile {
-		pprofOpts := []prof.Option{prof.WithIOWaitTime()}
-		if cfg.App.Env == "prod" {
-			pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList)))
-		}
+		pprofOpts := []prof.Option{prof.WithIOWaitTime(), prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList))}
 		prof.Register(r, pprofOpts...)
 	}
 

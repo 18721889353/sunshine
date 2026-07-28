@@ -91,9 +91,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	// 生产环境自动启用 IP 白名单鉴权，防止敏感信息泄露；dev/test 环境免鉴权方便调试
 	if cfg.App.EnableHTTPProfile {
 		pprofOpts := []prof.Option{prof.WithIOWaitTime()}
-		if cfg.App.Env == "prod" {
-			pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList)))
-		}
+		pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList)))
 		prof.Register(r, pprofOpts...)
 	}
 
