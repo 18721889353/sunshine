@@ -11,35 +11,33 @@ nacos:
   group: "dev"                  # 分组: dev, prod, test
   dataID: "serverNameExample.yml"  # 配置文件 ID（需先在 Nacos 控制台创建）
   format: "yaml"                # 配置文件类型: json, yaml, toml
-  username: "nacos"             # Docker Nacos 默认用户名（NACOS_AUTH_ENABLE=true 时需要）
-  password: "nacos"             # Docker Nacos 默认密码
-
+  username: "ENC(4baa17fca9af16cfd9a563b686fc6323)"             # Docker Nacos 默认用户名（NACOS_AUTH_ENABLE=true 时需要）
+  password: "ENC(375e0e53a2773d65e0feb01b0db729dc)"             # Docker Nacos 默认密码
 
 # Docker Nacos 启动命令（开启认证）:
-#docker run -d \
-#--name nacos \
-#-p 8848:8848 \
-#-p 9848:9848 \
-#-e MODE=standalone \  # 单机模式
-#-e NACOS_AUTH_ENABLE=true \
-#-e NACOS_AUTH_TOKEN=Z8aQ4I8xS6NlpBVugqNzdRYyCUKa9BiHjiKXoRzXrrk= \
-#-e NACOS_AUTH_IDENTITY_KEY=sunshine \
-#-e NACOS_AUTH_IDENTITY_VALUE=sunshine \
-#nacos/nacos-server:v2.4.3
+#   docker run -d \
+#     --name nacos \
+#     -p 8848:8848 \
+#     -p 9848:9848 \
+#     -v /home/go/nacos/nacos_data_backup:/home/nacos/data \
+#     -v /home/go/nacos/nacos_logs_backup:/home/nacos/logs \
+#     -e MODE=standalone \
+#     -e NACOS_AUTH_ENABLE=true \
+#     -e NACOS_AUTH_TOKEN=Z8aQ4I8xS6NlpBVugqNzdRYyCUKa9BiHjiKXoRzXrrk= \
+#     -e NACOS_AUTH_IDENTITY_KEY=sunshine \
+#     -e NACOS_AUTH_IDENTITY_VALUE=sunshine \
+#     -e JVM_XMS=256m \
+#     -e JVM_XMX=512m \
+#     -e JVM_XMN=256m \
+#     --memory=768m \
+#     --memory-swap=768m \
+#     nacos/nacos-server:v2.4.3
 
-# 所有集群节点使用完全相同的环境变量
-#docker run -d \
-#--name nacos-node-1 \
-#-e MODE=cluster \                              # 集群模式
-#-e NACOS_AUTH_ENABLE=true \
-#-e NACOS_AUTH_TOKEN=Z8aQ4I8xS6NlpBVugqNzdRYyCUKa9BiHjiKXoRzXrrk= \  # 所有节点相同！
-#-e NACOS_AUTH_IDENTITY_KEY=sunshine \           # 所有节点相同！
-#-e NACOS_AUTH_IDENTITY_VALUE=sunshine \         # 所有节点相同！
-#-e NACOS_SERVERS="192.168.1.1:8848 192.168.1.2:8848" \  # 集群成员列表
-#nacos/nacos-server:v2.4.3
-
-#  NACOS_AUTH_TOKEN   JWT 签发密钥，服务端用
-#  NACOS_AUTH_IDENTITY_KEY/VALUE  Nacos 集群内部身份识别
+#如果目录不存在，先执行
+# mkdir -p /home/go/nacos/nacos_data_backup /home/go/nacos/nacos_logs_backup
+# 从旧容器复制数据到新路径
+#  docker cp nacos:/home/nacos/data/. /home/go/nacos/nacos_data_backup/
+#  docker cp nacos:/home/nacos/logs/. /home/go/nacos/nacos_logs_backup/
 # 首次使用步骤:
 #   1. 启动 Docker Nacos 后访问 http://127.0.0.1:8848/nacos
 #   2. 使用默认账号 nacos/nacos 登录
