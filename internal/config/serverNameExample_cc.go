@@ -21,6 +21,7 @@ type Nacos struct {
 	DataID      string `yaml:"dataID" json:"dataID"`
 	Format      string `yaml:"format" json:"format"`
 	Group       string `yaml:"group" json:"group"`
+	GrpcPort    int    `yaml:"grpcPort" json:"grpcPort"`
 	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`
 	NamespaceID string `yaml:"namespaceID" json:"namespaceID"`
 	Password    string `yaml:"password" json:"password"`
