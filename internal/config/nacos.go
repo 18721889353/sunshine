@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 
@@ -39,14 +40,23 @@ func GetConfigFromNacos(configFile string) error {
 		Format:      nacosConf.Nacos.Format,
 	}
 
+	var cacheDir string
+	switch runtime.GOOS {
+	case "windows":
+		cacheDir = "NUL" // Windows 空设备
+	default:
+		cacheDir = "/dev/null" // Linux/macOS 空设备
+	}
 	// 2. 构建 ClientConfig（包含认证信息）
 	clientConfig := &constant.ClientConfig{
+		DisableUseSnapShot:  true, // 禁止读取本地缓存
 		NamespaceId:         nacosConf.Nacos.NamespaceID,
 		TimeoutMs:           5000,
 		NotLoadCacheAtStart: true,
+		CacheDir:            cacheDir, // 关键：设为空字符串，禁用缓存目录
+		LogDir:              cacheDir,
 		Username:            nacosConf.Nacos.Username,
 		Password:            nacosConf.Nacos.Password,
-		// LogDir 和 CacheDir 使用默认临时目录，如需自定义可在此设置
 	}
 
 	// 3. 构建 ServerConfig（显式指定 HTTP 和 gRPC 端口）
