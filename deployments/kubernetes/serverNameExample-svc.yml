@@ -1,22 +1,22 @@
+# Service: 为 Deployment 提供集群内稳定的访问入口
 apiVersion: v1
 kind: Service
 metadata:
-  name: server-name-example-svc
-  namespace: project-name-example
+  name: server-name-example-svc          # Service 名称，集群内通过此名称访问
+  namespace: project-name-example        # 命名空间
+  labels:
+    app: server-name-example             # 标签，用于 Service 选择器匹配
 spec:
   selector:
-    app: server-name-example
-  type: ClusterIP
-# todo generate k8s-svc.yml code for http or grpc here
-# delete the templates code start
+    app: server-name-example             # 选择标签为 app=server-name-example 的 Pod
+  type: ClusterIP                        # 集群内部访问类型，不暴露到外部
   ports:
-    - name: server-name-example-svc-http-port
-      port: 8080
-      targetPort: 8080
     - name: server-name-example-svc-grpc-port
-      port: 8282
-      targetPort: 8282
-    - name: server-name-example-svc-grpc-metrics-port
-      port: 8283
-      targetPort: 8283
-# delete the templates code end
+      port: 7001                         # Service 端口
+      targetPort: 7001                   # 转发到 Pod 的容器端口（gRPC 服务）
+    - name: server-name-example-svc-http-port
+      port: 8001                         # Service 端口
+      targetPort: 8001                   # 转发到 Pod 的容器端口（HTTP 服务）
+    - name: server-name-example-svc-metrics-port
+      port: 6001                         # Service 端口
+      targetPort: 6001                   # 转发到 Pod 的容器端口（性能分析和指标）

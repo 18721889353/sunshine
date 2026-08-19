@@ -1,75 +1,88 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: server-name-example-dm
-  namespace: project-name-example
-spec:
-  replicas: 1
-  selector:
+# Deployment: 定义应用的副本数、容器配置、健康检查、存储挂载等
+apiVersion: apps/v1                       # Kubernetes API 版本
+kind: Deployment                          # 资源类型：无状态部署
+metadata:                                 # 元数据
+  name: server-name-example-dm            # Deployment 名称
+  namespace: project-name-example         # 命名空间
+  labels:                                 # 标签，用于资源分组和选择
+    app: server-name-example              # 标签，用于 Service 选择器匹配
+spec:                                     # 规格定义
+  replicas: 1                             # 副本数，生产环境建议 >= 2
+  selector:                               # 选择器，匹配管理的 Pod
     matchLabels:
-      app: server-name-example
-  template:
-    metadata:
-      name: server-name-example-pod
-      labels:
-        app: server-name-example
-    spec:
-      containers:
-        - name: server-name-example
-          image: repo-addr-example/project-name-example/server-name-example:latest
-          # If using a local image, use Never, default is Always
-          #imagePullPolicy: Never
-          command: ["./serverNameExample", "-c", "/app/configs/serverNameExample.yml"]
-          resources:
-            requests:
-              cpu: 10m
-              memory: 10Mi
-            limits:
-              cpu: 1000m
-              memory: 1000Mi
-          volumeMounts:
-            - name: server-name-example-vl
-              mountPath: /app/configs/
-              readOnly: true
-# todo generate k8s-deployment.yml code for http or grpc here
-# delete the templates code start
-          ports:
-            - name: http-port
-              containerPort: 8080
-            - name: grpc-port
-              containerPort: 8282
-            - name: metrics-port
-              containerPort: 8283
-          # select health check according to service type (http or grpc)
-          # emotional Detection
-          readinessProbe:
-            httpGet:
-              port: http-port
-              path: /health
-            #exec:
-            #  command: ["/bin/grpc_health_probe", "-addr=:8282"]
-            initialDelaySeconds: 10
-            timeoutSeconds: 2
-            periodSeconds: 10
-            successThreshold: 1
-            failureThreshold: 3
-          # container Survival Detection
-          livenessProbe:
-            httpGet:
-              port: http-port
-              path: /health
-            #exec:
-            #  command: ["/bin/grpc_health_probe", "-addr=:8282"]
-# delete the templates code end
-            initialDelaySeconds: 10
-            timeoutSeconds: 2
-            periodSeconds: 10
-            successThreshold: 1
-            failureThreshold: 3
-      # todo for private repositories, you need to create a secret (here docker-auth-secret) to store the account and password to log into docker
-      imagePullSecrets:
-        - name: docker-auth-secret
-      volumes:
-        - name: server-name-example-vl
-          configMap:
-            name: server-name-example-config
+      app: server-name-example            # 选择标签为 app=server-name-example 的 Pod
+  template:                               # Pod 模板，定义 Pod 的具体配置
+    metadata:                             # Pod 元数据
+      name: server-name-example-pod       # Pod 名称（实际会追加随机后缀）
+      labels:                             # Pod 标签
+        app: server-name-example          # Pod 标签，需与 selector.matchLabels 一致
+    spec:                                 # Pod 规格
+      # initContainer: 以 root 身份修正日志目录权限，确保 appuser(UID 1001) 可写
+      initContainers:                     # 初始化容器，在主容器启动前运行
+        - name: fix-log-permissions       # 容器名称
+          image: busybox:latest           # 轻量镜像，仅用于执行权限修正
+          command: ["sh", "-c", "chown -R 1001:1001 /app/logs && chmod -R 755 /app/logs"]  # 修正目录所有者和权限
+          volumeMounts:                   # 卷挂载
+            - name: server-name-example-logs  # 卷名称
+              mountPath: /app/logs/       # 挂载日志目录
+          resources:                      # 资源限制
+            requests:                     # 请求资源：调度时最低保证
+              cpu: 5m                     # 5 毫核 CPU
+              memory: 5Mi                 # 5 MiB 内存
+            limits:                       # 限制资源：运行上限
+              cpu: 50m                    # 50 毫核 CPU
+              memory: 50Mi                # 50 MiB 内存
+      containers:                         # 主容器列表
+        - name: server-name-example       # 容器名称
+          image: repo-addr-example/project-name-example/server-name-example:latest  # 镜像地址
+          imagePullPolicy: Always         # 每次启动都拉取最新镜像，避免使用本地缓存
+          # 走 Nacos 配置中心: -enable-cc 启用配置中心, -c 指定配置中心连接文件
+          command: ["./serverNameExample", "-enable-cc", "-c", "/app/configs/serverNameExample_cc.yml"]  # 启动命令及参数
+          resources:                      # 资源限制
+            requests:                     # 请求资源：调度时最低保证
+              cpu: 10m                    # 10 毫核 CPU
+              memory: 10Mi                # 10 MiB 内存
+            limits:                       # 限制资源：运行上限
+              cpu: 1000m                  # 1 核 CPU
+              memory: 1000Mi              # 1 GiB 内存
+          volumeMounts:                   # 卷挂载
+            - name: server-name-example-vl    # 卷名称
+              mountPath: /app/configs/    # 挂载 ConfigMap（Nacos 连接配置）
+              readOnly: true              # 只读，防止容器内修改配置
+            - name: server-name-example-logs  # 卷名称
+              mountPath: /app/logs/       # 挂载日志目录（持久化到宿主机）
+
+          ports:                          # 容器暴露端口
+            - name: grpc-port             # 端口名称
+              containerPort: 7001         # gRPC 服务端口
+            - name: metrics-port          # 端口名称
+              containerPort: 6001         # 性能分析和指标端口
+            - name: http-port             # 端口名称
+              containerPort: 8001         # HTTP 服务端口
+          readinessProbe:                 # 就绪探针：判断容器是否准备好接收流量
+            exec:                         # 执行命令探测
+              command: ["/bin/grpc_health_probe", "-addr=:7001"]  # 通过 gRPC 健康检查
+            initialDelaySeconds: 60       # 容器启动后等待 60 秒开始探测（给 Nacos/数据库初始化留时间）
+            timeoutSeconds: 10            # 单次探测超时时间
+            periodSeconds: 15             # 每 15 秒探测一次
+            successThreshold: 1           # 成功 1 次即标记为就绪
+            failureThreshold: 5           # 连续失败 5 次标记为未就绪（总等待：60s + 15s*5 = 135s）
+          livenessProbe:                  # 存活探针：判断容器是否存活，失败则重启
+            exec:                         # 执行命令探测
+              command: ["/bin/grpc_health_probe", "-addr=:7001"]  # 通过 gRPC 健康检查
+            initialDelaySeconds: 60       # 容器启动后等待 60 秒开始探测
+            timeoutSeconds: 10            # 单次探测超时时间
+            periodSeconds: 15             # 每 15 秒探测一次
+            successThreshold: 1           # 成功 1 次即标记为存活
+            failureThreshold: 5           # 连续失败 5 次则重启容器（总等待：60s + 15s*5 = 135s）
+      # 私有仓库需提前创建镜像拉取密钥(此处为 docker-auth-secret), 用于存储 docker 登录的账号密码
+      imagePullSecrets:                   # 镜像拉取密钥，用于私有仓库认证
+        - name: docker-auth-secret        # Secret 名称（需提前手动创建）
+      volumes:                            # 卷定义，供容器挂载使用
+        - name: server-name-example-vl    # 卷名称
+          configMap:                      # ConfigMap 类型卷
+            name: server-name-example-config  # 引用 ConfigMap，包含 Nacos 连接配置
+        - name: server-name-example-logs  # 卷名称
+          hostPath:                       # 宿主机路径类型卷
+            path: /home/logs/server-name-example  # 宿主机日志目录
+            type: DirectoryOrCreate       # 目录不存在则自动创建

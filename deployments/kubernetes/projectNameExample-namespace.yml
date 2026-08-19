@@ -1,4 +1,7 @@
+# Namespace: 资源隔离单元，所有 Deployment/Service/ConfigMap 都在此命名空间下
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: project-name-example
+  name: project-name-example             # 命名空间名称，集群内资源按此隔离
+  labels:
+    app: server-name-example             # 标签，便于按标签筛选和管理
