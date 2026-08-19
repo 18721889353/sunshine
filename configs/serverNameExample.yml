@@ -227,6 +227,7 @@ sign:
       - "/api/fd_v1/test"
     grpc:
       - "/api.feedovService.v1.feedovService/test"
+      - "/grpc.health.v1.Health/Check"
 
 # JWT设置
 jwt:
@@ -241,6 +242,7 @@ jwt:
     grpc:
       - "/api.adminService.v1.adminLoginService/Captcha"
       - "/api.adminService.v1.adminLoginService/Login"
+      - "/grpc.health.v1.Health/Check"
 
 # Sentinel 流量防护配置（限流 + 熔断）
 sentinel:

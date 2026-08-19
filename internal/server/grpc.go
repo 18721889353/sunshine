@@ -212,6 +212,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		interceptor.WithMaxLen(config.Get().Logger.MaxLen),
 		interceptor.WithLogFrom(config.Get().App.Name+"_"+utils.GetLocalIP()),
 		interceptor.WithReplaceGRPCLogger(),
+		interceptor.WithLogIgnoreMethods("/grpc.health.v1.Health/Check"), // 屏蔽健康检查日志
 	))
 
 	// token interceptor
