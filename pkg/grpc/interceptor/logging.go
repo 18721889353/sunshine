@@ -92,8 +92,6 @@ func StreamClientLog(opts ...LogOption) grpc.StreamClientInterceptor {
 
 // ---------------------------------- server interceptor ----------------------------------
 
-var ignoreLogMethods = map[string]struct{}{} // ignore printing methods
-
 // LogOption log settings
 type LogOption func(*logOptions)
 
@@ -166,7 +164,6 @@ func WithLogIgnoreMethods(fullMethodNames ...string) LogOption {
 func UnaryServerLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 	o := defaultLogOptions()
 	o.apply(opts...)
-	ignoreLogMethods = o.ignoreMethods
 
 	if o.isReplaceGRPCLogger {
 		logger.ReplaceGRPCLoggerV2(logger.Get())
@@ -174,7 +171,7 @@ func UnaryServerLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// ignore printing of the specified method
-		if _, ok := ignoreLogMethods[info.FullMethod]; ok {
+		if _, ok := o.ignoreMethods[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
 
@@ -226,7 +223,6 @@ func UnaryServerLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 func UnaryServerSimpleLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 	o := defaultLogOptions()
 	o.apply(opts...)
-	ignoreLogMethods = o.ignoreMethods
 
 	if o.isReplaceGRPCLogger {
 		logger.ReplaceGRPCLoggerV2(logger.Get())
@@ -234,7 +230,7 @@ func UnaryServerSimpleLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// ignore printing of the specified method
-		if _, ok := ignoreLogMethods[info.FullMethod]; ok {
+		if _, ok := o.ignoreMethods[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
 
@@ -266,7 +262,6 @@ func UnaryServerSimpleLog(opts ...LogOption) grpc.UnaryServerInterceptor {
 func StreamServerLog(opts ...LogOption) grpc.StreamServerInterceptor {
 	o := defaultLogOptions()
 	o.apply(opts...)
-	ignoreLogMethods = o.ignoreMethods
 
 	if o.isReplaceGRPCLogger {
 		logger.ReplaceGRPCLoggerV2(logger.Get())
@@ -274,7 +269,7 @@ func StreamServerLog(opts ...LogOption) grpc.StreamServerInterceptor {
 
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		// ignore printing of the specified method
-		if _, ok := ignoreLogMethods[info.FullMethod]; ok {
+		if _, ok := o.ignoreMethods[info.FullMethod]; ok {
 			return handler(srv, stream)
 		}
 
@@ -314,7 +309,6 @@ func StreamServerLog(opts ...LogOption) grpc.StreamServerInterceptor {
 func StreamServerSimpleLog(opts ...LogOption) grpc.StreamServerInterceptor {
 	o := defaultLogOptions()
 	o.apply(opts...)
-	ignoreLogMethods = o.ignoreMethods
 
 	if o.isReplaceGRPCLogger {
 		logger.ReplaceGRPCLoggerV2(logger.Get())
@@ -322,7 +316,7 @@ func StreamServerSimpleLog(opts ...LogOption) grpc.StreamServerInterceptor {
 
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		// ignore printing of the specified method
-		if _, ok := ignoreLogMethods[info.FullMethod]; ok {
+		if _, ok := o.ignoreMethods[info.FullMethod]; ok {
 			return handler(srv, stream)
 		}
 

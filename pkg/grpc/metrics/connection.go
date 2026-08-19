@@ -117,8 +117,14 @@ func (c *CustomConn) Close() error {
 	clientAddr := c.Conn.RemoteAddr().String()
 	err := c.Conn.Close()
 	if err != nil {
-		fmt.Printf("close connection error: %v\n", err)
-		return err
+		if c.listener.zapLogger != nil {
+			c.listener.zapLogger.Warn("failed to close connection",
+				zap.String("client", clientAddr),
+				zap.Error(err),
+			)
+		} else {
+			fmt.Printf("close connection error (client %s): %v\n", clientAddr, err)
+		}
 	}
 	c.listener.closeConnection(clientAddr)
 	return nil
