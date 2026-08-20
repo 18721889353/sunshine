@@ -12,17 +12,22 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/utils"
-
+	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
+	"github.com/alibaba/sentinel-golang/core/flow"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/status"
 
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/service"
 	"github.com/18721889353/sunshine/pkg/app"
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/grpc/gtls"
@@ -31,12 +36,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/prof"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
-
-	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
-	"github.com/alibaba/sentinel-golang/core/flow"
-
-	"github.com/18721889353/sunshine/internal/config"
-	"github.com/18721889353/sunshine/internal/service"
+	"github.com/18721889353/sunshine/pkg/utils"
 )
 
 var _ app.IServer = (*grpcServer)(nil)
@@ -211,7 +211,6 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerLog(
 		interceptor.WithMaxLen(config.Get().Logger.MaxLen),
 		interceptor.WithLogFrom(config.Get().App.Name+"_"+utils.GetLocalIP()),
-		interceptor.WithReplaceGRPCLogger(),
 		interceptor.WithLogIgnoreMethods("/grpc.health.v1.Health/Check"), // 屏蔽健康检查日志
 	))
 
@@ -304,9 +303,7 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 	}
 
 	// logger interceptor, to print simple messages, replace interceptor.StreamServerLog with interceptor.StreamServerSimpleLog
-	streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerLog(
-		interceptor.WithReplaceGRPCLogger(),
-	))
+	streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerLog())
 
 	// token interceptor
 	if config.Get().Grpc.EnableToken {
@@ -452,6 +449,11 @@ func NewGRPCServer(addr string, opts ...GrpcOption) app.IServer {
 		iRegistry: o.iRegistry,
 		instance:  o.instance,
 	}
+
+	// grpc-go 内部日志路由：Info 级（transport 建/断连等，健康探针会产生大量噪音）直接丢弃，
+	// Warning/Error 保留输出到 stderr，可通过 kubectl logs 排查
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, os.Stderr, os.Stderr))
+
 	s.addHTTPRouter()
 	if config.Get().App.EnableHTTPProfile {
 		s.registerProfMux()

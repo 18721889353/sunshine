@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -48,7 +49,8 @@ func WithConnectionsGauge() ConnectionOption {
 // CustomConn custom connections, intercept disconnected behavior
 type CustomConn struct {
 	net.Conn
-	listener *CustomListener
+	listener  *CustomListener
+	closeOnce sync.Once
 }
 
 // CustomListener custom listener for counting connections
@@ -112,21 +114,25 @@ func (l *CustomListener) closeConnection(clientAddr string) {
 }
 
 // Close closes the listener, any blocked except operations will be unblocked and return errors.
+//
+// gRPC 内部 transport 关闭和 Server 清理连接两条路径都会调用 Close，
+// 这里通过 sync.Once 保证每个连接只关闭、计数一次，避免连接数变成负数。
 func (c *CustomConn) Close() error {
-	defer func() { _ = recover() }() //nolint:errcheck
-	clientAddr := c.Conn.RemoteAddr().String()
-	err := c.Conn.Close()
-	if err != nil {
-		if c.listener.zapLogger != nil {
-			c.listener.zapLogger.Warn("failed to close connection",
-				zap.String("client", clientAddr),
-				zap.Error(err),
-			)
-		} else {
-			fmt.Printf("close connection error (client %s): %v\n", clientAddr, err)
+	c.closeOnce.Do(func() {
+		clientAddr := c.Conn.RemoteAddr().String()
+		err := c.Conn.Close()
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			if c.listener.zapLogger != nil {
+				c.listener.zapLogger.Warn("failed to close connection",
+					zap.String("client", clientAddr),
+					zap.Error(err),
+				)
+			} else {
+				fmt.Printf("close connection error (client %s): %v\n", clientAddr, err)
+			}
 		}
-	}
-	c.listener.closeConnection(clientAddr)
+		c.listener.closeConnection(clientAddr)
+	})
 	return nil
 }
 

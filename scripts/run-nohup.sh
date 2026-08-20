@@ -27,7 +27,7 @@ fi
 function stopService(){
     local NAME=$1
 
-    # priority to kill process by pid
+    # 优先通过 pid 文件终止进程
     if [ -f "${pidFile}" ]; then
         local pid=$(cat "${pidFile}")
         local processInfo=`ps -p "${pid}" | grep "${cmdStr}"`
@@ -40,7 +40,7 @@ function stopService(){
         fi
     fi
 
-    # if the pid file does not exist, get the pid from the process name and kill the process
+    # pid 文件不存在时，通过进程名查找并终止进程
     ID=`ps -ef | grep "${cmdStr}" | grep -v "$0" | grep -v "grep" | awk '{print $2}'`
     if [ -n "$ID" ]; then
         for id in $ID
@@ -67,7 +67,7 @@ function startService() {
       configFile="configs/${NAME}.yml"
     fi
 
-    # running server, append log to file
+    # 后台运行服务，日志追加写入文件
     if [ "$enableCC" = "true" ]; then
         nohup ${cmdStr} -enable-cc -c $configFile >> ${NAME}.log 2>&1 &
     else

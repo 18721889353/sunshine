@@ -1,35 +1,33 @@
 #!/bin/bash
 
-# two-stage build docker image
+# 两阶段构建 docker 镜像
 
 serverName="serverNameExample_mixExample"
-# image name of the service, prohibit uppercase letters in names.
+# 服务镜像名称，名称中禁止使用大写字母。
 IMAGE_NAME="project-name-example/server-name-example"
-# Dockerfile file directory
+# Dockerfile 文件所在目录
 DOCKERFILE_PATH="scripts/build"
 DOCKERFILE="${DOCKERFILE_PATH}/Dockerfile_build"
 
-# image repo address, REPO_HOST="ip or domain", passed in via the first parameter
+# 镜像仓库地址，REPO_HOST="ip 或域名"，通过第一个参数传入
 REPO_HOST=$1
 if [ "X${REPO_HOST}" = "X" ];then
         echo "param 'repo host' cannot be empty, example: ./image-build.sh hub.docker.com v1.0.0"
         exit 1
 fi
-# the version tag, which defaults to latest if empty, is passed in via the second parameter
+# 版本标签，为空时默认为 latest，通过第二个参数传入
 TAG=$2
 if [ "X${TAG}" = "X" ];then
         TAG="latest"
 fi
-# image name and tag
+# 镜像名称及标签
 IMAGE_NAME_TAG="${REPO_HOST}/${IMAGE_NAME}:${TAG}"
 
-PROJECT_FILES=$(ls)
-tar zcf ${serverName}.tar.gz ${PROJECT_FILES}
-mv -f ${serverName}.tar.gz ${DOCKERFILE_PATH}
-echo "docker build --force-rm -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}"
-docker build --force-rm -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}
-rm -rf ${DOCKERFILE_PATH}/${serverName}.tar.gz
-# delete none image
+# 构建上下文为项目根目录，Dockerfile_build 通过 go.mod/go.sum 利用 Docker 分层缓存
+echo "docker build --force-rm -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ."
+docker build --force-rm -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} .
+
+# 删除 <none> 标签的悬空镜像
 noneImages=$(docker images | grep "<none>" | awk '{print $3}')
 if [ "X${noneImages}" != "X" ]; then
   docker rmi ${noneImages} > /dev/null

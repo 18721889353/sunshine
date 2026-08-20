@@ -22,7 +22,7 @@ function checkResult() {
     fi
 }
 
-# get specified proto files, if empty, return 0 else return 1
+# 获取指定的 proto 文件，为空返回 0，否则返回 1
 function getSpecifiedProtoFiles() {
   if [ "$specifiedProtoFilePath"x = x ];then
     return 0
@@ -41,7 +41,7 @@ function getSpecifiedProtoFiles() {
   return 1
 }
 
-# add the import of useless packages from the generated *.pb.go code here
+# 在此删除生成的 *.pb.go 代码中无用包的 import
 function deleteUnusedPkg() {
   file=$1
   osType=$(uname -s)
@@ -139,7 +139,7 @@ function generateByAllProto(){
   echo -e "generate *pb.go by proto files: ${colorGray}$allProtoFiles${markEnd}"
   echo ""
 
-  # generate files *_pb.go
+  # 生成 *_pb.go 文件
   protoc --proto_path=. --proto_path=./third_party \
     --go_out=. --go_opt=paths=source_relative \
     $allProtoFiles
@@ -147,7 +147,7 @@ function generateByAllProto(){
   checkResult $?
   # todo generate grpc files here
   # delete the templates code start
-  # generate files *_grpc_pb.go
+  # 生成 *_grpc_pb.go 文件
   protoc --proto_path=. --proto_path=./third_party \
     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
     $allProtoFiles
@@ -155,14 +155,14 @@ function generateByAllProto(){
   checkResult $?
   # delete the templates code end
 
-  # generate the file *_pb.validate.go
+  # 生成 *_pb.validate.go 文件
   protoc --proto_path=. --proto_path=./third_party \
     --validate_out=lang=go:. --validate_opt=paths=source_relative \
     $allProtoFiles
 
   checkResult $?
 
-  # embed the tag field into *_pb.go
+  # 将 tag 字段嵌入到 *_pb.go 中
   protoc --proto_path=. --proto_path=./third_party \
     --gotag_out=:. --gotag_opt=paths=source_relative \
     $allProtoFiles
@@ -171,7 +171,7 @@ function generateByAllProto(){
 }
 
 function generateBySpecifiedProto(){
-  # get the proto file of the serverNameExample server
+  # 获取 serverNameExample 服务的 proto 文件
   allProtoFiles=""
   listProtoFiles ${protoBasePath}/serverNameExample
   cd ..
@@ -197,21 +197,20 @@ function generateBySpecifiedProto(){
   # todo generate api template code command here
   # delete the templates code start
 
-  # generate the swagger document and merge all files into docs/apis.swagger.json
+  # 生成 swagger 文档，并将所有文件合并到 docs/apis.swagger.json
   protoc --proto_path=. --proto_path=./third_party \
     --openapiv2_out=. --openapiv2_opt=logtostderr=true --openapiv2_opt=allow_merge=true --openapiv2_opt=merge_file_name=docs/apis.json \
     $specifiedProtoFiles
 
   checkResult $?
 
-  # convert 64-bit fields type string to integer
+  # 将 64 位字段类型从 string 转换为 integer
   sunshine web swagger --file=docs/apis.swagger.json > /dev/null
   checkResult $?
 
-  # A total of four files are generated: the registration route file *_router.pb.go (saved in the same directory as the protobuf file),
-  # the injection route file *_router.go (saved in internal/routers by default), the logic code template file *.go (saved in internal/service by default),
-  # and the return error code template file *_http.go (saved in internal/ecode by default). internal/service),
-  # return error code template file *_http.go (default path in internal/ecode)
+  # 共生成四个文件：注册路由文件 *_router.pb.go（与 protobuf 文件保存在同一目录）、
+  # 注入路由文件 *_router.go（默认保存在 internal/routers）、逻辑代码模板文件 *.go（默认保存在 internal/service）、
+  # 返回错误码模板文件 *_http.go（默认保存在 internal/ecode）
   protoc --proto_path=. --proto_path=./third_party \
     --go-gin_out=. --go-gin_opt=paths=source_relative --go-gin_opt=plugin=service \
     --go-gin_opt=moduleName=github.com/18721889353/sunshine --go-gin_opt=serverName=serverNameExample \
@@ -228,19 +227,19 @@ function generateBySpecifiedProto(){
   fi
 }
 
-# generate pb.go by all proto files
+# 根据所有 proto 文件生成 pb.go
 generateByAllProto
 
-# generate pb.go by specified proto files
+# 根据指定的 proto 文件生成 pb.go
 generateBySpecifiedProto
 
-# delete unused packages in pb.go
+# 删除 pb.go 中未使用的包
 handlePbGoFiles $protoBasePath
 
-# delete json tag omitempty
+# 删除 json tag 中的 omitempty
 sunshine patch del-omitempty --dir=$protoBasePath --suffix-name=pb.go > /dev/null
 
-# modify duplicate numbers and error codes
+# 修改重复的错误码编号
 sunshine patch modify-dup-num --dir=internal/ecode
 sunshine patch modify-dup-err-code --dir=internal/ecode
 moduleName=$(getModuleName)

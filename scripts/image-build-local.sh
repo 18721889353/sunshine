@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# build the image for local docker, using the binaries, if you want to reduce the size of the image,
-# use upx to compress the binaries before building the image.
+# 使用编译好的二进制文件为本地 docker 构建镜像；如需减小镜像体积，
+# 可在构建镜像前先用 upx 压缩二进制文件。
 
 serverName="serverNameExample_mixExample"
-# image name of the service, prohibit uppercase letters in names.
+# 服务镜像名称，名称中禁止使用大写字母。
 IMAGE_NAME="project-name-example/server-name-example"
-# Dockerfile file directory
+# Dockerfile 文件所在目录
 DOCKERFILE_PATH="scripts/build"
 DOCKERFILE="${DOCKERFILE_PATH}/Dockerfile"
 
@@ -15,27 +15,16 @@ mv -f cmd/${serverName}/${serverName} ${DOCKERFILE_PATH}/${serverName}
 # todo generate image-build-local code for http or grpc here
 # delete the templates code start
 
-# install grpc-health-probe, for health check of grpc service
-rootDockerFilePath=$(pwd)/${DOCKERFILE_PATH}
-go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.12
-cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
-    && go mod download \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w" -o "${rootDockerFilePath}/grpc_health_probe"
-cd -
+# k8s 探针已改用原生 grpc: 方式（见 deployment.yml），无需再编译安装 grpc_health_probe
 
-# compressing binary file
+# 压缩二进制文件
 #cd ${DOCKERFILE_PATH}
 #upx -9 ${serverName}
-#upx -9 grpc_health_probe
 #cd -
 
-mkdir -p ${DOCKERFILE_PATH}/configs && cp -f configs/${serverName}.yml ${DOCKERFILE_PATH}/configs/
+mkdir -p ${DOCKERFILE_PATH}/configs && cp -f configs/${serverName}.yml configs/${serverName}_cc.yml ${DOCKERFILE_PATH}/configs/
 echo "docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}"
 docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}
-
-if [ -f "${DOCKERFILE_PATH}/grpc_health_probe" ]; then
-    rm -f ${DOCKERFILE_PATH}/grpc_health_probe
-fi
 
 # delete the templates code end
 
@@ -47,7 +36,7 @@ if [ -d "${DOCKERFILE_PATH}/configs" ]; then
     rm -rf ${DOCKERFILE_PATH}/configs
 fi
 
-# delete none image
+# 删除 <none> 标签的悬空镜像
 noneImages=$(docker images | grep "<none>" | awk '{print $3}')
 if [ "X${noneImages}" != "X" ]; then
   docker rmi ${noneImages} > /dev/null

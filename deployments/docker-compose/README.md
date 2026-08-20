@@ -1,5 +1,5 @@
 
-copy the configuration file to the configs directory before starting the service.
+启动服务前，请将配置文件复制到 configs 目录。
 
 ```
 ├── configs
@@ -7,6 +7,6 @@ copy the configuration file to the configs directory before starting the service
 └── docker-compose.yml
 ```
 
-running service:
+运行服务：
 
 > docker-compose up -d

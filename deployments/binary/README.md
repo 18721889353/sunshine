@@ -1,5 +1,5 @@
 
-copy the configuration file to the configs directory and binary file before starting the service.
+启动服务前，请将配置文件复制到 configs 目录，并准备好二进制文件。
 
 ```
 ├── configs
@@ -9,18 +9,18 @@ copy the configuration file to the configs directory and binary file before star
 └── run.sh
 ```
 
-### Running and stopping service manually
+### 手动运行与停止服务
 
-Running service:
+运行服务：
 
 > ./run.sh
 
-Stopping the service:
+停止服务：
 
 > ./run.sh stop
 
 <br>
 
-### Automated deployment service
+### 自动化部署服务
 
 > ./deploy.sh

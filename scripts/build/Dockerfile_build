@@ -1,53 +1,64 @@
-# Need to package the code first `tar zcf serverNameExample.tar.gz $(ls)` and move it to the same directory as Dokerfile
+# ============================================================
+# 阶段一：编译 Go 二进制文件
+# ============================================================
+FROM golang:1.25-alpine AS builder
 
-# Compile the go code, you can specify the golang version
-FROM golang:1.21-alpine as build
-COPY . /go/src/serverNameExample
-WORKDIR /go/src/serverNameExample
-RUN tar zxf serverNameExample.tar.gz
-RUN go env -w GOPROXY=https://goproxy.cn,direct
+WORKDIR /app
+
+# 设置 Go 代理以加速依赖下载
+RUN go env -w GOPROXY=https://goproxy.cn,https://mirrors.aliyun.com/goproxy,direct
+
+# 先复制依赖文件，利用 Docker 分层缓存（依赖未变化时 go mod download 层可复用）
+COPY go.mod go.sum ./
 RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /serverNameExample cmd/serverNameExample/main.go
+
+# 复制全部源码
+COPY . .
+
+# 编译二进制文件，-ldflags="-s -w" 去掉调试信息给二进制文件"瘦身"
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /serverNameExample cmd/serverNameExample/main.go
+
+# ============================================================
+# 阶段二：运行镜像
+# ============================================================
+FROM alpine:latest
+
+LABEL maintainer="18721889353 <g.18721889353@gmail.com>"
+
+# 设置上海时区
+ENV TZ=Asia/Shanghai
+RUN apk add --no-cache tzdata
+
+# 创建非 root 用户，提升安全性
+RUN adduser -D -u 1001 appuser
 
 # todo generate dockerfile_build code for http or grpc here
 # delete the templates code start
 
-# install grpc-health-probe, for health check of grpc service
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.12
-RUN cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
-    && go mod download \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w" -o /grpc_health_probe
-
-# compressing binary files
-#cd /
-#upx -9 serverNameExample
-#upx -9 grpc_health_probe
-
-
-# building images with binary
-FROM alpine:latest
-MAINTAINER 18721889353 "g.18721889353@gmail.com"
-
-# set the time zone to Shanghai
-RUN apk add tzdata  \
-    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone \
-    && apk del tzdata
-
-# add curl, used in the http service check, if deployed in k8s, can be installed without
+# 安装 curl，用于 http 服务健康检查；若部署在 k8s 可不安装
 RUN apk add curl
-# add grpc_health_probe for health check of grpc service
-COPY --from=build /grpc_health_probe /bin/grpc_health_probe
-COPY --from=build /serverNameExample /app/serverNameExample
-COPY --from=build /go/src/serverNameExample/configs/serverNameExample.yml /app/configs/serverNameExample.yml
 
-# http port, grpc service can be ignored
-EXPOSE 8080
-
+# 从构建阶段复制产物
+COPY --from=builder --chown=appuser:appuser /serverNameExample /app/serverNameExample
+COPY --from=builder --chown=appuser:appuser /app/configs/serverNameExample.yml /app/configs/serverNameExample.yml
 # delete the templates code end
+
+# 切换到非 root 用户
+USER appuser
 
 WORKDIR /app
 
-CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml"]
-# if you use the Configuration Center, serverNameExample.yml is changed to the Configuration Center configuration.
-#CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml", "-enable-cc"]
+# 服务端口 6001 性能分析和指标端口 grpc 端口 7001 http 端口 8001
+EXPOSE 7001 8001 6001
+
+#CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml"]
+# 如使用配置中心，将 serverNameExample.yml 改为配置中心的配置文件。
+CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml", "-enable-cc"]
+
+
+#docker build -f ./scripts/build/Dockerfile_build -t fuli-api-go/fuli-api-go:latest .
+#
+#docker run -d --name fuli-api-go-test \
+#  -p 7001:7001 -p 8001:8001 -p 6001:6001 \
+#  fuli-api-go/fuli-api-go:latest \
+#  ./fuliApiGo -c configs/fuliApiGo_cc.yml -enable-cc

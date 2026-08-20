@@ -9,22 +9,22 @@ function checkResult() {
     fi
 }
 
-# determine if the startup service script run.sh exists
+# 判断启动服务脚本 run.sh 是否存在
 runFile="~/app/${serviceName}/run.sh"
 if [ ! -f "$runFile" ]; then
-  # if it does not exist, copy the entire directory
+  # 不存在则复制整个目录
   mkdir -p ~/app
   cp -rf /tmp/${serviceName}-binary ~/app/
   checkResult $?
   rm -rf /tmp/${serviceName}-binary*
 else
-  # replace only the binary file if it exists
+  # 已存在则仅替换二进制文件
   cp -f ${serviceName}-binary/${serviceName} ~/app/${serviceName}-binary/${serviceName}
   checkResult $?
   rm -rf /tmp/${serviceName}-binary*
 fi
 
-# running service, pass all arguments to run.sh
+# 运行服务，将所有参数透传给 run.sh
 cd ~/app/${serviceName}-binary
 chmod +x run.sh
 ./run.sh "$1" "$2" "$3"

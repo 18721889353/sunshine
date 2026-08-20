@@ -37,23 +37,23 @@ function stopService(){
     fi
 }
 
-# stop only mode
+# 仅停止模式
 if [ "$cmdArg"x = "stop"x ] || [ "$1"x = "stop"x ] ;then
     stopService ${serverName}
     echo "Service ${serverName} has stopped"
     exit 0
 fi
 
-# restart mode: stop old process first
+# 重启模式：先停止旧进程
 stopService ${serverName}
 
 sleep 0.2
 
-# build
+# 编译
 go build -o ${binaryFile} cmd/${serverName}/main.go
 checkResult $?
 
-# default config and enable-cc handling
+# 默认配置文件与启用配置中心的处理
 if [ -z "$configFile" ] && [ "$enableCC" = "true" ]; then
   configFile="configs/${serverName}_cc.yml"
 fi
@@ -61,7 +61,7 @@ if [ -z "$configFile" ]; then
   configFile="configs/${serverName}.yml"
 fi
 
-# foreground run
+# 前台运行
 if [ "$enableCC" = "true" ]; then
   ./${binaryFile} -enable-cc -c $configFile
 else

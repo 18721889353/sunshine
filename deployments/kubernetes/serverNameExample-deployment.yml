@@ -60,21 +60,21 @@ spec:                                     # 规格定义
             - name: http-port             # 端口名称
               containerPort: 8001         # HTTP 服务端口
           readinessProbe:                 # 就绪探针：判断容器是否准备好接收流量
-            exec:                         # 执行命令探测
-              command: ["/bin/grpc_health_probe", "-addr=:7001"]  # 通过 gRPC 健康检查
+            grpc:                         # K8s 原生 gRPC 健康检查（需 K8s >= 1.24），kubelet 直连，无需容器内探针工具
+              port: 7001                  # gRPC 服务端口
             initialDelaySeconds: 60       # 容器启动后等待 60 秒开始探测（给 Nacos/数据库初始化留时间）
             timeoutSeconds: 10            # 单次探测超时时间
-            periodSeconds: 15             # 每 15 秒探测一次
+            periodSeconds: 30             # 每 30 秒探测一次（降低探针带来的连接抖动日志噪音）
             successThreshold: 1           # 成功 1 次即标记为就绪
-            failureThreshold: 5           # 连续失败 5 次标记为未就绪（总等待：60s + 15s*5 = 135s）
+            failureThreshold: 5           # 连续失败 5 次标记为未就绪（总等待：60s + 30s*5 = 210s）
           livenessProbe:                  # 存活探针：判断容器是否存活，失败则重启
-            exec:                         # 执行命令探测
-              command: ["/bin/grpc_health_probe", "-addr=:7001"]  # 通过 gRPC 健康检查
+            grpc:                         # K8s 原生 gRPC 健康检查（需 K8s >= 1.24）
+              port: 7001                  # gRPC 服务端口
             initialDelaySeconds: 60       # 容器启动后等待 60 秒开始探测
             timeoutSeconds: 10            # 单次探测超时时间
-            periodSeconds: 15             # 每 15 秒探测一次
+            periodSeconds: 30             # 每 30 秒探测一次
             successThreshold: 1           # 成功 1 次即标记为存活
-            failureThreshold: 5           # 连续失败 5 次则重启容器（总等待：60s + 15s*5 = 135s）
+            failureThreshold: 5           # 连续失败 5 次则重启容器（总等待：60s + 30s*5 = 210s）
       # 私有仓库需提前创建镜像拉取密钥(此处为 docker-auth-secret), 用于存储 docker 登录的账号密码
       imagePullSecrets:                   # 镜像拉取密钥，用于私有仓库认证
         - name: docker-auth-secret        # Secret 名称（需提前手动创建）

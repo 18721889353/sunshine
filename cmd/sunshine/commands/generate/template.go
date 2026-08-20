@@ -1,82 +1,41 @@
 package generate
 
 const (
-	dockerFileHTTPCode = `# add curl, used for http service checking, can be installed without it if deployed in k8s
+	dockerFileHTTPCode = `# 安装 curl，用于 http 服务健康检查；若部署在 k8s 可不安装
 RUN apk add curl
 
-COPY configs/ /app/configs/
-COPY serverNameExample /app/serverNameExample
+COPY --chown=appuser:appuser configs/ /app/configs/
+COPY --chown=appuser:appuser serverNameExample /app/serverNameExample
 RUN chmod +x /app/serverNameExample
 
-# http port
+# http 端口
 EXPOSE 8080`
 
-	dockerFileGrpcCode = `# add grpc_health_probe for health check of grpc services
-COPY grpc_health_probe /bin/grpc_health_probe
-RUN chmod +x /bin/grpc_health_probe
+	dockerFileGrpcCode = `# k8s 探针已改用原生 grpc: 方式（见 deployment.yml），无需在镜像内安装 grpc_health_probe
 
-COPY configs/ /app/configs/
-COPY serverNameExample /app/serverNameExample
+COPY --chown=appuser:appuser configs/ /app/configs/
+COPY --chown=appuser:appuser serverNameExample /app/serverNameExample
 RUN chmod +x /app/serverNameExample
+`
 
-# grpc and http port
-EXPOSE 8282 8283`
-
-	dockerFileBuildHTTPCode = `# compressing binary files
-#cd /
-#upx -9 serverNameExample
-
-
-# building images with binary
-FROM alpine:latest
-MAINTAINER 18721889353 "g.18721889353@gmail.com"
-
-# set the time zone to Shanghai
-RUN apk add tzdata  \
-    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone \
-    && apk del tzdata
-
-# add curl, used for http service checking, can be installed without it if deployed in k8s
+	dockerFileBuildHTTPCode = `# 安装 curl，用于 http 服务健康检查；若部署在 k8s 可不安装
 RUN apk add curl
 
-COPY --from=build /serverNameExample /app/serverNameExample
-COPY --from=build /go/src/serverNameExample/configs/serverNameExample.yml /app/configs/serverNameExample.yml
+# 从构建阶段复制产物
+COPY --from=builder --chown=appuser:appuser /serverNameExample /app/serverNameExample
+COPY --from=builder --chown=appuser:appuser /app/configs/serverNameExample.yml /app/configs/serverNameExample.yml
 
-# http port
+# http 端口
 EXPOSE 8080`
 
-	dockerFileBuildGrpcCode = `# install grpc-health-probe, for health check of grpc service
-RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.12
-RUN cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
-    && go mod download \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w" -o /grpc_health_probe
+	dockerFileBuildGrpcCode = `# k8s 探针已改用原生 grpc: 方式（见 deployment.yml），无需在镜像内安装 grpc_health_probe
 
-# compressing binary files
-#cd /
-#upx -9 serverNameExample
-#upx -9 grpc_health_probe
+# 从构建阶段复制产物
+COPY --from=builder --chown=appuser:appuser /serverNameExample /app/serverNameExample
+COPY --from=builder --chown=appuser:appuser /app/configs/serverNameExample.yml /app/configs/serverNameExample.yml
+`
 
-
-# building images with binary
-FROM alpine:latest
-MAINTAINER 18721889353 "g.18721889353@gmail.com"
-
-# set the time zone to Shanghai
-RUN apk add tzdata  \
-    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone \
-    && apk del tzdata
-
-# add grpc_health_probe for health check of grpc services
-COPY --from=build /grpc_health_probe /bin/grpc_health_probe
-COPY --from=build /serverNameExample /app/serverNameExample
-COPY --from=build /go/src/serverNameExample/configs/serverNameExample.yml /app/configs/serverNameExample.yml
-
-# grpc and http port
-EXPOSE 8282 8283`
-
-	imageBuildFileHTTPCode = `# compressing binary file
+	imageBuildFileHTTPCode = `# 压缩二进制文件
 #cd ${DOCKERFILE_PATH}
 #upx -9 ${serverName}
 #cd -
@@ -84,69 +43,49 @@ EXPOSE 8282 8283`
 echo "docker build -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}"
 docker build -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}`
 
-	imageBuildFileGrpcCode = `# install grpc-health-probe, for health check of grpc service
-rootDockerFilePath=$(pwd)/${DOCKERFILE_PATH}
-go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.12
-cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
-    && go mod download \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w" -o "${rootDockerFilePath}/grpc_health_probe"
-cd -
+	imageBuildFileGrpcCode = `# k8s 探针已改用原生 grpc: 方式（见 deployment.yml），无需再编译安装 grpc_health_probe
 
-# compressing binary file
+# 压缩二进制文件
 #cd ${DOCKERFILE_PATH}
 #upx -9 ${serverName}
-#upx -9 grpc_health_probe
 #cd -
 
 echo "docker build -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}"
-docker build -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}
+docker build -f ${DOCKERFILE} -t ${IMAGE_NAME_TAG} ${DOCKERFILE_PATH}`
 
-if [ -f "${DOCKERFILE_PATH}/grpc_health_probe" ]; then
-    rm -f ${DOCKERFILE_PATH}/grpc_health_probe
-fi`
-
-	imageBuildLocalFileHTTPCode = `# compressing binary file
+	imageBuildLocalFileHTTPCode = `# 压缩二进制文件
 #cd ${DOCKERFILE_PATH}
 #upx -9 ${serverName}
 #cd -
 
-mkdir -p ${DOCKERFILE_PATH}/configs && cp -f configs/${serverName}.yml ${DOCKERFILE_PATH}/configs/
+mkdir -p ${DOCKERFILE_PATH}/configs && cp -f configs/${serverName}.yml configs/${serverName}_cc.yml ${DOCKERFILE_PATH}/configs/
 echo "docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}"
 docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}`
 
-	imageBuildLocalFileGrpcCode = `# install grpc-health-probe, for health check of grpc service
-rootDockerFilePath=$(pwd)/${DOCKERFILE_PATH}
-go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.12
-cd $GOPATH/pkg/mod/github.com/grpc-ecosystem/grpc-health-probe@v0.4.12 \
-    && go mod download \
-    && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "all=-s -w" -o "${rootDockerFilePath}/grpc_health_probe"
-cd -
+	imageBuildLocalFileGrpcCode = `# k8s 探针已改用原生 grpc: 方式（见 deployment.yml），无需再编译安装 grpc_health_probe
 
-# compressing binary file
+# 压缩二进制文件
 #cd ${DOCKERFILE_PATH}
 #upx -9 ${serverName}
-#upx -9 grpc_health_probe
 #cd -
 
-mkdir -p ${DOCKERFILE_PATH}/configs && cp -f configs/${serverName}.yml ${DOCKERFILE_PATH}/configs/
+mkdir -p ${DOCKERFILE_PATH}/configs && cp -f configs/${serverName}.yml configs/${serverName}_cc.yml ${DOCKERFILE_PATH}/configs/
 echo "docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}"
-docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}
-
-if [ -f "${DOCKERFILE_PATH}/grpc_health_probe" ]; then
-    rm -f ${DOCKERFILE_PATH}/grpc_health_probe
-fi`
+docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}`
 
 	dockerComposeFileHTTPCode = `    ports:
-      - "8080:8080"   # http port
+      - "8080:8080"   # http 端口
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]   # http health check, note: mirror must contain curl command`
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]   # http 健康检查，注意：镜像内必须包含 curl 命令`
 
 	dockerComposeFileGrpcCode = `
     ports:
-      - "8282:8282"   # grpc port
-      - "8283:8283"   # grpc metrics or pprof port
-    healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=localhost:8282"]    # grpc health check, note: the image must contain the grpc_health_probe command`
+      - "8282:8282"   # grpc 端口
+      - "8283:8283"   # grpc metrics 或 pprof 端口
+    # k8s 探针已改用原生 grpc: 方式（见 deployment.yml），镜像内不再安装 grpc_health_probe；
+    # docker-compose 无原生 grpc 探针，如需启用 grpc 健康检查（exec 方式），须先在镜像内自行安装 grpc_health_probe
+    #healthcheck:
+    #  test: ["CMD", "grpc_health_probe", "-addr=localhost:8282"]    # grpc 健康检查，注意：镜像内必须包含 grpc_health_probe 命令`
 
 	k8sDeploymentFileHTTPCode = `
           ports:
@@ -173,16 +112,16 @@ fi`
             - name: metrics-port
               containerPort: 8283
           readinessProbe:
-            exec:
-              command: ["/bin/grpc_health_probe", "-addr=:8282"]
+            grpc:                          # K8s 原生 gRPC 健康检查（需 K8s >= 1.24），kubelet 直连，无需容器内探针工具
+              port: 8282                   # gRPC 服务端口
             initialDelaySeconds: 10
             timeoutSeconds: 2
             periodSeconds: 10
             successThreshold: 1
             failureThreshold: 3
           livenessProbe:
-            exec:
-              command: ["/bin/grpc_health_probe", "-addr=:8282"]`
+            grpc:                          # K8s 原生 gRPC 健康检查（需 K8s >= 1.24）
+              port: 8282                   # gRPC 服务端口`
 
 	k8sServiceFileHTTPCode = `  ports:
     - name: server-name-example-svc-http-port

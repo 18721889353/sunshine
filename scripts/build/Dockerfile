@@ -1,33 +1,35 @@
 FROM alpine:latest
-MAINTAINER 18721889353 "g.18721889353@gmail.com"
 
-# set the time zone to Shanghai
-RUN apk add tzdata  \
-    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone \
-    && apk del tzdata
+LABEL maintainer="18721889353 <g.18721889353@gmail.com>"
+
+# 设置上海时区
+ENV TZ=Asia/Shanghai
+RUN apk add --no-cache tzdata
+
+# 创建非 root 用户，提升安全性
+RUN adduser -D -u 1001 appuser
 
 # todo generate dockerfile code for http or grpc here
 # delete the templates code start
 
-# add curl, used in the http service check, if deployed in k8s, can be installed without
+# 安装 curl，用于 http 服务健康检查；若部署在 k8s 可不安装
 RUN apk add curl
 
-# add grpc_health_probe for health check of grpc service
-COPY grpc_health_probe /bin/grpc_health_probe
-RUN chmod +x /bin/grpc_health_probe
+# k8s 探针已改用原生 grpc: 方式（见 deployment.yml），无需在镜像内安装 grpc_health_probe
 
-COPY configs/ /app/configs/
-COPY serverNameExample /app/serverNameExample
+COPY --chown=appuser:appuser configs/ /app/configs/
+COPY --chown=appuser:appuser serverNameExample /app/serverNameExample
 RUN chmod +x /app/serverNameExample
-
-# http port, grpc service can be ignored
-EXPOSE 8080
-
 # delete the templates code end
+
+# 切换到非 root 用户
+USER appuser
 
 WORKDIR /app
 
-CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml"]
-# if you use the Configuration Center, serverNameExample.yml is changed to the Configuration Center configuration.
-#CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml", "-enable-cc"]
+# 服务端口 6001 性能分析和指标端口 grpc 端口 7001 http 端口 8001
+EXPOSE 7001 8001 6001
+
+#CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml"]
+# 如使用配置中心，将 serverNameExample.yml 改为配置中心的配置文件。
+CMD ["./serverNameExample", "-c", "configs/serverNameExample.yml", "-enable-cc"]
