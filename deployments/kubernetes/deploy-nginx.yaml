@@ -1,0 +1,623 @@
+---
+# ================================================================
+# ingress-nginx 控制器专用命名空间，隔离所有相关资源
+# ================================================================
+apiVersion: v1                                    # Kubernetes API 版本
+kind: Namespace                                   # 资源类型：命名空间
+metadata:                                         # 元数据
+  labels:                                         # 标签，用于资源分组和选择
+    app.kubernetes.io/instance: ingress-nginx     # 实例标识
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+  name: ingress-nginx                             # 命名空间名称（集群内唯一）
+---
+# 控制器运行使用的服务账号，自动挂载服务账号令牌
+apiVersion: v1                                    # Kubernetes API 版本
+automountServiceAccountToken: true                # 是否自动挂载 ServiceAccount Token（需要访问 API Server）
+kind: ServiceAccount                              # 资源类型：服务账户
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: controller       # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx                             # 服务账户名称
+  namespace: ingress-nginx                        # 所属命名空间
+---
+# 准入控制器证书生成 Job 使用的服务账号
+apiVersion: v1                                    # Kubernetes API 版本
+kind: ServiceAccount                              # 资源类型：服务账户
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: admission-webhook  # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-admission                   # 服务账户名称
+  namespace: ingress-nginx                        # 所属命名空间
+
+
+---
+# 控制器在命名空间内的 RBAC 角色：可读写 ConfigMap、Service、Ingress 等资源
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: Role                                         # 资源类型：角色（命名空间级）
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/component: controller        # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx                              # 角色名称
+  namespace: ingress-nginx                         # 所属命名空间
+rules:                                             # 权限规则列表
+  - apiGroups: [""]                                  # 核心 API 组（"" 表示 core 组）
+    resources: ["namespaces"]                        # 资源类型：命名空间
+    verbs: ["get"]                                   # 操作权限：读取
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["configmaps", "pods", "secrets", "endpoints"]  # 资源类型列表
+    verbs: ["get", "list", "watch"]                  # 操作权限：读取、列表、监听
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["services"]                          # 资源类型：服务
+    verbs: ["get", "list", "watch"]                  # 操作权限：读取、列表、监听
+  - apiGroups: ["networking.k8s.io"]                 # networking API 组
+    resources: ["ingresses"]                         # 资源类型：Ingress
+    verbs: ["get", "list", "watch"]                  # 操作权限：读取、列表、监听
+  - apiGroups: ["networking.k8s.io"]                 # networking API 组
+    resources: ["ingresses/status"]                  # 资源类型：Ingress 状态
+    verbs: ["update"]                                # 操作权限：更新
+  - apiGroups: ["networking.k8s.io"]                 # networking API 组
+    resources: ["ingressclasses"]                    # 资源类型：IngressClass
+    verbs: ["get", "list", "watch"]                  # 操作权限：读取、列表、监听
+  - apiGroups: ["coordination.k8s.io"]               # coordination API 组
+    resourceNames: ["ingress-nginx-leader"]          # 指定资源名称：领导者选举锁
+    resources: ["leases"]                            # 资源类型：租约
+    verbs: ["get", "update"]                         # 操作权限：读取、更新
+  - apiGroups: ["coordination.k8s.io"]               # coordination API 组
+    resources: ["leases"]                            # 资源类型：租约
+    verbs: ["create"]                                # 操作权限：创建（首次获取锁）
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["events"]                            # 资源类型：事件
+    verbs: ["create", "patch"]                       # 操作权限：创建、部分更新
+  - apiGroups: ["discovery.k8s.io"]                  # discovery API 组
+    resources: ["endpointslices"]                    # 资源类型：EndpointSlice
+    verbs: ["list", "watch", "get"]                  # 操作权限：列表、监听、读取
+
+
+---
+# 准入控制器在命名空间内的 RBAC 角色：可创建/读取 Secret（用于存储 webhook 证书）
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: Role                                         # 资源类型：角色
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/component: admission-webhook # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx-admission                    # 角色名称
+  namespace: ingress-nginx                         # 所属命名空间
+rules:                                             # 权限规则列表
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["secrets"]                           # 资源类型：密钥
+    verbs: ["get", "create"]                         # 操作权限：读取、创建
+
+
+---
+# 控制器集群级 RBAC 角色：跨命名空间读取节点、命名空间、Ingress 等资源
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: ClusterRole                                  # 资源类型：集群角色
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx                              # 集群角色名称
+rules:                                             # 权限规则列表
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["configmaps", "endpoints", "nodes", "pods", "secrets", "namespaces"]
+    verbs: ["list", "watch"]                         # 权限：列表、监听
+  - apiGroups: ["coordination.k8s.io"]               # coordination API 组
+    resources: ["leases"]                            # 资源类型：租约
+    verbs: ["list", "watch"]                         # 权限：列表、监听
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["nodes"]                             # 资源类型：节点
+    verbs: ["get"]                                   # 权限：读取
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["services"]                          # 资源类型：服务
+    verbs: ["get", "list", "watch"]                  # 权限：读取、列表、监听
+  - apiGroups: ["networking.k8s.io"]                 # networking API 组
+    resources: ["ingresses"]                         # 资源类型：Ingress
+    verbs: ["get", "list", "watch"]                  # 权限：读取、列表、监听
+  - apiGroups: [""]                                  # 核心 API 组
+    resources: ["events"]                            # 资源类型：事件
+    verbs: ["create", "patch"]                       # 权限：创建、部分更新
+  - apiGroups: ["networking.k8s.io"]                 # networking API 组
+    resources: ["ingresses/status"]                  # 资源类型：Ingress 状态
+    verbs: ["update"]                                # 权限：更新
+  - apiGroups: ["networking.k8s.io"]                 # networking API 组
+    resources: ["ingressclasses"]                    # 资源类型：IngressClass
+    verbs: ["get", "list", "watch"]                  # 权限：读取、列表、监听
+  - apiGroups: ["discovery.k8s.io"]                  # discovery API 组
+    resources: ["endpointslices"]                    # 资源类型：EndpointSlice
+    verbs: ["list", "watch", "get"]                  # 权限：列表、监听、读取
+
+
+---
+# 准入控制器集群级 RBAC 角色：可更新 ValidatingWebhookConfiguration
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: ClusterRole                                  # 资源类型：集群角色
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/component: admission-webhook # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx-admission                    # 集群角色名称
+rules:                                             # 权限规则列表
+  - apiGroups: ["admissionregistration.k8s.io"]      # admissionregistration API 组
+    resources: ["validatingwebhookconfigurations"]   # 资源类型：验证 Webhook 配置
+    verbs: ["get", "update"]                         # 权限：读取、更新
+
+
+---
+# 将控制器 Role 绑定到控制器 ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: RoleBinding                                  # 资源类型：角色绑定
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/component: controller        # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx                              # 绑定名称
+  namespace: ingress-nginx                         # 所属命名空间
+roleRef:                                           # 引用的角色
+  apiGroup: rbac.authorization.k8s.io              # API 组
+  kind: Role                                       # 资源类型：角色
+  name: ingress-nginx                              # 角色名称
+subjects:                                          # 主体列表
+  - kind: ServiceAccount                             # 主体类型：服务账户
+    name: ingress-nginx                              # 服务账户名称
+    namespace: ingress-nginx                         # 服务账户命名空间
+
+
+---
+# 将准入 Role 绑定到准入 ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: RoleBinding                                  # 资源类型：角色绑定
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/component: admission-webhook # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx-admission                    # 绑定名称
+  namespace: ingress-nginx                         # 所属命名空间
+roleRef:                                           # 引用的角色
+  apiGroup: rbac.authorization.k8s.io              # API 组
+  kind: Role                                       # 资源类型：角色
+  name: ingress-nginx-admission                    # 角色名称
+subjects:                                          # 主体列表
+  - kind: ServiceAccount                             # 主体类型：服务账户
+    name: ingress-nginx-admission                    # 服务账户名称
+    namespace: ingress-nginx                         # 服务账户命名空间
+
+
+---
+# 将控制器 ClusterRole 绑定到控制器 ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: ClusterRoleBinding                           # 资源类型：集群角色绑定
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx                              # 绑定名称
+roleRef:                                           # 引用的角色
+  apiGroup: rbac.authorization.k8s.io              # API 组
+  kind: ClusterRole                                # 资源类型：集群角色
+  name: ingress-nginx                              # 集群角色名称
+subjects:                                          # 主体列表
+  - kind: ServiceAccount                             # 主体类型：服务账户
+    name: ingress-nginx                              # 服务账户名称
+    namespace: ingress-nginx                         # 服务账户命名空间
+
+
+---
+# 将准入 ClusterRole 绑定到准入 ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1           # RBAC API 版本
+kind: ClusterRoleBinding                           # 资源类型：集群角色绑定
+metadata:                                          # 元数据
+  labels:                                          # 标签
+    app.kubernetes.io/component: admission-webhook # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx      # 实例名称
+    app.kubernetes.io/name: ingress-nginx          # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx       # 所属应用
+    app.kubernetes.io/version: 1.8.1               # 版本号
+  name: ingress-nginx-admission                    # 绑定名称
+roleRef:                                           # 引用的角色
+  apiGroup: rbac.authorization.k8s.io              # API 组
+  kind: ClusterRole                                # 资源类型：集群角色
+  name: ingress-nginx-admission                    # 集群角色名称
+subjects:                                          # 主体列表
+  - kind: ServiceAccount                             # 主体类型：服务账户
+    name: ingress-nginx-admission                    # 服务账户名称
+    namespace: ingress-nginx                         # 服务账户命名空间
+
+
+---
+# 控制器全局配置：允许 server-snippet 注解，并全局定义 JSON 日志格式
+apiVersion: v1                                    # Kubernetes API 版本
+kind: ConfigMap                                   # 资源类型：配置映射
+data:                                             # 数据内容
+  # 是否允许使用 snippet 注解（允许在 Ingress 中嵌入自定义 Nginx 配置）
+  allow-snippet-annotations: "true"
+
+  # ★★★ 关键：启用 HTTP/2（用于 gRPC）★★★
+  # 该参数会让 Nginx 在 TLS 握手时通过 ALPN 协商 h2 协议
+  use-http2: "true"
+
+  # ★★★ 全局定义 JSON 日志格式 ★★★
+  # 该格式会被所有 Ingress 的 server-snippet 引用
+  # 字段说明：
+  #   time_local       - 请求时间（本地时区）
+  #   remote_addr      - 客户端 IP 地址
+  #   host             - 请求的域名（Host 头）
+  #   request          - 请求行（方法 + URI + 协议版本）
+  #   status           - HTTP 响应状态码
+  #   body_bytes_sent  - 响应体字节数
+  #   request_time     - 请求处理总耗时（秒）
+  #   http_referrer    - 来源页面（Referer 头）
+  #   http_user_agent  - 用户代理（浏览器标识）
+  #   x_forwarded_for  - 真实客户端 IP（经过代理时）
+  http-snippet: |
+    log_format json_combined escape=json '{ "time_local": "$time_local", "remote_addr": "$remote_addr", "host": "$host", "request": "$request", "status": $status, "body_bytes_sent": $body_bytes_sent, "request_time": $request_time, "http_referrer": "$http_referer", "http_user_agent": "$http_user_agent", "x_forwarded_for": "$http_x_forwarded_for" }';
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: controller       # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-controller                  # ConfigMap 名称
+  namespace: ingress-nginx                        # 所属命名空间
+---
+# 控制器对外 Service（ClusterIP），暴露 HTTP 80 / HTTPS 443 端口
+apiVersion: v1                                    # Kubernetes API 版本
+kind: Service                                     # 资源类型：服务
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: controller       # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-controller                  # Service 名称
+  namespace: ingress-nginx                        # 所属命名空间
+spec:                                             # 服务规格
+  ports:                                          # 端口列表
+    - appProtocol: http                             # 应用层协议标识
+      name: http                                    # 端口名称
+      port: 80                                      # Service 监听端口
+      protocol: TCP                                 # 传输协议
+      targetPort: http                              # 转发到 Pod 的端口名称（对应 containerPort: 80）
+    - appProtocol: https                            # 应用层协议标识
+      name: https                                   # 端口名称
+      port: 443                                     # Service 监听端口
+      protocol: TCP                                 # 传输协议
+      targetPort: https                             # 转发到 Pod 的端口名称（对应 containerPort: 443）
+  selector:                                       # Pod 选择器
+    app.kubernetes.io/component: controller       # 选择组件为 controller 的 Pod
+    app.kubernetes.io/instance: ingress-nginx     # 实例名匹配
+    app.kubernetes.io/name: ingress-nginx         # 应用名匹配
+  type: ClusterIP                                 # 服务类型：ClusterIP（配合 hostNetwork 使用）
+
+
+---
+# 准入 webhook 内部 Service（ClusterIP），暴露 443 端口供 API Server 回调
+apiVersion: v1                                    # Kubernetes API 版本
+kind: Service                                     # 资源类型：服务
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: controller       # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-controller-admission        # Service 名称
+  namespace: ingress-nginx                        # 所属命名空间
+spec:                                             # 服务规格
+  ports:                                          # 端口列表
+    - appProtocol: https                            # 应用层协议标识
+      name: https-webhook                           # 端口名称
+      port: 443                                     # Service 监听端口
+      targetPort: webhook                           # 转发到 Pod 的端口名称（对应 containerPort: 8443）
+  selector:                                       # Pod 选择器
+    app.kubernetes.io/component: controller       # 选择组件为 controller 的 Pod
+    app.kubernetes.io/instance: ingress-nginx     # 实例名匹配
+    app.kubernetes.io/name: ingress-nginx         # 应用名匹配
+  type: ClusterIP                                 # 服务类型：ClusterIP
+
+
+---
+# 控制器主 Deployment：Pod 使用宿主机网络直接监听 80/443
+apiVersion: apps/v1                               # Kubernetes API 版本
+kind: Deployment                                  # 资源类型：无状态部署
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: controller       # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-controller                  # Deployment 名称
+  namespace: ingress-nginx                        # 所属命名空间
+spec:                                             # 部署规格
+  replicas: 1                                     # 根据节点数调整
+  minReadySeconds: 0                              # 新 Pod 启动后立即认为就绪（0 表示不等待）
+  revisionHistoryLimit: 10                        # 保留 10 个历史版本（用于回滚）
+  selector:                                       # 选择器，匹配管理的 Pod
+    matchLabels:                                  # 标签匹配规则
+      app.kubernetes.io/component: controller     # 必须匹配组件类型
+      app.kubernetes.io/instance: ingress-nginx   # 必须匹配实例名
+      app.kubernetes.io/name: ingress-nginx       # 必须匹配应用名
+  template:                                       # Pod 模板
+    metadata:                                     # Pod 元数据
+      labels:                                     # Pod 标签（需与 selector.matchLabels 一致）
+        app.kubernetes.io/component: controller   # 组件类型
+        app.kubernetes.io/instance: ingress-nginx # 实例名称
+        app.kubernetes.io/name: ingress-nginx     # 应用名称
+        app.kubernetes.io/part-of: ingress-nginx  # 所属应用
+        app.kubernetes.io/version: 1.8.1          # 版本号
+    spec:                                         # Pod 规格
+      # ★★★ hostNetwork: true ★★★
+      # 使 Pod 直接使用宿主机网络栈，不经过 Kubernetes Service 的 NAT 转发
+      # 优点：性能最优，延迟最低，无端口映射开销
+      # 要求：宿主机 80 和 443 端口必须空闲
+      hostNetwork: true
+      # DNS 策略：使用 hostNetwork 时必须设置为 ClusterFirstWithHostNet
+      # 含义：优先使用集群 DNS（kube-dns），同时保留宿主机的 DNS 配置
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:                                  # 容器列表
+        - args:                                      # 容器启动参数
+            - /nginx-ingress-controller                # 可执行文件路径
+            - --publish-service=$(POD_NAMESPACE)/ingress-nginx-controller  # 发布 Service 名称
+            - --election-id=ingress-nginx-leader       # 领导者选举锁名称（多副本高可用）
+            - --controller-class=k8s.io/ingress-nginx  # 控制器类标识
+            - --ingress-class=nginx                    # IngressClass 名称
+            - --configmap=$(POD_NAMESPACE)/ingress-nginx-controller  # ConfigMap 名称
+            - --validating-webhook=:8443               # Webhook 监听端口
+            - --validating-webhook-certificate=/usr/local/certificates/cert  # Webhook 证书路径
+            - --validating-webhook-key=/usr/local/certificates/key          # Webhook 私钥路径
+          env:                                       # 环境变量
+            - name: POD_NAME                           # 变量名：Pod 名称
+              valueFrom:                               # 值来源
+                fieldRef:                              # 字段引用
+                  fieldPath: metadata.name             # 引用 metadata.name 字段
+            - name: POD_NAMESPACE                      # 变量名：Pod 命名空间
+              valueFrom:                               # 值来源
+                fieldRef:                              # 字段引用
+                  fieldPath: metadata.namespace        # 引用 metadata.namespace 字段
+            - name: LD_PRELOAD                         # 变量名：预加载库
+              value: /usr/local/lib/libmimalloc.so     # 内存分配优化库（提升性能）
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/nginx-ingress-controller:v1.8.1@sha256:e5c4824e7375fcf2a393e1c03c293b69759af37a9ca6abdb91b13d78a93da8bd
+          imagePullPolicy: IfNotPresent              # 镜像拉取策略：优先使用本地镜像，不存在则拉取
+          lifecycle:                                 # 生命周期钩子
+            preStop:                                 # 容器停止前执行
+              exec:                                  # 执行命令
+                command:                             # 命令列表
+                  - /wait-shutdown                     # 等待所有请求处理完成后再关闭
+          livenessProbe:                             # 存活探针：判断容器是否存活，失败则重启
+            failureThreshold: 5                      # 连续失败 5 次判定为不存活
+            httpGet:                                 # HTTP GET 探测
+              path: /healthz                         # 健康检查路径
+              port: 10254                            # 健康检查端口
+              scheme: HTTP                           # 协议：HTTP
+            initialDelaySeconds: 10                  # 容器启动后等待 10 秒开始探测
+            periodSeconds: 10                        # 每 10 秒探测一次
+            successThreshold: 1                      # 成功 1 次即判定为存活
+            timeoutSeconds: 1                        # 探测超时时间 1 秒
+          name: controller                           # 容器名称
+          ports:                                     # 容器端口列表
+            - containerPort: 80                        # 容器端口 80
+              name: http                               # 端口名称
+              protocol: TCP                            # 传输协议
+            - containerPort: 443                       # 容器端口 443
+              name: https                              # 端口名称
+              protocol: TCP                            # 传输协议
+            - containerPort: 8443                      # 容器端口 8443（Webhook）
+              name: webhook                            # 端口名称
+              protocol: TCP                            # 传输协议
+          readinessProbe:                            # 就绪探针：判断容器是否准备好接收流量
+            failureThreshold: 3                      # 连续失败 3 次判定为未就绪
+            httpGet:                                 # HTTP GET 探测
+              path: /healthz                         # 健康检查路径
+              port: 10254                            # 健康检查端口
+              scheme: HTTP                           # 协议：HTTP
+            initialDelaySeconds: 10                  # 容器启动后等待 10 秒开始探测
+            periodSeconds: 10                        # 每 10 秒探测一次
+            successThreshold: 1                      # 成功 1 次即标记为就绪
+            timeoutSeconds: 1                        # 探测超时时间 1 秒
+          resources:                                 # 资源限制
+            requests:                                # 请求资源（调度保证）
+              cpu: 100m                              # 最少 0.1 核 CPU
+              memory: 90Mi                           # 最少 90 MB 内存
+          securityContext:                           # 安全上下文
+            allowPrivilegeEscalation: true           # 允许权限提升（绑定 80/443 端口需要）
+            capabilities:                            # Linux Capabilities
+              add:                                   # 添加权限
+                - NET_BIND_SERVICE                     # 允许绑定低于 1024 的端口（80/443）
+              drop:                                  # 移除权限
+                - ALL                                  # 移除所有非必要权限
+            runAsUser: 101                           # 以用户 ID 101 运行（非 root，安全性）
+          volumeMounts:                              # 卷挂载
+            - mountPath: /usr/local/certificates/      # 挂载路径
+              name: webhook-cert                       # 卷名称
+              readOnly: true                           # 只读挂载
+            - mountPath: /var/log/nginx                # ★ 日志挂载路径 ★
+              name: nginx-logs                         # 卷名称
+      nodeSelector:                                # 节点选择器
+        kubernetes.io/os: linux                    # 仅调度到 Linux 节点
+      serviceAccountName: ingress-nginx            # 使用的服务账户
+      terminationGracePeriodSeconds: 300           # 优雅关闭等待时间（秒）
+      volumes:                                     # 卷定义
+        - name: webhook-cert                         # 卷名称
+          secret:                                    # Secret 类型卷
+            secretName: ingress-nginx-admission      # Secret 名称
+        - name: nginx-logs                           # ★ 日志持久化卷 ★
+          hostPath:                                  # 宿主机路径类型
+            path: /home/logs/nginx                   # 宿主机目录路径
+            type: DirectoryOrCreate                  # 目录不存在则自动创建
+
+
+---
+# 一次性 Job：生成 webhook 证书并存入 Secret（ingress-nginx-admission）
+apiVersion: batch/v1                              # Kubernetes API 版本
+kind: Job                                         # 资源类型：任务（一次性执行）
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: admission-webhook  # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-admission-create            # Job 名称
+  namespace: ingress-nginx                        # 所属命名空间
+spec:                                             # Job 规格
+  template:                                       # Pod 模板
+    metadata:                                     # Pod 元数据
+      labels:                                     # Pod 标签
+        app.kubernetes.io/component: admission-webhook
+        app.kubernetes.io/instance: ingress-nginx
+        app.kubernetes.io/name: ingress-nginx
+        app.kubernetes.io/part-of: ingress-nginx
+        app.kubernetes.io/version: 1.8.1
+      name: ingress-nginx-admission-create        # Pod 名称
+    spec:                                         # Pod 规格
+      containers:                                 # 容器列表
+        - args:                                     # 容器启动参数
+            - create                                  # 命令：创建证书
+            - --host=ingress-nginx-controller-admission,ingress-nginx-controller-admission.$(POD_NAMESPACE).svc  # Webhook Service 地址
+            - --namespace=$(POD_NAMESPACE)            # 命名空间
+            - --secret-name=ingress-nginx-admission   # 证书 Secret 名称
+          env:                                      # 环境变量
+            - name: POD_NAMESPACE                     # 变量名
+              valueFrom:                              # 值来源
+                fieldRef:                             # 字段引用
+                  fieldPath: metadata.namespace       # 引用 metadata.namespace
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/kube-webhook-certgen:v20230407@sha256:543c40fd093964bc9ab509d3e791f9989963021f1e9e4c9c7b6700b02bfb227b
+          imagePullPolicy: IfNotPresent             # 镜像拉取策略
+          name: create                              # 容器名称
+          securityContext:                          # 安全上下文
+            allowPrivilegeEscalation: false         # 不允许权限提升
+      nodeSelector:                               # 节点选择器
+        kubernetes.io/os: linux                   # 仅调度到 Linux 节点
+      restartPolicy: OnFailure                    # 失败时重启
+      securityContext:                            # Pod 安全上下文
+        fsGroup: 2000                             # 文件系统组 ID
+        runAsNonRoot: true                        # 以非 root 运行
+        runAsUser: 2000                           # 以用户 ID 2000 运行
+      serviceAccountName: ingress-nginx-admission # 使用的服务账户
+
+
+---
+# 一次性 Job：将 webhook 证书注入 ValidatingWebhookConfiguration 配置
+apiVersion: batch/v1                              # Kubernetes API 版本
+kind: Job                                         # 资源类型：任务（一次性执行）
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: admission-webhook
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/version: 1.8.1
+  name: ingress-nginx-admission-patch             # Job 名称
+  namespace: ingress-nginx                        # 所属命名空间
+spec:                                             # Job 规格
+  template:                                       # Pod 模板
+    metadata:                                     # Pod 元数据
+      labels:                                     # Pod 标签
+        app.kubernetes.io/component: admission-webhook
+        app.kubernetes.io/instance: ingress-nginx
+        app.kubernetes.io/name: ingress-nginx
+        app.kubernetes.io/part-of: ingress-nginx
+        app.kubernetes.io/version: 1.8.1
+      name: ingress-nginx-admission-patch         # Pod 名称
+    spec:                                         # Pod 规格
+      containers:                                 # 容器列表
+        - args:                                     # 容器启动参数
+            - patch                                   # 命令：修补配置
+            - --webhook-name=ingress-nginx-admission  # Webhook 名称
+            - --namespace=$(POD_NAMESPACE)            # 命名空间
+            - --patch-mutating=false                  # 非变更型 Webhook
+            - --secret-name=ingress-nginx-admission   # 证书 Secret 名称
+            - --patch-failure-policy=Fail             # 失败策略：拒绝请求
+          env:                                      # 环境变量
+            - name: POD_NAMESPACE                     # 变量名
+              valueFrom:                              # 值来源
+                fieldRef:                             # 字段引用
+                  fieldPath: metadata.namespace       # 引用 metadata.namespace
+          image: registry.cn-hangzhou.aliyuncs.com/google_containers/kube-webhook-certgen:v20230407@sha256:543c40fd093964bc9ab509d3e791f9989963021f1e9e4c9c7b6700b02bfb227b
+          imagePullPolicy: IfNotPresent             # 镜像拉取策略
+          name: patch                               # 容器名称
+          securityContext:                          # 安全上下文
+            allowPrivilegeEscalation: false         # 不允许权限提升
+      nodeSelector:                               # 节点选择器
+        kubernetes.io/os: linux                   # 仅调度到 Linux 节点
+      restartPolicy: OnFailure                    # 失败时重启
+      securityContext:                            # Pod 安全上下文
+        fsGroup: 2000                             # 文件系统组 ID
+        runAsNonRoot: true                        # 以非 root 运行
+        runAsUser: 2000                           # 以用户 ID 2000 运行
+      serviceAccountName: ingress-nginx-admission # 使用的服务账户
+
+
+---
+# IngressClass：业务 Ingress 通过 ingressClassName: nginx 关联本控制器
+apiVersion: networking.k8s.io/v1                   # Kubernetes API 版本
+kind: IngressClass                                # 资源类型：IngressClass
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: controller       # 组件类型：控制器
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: nginx                                     # IngressClass 名称（Ingress 中通过 ingressClassName: nginx 引用）
+spec:                                             # 规格
+  controller: k8s.io/ingress-nginx                # 控制器名称（必须与 Ingress Controller 的 --controller-class 参数匹配）
+---
+# 准入校验配置：创建/更新 Ingress 时由控制器校验其合法性
+apiVersion: admissionregistration.k8s.io/v1       # Kubernetes API 版本
+kind: ValidatingWebhookConfiguration              # 资源类型：验证 Webhook 配置
+metadata:                                         # 元数据
+  labels:                                         # 标签
+    app.kubernetes.io/component: admission-webhook  # 组件类型：准入 Webhook
+    app.kubernetes.io/instance: ingress-nginx     # 实例名称
+    app.kubernetes.io/name: ingress-nginx         # 应用名称
+    app.kubernetes.io/part-of: ingress-nginx      # 所属应用
+    app.kubernetes.io/version: 1.8.1              # 版本号
+  name: ingress-nginx-admission                   # Webhook 配置名称
+webhooks:                                         # Webhook 列表
+  - admissionReviewVersions: ["v1"]                 # 支持的 API 版本
+    clientConfig:                                   # 客户端配置
+      service:                                      # 后端服务
+        name: ingress-nginx-controller-admission    # Service 名称
+        namespace: ingress-nginx                    # Service 命名空间
+        path: /networking/v1/ingresses              # 验证路径
+    failurePolicy: Fail                             # 验证失败时拒绝请求（Fail）
+    matchPolicy: Equivalent                         # 匹配策略：等价匹配
+    name: validate.nginx.ingress.kubernetes.io     # Webhook 名称
+    rules:                                          # 匹配规则
+      - apiGroups: ["networking.k8s.io"]              # API 组
+        apiVersions: ["v1"]                           # API 版本
+        operations: ["CREATE", "UPDATE"]              # 操作类型：创建和更新
+        resources: ["ingresses"]                      # 资源类型：Ingress
+    sideEffects: None                               # 无副作用
