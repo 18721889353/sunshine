@@ -17,7 +17,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/gin/handlerfunc"
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/gin/middleware/metrics"
-	"github.com/18721889353/sunshine/pkg/gin/prof"
 	"github.com/18721889353/sunshine/pkg/gin/swagger"
 	"github.com/18721889353/sunshine/pkg/gin/validator"
 
@@ -86,14 +85,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 	r.GET("/health", handlerfunc.CheckHealth)
 	r.GET("/ping", handlerfunc.Ping)
 	r.GET("/codes", handlerfunc.ListCodes)
-
-	// pprof 性能分析路由
-	// 生产环境自动启用 IP 白名单鉴权，防止敏感信息泄露；dev/test 环境免鉴权方便调试
-	if cfg.App.EnableHTTPProfile {
-		pprofOpts := []prof.Option{prof.WithIOWaitTime()}
-		pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList)))
-		prof.Register(r, pprofOpts...)
-	}
 
 	// request id middleware
 	r.Use(middleware.RequestID(middleware.WithSnow(database.GetSnowNode())))
@@ -284,21 +275,4 @@ func (c *middlewareConfig) setSinglePath(method string, singlePath string, handl
 		// 追加新的处理程序（如需覆盖行为，可在此调整）
 		c.singlePathMiddlewares[key] = append(existing, handlers...)
 	}
-}
-
-// getSinglePathKey 根据 HTTP 方法和路径生成中间件配置的唯一键。
-// 该函数与 setSinglePath 内部使用的键生成逻辑保持一致，
-// 仅在测试中使用。
-//
-//nolint:unused
-func getSinglePathKey(method, singlePath string) string {
-	cleanedPath := path.Clean(singlePath)
-	if !strings.HasPrefix(cleanedPath, "/") {
-		cleanedPath = "/" + cleanedPath
-	}
-	cleanedPath = strings.TrimSuffix(cleanedPath, "/")
-	if cleanedPath == "" {
-		cleanedPath = "/"
-	}
-	return strings.ToUpper(method) + "->" + cleanedPath
 }
