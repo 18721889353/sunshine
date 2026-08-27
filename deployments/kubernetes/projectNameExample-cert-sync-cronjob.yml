@@ -1,0 +1,88 @@
+# ================================================================
+# CronJob 资源：定义证书同步的定时调度任务
+# 功能：定期从腾讯云 SSL API 拉取证书，并更新到 Kubernetes Secret
+# ================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cert-sync                     # CronJob 资源名称（集群内唯一）
+  namespace: project-name-example              # 所属命名空间
+  labels:                             # 统一标签，与项目其他资源保持一致
+    app: project-name-example                  # 应用标签，便于统一筛选和管理
+
+spec:
+  # 定时调度规则：每 6 小时执行一次（0:00, 6:00, 12:00, 18:00）
+  # 格式：分 时 日 月 周
+  schedule: "0 */6 * * *"
+
+  # 并发策略：Forbid 表示如果前一个任务还在运行，则跳过本次调度，避免冲突
+  concurrencyPolicy: Forbid
+
+  # 保留最近 3 个成功和失败的历史 Job 记录，便于排错
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  # Job 模板：定义每次调度时实际运行的 Pod 规格
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:                     # Pod 标签
+            app: project-name-example          # 统一应用标签
+            component: cert-sync      # 组件标识，便于区分日志和监控
+        spec:
+          # 使用的服务账户（对应 rbac 文件中定义的服务账户）
+          serviceAccountName: cert-sync
+
+          # Pod 重启策略：仅当任务失败时才重启（OnFailure），通常 Job 任务用此策略
+          restartPolicy: OnFailure
+
+          # 容器列表
+          containers:
+            - name: cert-sync         # 容器名称
+              # 镜像地址：阿里云 ACR 上存放的证书同步工具镜像（latest 标签）
+              image: crpi-ewvf2odvil8gmbs9.cn-shanghai.personal.cr.aliyuncs.com/fuli-api-go/cert-sync:latest
+
+              # 环境变量：将敏感配置和业务参数注入容器
+              env:
+                # 腾讯云 API 密钥 ID（从名为 tencent-cloud-credentials 的 Secret 中读取）
+                - name: TENCENTCLOUD_SECRET_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: tencent-cloud-credentials   # 关联的 Secret 名称
+                      key: secret_id                    # Secret 中的字段名
+
+                # 腾讯云 API 密钥 Key（从该 Secret 中读取）
+                - name: TENCENTCLOUD_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: tencent-cloud-credentials
+                      key: secret_key
+
+                # 腾讯云地域（上海区域，需与证书所在地域一致）
+                - name: TENCENTCLOUD_REGION
+                  value: "ap-shanghai"
+
+                # 需要同步的证书域名（必须与 Ingress 中配置的域名一致）
+                - name: DOMAIN
+                  value: "domain"
+
+                # Kubernetes 命名空间（证书 Secret 所在的命名空间）
+                - name: NAMESPACE
+                  value: "project-name-example"
+
+                # 要更新/创建的 Kubernetes Secret 名称（与 Ingress 引用的证书 Secret 一致）
+                - name: SECRET_NAME
+                  value: "domain-tls"
+
+              # 卷挂载配置：用于持久化日志文件到宿主机
+              volumeMounts:
+                - name: logs                 # 引用下方定义的卷名称
+                  mountPath: /var/log        # 容器内挂载路径，脚本会将日志写入该目录下的 sync.log
+
+          # 卷定义：使用宿主机路径持久化日志
+          volumes:
+            - name: logs                     # 卷名称
+              hostPath:                      # 宿主机路径类型
+                path: /home/logs/tls         # 宿主机上的目录路径，日志将保存至此
+                type: DirectoryOrCreate      # 如果目录不存在则自动创建

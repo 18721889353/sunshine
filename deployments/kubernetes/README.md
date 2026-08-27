@@ -19,9 +19,27 @@ EOF
 
 # 2. 基于登录凭证创建 Secret, 注意 -n 必须与 Deployment 所在命名空间一致
 kubectl create secret generic docker-auth-secret \
+    -n project-name-example \
     --from-file=.dockerconfigjson=/root/.docker/config.json \
-    --type=kubernetes.io/dockerconfigjson \
-    -n project-name-example
+    --type=kubernetes.io/dockerconfigjson
+    
+    
+#手动创建 tencent-cloud-credentials Secret（一次性）    
+kubectl create secret generic tencent-cloud-credentials \
+  -n project-name-exampleo \
+  --from-literal=secret_id='你的SecretId' \
+  --from-literal=secret_key='你的SecretKey'    
+  
+#首次证书同步：手动触发（或等待自动执行）
+kubectl create job --from=cronjob/cert-sync test-sync -n project-name-example
+
+#如果 CronJob 未成功创建 domain-tls（手动应急方案）
+kubectl create secret tls domain-tls \
+  -n project-name-example \
+  --cert=/home/docker/ssl/domain.pem \
+  --key=/home/docker/ssl/domain.key
+  
+      
 ```
 
 ## 部署

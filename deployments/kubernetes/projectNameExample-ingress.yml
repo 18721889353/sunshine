@@ -1,0 +1,163 @@
+# ================================================================
+# 日志格式说明（全局定义在 deploy-nginx.yaml 的 ConfigMap 中）
+# 日志格式名称：json_combined
+# 字段说明：
+#   time_local       - 请求时间（本地时区）
+#   remote_addr      - 客户端 IP 地址
+#   host             - 请求的域名（Host 头）
+#   request          - 请求行（方法 + URI + 协议版本）
+#   status           - HTTP 响应状态码
+#   body_bytes_sent  - 响应体字节数
+#   request_time     - 请求处理总耗时（秒）
+#   http_referrer    - 来源页面（Referer 头）
+#   http_user_agent  - 用户代理（浏览器标识）
+#   x_forwarded_for  - 真实客户端 IP（经过代理时）
+# ================================================================
+
+---
+# ================================================================
+# 1. 主业务 Ingress（对外开放）
+# 功能：处理 /go-api 路径的 HTTP RESTful 请求
+# ================================================================
+apiVersion: networking.k8s.io/v1                     # Kubernetes Ingress API 版本（v1 稳定版）
+kind: Ingress                                        # 资源类型：Ingress
+metadata:
+  name: project-name-example-ingress                          # Ingress 资源名称（集群内唯一）
+  namespace: project-name-example                             # 所属命名空间（资源隔离单元）
+  labels:
+    app: project-name-example                                 # 应用标签，便于统一筛选和管理
+  annotations:
+    # ---------- 业务相关注解 ----------
+    # 允许上传最大 50MB 的请求体（适用于大文件上传）
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # 强制将 HTTP 请求重定向到 HTTPS（即访问 http:// 自动跳转到 https://）
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # ---------- 日志自定义（server-snippet） ----------
+    # ★★★ 为当前 server 块注入自定义 Nginx 配置 ★★★
+    # 将访问日志和错误日志写入子目录 project-name-example/，宿主机对应路径 /home/logs/nginx/project-name-example/
+    # 注意：Nginx 会自动创建不存在的目录
+    nginx.ingress.kubernetes.io/server-snippet: |
+      # 访问日志：使用全局定义的 json_combined 格式，记录所有请求
+      access_log /var/log/nginx/project-name-example/access.domain.log json_combined;
+      # 错误日志：记录 Nginx 处理过程中的错误信息
+      error_log  /var/log/nginx/project-name-example/error.domain.log;
+
+spec:
+  ingressClassName: nginx                            # 指定使用的 IngressClass（对应控制器名称）
+  tls:                                               # TLS 配置（启用 HTTPS）
+    - hosts:                                         # 证书保护的域名列表
+        - domain                               # 域名（必须与证书中的 CN 或 SAN 匹配）
+      secretName: domain-tls                   # 存储 TLS 证书和私钥的 Secret 名称
+  rules:                                             # 路由规则列表
+    - host: domain                             # 匹配的域名（只有访问该域名的请求才会应用此规则）
+      http:                                          # HTTP 规则
+        paths:                                       # 路径列表（按顺序匹配）
+          - path: /go-api                            # 匹配的路径（前缀匹配）
+            pathType: Prefix                         # 路径类型：Prefix（前缀匹配）
+            backend:                                 # 后端服务定义
+              service:
+                name: project-name-example-svc                # 目标 Service 名称
+                port:                                # Service 端口
+                  number: 8001                       # 端口号（对应 HTTP 服务）
+
+---
+# ================================================================
+# 2. pprof 专属 Ingress（性能分析）
+# 功能：仅允许指定 IP 访问 /debug/pprof 路径，用于 Go 性能分析
+# ================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: project-name-example-pprof-ingress
+  namespace: project-name-example
+  labels:
+    app: project-name-example
+  annotations:
+    # ---------- 安全与日志 ----------
+    # 强制 HTTP 重定向到 HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # ★ IP 白名单：仅允许以下 IP/CIDR 访问（防止未授权访问敏感调试信息）
+    # 127.0.0.1/32：本机环回地址（允许集群内部访问）
+    # 222.186.126.67/32：指定办公网出口 IP（可根据实际需要调整）
+    nginx.ingress.kubernetes.io/whitelist-source-range: "127.0.0.1/32,222.186.126.67/32"
+
+    # ★★★ 统一日志路径（与主业务保持一致，便于统一收集）★★★
+    nginx.ingress.kubernetes.io/server-snippet: |
+      access_log /var/log/nginx/project-name-example/access.domain.log json_combined;
+      error_log  /var/log/nginx/project-name-example/error.domain.log;
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - domain
+      secretName: domain-tls
+  rules:
+    - host: domain
+      http:
+        paths:
+          - path: /debug/pprof
+            pathType: Prefix
+            backend:
+              service:
+                name: project-name-example-svc
+                port:
+                  number: 6001                      # pprof/Metrics 服务端口
+
+---
+# ================================================================
+# 3. gRPC 专属 Ingress
+# 功能：匹配所有以 /grpc. 开头的 gRPC 方法路径，并启用 gRPC 代理
+# ================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: project-name-example-grpc-ingress
+  namespace: project-name-example
+  labels:
+    app: project-name-example
+  annotations:
+    # ---------- 基础配置 ----------
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # ★★★ 关键：后端协议设为 GRPC ★★★
+    # 告诉 Ingress Controller 使用 grpc_pass 代理，而非 proxy_pass
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+
+    # ★★★ 启用正则表达式匹配路径 ★★★
+    nginx.ingress.kubernetes.io/use-regex: "true"
+
+    # ---------- gRPC 长连接稳定性优化 ----------
+    # 读取超时：1 小时（适合流式 gRPC 调用）
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    # 发送超时：1 小时
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # 每个 upstream 保持 32 个空闲连接（减少连接建立开销）
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "32"
+
+    # ★★★ 统一日志路径 ★★★
+    nginx.ingress.kubernetes.io/server-snippet: |
+      access_log /var/log/nginx/project-name-example/access.domain.log json_combined;
+      error_log  /var/log/nginx/project-name-example/error.domain.log;
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - domain
+      secretName: domain-tls
+  rules:
+    - host: domain
+      http:
+        paths:
+          # ★★★ 正则匹配：所有以 /grpc. 开头的路径 ★★★
+          # 标准 gRPC 方法路径格式为 /package.Service/Method
+          # 例如：/grpc.health.v1.Health/Check
+          - path: /grpc\.(.*)                      # 正则表达式：/grpc. 后跟任意字符
+            pathType: ImplementationSpecific       # 必须设为 ImplementationSpecific 才能使用正则
+            backend:
+              service:
+                name: project-name-example-svc
+                port:
+                  number: 7001                     # gRPC 服务端口

@@ -1,0 +1,46 @@
+# ================================================================
+# 1. 服务账户（ServiceAccount）：为证书同步 Pod 定义一个集群内的身份
+# ================================================================
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cert-sync                     # 服务账户名称，CronJob 中通过 serviceAccountName 引用
+  namespace: project-name-example              # 所在的命名空间
+  labels:                             # 统一标签，与项目其他资源保持一致
+    app: project-name-example                  # 应用标签，便于统一筛选和管理
+
+---
+# ================================================================
+# 2. 角色（Role）：定义该身份在命名空间内拥有哪些操作权限
+# ================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cert-sync                     # 角色名称
+  namespace: project-name-example              # 权限生效的命名空间（仅限该命名空间内）
+  labels:                             # 统一标签
+    app: project-name-example                  # 应用标签
+rules:
+  - apiGroups: [""]                   # "" 表示核心 API 组（如 Secret 属于核心资源）
+    resources: ["secrets"]            # 允许操作的资源类型：Secret（密钥）
+    verbs: ["get", "update", "patch"] # 允许的操作：查询、更新、部分更新（用于修改 tls.crt 和 tls.key 字段）
+
+---
+# ================================================================
+# 3. 角色绑定（RoleBinding）：将服务账户与角色绑定，使其获得授权
+# ================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cert-sync                     # 绑定名称
+  namespace: project-name-example              # 命名空间
+  labels:                             # 统一标签
+    app: project-name-example                  # 应用标签
+subjects:                             # 主体（谁要使用这个权限）
+  - kind: ServiceAccount              # 主体类型：服务账户
+    name: cert-sync                   # 服务账户名称
+    namespace: project-name-example            # 服务账户所在的命名空间
+roleRef:                              # 引用的角色（要赋予什么权限）
+  kind: Role                          # 引用类型：Role（命名空间级角色）
+  name: cert-sync                     # 引用的角色名称
+  apiGroup: rbac.authorization.k8s.io # RBAC API 组
