@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-redsync/redsync/v4"
 
+	"github.com/18721889353/sunshine/internal/consts"
+
 	"github.com/18721889353/sunshine/pkg/cache"
 	"github.com/18721889353/sunshine/pkg/encoding"
 
@@ -73,7 +75,7 @@ func NewNameExample(cacheType *database.CacheType) NameExample {
 	cachePrefix := ""
 
 	cType := strings.ToLower(cacheType.CType)
-	if cType == "redis" {
+	if cType == consts.CacheTypeRedis {
 		c := cache.NewRedisCache(cacheType.Rdb, cachePrefix, jsonEncoding, func() interface{} {
 			var valueNameExample interface{}
 			return &valueNameExample

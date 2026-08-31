@@ -33,6 +33,10 @@ package service
 import (
 	"context"
 	"time"
+	"encoding/json"
+	"errors"
+	"runtime"
+	"strings"
 	"fmt"
 	"google.golang.org/grpc"
 
@@ -109,10 +113,41 @@ func (s *{{.LowerName}}) trace(ctx context.Context, name string, fn func() error
 	if err != nil {
 		fields = append(fields, logger.Err(err))
 		logger.WarnWithCtx(ctx, name+"(失败)", fields...)
+		// 按冒号分割，取最后一个元素（假设错误描述不含冒号）
+		parts := strings.Split(err.Error(), ":")
+		if len(parts) > 0 {
+			err = errors.New(strings.TrimSpace(parts[len(parts)-1]))
+		}
 	} else {
 		logger.InfoWithCtx(ctx, name+"(成功)", fields...)
 	}
 	return err
+}
+
+// getErrorWithLine 获取带行号的错误信息
+// 用于给业务错误附加调用位置，便于定位问题
+func (s *{{.LowerName}}) getErrorWithLine(err error, params ...map[string]any) error {
+	if err == nil {
+		return nil
+	}
+
+	_, file, line, ok := runtime.Caller(1)
+	if !ok {
+		return err // 无法获取行号时，直接返回原始错误
+	}
+
+	if len(params) > 0 {
+		// 只序列化第一个 map（通常只传一个）
+		paramBytes, marshalErr := json.Marshal(params[0])
+		if marshalErr != nil {
+			// 序列化失败时，附带序列化错误，但保留原错误链
+			return fmt.Errorf("%s:%d: marshal params error: %v, original error: %w",
+				file, line, marshalErr, err)
+		}
+		return fmt.Errorf("%s:%d: params:%s, error:%w", file, line, string(paramBytes), err)
+	}
+
+	return fmt.Errorf("%s:%d: error:%w", file, line, err)
 }
 
 {{- range .Methods}}
@@ -322,7 +357,7 @@ readLoop:
 	
 	//// ========== 步骤 1: 耗时监控（trace 装饰器） ==========
 	//// 标准实践：所有关键业务操作都应该有耗时监控
-	// err = s.trace(ctx, "{{.MethodName}}", func() error {
+	// err = s.trace(ctx, s.Name()+"{{.MethodName}}", func() error {
 		//// ========== 步骤 2: 参数验证 ==========
 		// logger.InfoWithCtx(ctx, "数据验证", logger.Any("body", req))
 		// {

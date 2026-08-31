@@ -151,6 +151,9 @@ func (g *httpAndGRPCPbGenerator) generateCode() error {
 		"docs": {
 			"apis.go", "apis.swagger.json",
 		},
+		"internal/consts": {
+			"constants.go",
+		},
 		"internal/config": {
 			"serverNameExample.go",
 		},
