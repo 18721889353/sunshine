@@ -82,6 +82,11 @@ func New{{.Name}}Server() {{.ProtoPkgName}}.{{.Name}}Server {
 	}
 }
 
+// Name 返回服务名称
+func (s *{{.LowerName}}) Name() string {
+	return "{{.LowerName}}"
+}
+
 // trace 耗时监控装饰器
 // 标准实践：所有关键业务操作都应该有耗时监控
 // 参数:
