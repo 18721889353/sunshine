@@ -222,7 +222,7 @@ func (c *nameExample) Set(ctx context.Context, key string, data interface{}, dur
 		return nil
 	}
 	cacheKey := c.GetCacheNameExampleCacheKey(key)
-	err := c.cache.Set(ctx, cacheKey, data, duration)
+	err := c.cache.Set(ctx, cacheKey, &data, duration)
 	if err != nil {
 		return err
 	}
