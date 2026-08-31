@@ -370,7 +370,7 @@ readLoop:
 		
 		//// ========== 步骤 3: 分布式锁（保证幂等性） ==========
 		//// 标准：所有写操作必须使用分布式锁防止重复处理
-		// lockKey := "LockKey:{{.MethodName}}:" + cast.ToString("id")
+		// lockKey := "LockKey:"+s.Name()+":{{.MethodName}}:" + cast.ToString("id")
 		// expiry := time.Second * 5
 		// err = s.iCache.WatchDogLock(ctx, lockKey, expiry,
 		// 	func(ctx context.Context) error {
