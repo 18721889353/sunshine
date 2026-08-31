@@ -1,3 +1,9 @@
+// Package errcode 提供统一的 HTTP/GRPC 错误码及响应封装。
+// 核心功能：
+//   - 定义业务错误码与标准 HTTP 状态码的映射关系
+//   - 提供统一的 JSON 响应格式（code, msg, data）
+//   - 支持结构体拆包（unwrap），使单切片响应可直接返回数组，简化前端处理
+//   - 兼容 gRPC 状态码与 HTTP 错误码的转换
 package errcode
 
 import (
@@ -14,37 +20,41 @@ import (
 )
 
 var (
-	// SkipResponse 跳过响应
-	SkipResponse = errors.New("skip response") //nolint
-	// unwrapCache 用于缓存结构体拆包分析结果，避免重复反射
+	// SkipResponse 用于中间件或业务逻辑中跳过后续响应处理（如已自行处理）
+	SkipResponse = errors.New("skip response")
+	// unwrapCache 缓存结构体拆包分析结果，避免重复反射造成性能损失
 	unwrapCache sync.Map // map[reflect.Type]unwrapInfo
 )
 
-// unwrapInfo 存储结构体是否需要拆包的元数据
+// unwrapInfo 存储结构体是否需要拆包以及目标字段索引
 type unwrapInfo struct {
-	shouldUnwrap bool
-	fieldIndex   int // 仅当 shouldUnwrap 为 true 时有效
+	shouldUnwrap bool // 是否需要拆包（仅当结构体只有一个导出字段且为切片时）
+	fieldIndex   int  // 若拆包，该字段的索引位置
 }
 
-// Responser 响应接口
+// Responser 定义统一响应接口，所有响应实现必须遵循此接口
 type Responser interface {
-	Success(ctx *gin.Context, data any)                    // 成功响应
-	Success2(ctx *gin.Context, code, msg string, data any) // 自定义成功响应
-	ParamError(ctx *gin.Context, err error)                // 参数错误响应
-	Error(ctx *gin.Context, err error) bool                // 错误响应，返回 true 表示已处理
+	// Success 返回成功响应，code=0, msg="ok"，data 自动拆包
+	Success(ctx *gin.Context, data any)
+	// Success2 自定义成功响应，允许指定 code 和 msg
+	Success2(ctx *gin.Context, code, msg string, data any)
+	// ParamError 参数错误响应（通常由 validation 校验失败触发）
+	ParamError(ctx *gin.Context, err error)
+	// Error 错误响应，根据错误类型自动切换 HTTP/RPC 处理，返回布尔值表示是否已处理
+	Error(ctx *gin.Context, err error) bool
 }
 
-// defaultResponse 默认响应实现
+// defaultResponse 默认实现，支持通过选项配置响应行为
 type defaultResponse struct {
-	isFromRPC  bool               // 错误是否来自 gRPC
-	httpErrors map[int]*Error     // HTTP 错误映射
-	rpcStatus  map[int]*RPCStatus // gRPC 状态映射
-	isMessage  bool               // 返回字段是 message 还是 msg
+	isFromRPC  bool               // 错误是否来自 gRPC（影响错误处理分支）
+	httpErrors map[int]*Error     // 自定义 HTTP 错误映射（业务码 → HTTP 状态码）
+	rpcStatus  map[int]*RPCStatus // 自定义 RPC 状态映射
+	isMessage  bool               // 响应中使用 "message" 还是 "msg" 字段
 }
 
-// NewResponser 创建一个新的 Responser
+// NewResponser 创建新的响应器实例，传入配置选项
 func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*RPCStatus) Responser {
-	// 优化：预分配 map 容量，避免多次内存分配
+	// 构建 HTTP 错误映射表（业务码 → *Error）
 	var httpErrorsMap map[int]*Error
 	if len(httpErrors) > 0 {
 		httpErrorsMap = make(map[int]*Error, len(httpErrors))
@@ -55,13 +65,15 @@ func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*R
 		}
 	}
 
+	// 构建 RPC 状态映射表（gRPC 状态码 → *RPCStatus）
 	var rpcStatusMap map[int]*RPCStatus
 	if len(rpcStatus) > 0 {
-		rpcStatusMap = make(map[int]*RPCStatus, len(rpcStatus)*2) // 一个 status 可能存两份key
+		rpcStatusMap = make(map[int]*RPCStatus, len(rpcStatus)*2)
 		for _, statusError := range rpcStatus {
 			if statusError == nil || statusError.status == nil {
 				continue
 			}
+			// 同时存储两种可能的 key：业务码和标准 gRPC 码
 			rpcStatusMap[int(statusError.ToRPCCode())] = statusError
 			rpcStatusMap[int(statusError.status.Code())] = statusError
 		}
@@ -75,12 +87,23 @@ func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*R
 	}
 }
 
-// response 统一构建 JSON 响应
+// response 核心响应构建方法，所有响应最终汇聚至此
+// 功能：
+//   - 将 data=nil 或空切片转为空对象 {}，保证数据结构一致性
+//   - 封装 code/msg/data 至顶层 JSON
+//   - 根据 isMessage 决定使用 "message" 或 "msg" 字段
 func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg string, data any) {
+	// 规范处理：错误响应或未设置数据时，data 应为空对象 {} 而非 null 或 []
 	if data == nil {
-		data = make([]any, 0)
+		data = make(map[string]interface{}, 0)
+	} else {
+		v := reflect.ValueOf(data)
+		if v.Kind() == reflect.Slice && v.Len() == 0 {
+			data = make(map[string]interface{}, 0)
+		}
 	}
 
+	// 构建最终返回的 JSON 对象
 	respData := make(map[string]any, 3)
 	respData["code"] = code
 	respData["data"] = data
@@ -94,29 +117,28 @@ func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg 
 	c.JSON(respStatus, respData)
 }
 
-// Success 成功响应
+// Success 成功响应，自动拆包 data，HTTP 状态码 200
 func (resp *defaultResponse) Success(c *gin.Context, data any) {
-	// 自动拆包逻辑
 	finalData := resp.unwrapData(data)
 	resp.response(c, http.StatusOK, "0", "ok", finalData)
 }
 
-// Success2 自定义 Code 和 Msg 的成功响应
+// Success2 自定义成功响应，允许指定 code 和 msg，不自动拆包
 func (resp *defaultResponse) Success2(c *gin.Context, code, msg string, data any) {
 	resp.response(c, http.StatusOK, code, msg, data)
 }
 
-// respondWithHTTPCode 统一的 HTTP 状态码响应，消除重复的 cast.ToString 和 getStatusTextOrDefault
+// respondWithHTTPCode 根据 HTTP 状态码生成标准响应（主要用于非 200 错误）
 func (resp *defaultResponse) respondWithHTTPCode(c *gin.Context, httpCode int) {
 	resp.response(c, httpCode, cast.ToString(httpCode), getStatusTextOrDefault(httpCode), nil)
 }
 
-// ParamError 参数错误响应
+// ParamError 参数错误响应，固定使用 errcode.InvalidParams 的错误码和消息
 func (resp *defaultResponse) ParamError(c *gin.Context, _ error) {
 	resp.response(c, http.StatusOK, cast.ToString(InvalidParams.Code()), InvalidParams.Msg(), nil)
 }
 
-// Error 错误响应
+// Error 错误响应入口，根据配置选择 RPC 或 HTTP 处理分支
 func (resp *defaultResponse) Error(c *gin.Context, err error) bool {
 	if resp.isFromRPC {
 		return resp.handleRPCError(c, err)
@@ -124,15 +146,16 @@ func (resp *defaultResponse) Error(c *gin.Context, err error) bool {
 	return resp.handleHTTPError(c, err)
 }
 
-// unwrapData 通用的拆包函数 (优化版)
+// unwrapData 核心拆包逻辑：对结构体进行分析，如果结构体只包含一个导出字段且为切片，则直接返回该切片
+// 目的：方便前端直接获取列表数据，无需额外取值（如 data.list → data）
+// 缓存结果以提高性能
 func (resp *defaultResponse) unwrapData(data any) any {
 	if data == nil {
 		return nil
 	}
 
 	v := reflect.ValueOf(data)
-
-	// 1. 处理多级指针，获取到底层的 Element
+	// 解引用指针，直到非指针类型
 	for v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			return nil
@@ -140,14 +163,13 @@ func (resp *defaultResponse) unwrapData(data any) any {
 		v = v.Elem()
 	}
 
-	// 2. 只针对结构体进行处理
+	// 非结构体直接返回
 	if v.Kind() != reflect.Struct {
 		return data
 	}
 
 	typ := v.Type()
-
-	// 3. 快速路径：尝试从缓存读取分析结果
+	// 从缓存获取分析结果
 	if cached, ok := unwrapCache.Load(typ); ok {
 		info, ok := cached.(unwrapInfo)
 		if !ok {
@@ -159,59 +181,54 @@ func (resp *defaultResponse) unwrapData(data any) any {
 		return data
 	}
 
-	// 4. 慢速路径：执行反射分析并缓存
+	// 缓存未命中，执行分析并缓存
 	return resp.analyzeAndUnwrap(v, typ)
 }
 
-// analyzeAndUnwrap 分析结构体并决定是否拆包
+// analyzeAndUnwrap 分析结构体字段，决定是否需要拆包
+// 规则：只有一个导出（首字母大写）且非匿名字段，且该字段类型为切片，才进行拆包
+// 这样可以兼容多字段结构体（如分页响应），避免误拆包
 func (resp *defaultResponse) analyzeAndUnwrap(v reflect.Value, typ reflect.Type) any {
 	var firstSliceIdx = -1
 	var sliceCount int
+	var exportedCount int // 统计导出字段总数
 
 	numField := typ.NumField()
 	for i := 0; i < numField; i++ {
 		field := typ.Field(i)
-
-		// 优化点：
-		// 1. PkgPath == "" 确保是导出字段 (Exported)
-		// 2. !field.Anonymous 排除嵌入(组合)字段，避免逻辑歧义
-		// 3. 仅查找 Slice 类型
-		if field.PkgPath == "" && !field.Anonymous && field.Type.Kind() == reflect.Slice {
-			sliceCount++
-			if sliceCount == 1 {
-				firstSliceIdx = i
-			}
-			if sliceCount > 1 {
-				// 发现超过一个切片，不符合拆包条件，直接停止
-				break
+		// 导出且非匿名字段
+		if field.PkgPath == "" && !field.Anonymous {
+			exportedCount++
+			if field.Type.Kind() == reflect.Slice {
+				sliceCount++
+				if sliceCount == 1 {
+					firstSliceIdx = i
+				}
 			}
 		}
 	}
 
-	shouldUnwrap := (sliceCount == 1)
+	// 只有唯一一个导出字段且为切片时才拆包
+	shouldUnwrap := (exportedCount == 1 && sliceCount == 1)
+
 	info := unwrapInfo{
 		shouldUnwrap: shouldUnwrap,
 		fieldIndex:   firstSliceIdx,
 	}
-
-	// 写入缓存，并发场景下即使多次写入也是幂等的，无需锁
 	unwrapCache.Store(typ, info)
 
 	if shouldUnwrap {
 		return v.Field(firstSliceIdx).Interface()
 	}
-
-	// 如果不需要拆包，返回经过 Elem() 处理后的原始结构体值
-	// 注意：如果原数据是指针，这里会返回结构体值，保持行为一致性
 	return v.Interface()
 }
 
-// handleRPCError 处理来自 gRPC 的错误
+// handleRPCError 处理来自 gRPC 的错误，根据状态码映射到适当的 HTTP 响应
 func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	st, _ := status.FromError(err)
 	stCode := st.Code()
 
-	// 1. 处理 codes.Unknown (通常是自定义错误或 panic)
+	// codes.Unknown 通常由业务自定义错误码，尝试解析 code 和 msg
 	if stCode == codes.Unknown {
 		code, msg := parseCodeAndMsg(st.String())
 		if code == -1 {
@@ -222,7 +239,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		return false
 	}
 
-	// 2. 处理标准 gRPC 错误映射到 HTTP 状态码
+	// 标准 gRPC 错误码映射到对应的 HTTP 状态码
 	switch stCode {
 	case codes.Internal, StatusInternalServerError.status.Code():
 		resp.respondWithHTTPCode(c, http.StatusInternalServerError)
@@ -232,7 +249,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		return true
 	}
 
-	// 3. 检查是否包含强制转换为 HTTP Code 的标签
+	// 若错误消息包含指定标签，强制转换为指定 HTTP 状态码
 	if strings.Contains(st.Message(), ToHTTPCodeLabel) {
 		httpCode := convertToHTTPCode(stCode)
 		msg := strings.ReplaceAll(st.Message(), ToHTTPCodeLabel, "")
@@ -240,21 +257,21 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 		return true
 	}
 
-	// 4. 检查用户自定义的 RPC 错误映射
+	// 检查用户自定义的 RPC 映射
 	if resp.rpcStatus != nil && resp.isUserDefinedRPCErrorCode(c, int(stCode)) {
 		return true
 	}
 
-	// 5. 默认行为：响应 200 OK，Body 中包含错误码
+	// 默认：返回 200 OK，body 中包含业务错误码
 	resp.response(c, http.StatusOK, cast.ToString(int(stCode)), st.Message(), nil)
 	return false
 }
 
-// handleHTTPError 处理来自 HTTP 的错误
+// handleHTTPError 处理来自 HTTP 的错误（非 gRPC）
 func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	e := ParseError(err)
 
-	// 1. 处理标准 HTTP 错误
+	// 标准 HTTP 错误码映射
 	switch e.Code() {
 	case InternalServerError.Code(), http.StatusInternalServerError:
 		resp.respondWithHTTPCode(c, http.StatusInternalServerError)
@@ -264,25 +281,24 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 		return true
 	}
 
-	// 2. 用户请求返回标准 HTTP 代码
+	// 若用户设置需要返回标准 HTTP 状态码
 	if e.needHTTPCode {
 		msg := strings.ReplaceAll(e.msg, ToHTTPCodeLabel, "")
 		resp.response(c, e.ToHTTPCode(), cast.ToString(e.code), msg, nil)
 		return true
 	}
 
-	// 3. 检查用户自定义的 HTTP 错误映射
+	// 检查用户自定义的 HTTP 错误映射
 	if resp.httpErrors != nil && resp.isUserDefinedHTTPErrorCode(c, e.Code()) {
 		return true
 	}
 
-	// 4. 默认行为
+	// 默认：返回 200 OK，body 中包含业务错误码
 	resp.response(c, http.StatusOK, cast.ToString(e.code), e.msg, nil)
 	return false
 }
 
-// isUserDefinedRPCErrorCode 检查用户自定义的 RPC 错误映射
-// 如果找到匹配的错误码，使用对应的 HTTP 状态码响应
+// isUserDefinedRPCErrorCode 检查是否在自定义 RPC 映射中，若存在则使用对应的 HTTP 状态码响应
 func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode int) bool {
 	if v, ok := resp.rpcStatus[errCode]; ok {
 		resp.respondWithHTTPCode(c, ToHTTPErr(v.status).ToHTTPCode())
@@ -291,8 +307,7 @@ func (resp *defaultResponse) isUserDefinedRPCErrorCode(c *gin.Context, errCode i
 	return false
 }
 
-// isUserDefinedHTTPErrorCode 检查用户自定义的 HTTP 错误映射
-// 如果找到匹配的错误码，使用对应的 HTTP 状态码响应
+// isUserDefinedHTTPErrorCode 检查是否在自定义 HTTP 错误映射中，若存在则使用对应的 HTTP 状态码响应
 func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode int) bool {
 	if v, ok := resp.httpErrors[errCode]; ok {
 		resp.respondWithHTTPCode(c, v.ToHTTPCode())
@@ -301,7 +316,7 @@ func (resp *defaultResponse) isUserDefinedHTTPErrorCode(c *gin.Context, errCode 
 	return false
 }
 
-// getStatusTextOrDefault 辅助函数，获取 HTTP 状态文本
+// getStatusTextOrDefault 获取 HTTP 状态文本，若不存在则返回 "unknown error"
 func getStatusTextOrDefault(code int) string {
 	msg := http.StatusText(code)
 	if msg == "" {
@@ -310,9 +325,8 @@ func getStatusTextOrDefault(code int) string {
 	return msg
 }
 
-// ToHTTPErr 将 gRPC 状态转换为对应的 HTTP 错误
-// 它会匹配自定义业务错误码和标准 gRPC 状态码，返回对应的 *Error
-func ToHTTPErr(st *status.Status) *Error { //nolint
+// ToHTTPErr 将 gRPC 状态转换为对应的 *Error，适用于业务错误码与 gRPC 码的桥接
+func ToHTTPErr(st *status.Status) *Error {
 	switch st.Code() {
 	case StatusSuccess.status.Code(), codes.OK:
 		return Success
@@ -356,36 +370,31 @@ func ToHTTPErr(st *status.Status) *Error { //nolint
 		return MethodNotAllowed
 	}
 
+	// 未匹配时回退为通用错误
 	return &Error{
 		code: int(st.Code()),
 		msg:  st.Message(),
 	}
 }
 
-// parseCodeAndMsg 解析错误字符串中的代码和消息
+// parseCodeAndMsg 从 gRPC 错误字符串中提取业务错误码和消息
+// 解析格式示例：rpc error: code = Code(403403) desc = code = 403403, msg = token已过期
 func parseCodeAndMsg(errStr string) (int, string) {
 	if errStr == "" {
 		return -1, ""
 	}
 
-	// 原始格式逻辑参考：ss := strings.Split(errStr, "desc = ")
-	// 为了避免未使用的变量并保持逻辑严谨，我们直接定位最后一个 "desc = "
 	descIdx := strings.LastIndex(errStr, "desc = ")
 	if descIdx == -1 {
 		return -1, errStr
 	}
 
-	// 提取 desc 之后的部分
-	lastPart := errStr[descIdx+7:] // 7 是 "desc = " 的长度
-
-	// 兼容原始逻辑中的 "msg = " 拆分
+	lastPart := errStr[descIdx+7:] // 跳过 "desc = "
 	cm := strings.Split(lastPart, "msg = ")
 	if len(cm) == 2 {
-		// 提取 code 部分：去掉前缀 "code = " 和后缀 ", "
 		codeStr := cm[0]
 		codeStr = strings.TrimPrefix(codeStr, "code = ")
 		codeStr = strings.TrimSuffix(codeStr, ", ")
-
 		code := cast.ToInt(strings.TrimSpace(codeStr))
 		return code, cm[1]
 	}
