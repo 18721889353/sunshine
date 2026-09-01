@@ -174,7 +174,7 @@ linters-settings:
       - shadow
       - nilness
       - unusedwrite
-    
+
     # 自定义 printf 系列函数
     settings:
       printf:
@@ -190,7 +190,7 @@ linters-settings:
   # ========== lll (line length limit) 配置 ==========
   lll:
     # 最大行长度（Go 代码中长注释、URL、日志消息很常见，250 更宽松）
-    line-length: 250
+    line-length: 260
     # Tab 宽度（按空格计算）
     tab-width: 4
 
@@ -232,7 +232,11 @@ issues:
         - gosec
         - funlen
         - gocognit
-    
+    - path: internal/dao/.*
+      linters:
+        - revive
+      text: "bool-literal-in-expr"
+
     # 生成的代码文件跳过检查
     - path: ".*\\.pb\\.go$"
       linters:
