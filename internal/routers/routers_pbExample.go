@@ -178,7 +178,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...)),
 		)
 	}
-	//r.Use(middleware.APILogMiddleware(middleware.WithApiLogFunc(customLogFunc)))
+	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
 
 	c := newMiddlewareConfig()
 

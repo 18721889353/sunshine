@@ -85,7 +85,7 @@ func customLogFunc(c *gin.Context, reqBody []byte, respBody []byte, startTime ti
 	}()
 }
 
-	r.Use(APILogMiddleware(WithApiLogFunc(customLogFunc)))
+	r.Use(APILogMiddleware(WithAPILogFunc(customLogFunc)))
 
 */
 func APILogMiddleware(opts ...APILogOption) gin.HandlerFunc {

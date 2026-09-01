@@ -192,7 +192,7 @@ func NewRouter() *gin.Engine {
 				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...)),
 		)
 	}
-	//r.Use(middleware.APILogMiddleware(middleware.WithApiLogFunc(customLogFunc)))
+	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
 
 	// register routers, middleware support
 	registerRouters(r, "/api/v1", apiV1RouterFns)
