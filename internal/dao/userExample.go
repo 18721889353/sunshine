@@ -41,6 +41,7 @@ type UserExampleQueryOption func(*userExampleQueryOptions)
 // userExampleQueryOptions 查询选项配置
 type userExampleQueryOptions struct {
 	forceMaster bool // 是否强制使用主库
+	unscoped    bool // 是否忽略软删除（不自动添加 deleted_at IS NULL）
 }
 
 // UserExampleWithForceMaster 强制使用主库查询
@@ -51,10 +52,19 @@ func UserExampleWithForceMaster() UserExampleQueryOption {
 	}
 }
 
+// UserExampleWithUnscoped 忽略软删除（不自动添加 deleted_at IS NULL）
+// 适用于没有 deleted_at 字段的关联表或需要查询已删除记录的场景
+func UserExampleWithUnscoped() UserExampleQueryOption {
+	return func(o *userExampleQueryOptions) {
+		o.unscoped = true
+	}
+}
+
 // userExampleApplyOptions 应用选项配置（默认强制主库）
 func userExampleApplyOptions(opts ...UserExampleQueryOption) *userExampleQueryOptions {
 	o := &userExampleQueryOptions{
 		forceMaster: true,
+		unscoped:    false, // 默认不忽略软删除
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -1173,6 +1183,9 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64, opts ...UserExa
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		err := db.Where("id = ?", id).First(record).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1189,6 +1202,9 @@ func (d *userExampleDao) GetByID(ctx context.Context, id uint64, opts ...UserExa
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		err := db.Where("id = ?", id).First(table).Error
 		if err != nil {
@@ -1290,6 +1306,9 @@ func (d *userExampleDao) handleColumnsCacheHit(ctx context.Context, fullCacheKey
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		var records []*model.UserExample
 		dbErr := db.Where("id IN (?)", missedIDs).Find(&records).Error
 		return records, dbErr
@@ -1360,6 +1379,9 @@ func (d *userExampleDao) queryColumnsWithoutCache(ctx context.Context, singlefli
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		return d.queryByColumnsWithDB(db, params, queryStr, args)
 	})
 	if sfErr != nil {
@@ -1414,6 +1436,9 @@ func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singl
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		result, dbErr := d.queryByColumnsWithDB(db, params, queryStr, args)
 		if dbErr != nil {
@@ -1525,6 +1550,9 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -1541,6 +1569,9 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		err := db.Order(order).Where(queryStr, args...).First(record).Error
 		if err != nil {
@@ -1586,13 +1617,16 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 	var tables []*model.UserExample
 	// 生成唯一缓存键（必须包含 forceMaster 选项，避免不同选项共享同一缓存）
 	// 格式：queryStr + args + forceMaster
-	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v", queryStr, args, optsConfig.forceMaster)))
+	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v_%v", queryStr, args, optsConfig.forceMaster, optsConfig.unscoped)))
 
 	// no cache（支持强制主库查询）
 	if d.cacheManager == nil {
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		err = db.Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
@@ -1618,6 +1652,9 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		err = db.Where(queryStr, args...).Find(&tables).Error
 		if err != nil {
 			return nil, fmt.Errorf("GetByCondition: query database failed, conditions=%+v: %w", c, err)
@@ -1640,6 +1677,9 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...Use
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		err := db.Where("id IN (?)", ids).Find(&records).Error
 		if err != nil {
 			return nil, fmt.Errorf("GetByIDs: query database failed, ids=%v: %w", ids, err)
@@ -1657,6 +1697,9 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...Use
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		err := db.Where("id IN (?)", missedIDs).Find(&records).Error
 		if err != nil {
@@ -1676,7 +1719,7 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 
 	// 生成唯一缓存键（必须包含 forceMaster 选项，避免不同选项共享同一缓存）
 	// 格式：queryStr + args + forceMaster
-	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v", queryStr, args, optsConfig.forceMaster)))
+	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v_%v", queryStr, args, optsConfig.forceMaster, optsConfig.unscoped)))
 	countCacheKey := "count:" + cacheKey
 
 	// 无缓存模式直接查询（支持强制主库查询）
@@ -1686,6 +1729,10 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
+
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
 		if err != nil {
 			return 0, fmt.Errorf("CountByCondition: query database failed, conditions=%+v: %w", c, err)
@@ -1719,6 +1766,9 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
 		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
+		}
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
 		if err != nil {
 			return 0, fmt.Errorf("CountByCondition: query database failed, conditions=%+v: %w", c, err)
@@ -1751,7 +1801,7 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 
 	// 生成唯一缓存键（必须包含 forceMaster 选项，避免不同选项共享同一缓存）
 	// 格式：queryStr + args + forceMaster
-	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v", queryStr, args, optsConfig.forceMaster)))
+	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v_%v", queryStr, args, optsConfig.forceMaster, optsConfig.unscoped)))
 	existsCacheKey := "exists:" + cacheKey
 
 	// 无缓存模式直接查询（支持强制主库查询）
@@ -1760,6 +1810,9 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		// 使用 SELECT 1 LIMIT 1 优化存在性检查，性能优于 COUNT
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Select("1").Limit(1).Scan(&exists).Error
@@ -1794,6 +1847,9 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
+		}
+		if optsConfig.unscoped {
+			db = db.Unscoped()
 		}
 		// 使用 SELECT 1 LIMIT 1 优化存在性检查
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Select("1").Limit(1).Scan(&exists).Error
@@ -1856,6 +1912,9 @@ func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*g
 	db := d.db.WithContext(ctx)
 	if optsConfig.forceMaster {
 		db = db.Clauses(dbresolver.Write)
+	}
+	if optsConfig.unscoped {
+		db = db.Unscoped()
 	}
 	// 应用自定义查询函数
 	db = queryFunc(db)
