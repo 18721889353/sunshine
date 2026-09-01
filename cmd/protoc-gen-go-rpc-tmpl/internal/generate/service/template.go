@@ -389,11 +389,13 @@ readLoop:
 		// 	redsync.WithExpiry(expiry),
 		// )
 		// if err != nil {
-		// 	logger.WarnWithCtx(ctx, "获取分布式锁失败", logger.Err(err))
-		// 	return ecode.StatusResourceExhausted.Err("系统繁忙，请稍后重试")
+		// 	return s.getErrorWithLine(err)
 		// }
 		// return nil
 	// })
+	//	if err != nil {
+	//		err = ecode.InternalServerError.Err(err.Error())
+	//	}
 		//return
 {{end}}
 }
