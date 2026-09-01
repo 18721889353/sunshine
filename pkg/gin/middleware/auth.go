@@ -154,12 +154,11 @@ func handleAuthVerification(o *jwtOptions, claims *jwt.Claims, token string, c *
 			c.Abort()
 			return err
 		}
-	} else {
-		// 提取用户信息并设置到 Context 中，供后续业务使用
-		uid := extractUIDFromClaims(claims, o.uidFields)
-		c.Set("uid", uid)
-		c.Set("name", claims.Name)
 	}
+	// 提取用户信息并设置到 Context 中，供后续业务使用
+	uid := extractUIDFromClaims(claims, o.uidFields)
+	c.Set("uid", uid)
+	c.Set("name", claims.Name)
 	return nil
 }
 

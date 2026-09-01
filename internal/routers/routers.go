@@ -59,6 +59,37 @@ var (
 //	}()
 //}
 
+// VerifySSO 单点登录验证函数（基于数据库 md5_token）
+//
+//	func VerifySSO(claims *jwt.Claims, _ string, c *gin.Context) error {
+//		ctx := c.Request.Context()
+//		uid := claims.UID
+//		if uid == "" {
+//			return errors.New("missing user id in token")
+//		}
+//
+//		userDao := dao.NewSysAdminUserDao(
+//			database.GetDB(),
+//			cache.NewSysAdminUserCache(database.GetCacheType()),
+//		)
+//		user, err := userDao.GetByID(ctx, cast.ToUint64(uid))
+//		if err != nil {
+//			return err
+//		}
+//
+//		authHeader := c.GetHeader(middleware.HeaderAuthorizationKey)
+//		if len(authHeader) < 7 {
+//			return errors.New("invalid authorization header")
+//		}
+//		currentToken := authHeader[7:]
+//		// token 比对
+//		if user.Md5Token != currentToken {
+//			return errors.New("token已过期")
+//		}
+//
+//		return nil
+//	}
+
 // NewRouter 创建并返回一个 gin.Engine 实例，配置完整的中间件链和路由注册。
 //
 // 包含以下中间件（按注册顺序）：Recovery、CORS、超时、请求ID、链路追踪、日志、
@@ -189,7 +220,9 @@ func NewRouter() *gin.Engine {
 		r.Use(
 			middleware.Auth(
 				middleware.WithSwitchHTTPCode(),
-				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...)),
+				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...),
+				//middleware.WithVerify(VerifySSO),
+			),
 		)
 	}
 	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
