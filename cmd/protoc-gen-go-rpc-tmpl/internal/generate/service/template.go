@@ -114,7 +114,7 @@ func (s *{{.LowerName}}) trace(ctx context.Context, name string, fn func() error
 		fields = append(fields, logger.Err(err))
 		logger.WarnWithCtx(ctx, name+"(失败)", fields...)
 		// 按冒号分割，取最后一个元素（假设错误描述不含冒号）
-		parts := strings.Split(err.Error(), ":")
+		parts := strings.Split(err.Error(), "error:")
 		if len(parts) > 0 {
 			err = errors.New(strings.TrimSpace(parts[len(parts)-1]))
 		}
