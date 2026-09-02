@@ -143,14 +143,14 @@ func (m *userExampleCacheManager) getCacheKey(id uint64) string {
 // 用于 GetOneByColumns、GetByCondition 等按条件查询的方法
 // 格式：prefix + "condition:" + keyMD5
 func (m *userExampleCacheManager) getConditionCacheKey(key string) string {
-	return cache.UserExampleCachePrefixKey + "condition:" + key
+	return "condition:" + key
 }
 
 // getColumnsCacheKey 生成基于分页查询条件的缓存键
 // 专用于 GetByColumns 方法的分页查询缓存
 // 格式：prefix + "columns:" + keyMD5
 func (m *userExampleCacheManager) getColumnsCacheKey(key string) string {
-	return cache.UserExampleCachePrefixKey + "columns:" + key
+	return "columns:" + key
 }
 
 // get 通过 singleflight 和缓存获取数据
