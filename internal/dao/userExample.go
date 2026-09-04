@@ -7,20 +7,24 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/18721889353/sunshine/internal/cache"
-	"github.com/18721889353/sunshine/internal/consts"
-
-	"github.com/18721889353/sunshine/internal/database"
-	"github.com/18721889353/sunshine/internal/model"
-
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/format"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
+	"go.uber.org/multierr"
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 	"gorm.io/plugin/dbresolver"
 
+	"github.com/18721889353/sunshine/internal/cache"
+	"github.com/18721889353/sunshine/internal/consts"
+	"github.com/18721889353/sunshine/internal/database"
+	"github.com/18721889353/sunshine/internal/model"
 	"github.com/18721889353/sunshine/pkg/gocrypto"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
@@ -29,6 +33,11 @@ import (
 
 // UserExampleRandPool 全局随机数生成器池（线程安全，无锁竞争）
 // 使用 sync.Pool 为每个 goroutine 提供独立的随机数生成器，避免锁竞争
+// 适用场景：高并发下生成随机化缓存过期时间，防止缓存雪崩
+// 示例：
+//
+//	expireTime := UserExampleGetRandomExpireTime(time.Hour)
+//	// 返回 baseDuration + random(-300s ~ +300s)
 var UserExampleRandPool = sync.Pool{
 	New: func() interface{} {
 		return rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -36,12 +45,13 @@ var UserExampleRandPool = sync.Pool{
 }
 
 // UserExampleQueryOption 查询选项函数类型（使用选项模式替代变长布尔参数）
+// 用于 GetByID、GetByColumns、GetOneByColumns、GetByCondition、GetByIDs、CountByCondition、ExistsByCondition 等方法
 type UserExampleQueryOption func(*userExampleQueryOptions)
 
 // userExampleQueryOptions 查询选项配置
 type userExampleQueryOptions struct {
-	forceMaster bool // 是否强制使用主库
-	unscoped    bool // 是否忽略软删除（不自动添加 deleted_at IS NULL）
+	forceMaster bool // 是否强制使用主库（当存在主从延迟时使用）
+	unscoped    bool // 是否忽略软删除（不自动添加 deleted_at IS NULL，用于查询已删除记录）
 }
 
 // UserExampleWithForceMaster 强制使用主库查询
@@ -53,7 +63,14 @@ func UserExampleWithForceMaster() UserExampleQueryOption {
 }
 
 // UserExampleWithUnscoped 忽略软删除（不自动添加 deleted_at IS NULL）
-// 适用于没有 deleted_at 字段的关联表或需要查询已删除记录的场景
+// 适用场景：
+//   - 表没有 deleted_at 字段（如关联表）
+//   - 需要查询已被软删除的记录
+//
+// 示例：
+//
+//	// 查询包含已删除的记录
+//	records, total, err := dao.GetByColumns(ctx, params, dao.UserExampleWithUnscoped())
 func UserExampleWithUnscoped() UserExampleQueryOption {
 	return func(o *userExampleQueryOptions) {
 		o.unscoped = true
@@ -61,6 +78,7 @@ func UserExampleWithUnscoped() UserExampleQueryOption {
 }
 
 // userExampleApplyOptions 应用选项配置（默认强制主库）
+// 内部方法，将选项参数应用到配置结构体
 func userExampleApplyOptions(opts ...UserExampleQueryOption) *userExampleQueryOptions {
 	o := &userExampleQueryOptions{
 		forceMaster: true,  // 默认主库
@@ -74,7 +92,16 @@ func userExampleApplyOptions(opts ...UserExampleQueryOption) *userExampleQueryOp
 
 // UserExampleGetRandomExpireTime 生成随机化的缓存过期时间，防止缓存雪崩
 // 基础时间 ±5 分钟随机偏移，避免大量缓存在同一时间失效
-// 返回值：baseDuration + random(-300s ~ +300s)
+// 参数：
+//   - base: 基础过期时间
+//
+// 返回：
+//   - baseDuration + random(-300s ~ +300s)
+//
+// 示例：
+//
+//	expireTime := UserExampleGetRandomExpireTime(30 * time.Minute)
+//	// 返回 25~35 分钟之间的随机值
 func UserExampleGetRandomExpireTime(base time.Duration) time.Duration {
 	// 从池中获取随机数生成器（无锁竞争，高性能）
 	randGen := UserExampleRandPool.Get().(*rand.Rand) //nolint:errcheck // sync.Pool 保证返回 *rand.Rand 类型
@@ -88,7 +115,7 @@ func UserExampleGetRandomExpireTime(base time.Duration) time.Duration {
 
 var _ UserExampleDao = (*userExampleDao)(nil)
 
-// UserExampleDao defining the dao interface（所有查询方法支持选项模式）
+// UserExampleDao 定义数据访问层接口（所有查询方法支持选项模式）
 type UserExampleDao interface {
 	Create(ctx context.Context, table *model.UserExample) error
 	CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error
@@ -205,42 +232,49 @@ func (m *userExampleCacheManager) handleCacheFallback(ctx context.Context, id ui
 	return table, nil
 }
 
+// get 从缓存中获取数据，如果缓存不存在则从数据库中获取并写入缓存
 func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
-	// 先从缓存获取
+	// 1. 先从缓存获取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
 		return record, nil
 	}
 
-	// 缓存未命中，从数据库获取
+	// 2. 缓存未命中，从数据库获取
 	if errors.Is(err, database.ErrCacheNotFound) {
-		// 【双层击穿防护】
-		//   1. sfg.Do: 本实例内合并并发请求
-		//   2. Redis锁: 跨实例协调，Redis异常时自动降级，sfg兜底
 		val, sfErr, _ := m.sfg.Do(m.getCacheKey(id), func() (interface{}, error) {
 			// ---- 第一层：跨实例协调 - 尝试获取分布式刷新锁 ----
 			lockKey := "lock:refresh:" + m.getCacheKey(id)
-			if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
-				// 获取锁成功，我是全局刷新者
-				// Double Check：等锁期间可能已被其他实例写入
-				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
-					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+			lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+			if lock != nil {
+				// 确保锁在函数返回时释放，使用独立的 timeout context 避免主请求 cancel 导致解锁失败
+				defer func() {
+					unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+					defer cancel()
+					if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
 						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
 					}
+				}()
+			}
+
+			if lockErr == nil {
+				// 获取锁成功：Double Check
+				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
 					return record, nil
 				}
-				// 释放锁（在查DB前释放，减少锁持有时间）
-				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+			} else {
+				// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+				time.Sleep(50 * time.Millisecond)
+				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
+					return record, nil
 				}
+				// 若重试读缓存依然失败，才继续向下由自己查 DB 兜底
 			}
-			// 锁获取失败（Redis异常或别人持锁），降级到本实例查询
-			// sfg已保证本实例内只有一个 goroutine 到达此处
 
-			// ---- 第二层：查DB写缓存 ----
+			// ---- 第二层：查 DB 并写缓存 ----
 			table, dbErr := queryFunc()
 			if dbErr != nil {
-				// 设置占位符缓存防止缓存穿透
 				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 					if placeholderErr := m.cache.SetPlaceholder(ctx, id); placeholderErr != nil {
 						logger.WarnWithCtx(ctx, "cache.SetPlaceholder error", logger.Err(placeholderErr), logger.Any("id", id))
@@ -249,13 +283,15 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 				}
 				return nil, dbErr
 			}
-			// 设置缓存（使用随机化过期时间防止雪崩）
+
+			// 设置缓存
 			expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 			if cacheErr := m.cache.Set(ctx, id, table, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.Set error", logger.Err(cacheErr), logger.Any("id", id))
 			}
 			return table, nil
 		})
+
 		if sfErr != nil {
 			return nil, sfErr
 		}
@@ -266,9 +302,8 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 		return table, nil
 	}
 
-	// 其他缓存错误（如 Redis 连接失败等），仅记录日志并回退到数据库查询
+	// 3. 其他缓存异常降级
 	logger.WarnWithCtx(ctx, "cache.Get error, falling back to database", logger.Err(err), logger.Any("id", id))
-
 	return m.handleCacheFallback(ctx, id, err, queryFunc)
 }
 
@@ -315,26 +350,45 @@ func (m *userExampleCacheManager) cacheConditionResult(ctx context.Context, cach
 }
 
 // executeConditionQueryWithSingleflight 使用 singleflight 执行条件查询并缓存结果
+// executeConditionQueryWithSingleflight 使用 singleflight 执行条件查询并缓存结果
 func (m *userExampleCacheManager) executeConditionQueryWithSingleflight(ctx context.Context, key string, cacheKey string, queryFunc func() (*model.UserExample, error)) (*model.UserExample, error) {
 	val, sfErr, _ := m.sfg.Do("one_condition:"+key, func() (interface{}, error) {
-		// 尝试获取分布式刷新锁
+		// ---- 尝试获取分布式刷新锁 ----
 		lockKey := "lock:refresh:" + cacheKey
-		if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
+		lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+		if lock != nil {
+			// 确保锁在函数返回时释放，使用独立的 timeout context 避免主请求 cancel 导致解锁失败
+			defer func() {
+				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+			}()
+		}
+
+		if lockErr == nil {
+			// 获取锁成功：Double Check 缓存
 			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
 				if record, hit, hitErr := m.handleConditionCacheHit(ctx, cacheKey, cachedID); hit {
-					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-					}
 					return record, hitErr
 				}
 			}
-			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+		} else {
+			// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+			time.Sleep(50 * time.Millisecond)
+			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
+				if record, hit, hitErr := m.handleConditionCacheHit(ctx, cacheKey, cachedID); hit {
+					return record, hitErr
+				}
 			}
+			// 若重试读缓存依然失败，才继续向下由自己查 DB 兜底
 		}
+
+		// ---- 查 DB 并写缓存 ----
 		record, dbErr := queryFunc()
 		if dbErr != nil {
-			// 仅在记录确实不存在时设置占位符，避免 DB 故障被缓存为“不存在”导致误报
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
 				if placeholderErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); placeholderErr != nil {
 					logger.WarnWithCtx(ctx, "cache.SetPlaceholderByKey error", logger.Err(placeholderErr), logger.Any("key", cacheKey))
@@ -348,6 +402,7 @@ func (m *userExampleCacheManager) executeConditionQueryWithSingleflight(ctx cont
 		m.cacheConditionResult(ctx, cacheKey, record)
 		return record, nil
 	})
+
 	if sfErr != nil {
 		return nil, sfErr
 	}
@@ -395,7 +450,7 @@ func (m *userExampleCacheManager) getCondition(ctx context.Context, key string, 
 
 // getByCondition 通过条件获取 ID 列表
 // 错误处理原则：
-//   - 缓存读取错误：仅记录日志，回退到数据库查询
+//   - 缓存读取错误：仅记录日志，回退到数据库查询（缓存是优化手段，不应影响主流程）
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
 //
@@ -418,6 +473,40 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 	if errors.Is(err, database.ErrCacheNotFound) {
 		// 使用 singleflight 防止并发请求同时访问数据库
 		val, sfErr, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
+			// ---- 尝试获取分布式刷新锁 ----
+			lockKey := "lock:refresh:" + cacheKey
+			lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+			if lock != nil {
+				// 确保锁在函数返回时释放，使用独立的 timeout context 避免主请求 cancel 导致解锁失败
+				defer func() {
+					unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+					defer cancel()
+					if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+					}
+				}()
+			}
+
+			if lockErr == nil {
+				// 获取锁成功：Double Check 缓存
+				if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
+					if len(cachedIDs) <= consts.DaoMaxCacheableIDs {
+						return cachedIDs, nil
+					}
+				}
+			} else {
+				// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+				time.Sleep(50 * time.Millisecond)
+				if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
+					if len(cachedIDs) <= consts.DaoMaxCacheableIDs {
+						return cachedIDs, nil
+					}
+				}
+				// 若重试读缓存依然失败，才继续向下由自己查 DB 兜底
+			}
+
+			// ---- 查 DB ----
 			result, dbErr := queryFunc()
 			if dbErr != nil {
 				// 仅在记录确实不存在时设置占位符，避免 DB 故障被缓存为“不存在”导致误报
@@ -437,19 +526,6 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 			}
 
 			// 设置缓存（使用随机化过期时间）
-			// 尝试获取分布式刷新锁
-			lockKey := "lock:refresh:" + cacheKey
-			if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
-				if _, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
-					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-					}
-					return result, nil
-				}
-				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-				}
-			}
 			expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 			if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.SetIDsByKey error", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
@@ -474,47 +550,8 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 		return nil, database.ErrRecordNotFound
 	}
 
-	// 回退到数据库查询
-	val, sfErr, _ := m.sfg.Do("ids_condition:"+key, func() (interface{}, error) {
-		result, dbErr := queryFunc()
-		if dbErr != nil {
-			return nil, dbErr
-		}
-
-		// 对于大数据量的结果集，不进行缓存，直接返回
-		if len(result) > consts.DaoMaxCacheableIDs {
-			logger.WarnWithCtx(ctx, "result set too large to cache (fallback)", logger.Any("count", len(result)), logger.Any("key", key))
-			return result, nil
-		}
-
-		// 尝试设置缓存（失败仅记录日志）
-		// 尝试获取分布式刷新锁
-		lockKey := "lock:refresh:" + cacheKey
-		if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
-			if _, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
-				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-				}
-				return result, nil
-			}
-			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-			}
-		}
-		expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
-		if cacheErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expireTime); cacheErr != nil {
-			logger.WarnWithCtx(ctx, "cache.SetIDsByKey error after fallback", logger.Err(cacheErr), logger.Any("key", cacheKey), logger.Any("ids", result))
-		}
-		return result, nil
-	})
-	if sfErr != nil {
-		return nil, sfErr
-	}
-	result, ok := val.([]uint64)
-	if !ok {
-		return nil, database.ErrRecordNotFound
-	}
-	return result, nil
+	// 回退到数据库查询（不再缓存，直接返回）
+	return queryFunc()
 }
 
 // getByIDs 批量获取记录
@@ -579,45 +616,116 @@ func (m *userExampleCacheManager) setPlaceholdersForMissingRecords(ctx context.C
 //   - 缓存读取错误：仅记录日志，回退到数据库查询
 //   - 数据库错误：必须返回给调用方
 //   - 缓存写入错误：仅记录日志，不影响返回值
+//
+// nolint
 func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*model.UserExample, error)) (map[uint64]*model.UserExample, error) {
-	// 先从缓存获取
+	// 1. 先从缓存获取
 	itemMap, err := m.cache.MultiGet(ctx, ids)
 	if err != nil {
-		// 缓存错误时，记录日志并回退到直接数据库查询
 		logger.WarnWithCtx(ctx, "cache.MultiGet error, falling back to database", logger.Err(err), logger.Any("ids", ids))
-		// 返回空 map，让后续逻辑从数据库获取
 		itemMap = make(map[uint64]*model.UserExample)
 	}
 
-	// 查找未命中的 ID
+	// 2. 查找未命中的 ID
 	missedIDs := m.findMissedIDs(ids, itemMap)
 
-	// 获取未命中的数据
-	if len(missedIDs) > 0 {
-		// 从数据库获取未命中的数据（MultiGet 已经过滤了占位符，直接查询即可）
-		records, err := queryFunc(missedIDs)
-		if err != nil {
-			return nil, err
+	if len(missedIDs) == 0 {
+		return itemMap, nil
+	}
+
+	// 3. 排序并生成唯一 key
+	sorted := make([]uint64, len(missedIDs))
+	copy(sorted, missedIDs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	key := gocrypto.Md5([]byte(fmt.Sprintf("%v", sorted)))
+	sfKey := "batch_ids:" + key
+
+	// 4. 使用 singleflight 合并本节点请求
+	val, sfErr, _ := m.sfg.Do(sfKey, func() (interface{}, error) {
+		// ---- 尝试获取分布式锁（整个列表） ----
+		lockKey := "lock:refresh:batch:" + key
+		lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+		if lock != nil {
+			defer func() {
+				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+			}()
+		}
+
+		if lockErr == nil {
+			// 获取锁成功：Double Check 是否已有其他实例填充了缓存
+			// 检查所有 missedIDs 是否都已缓存（可通过 MultiGet 或逐个检查）
+			itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missedIDs)
+			if tmpErr == nil {
+				// 如果全部命中，直接返回，避免重复查询
+				foundAll := true
+				for _, id := range missedIDs {
+					if _, ok := itemMapTmp[id]; !ok {
+						foundAll = false
+						break
+					}
+				}
+				if foundAll {
+					return itemMapTmp, nil
+				}
+			}
+		} else {
+			// 锁获取失败：避让 50ms 后重试读缓存
+			time.Sleep(50 * time.Millisecond)
+			itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missedIDs)
+			if tmpErr == nil {
+				foundAll := true
+				for _, id := range missedIDs {
+					if _, ok := itemMapTmp[id]; !ok {
+						foundAll = false
+						break
+					}
+				}
+				if foundAll {
+					return itemMapTmp, nil
+				}
+			}
+		}
+
+		// ---- 查 DB ----
+		records, dbErr := queryFunc(missedIDs)
+		if dbErr != nil {
+			return nil, dbErr
 		}
 
 		if len(records) > 0 {
-			// 添加到结果映射中
-			for _, record := range records {
-				itemMap[record.ID] = record
-			}
-			// 批量设置缓存（使用随机化过期时间）
 			expireTime := UserExampleGetRandomExpireTime(cache.UserExampleExpireTime)
 			if cacheErr := m.cache.MultiSet(ctx, records, expireTime); cacheErr != nil {
 				logger.WarnWithCtx(ctx, "cache.MultiSet error", logger.Err(cacheErr), logger.Any("ids", missedIDs))
 			}
 		}
+		// 对未找到的 ID 设置占位符
+		m.setPlaceholdersForMissingRecords(ctx, records, missedIDs)
 
-		// 对于数据库中也不存在的记录，设置占位符
-		if len(records) < len(missedIDs) {
-			m.setPlaceholdersForMissingRecords(ctx, records, missedIDs)
+		// 将 records 转换为 map 返回
+		resultMap := make(map[uint64]*model.UserExample)
+		for _, rec := range records {
+			resultMap[rec.ID] = rec
 		}
+		return resultMap, nil
+	})
+
+	if sfErr != nil {
+		return nil, sfErr
 	}
 
+	// 将 singleflight 返回的 map 合并到 itemMap
+	recordsMap, ok := val.(map[uint64]*model.UserExample)
+	if !ok {
+		return nil, errors.New("type assertion failed for batch records map")
+	}
+	for id, rec := range recordsMap {
+		itemMap[id] = rec
+	}
 	return itemMap, nil
 }
 
@@ -643,42 +751,108 @@ func NewUserExampleDao(db *gorm.DB, xCache cache.UserExampleCache) UserExampleDa
 	return dao
 }
 
+// Create 创建单条记录
+// 参数：
+//   - table: 要创建的记录
+//
+// 返回：
+//   - error: 执行错误
+//
+// 注意：
+//   - 创建成功后自动回填 ID
+//   - 自动清理条件查询缓存并触发延迟双删
+//
+// 示例：
+//
+//	table := &model.UserExample{Name: "张三", Age: 25}
+//	err := userDao.Create(ctx, table)
+//	fmt.Println(table.ID) // 回填的 ID
 func (d *userExampleDao) Create(ctx context.Context, table *model.UserExample) error {
-	defer func() {
-		// 创建操作只清除条件查询缓存，保留单条记录缓存
-		if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-			logger.WarnWithCtx(ctx, "Create: failed to delete condition cache", logger.Err(err))
+	err := d.db.WithContext(ctx).Create(table).Error
+	if err == nil {
+		// 立即删除条件查询缓存（新记录不涉及单条缓存）
+		if delErr := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); delErr != nil {
+			logger.WarnWithCtx(ctx, "Create: failed to delete condition cache", logger.Err(delErr))
 		}
-	}()
-	return d.db.WithContext(ctx).Create(table).Error
+		// 延迟双删（与 Update/Delete 一致）
+		d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeCondition)
+	}
+	return err
 }
+
+// CreateInBatches 批量创建记录
+// 参数：
+//   - tables: 要创建的记录列表
+//   - batchSize: 每批数量
+//
+// 返回：
+//   - error: 执行错误
+//
+// 示例：
+//
+//	tables := []*model.UserExample{
+//	    {Name: "李四", Age: 30},
+//	    {Name: "王五", Age: 28},
+//	}
+//	err := userDao.CreateInBatches(ctx, tables, 100)
 func (d *userExampleDao) CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error {
-	defer func() {
-		// 批量创建操作只清除条件查询缓存
-		if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-			logger.WarnWithCtx(ctx, "CreateInBatches: failed to delete condition cache", logger.Err(err))
+	err := d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+	if err == nil {
+		if delErr := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); delErr != nil {
+			logger.WarnWithCtx(ctx, "CreateInBatches: failed to delete condition cache", logger.Err(delErr))
 		}
-	}()
-	return d.db.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+		d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeCondition)
+	}
+	return err
 }
+
+// CreateByTx 在事务中创建单条记录
+// 参数：
+//   - tx: GORM 事务实例
+//   - table: 要创建的记录
+//
+// 返回：
+//   - uint64: 新记录的 ID
+//   - error: 执行错误
+//
+// 示例：
+//
+//	err := db.Transaction(func(tx *gorm.DB) error {
+//	    id, err := userDao.CreateByTx(ctx, tx, &model.UserExample{Name: "赵六"})
+//	    if err != nil {
+//	        return err
+//	    }
+//	    // 使用 id 做其他操作...
+//	    return nil
+//	})
 func (d *userExampleDao) CreateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) (uint64, error) {
-	defer func() {
-		// 事务创建操作只清除条件查询缓存
-		if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-			logger.WarnWithCtx(ctx, "CreateByTx: failed to delete condition cache", logger.Err(err))
-		}
-	}()
 	err := tx.WithContext(ctx).Create(table).Error
+	if err == nil {
+		if delErr := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); delErr != nil {
+			logger.WarnWithCtx(ctx, "CreateByTx: failed to delete condition cache", logger.Err(delErr))
+		}
+		d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeCondition)
+	}
 	return table.ID, err
 }
+
+// CreateByInBatchesTx 在事务中批量创建记录
+// 参数：
+//   - tx: GORM 事务实例
+//   - tables: 要创建的记录列表
+//   - batchSize: 每批数量
+//
+// 返回：
+//   - error: 执行错误
 func (d *userExampleDao) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, tables []*model.UserExample, batchSize int) error {
-	defer func() {
-		// 事务批量创建操作只清除条件查询缓存
-		if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-			logger.WarnWithCtx(ctx, "CreateByInBatchesTx: failed to delete condition cache", logger.Err(err))
+	err := tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+	if err == nil {
+		if delErr := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); delErr != nil {
+			logger.WarnWithCtx(ctx, "CreateByInBatchesTx: failed to delete condition cache", logger.Err(delErr))
 		}
-	}()
-	return tx.WithContext(ctx).CreateInBatches(tables, batchSize).Error
+		d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeCondition)
+	}
+	return err
 }
 
 // deleteCache 删除缓存的统一入口，封装错误处理
@@ -691,15 +865,13 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType 
 		return nil
 	}
 
-	var errs []error
+	var errs error
 	switch deleteType {
 	case consts.DaoDeleteTypeSingle:
-		// 删除单个 ID 缓存
 		if err := d.cache.Del(ctx, id); err != nil {
-			errs = append(errs, fmt.Errorf("delete single cache failed: %w", err))
+			errs = multierr.Append(errs, fmt.Errorf("delete single cache failed: %w", err))
 		}
 	case consts.DaoDeleteTypeCondition:
-		// 删除条件查询相关的所有缓存（包括 condition、columns、count、exists）
 		prefixes := []string{
 			cache.UserExampleCachePrefixKey + "condition",
 			cache.UserExampleCachePrefixKey + "columns",
@@ -708,29 +880,26 @@ func (d *userExampleDao) deleteCache(ctx context.Context, id uint64, deleteType 
 		}
 		for _, prefix := range prefixes {
 			if err := d.cache.DelByPrefix(ctx, prefix); err != nil {
-				errs = append(errs, fmt.Errorf("delete %s cache failed: %w", prefix, err))
+				errs = multierr.Append(errs, fmt.Errorf("delete %s cache failed: %w", prefix, err))
 			}
 		}
 	case consts.DaoDeleteTypeAll:
-		// 删除所有缓存（最彻底）：使用统一的前缀删除
-		// 注意：会删除单条记录、条件查询、分页查询等所有缓存，仅在全量更新时使用
 		if err := d.cache.DelByPrefix(ctx, cache.UserExampleCachePrefixKey); err != nil {
-			errs = append(errs, fmt.Errorf("delete all cache failed: %w", err))
+			errs = multierr.Append(errs, fmt.Errorf("delete all cache failed: %w", err))
 		}
 	default:
 		return nil
 	}
 
-	// 记录缓存删除错误，但不影响主流程
-	if len(errs) > 0 {
-		for _, err := range errs {
+	if errs != nil {
+		// 记录所有错误
+		for _, err := range multierr.Errors(errs) {
 			logger.WarnWithCtx(ctx, "cache: failed to delete",
 				logger.String("type", deleteType),
 				logger.Any("id", id),
 				logger.Err(err))
 		}
-		// 返回第一个错误，供调用方参考
-		return errs[0]
+		return errs
 	}
 	return nil
 }
@@ -810,30 +979,34 @@ func (d *userExampleDao) delayedDoubleDelete(ctx context.Context, id uint64, ids
 }
 
 func (d *userExampleDao) DeleteByID(ctx context.Context, id uint64) error {
-	// 先删除缓存（第一次删除）
-	// 1. 删除单条记录缓存（一级缓存）
-	if err := d.deleteCache(ctx, id, consts.DaoDeleteTypeSingle); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", id))
-	}
-	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", id))
-	}
-
-	// 执行数据库删除
+	// 先执行数据库删除
 	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return fmt.Errorf("DeleteByID: delete from database failed, id=%d: %w", id, err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
-	// 只删除单条记录缓存 + 条件缓存，避免全量删除
+	// 删除成功后再删缓存（第一次删除）
+	// 1. 删除单条记录缓存
+	if err := d.deleteCache(ctx, id, consts.DaoDeleteTypeSingle); err != nil {
+		logger.WarnWithCtx(ctx, "post-delete single cache failed", logger.Err(err), logger.Any("id", id))
+	}
+	// 2. 删除所有条件查询缓存
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
+		logger.WarnWithCtx(ctx, "post-delete condition cache failed", logger.Err(err), logger.Any("id", id))
+	}
+
+	// 延迟双删（第二次删除）
 	d.delayedDoubleDelete(ctx, id, nil, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	// 先删除缓存（第一次删除）
-	// 聚合批量删除失败的 ID，避免日志刷屏
+	// 先执行数据库删除
+	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return fmt.Errorf("DeleteByIDs: delete from database failed, ids=%v: %w", ids, err)
+	}
+
+	// 删除成功后再删缓存（第一次删除）
 	var failedIDs []uint64
 	var firstErr error
 	for _, id := range ids {
@@ -845,89 +1018,70 @@ func (d *userExampleDao) DeleteByIDs(ctx context.Context, ids []uint64) error {
 		}
 	}
 	if len(failedIDs) > 0 {
-		logger.WarnWithCtx(ctx, "pre-delete batch single cache failed",
+		logger.WarnWithCtx(ctx, "post-delete batch single cache failed",
 			logger.Err(firstErr),
 			logger.Any("failed_ids", failedIDs),
 			logger.Int("total_failed", len(failedIDs)),
 			logger.Any("ids", ids))
-	} else {
-		// 全部成功时记录调试日志
-		logger.DebugWithCtx(ctx, "pre-delete batch single cache success",
-			logger.Any("count", len(ids)))
 	}
-	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
+	// 删除条件查询缓存
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids))
+		logger.WarnWithCtx(ctx, "post-delete condition cache failed", logger.Err(err), logger.Any("ids", ids))
 	}
 
-	// 执行数据库删除
-	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return fmt.Errorf("DeleteByIDs: delete from database failed, ids=%v: %w", ids, err)
-	}
-
-	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
-	// 只批量删除单条记录缓存 + 条件缓存，避免全量删除
+	// 延迟双删
 	d.delayedDoubleDelete(ctx, 0, ids, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *userExampleDao) DeleteByCondition(ctx context.Context, c *query.Conditions) error {
-	// 先删除缓存（第一次删除）
-	// 按条件删除会影响多条记录，需要删除所有相关缓存：
-	// 1. condition: 条件查询缓存
-	// 2. columns: 分页查询缓存
-	// 3. count: 计数缓存
-	// 4. exists: 存在性检查缓存
-	// 5. single: 单条记录缓存（防止删除后读到已删除的数据）
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
-	}
-
 	// 构建查询条件
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return fmt.Errorf("DeleteByCondition: convert conditions to gorm failed: %w", err)
 	}
 
-	// 执行数据库删除
+	// 先执行数据库删除
 	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return fmt.Errorf("DeleteByCondition: delete from database failed, query=%s, args=%v: %w", queryStr, args, err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
+	// 删除成功后再删所有缓存（第一次删除）
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
+		logger.WarnWithCtx(ctx, "post-delete all cache failed", logger.Err(err))
+	}
+
+	// 延迟双删（第二次删除，全量）
 	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
 func (d *userExampleDao) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	// 先删除缓存（第一次删除）
-	// 1. 删除单条记录缓存（一级缓存）
-	if err := d.deleteCache(ctx, id, consts.DaoDeleteTypeSingle); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", id))
-	}
-	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", id))
-	}
-
-	// 执行数据库软删除
-	update := map[string]interface{}{
-		"deleted_at": time.Now(),
-	}
-	err := tx.WithContext(ctx).Model(&model.UserExample{}).Where("id = ?", id).Updates(update).Error
+	// 先执行数据库软删除
+	err := tx.WithContext(ctx).Where("id = ?", id).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return fmt.Errorf("DeleteByTx: soft delete failed, id=%d: %w", id, err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
-	// 只删除单条记录缓存 + 条件缓存，避免全量删除
+	// 删除成功后再删缓存（第一次删除）
+	if err := d.deleteCache(ctx, id, consts.DaoDeleteTypeSingle); err != nil {
+		logger.WarnWithCtx(ctx, "post-delete single cache failed", logger.Err(err), logger.Any("id", id))
+	}
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
+		logger.WarnWithCtx(ctx, "post-delete condition cache failed", logger.Err(err), logger.Any("id", id))
+	}
+
+	// 延迟双删
 	d.delayedDoubleDelete(ctx, id, nil, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	// 先删除缓存（第一次删除）
-	// 聚合批量删除失败的 ID，避免日志刷屏
+	// 先执行数据库删除
+	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
+	if err != nil {
+		return fmt.Errorf("DeleteByIDsTx: delete from database failed, ids=%v: %w", ids, err)
+	}
+
+	// 删除成功后再删缓存（第一次删除）
 	var failedIDs []uint64
 	var firstErr error
 	for _, id := range ids {
@@ -939,54 +1093,38 @@ func (d *userExampleDao) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []u
 		}
 	}
 	if len(failedIDs) > 0 {
-		logger.WarnWithCtx(ctx, "pre-delete batch single cache failed",
+		logger.WarnWithCtx(ctx, "post-delete batch single cache failed",
 			logger.Err(firstErr),
 			logger.Any("failed_ids", failedIDs),
 			logger.Int("total_failed", len(failedIDs)),
 			logger.Any("ids", ids))
 	}
-	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("ids", ids))
+		logger.WarnWithCtx(ctx, "post-delete condition cache failed", logger.Err(err), logger.Any("ids", ids))
 	}
 
-	// 执行数据库删除
-	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(&model.UserExample{}).Error
-	if err != nil {
-		return fmt.Errorf("DeleteByIDsTx: delete from database failed, ids=%v: %w", ids, err)
-	}
-
-	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
-	// 只批量删除单条记录缓存 + 条件缓存，避免全量删除
+	// 延迟双删
 	d.delayedDoubleDelete(ctx, 0, ids, consts.DaoDeleteTypeCondition)
 	return nil
 }
 func (d *userExampleDao) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *query.Conditions) error {
-	// 先删除缓存（第一次删除）
-	// 按条件删除会影响多条记录，需要删除所有相关缓存：
-	// 1. condition: 条件查询缓存
-	// 2. columns: 分页查询缓存
-	// 3. count: 计数缓存
-	// 4. exists: 存在性检查缓存
-	// 5. single: 单条记录缓存（防止删除后读到已删除的数据）
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
-	}
-
-	// 构建查询条件
 	queryStr, args, err := c.ConvertToGorm()
 	if err != nil {
 		return fmt.Errorf("DeleteByTxCondition: convert conditions to gorm failed: %w", err)
 	}
 
-	// 执行数据库删除
+	// 先执行数据库删除
 	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(&model.UserExample{}).Error
 	if err != nil {
 		return fmt.Errorf("DeleteByTxCondition: delete from database failed, query=%s, args=%v: %w", queryStr, args, err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	// 注意：必须删除所有类型缓存（包括 single），因为首次删除后可能有读请求从从库读到旧数据并回填
+	// 删除成功后再删所有缓存（第一次删除）
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
+		logger.WarnWithCtx(ctx, "post-delete all cache failed", logger.Err(err))
+	}
+
+	// 延迟双删（第二次删除，全量）
 	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
@@ -1008,25 +1146,22 @@ func (d *userExampleDao) updateDataByID(db *gorm.DB, table *model.UserExample) e
 	return db.Model(table).Updates(update).Error
 }
 func (d *userExampleDao) UpdateByID(ctx context.Context, table *model.UserExample) error {
-	// 先删除缓存（第一次删除）
-	// 1. 删除单条记录缓存（一级缓存）
-	if err := d.deleteCache(ctx, table.ID, consts.DaoDeleteTypeSingle); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID))
-	}
-	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID))
-	}
-
-	// 执行数据库更新
+	// 先执行数据库更新
 	err := d.updateDataByID(d.db.WithContext(ctx), table)
 	if err != nil {
 		return fmt.Errorf("UpdateByID: update database failed, id=%d: %w", table.ID, err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
-	// 只删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(ctx, table.ID, nil, "condition")
+	// 更新成功后再删缓存（第一次删除）
+	if err := d.deleteCache(ctx, table.ID, consts.DaoDeleteTypeSingle); err != nil {
+		logger.WarnWithCtx(ctx, "post-update single cache failed", logger.Err(err), logger.Any("id", table.ID))
+	}
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
+		logger.WarnWithCtx(ctx, "post-update condition cache failed", logger.Err(err), logger.Any("id", table.ID))
+	}
+
+	// 延迟双删（第二次删除）
+	d.delayedDoubleDelete(ctx, table.ID, nil, consts.DaoDeleteTypeCondition)
 	return nil
 }
 
@@ -1049,44 +1184,41 @@ func (d *userExampleDao) executeUpdateByCondition(ctx context.Context, db *gorm.
 //
 //nolint:revive
 func (d *userExampleDao) UpdateByCondition(ctx context.Context, c *query.Conditions, table *model.UserExample) error {
-	// 先删除所有缓存（第一次删除）
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
-	}
-
 	// 构建更新映射
 	update := map[string]interface{}{}
 	// todo generate the update fields code to here
 
-	// 执行数据库更新
+	// 先执行数据库更新
 	if err := d.executeUpdateByCondition(ctx, d.db, c, update); err != nil {
 		return fmt.Errorf("UpdateByCondition: %w", err)
 	}
 
-	// 延迟双删（第二次删除）
+	// 更新成功后再删所有缓存（第一次删除）
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
+		logger.WarnWithCtx(ctx, "post-update all cache failed", logger.Err(err))
+	}
+
+	// 延迟双删（第二次删除，全量）
 	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
 func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *model.UserExample) error {
-	// 先删除缓存（第一次删除）
-	// 1. 删除单条记录缓存（一级缓存）
-	if err := d.deleteCache(ctx, table.ID, consts.DaoDeleteTypeSingle); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete single cache failed", logger.Err(err), logger.Any("id", table.ID))
-	}
-	// 2. 删除所有条件查询缓存（二级缓存），因为数据变化可能导致条件查询结果不准确
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete condition cache failed", logger.Err(err), logger.Any("id", table.ID))
-	}
-
-	// 执行数据库更新
+	// 先执行数据库更新
 	err := d.updateDataByID(tx.WithContext(ctx), table)
 	if err != nil {
 		return fmt.Errorf("UpdateByTx: update database failed, id=%d: %w", table.ID, err)
 	}
 
-	// 延迟双删（第二次删除）：100ms 后再次清理相关缓存，防止主从同步延迟
-	// 只删除单条记录缓存 + 条件缓存，避免全量删除
-	d.delayedDoubleDelete(ctx, table.ID, nil, "condition")
+	// 更新成功后再删缓存（第一次删除）
+	if err := d.deleteCache(ctx, table.ID, consts.DaoDeleteTypeSingle); err != nil {
+		logger.WarnWithCtx(ctx, "post-update single cache failed", logger.Err(err), logger.Any("id", table.ID))
+	}
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeCondition); err != nil {
+		logger.WarnWithCtx(ctx, "post-update condition cache failed", logger.Err(err), logger.Any("id", table.ID))
+	}
+
+	// 延迟双删（第二次删除）
+	d.delayedDoubleDelete(ctx, table.ID, nil, consts.DaoDeleteTypeCondition)
 	return nil
 }
 
@@ -1094,21 +1226,21 @@ func (d *userExampleDao) UpdateByTx(ctx context.Context, tx *gorm.DB, table *mod
 //
 //nolint:revive
 func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *query.Conditions, table *model.UserExample) error {
-	// 先删除所有缓存（第一次删除）
-	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
-		logger.WarnWithCtx(ctx, "pre-delete all cache failed", logger.Err(err))
-	}
-
 	// 构建更新映射
 	update := map[string]interface{}{}
 	// todo generate the update fields code to here
 
-	// 执行数据库更新
+	// 先执行数据库更新
 	if err := d.executeUpdateByCondition(ctx, tx, c, update); err != nil {
 		return fmt.Errorf("UpdateByConditionTx: %w", err)
 	}
 
-	// 延迟双删（第二次删除）
+	// 更新成功后再删所有缓存（第一次删除）
+	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
+		logger.WarnWithCtx(ctx, "post-update all cache failed", logger.Err(err))
+	}
+
+	// 延迟双删（第二次删除，全量）
 	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
 	return nil
 }
@@ -1150,33 +1282,33 @@ func (d *userExampleDao) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c
 //})
 
 func (d *userExampleDao) ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error {
-	// 先清除所有缓存（自定义函数可能影响任意数据，必须全量清理）
-	// 包括 single、condition、columns、count、exists
+	db := d.db.WithContext(ctx)
+	db = updateFunc(db)
+	if err := db.Error; err != nil {
+		return err
+	}
+	// 删除所有缓存...
 	if err := d.deleteCache(ctx, 0, consts.DaoDeleteTypeAll); err != nil {
 		logger.WarnWithCtx(ctx, "ExecByCustomFunc: failed to delete all cache", logger.Err(err))
 	}
-
-	db := d.db.WithContext(ctx)
-	// 应用自定义更新函数
-	db = updateFunc(db)
-
-	// 执行更新操作
-	var err error
-	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
-		// 对于原始 SQL 查询，直接执行
-		err = db.Exec(db.Statement.SQL.String(), db.Statement.Vars...).Error
-	} else {
-		// 对于常规查询，执行操作
-		err = db.Error
-	}
-
-	// 延迟双删（第二次删除）：100ms 后再次清理所有缓存，防止主从同步延迟
-	// 注意：自定义函数可能影响任意数据，必须删除所有类型缓存
 	d.delayedDoubleDelete(ctx, 0, nil, consts.DaoDeleteTypeAll)
-
-	return err
+	return nil
 }
 
+// GetByID 根据 ID 获取单条记录
+// 示例：
+//
+//	// 默认查询（从缓存或从库）
+//	record, err := userDao.GetByID(ctx, 1001)
+//	if errors.Is(err, database.ErrRecordNotFound) {
+//	    // 记录不存在
+//	}
+//
+//	// 强制主库
+//	record, err := userDao.GetByID(ctx, 1001, dao.UserExampleWithForceMaster())
+//
+//	// 忽略软删除
+//	record, err := userDao.GetByID(ctx, 1001, dao.UserExampleWithUnscoped())
 func (d *userExampleDao) GetByID(ctx context.Context, id uint64, opts ...UserExampleQueryOption) (*model.UserExample, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 	// 无缓存模式直接查询（支持强制主库查询）
@@ -1340,6 +1472,9 @@ func (d *userExampleDao) cacheColumnsResult(ctx context.Context, fullCacheKey st
 	total   int64
 }) {
 	if len(res.records) > consts.DaoMaxCacheableRecords || res.total <= 0 {
+		logger.WarnWithCtx(ctx, "cacheColumnsResult: result set too large, skip caching",
+			logger.Int("count", len(res.records)),
+			logger.String("key", fullCacheKey))
 		return // 数据量过大或无数据，不缓存
 	}
 
@@ -1410,32 +1545,46 @@ func (d *userExampleDao) queryColumnsWithoutCache(ctx context.Context, singlefli
 // executeColumnsQueryWithCache 使用缓存执行查询
 func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singleflightKey, fullCacheKey, cacheKey string, params *query.Params, queryStr string, args []interface{}, optsConfig *userExampleQueryOptions) (interface{}, error) {
 	val, sfErr, _ := d.sfg.Do(singleflightKey, func() (interface{}, error) {
-		// 先从缓存获取总数和 ID 列表
+		// ---- 先尝试从缓存获取总数和 ID 列表 ----
 		cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total")
 		if cacheErr == nil {
-			// 尝试从缓存命中获取结果
 			if result, hit, hitErr := d.handleColumnsCacheHit(ctx, fullCacheKey, optsConfig, cachedTotal); hit {
 				return result, hitErr
 			}
 		}
 
-		// 缓存未命中，从数据库查询（支持强制主库查询）
-		// 尝试获取分布式刷新锁
+		// ---- 尝试获取分布式刷新锁 ----
 		lockKey := "lock:refresh:" + fullCacheKey
-		if lock, lockErr := d.cache.GetLock(ctx, lockKey); lockErr == nil {
-			// Double Check：等锁期间可能已被其他实例写入
+		lock, lockErr := d.cache.GetLock(ctx, lockKey)
+
+		if lock != nil {
+			defer func() {
+				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+			}()
+		}
+
+		if lockErr == nil {
+			// 获取锁成功：Double Check
 			if cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total"); cacheErr == nil {
 				if result, hit, hitErr := d.handleColumnsCacheHit(ctx, fullCacheKey, optsConfig, cachedTotal); hit {
-					if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-					}
 					return result, hitErr
 				}
 			}
-			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+		} else {
+			// 锁获取失败：避让 50ms 后重试读缓存
+			time.Sleep(50 * time.Millisecond)
+			if cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total"); cacheErr == nil {
+				if result, hit, hitErr := d.handleColumnsCacheHit(ctx, fullCacheKey, optsConfig, cachedTotal); hit {
+					return result, hitErr
+				}
 			}
 		}
+
+		// ---- 查 DB ----
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
 			db = db.Clauses(dbresolver.Write)
@@ -1454,7 +1603,6 @@ func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singl
 			return nil, fmt.Errorf("GetByColumns: query database failed, page=%d, limit=%d: %w", params.Page, params.Limit, dbErr)
 		}
 
-		// 大数据量警告
 		res, ok := result.(struct {
 			records []*model.UserExample
 			total   int64
@@ -1476,6 +1624,63 @@ func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singl
 	return val, sfErr
 }
 
+// GetByColumns 根据列条件进行分页查询（支持缓存）
+// 参数：
+//   - params: 查询参数（包含分页、排序、条件）
+//   - opts: 查询选项
+//
+// 返回：
+//   - []*model.UserExample: 记录列表
+//   - int64: 总记录数
+//   - error: 执行错误
+//
+// 注意：
+//   - 使用 OFFSET 分页，深度分页时性能下降
+//   - 结果集过大时（>1000 条）不会缓存
+//
+// 示例：
+//
+//	// 1. 简单分页查询（年龄大于 18 的男性）
+//	params := &query.Params{
+//	    Page: 0,
+//	    Limit: 20,
+//	    Sort: "-id", // 按 id 倒序
+//	    Columns: []query.Column{
+//	        {Name: "age", Exp: ">", Value: 18},
+//	        {Name: "gender", Value: "male"},
+//	    },
+//	}
+//	records, total, err := userDao.GetByColumns(ctx, params)
+//
+//	// 2. LIKE 模糊查询
+//	params := &query.Params{
+//	    Page: 0,
+//	    Limit: 20,
+//	    Columns: []query.Column{
+//	        {Name: "name", Exp: "like", Value: "%张%"},
+//	    },
+//	}
+//	records, total, err := userDao.GetByColumns(ctx, params)
+//
+//	// 3. IN 查询
+//	params := &query.Params{
+//	    Page: 0,
+//	    Limit: 20,
+//	    Columns: []query.Column{
+//	        {Name: "status", Exp: "in", Value: "1,2,3"},
+//	    },
+//	}
+//	records, total, err := userDao.GetByColumns(ctx, params)
+//
+//	// 4. OR 条件
+//	params := &query.Params{
+//	    Page: 0,
+//	    Limit: 20,
+//	    Columns: []query.Column{
+//	        {Name: "status", Value: 1, Logic: "or"},
+//	        {Name: "status", Value: 2},
+//	    },
+//	}
 func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) ([]*model.UserExample, int64, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 
@@ -1484,9 +1689,11 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		return nil, 0, fmt.Errorf("GetByColumns: convert query conditions failed, params=%+v: %w", params, err)
 	}
 
-	// 生成唯一缓存键（必须包含分页和排序信息，避免不同分页/排序共享同一缓存）
-	// 格式：queryStr + args + page + limit + sort
-	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%d_%d_%s", queryStr, args, params.Page, params.Limit, params.Sort)))
+	// 【修复】生成唯一缓存键，必须包含选项标志
+	// 格式：queryStr + args + page + limit + sort + forceMaster + unscoped
+	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%d_%d_%s_%v_%v",
+		queryStr, args, params.Page, params.Limit, params.Sort,
+		optsConfig.forceMaster, optsConfig.unscoped)))
 	singleflightKey := "columns:" + cacheKey
 
 	var result struct {
@@ -1494,18 +1701,14 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		total   int64
 	}
 
-	// 无缓存模式直接查询（支持强制主库查询）
+	// 无缓存模式直接查询
 	if d.cacheManager == nil {
 		return d.queryColumnsWithoutCache(ctx, singleflightKey, params, queryStr, args, optsConfig)
 	}
 
-	// 使用缓存管理器优化查询（增加 singleflight 保护，避免并发穿透）
 	fullCacheKey := d.cacheManager.getColumnsCacheKey(cacheKey)
 
-	// 使用 singleflight 包裹整个查询过程，包括缓存读取和数据库查询
 	val, sfErr := d.executeColumnsQueryWithCache(ctx, singleflightKey, fullCacheKey, cacheKey, params, queryStr, args, optsConfig)
-
-	// 处理错误情况
 	if sfErr != nil {
 		if errors.Is(sfErr, gorm.ErrRecordNotFound) {
 			return []*model.UserExample{}, 0, nil
@@ -1513,7 +1716,6 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		return nil, 0, sfErr
 	}
 
-	// 类型断言获取查询结果
 	result, ok := val.(struct {
 		records []*model.UserExample
 		total   int64
@@ -1522,7 +1724,6 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 		return nil, 0, errors.New("type assertion failed: expected columns result struct")
 	}
 
-	// 只需要检查大数据量警告即可，不需要再设置缓存
 	if len(result.records) > consts.DaoMaxCacheableRecords {
 		logger.WarnWithCtx(ctx, "GetByColumns: result set too large",
 			logger.Any("count", len(result.records)),
@@ -1532,8 +1733,20 @@ func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params,
 	return result.records, result.total, nil
 }
 
-// GetOneByColumns 根据列信息获取单条记录
+// GetOneByColumns 根据列条件获取单条记录（支持缓存）
 // 参数同 GetByColumns，返回第一条匹配的记录
+// 示例：
+//
+//	params := &query.Params{
+//	    Sort: "-id",
+//	    Columns: []query.Column{
+//	        {Name: "name", Value: "张三"},
+//	    },
+//	}
+//	record, err := userDao.GetOneByColumns(ctx, params)
+//	if errors.Is(err, database.ErrRecordNotFound) {
+//	    // 记录不存在
+//	}
 func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) (*model.UserExample, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 	queryStr, args, err := params.ConvertToGormConditions()
@@ -1542,11 +1755,12 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 	}
 	order, _, _ := params.ConvertToPage()
 
-	// 生成唯一缓存键（必须包含排序信息，避免不同排序共享同一缓存）
-	// 格式：queryStr + args + sort
-	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%s", queryStr, args, params.Sort)))
+	// 【修复】生成唯一缓存键，必须包含选项标志
+	// 格式：queryStr + args + sort + forceMaster + unscoped
+	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%s_%v_%v",
+		queryStr, args, params.Sort,
+		optsConfig.forceMaster, optsConfig.unscoped)))
 
-	// no cache（支持强制主库查询）
 	if d.cacheManager == nil {
 		record := &model.UserExample{}
 		db := d.db.WithContext(ctx)
@@ -1566,7 +1780,6 @@ func (d *userExampleDao) GetOneByColumns(ctx context.Context, params *query.Para
 		return record, nil
 	}
 
-	// 使用缓存管理器获取数据（复用单条记录缓存逻辑，支持强制主库查询）
 	return d.cacheManager.getCondition(ctx, cacheKey, func() (*model.UserExample, error) {
 		record := &model.UserExample{}
 		db := d.db.WithContext(ctx)
@@ -1671,6 +1884,26 @@ func (d *userExampleDao) GetByCondition(ctx context.Context, c *query.Conditions
 	})
 }
 
+// GetByIDs 根据多个 ID 批量获取记录（支持缓存）
+// 参数：
+//   - ids: ID 列表
+//   - opts: 查询选项
+//
+// 返回：
+//   - map[uint64]*model.UserExample: ID -> 记录的映射
+//   - error: 执行错误
+//
+// 注意：
+//   - 返回的 map 只包含成功获取的记录，不存在的 ID 不会出现在 map 中
+//   - 自动分批处理（每批 1000 条）
+//
+// 示例：
+//
+//	ids := []uint64{1001, 1002, 1003}
+//	recordMap, err := userDao.GetByIDs(ctx, ids)
+//	for id, record := range recordMap {
+//	    fmt.Printf("ID: %d, Name: %s\n", id, record.Name)
+//	}
 func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...UserExampleQueryOption) (map[uint64]*model.UserExample, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 	// 无缓存模式直接查询（支持强制主库查询）
@@ -1712,6 +1945,23 @@ func (d *userExampleDao) GetByIDs(ctx context.Context, ids []uint64, opts ...Use
 	})
 }
 
+// CountByCondition 根据条件统计记录数（支持缓存）
+// 参数：
+//   - c: 查询条件
+//   - opts: 查询选项
+//
+// 返回：
+//   - int64: 符合条件的记录数
+//   - error: 执行错误
+//
+// 示例：
+//
+//	cond := &query.Conditions{
+//	    Columns: []query.Column{
+//	        {Name: "status", Value: 1},
+//	    },
+//	}
+//	count, err := userDao.CountByCondition(ctx, cond)
 func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (int64, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 
@@ -1720,8 +1970,6 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		return 0, fmt.Errorf("CountByCondition: convert conditions to gorm failed, conditions=%+v: %w", c, err)
 	}
 
-	// 生成唯一缓存键（必须包含 forceMaster 选项，避免不同选项共享同一缓存）
-	// 格式：queryStr + args + forceMaster
 	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v_%v", queryStr, args, optsConfig.forceMaster, optsConfig.unscoped)))
 	countCacheKey := "count:" + cacheKey
 
@@ -1735,7 +1983,6 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		if optsConfig.unscoped {
 			db = db.Unscoped()
 		}
-
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Count(&count).Error
 		if err != nil {
 			return 0, fmt.Errorf("CountByCondition: query database failed, conditions=%+v: %w", c, err)
@@ -1749,21 +1996,36 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		return int64(cachedCount), nil
 	}
 
-	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
+	// 缓存未命中，使用 singleflight 防止并发重复查询
 	val, sfErr, _ := d.sfg.Do(countCacheKey, func() (interface{}, error) {
-		// 尝试获取分布式刷新锁
+		// ---- 尝试获取分布式刷新锁 ----
 		lockKey := "lock:refresh:" + countCacheKey
-		if lock, lockErr := d.cache.GetLock(ctx, lockKey); lockErr == nil {
-			if cachedCount, cacheErr := d.cache.GetIDByKey(ctx, countCacheKey); cacheErr == nil {
-				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+		lock, lockErr := d.cache.GetLock(ctx, lockKey)
+
+		if lock != nil {
+			defer func() {
+				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
 					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
 				}
+			}()
+		}
+
+		if lockErr == nil {
+			// 获取锁成功：Double Check 缓存
+			if cachedCount, cacheErr := d.cache.GetIDByKey(ctx, countCacheKey); cacheErr == nil {
 				return int64(cachedCount), nil
 			}
-			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+		} else {
+			// 锁获取失败：避让 50ms 后重试读缓存
+			time.Sleep(50 * time.Millisecond)
+			if cachedCount, cacheErr := d.cache.GetIDByKey(ctx, countCacheKey); cacheErr == nil {
+				return int64(cachedCount), nil
 			}
 		}
+
+		// ---- 查 DB ----
 		var count int64
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1784,6 +2046,7 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 		}
 		return count, nil
 	})
+
 	if sfErr != nil {
 		return 0, sfErr
 	}
@@ -1794,6 +2057,26 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 	return count, nil
 }
 
+// ExistsByCondition 检查是否存在满足条件的记录（支持缓存）
+// 参数：
+//   - c: 查询条件
+//   - opts: 查询选项
+//
+// 返回：
+//   - bool: 是否存在
+//   - error: 执行错误
+//
+// 注意：
+//   - 使用 SELECT 1 LIMIT 1 优化，性能优于 COUNT
+//
+// 示例：
+//
+//	cond := &query.Conditions{
+//	    Columns: []query.Column{
+//	        {Name: "email", Value: "test@example.com"},
+//	    },
+//	}
+//	exists, err := userDao.ExistsByCondition(ctx, cond)
 func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (bool, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 
@@ -1802,8 +2085,6 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		return false, fmt.Errorf("ExistsByCondition: convert conditions to gorm failed, conditions=%+v: %w", c, err)
 	}
 
-	// 生成唯一缓存键（必须包含 forceMaster 选项，避免不同选项共享同一缓存）
-	// 格式：queryStr + args + forceMaster
 	cacheKey := gocrypto.Md5([]byte(fmt.Sprintf("%s_%v_%v_%v", queryStr, args, optsConfig.forceMaster, optsConfig.unscoped)))
 	existsCacheKey := "exists:" + cacheKey
 
@@ -1817,7 +2098,6 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		if optsConfig.unscoped {
 			db = db.Unscoped()
 		}
-		// 使用 SELECT 1 LIMIT 1 优化存在性检查，性能优于 COUNT
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Select("1").Limit(1).Scan(&exists).Error
 		if err != nil {
 			return false, fmt.Errorf("ExistsByCondition: query database failed, conditions=%+v: %w", c, err)
@@ -1831,21 +2111,36 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		return cachedValue > 0, nil
 	}
 
-	// 缓存未命中，使用 singleflight 防止并发重复查询（支持强制主库查询）
+	// 缓存未命中，使用 singleflight 防止并发重复查询
 	val, sfErr, _ := d.sfg.Do(existsCacheKey, func() (interface{}, error) {
-		// 尝试获取分布式刷新锁
+		// ---- 尝试获取分布式刷新锁 ----
 		lockKey := "lock:refresh:" + existsCacheKey
-		if lock, lockErr := d.cache.GetLock(ctx, lockKey); lockErr == nil {
-			if cachedValue, cacheErr := d.cache.GetIDByKey(ctx, existsCacheKey); cacheErr == nil {
-				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+		lock, lockErr := d.cache.GetLock(ctx, lockKey)
+
+		if lock != nil {
+			defer func() {
+				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
 					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
 				}
+			}()
+		}
+
+		if lockErr == nil {
+			// 获取锁成功：Double Check 缓存
+			if cachedValue, cacheErr := d.cache.GetIDByKey(ctx, existsCacheKey); cacheErr == nil {
 				return cachedValue > 0, nil
 			}
-			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
-				logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+		} else {
+			// 锁获取失败：避让 50ms 后重试读缓存
+			time.Sleep(50 * time.Millisecond)
+			if cachedValue, cacheErr := d.cache.GetIDByKey(ctx, existsCacheKey); cacheErr == nil {
+				return cachedValue > 0, nil
 			}
 		}
+
+		// ---- 查 DB ----
 		var exists bool
 		db := d.db.WithContext(ctx)
 		if optsConfig.forceMaster {
@@ -1854,7 +2149,6 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		if optsConfig.unscoped {
 			db = db.Unscoped()
 		}
-		// 使用 SELECT 1 LIMIT 1 优化存在性检查
 		err = db.Model(&model.UserExample{}).Where(queryStr, args...).Select("1").Limit(1).Scan(&exists).Error
 		if err != nil {
 			return false, fmt.Errorf("ExistsByCondition: query database failed, conditions=%+v: %w", c, err)
@@ -1871,6 +2165,7 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 		}
 		return exists, nil
 	})
+
 	if sfErr != nil {
 		return false, sfErr
 	}
@@ -1881,88 +2176,132 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 	return exists, nil
 }
 
-// 1. 不分页查询（page=-1 或 limit<=0）
-//var result1 []map[string]interface{}
-//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
-//	return db.Model(&model.CpDealer{}).
-//		Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
-//		Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
-//		Where("cp_dealer.status = ?", 1).
-//		Order("cp_dealer.id DESC")
-//}, &result1, -1, 0)
-
-//原始 SQL
-//var result1 []map[string]interface{}
-//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
-//	return db.Raw("SELECT cp_dealer.id, cp_dealer.name FROM cp_dealer WHERE cp_dealer.status = ? ORDER BY cp_dealer.id DESC", 1)
-//}, &result1, 0, 10)
-
-// 2. 分页查询（page>=0 且 limit>0）
-//var result1 []map[string]interface{}
-//total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
-//	return db.Model(&model.CpDealer{}).
-//		Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
-//		Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
-//		Where("cp_dealer.status = ?", 1).
-//		Order("cp_dealer.id DESC")
-//}, &result1, 0, 10)
-
+// GetByCustomQuery 执行自定义查询，支持分页和原始 SQL
+// 参数：
+//   - queryFunc: 自定义查询构建函数，返回 *gorm.DB
+//   - result: 接收查询结果的切片或结构体指针
+//   - page: 页码，从 0 开始；若 page < 0 或 limit <= 0，则不分页
+//   - limit: 每页条数
+//   - opts: 查询选项
+//
+// 返回：
+//   - int64: 总记录数（仅当分页时有效，不分页时返回 -1）
+//   - error: 执行错误
+//
+// 注意：
+//   - queryFunc 返回的原始 SQL 不得包含 LIMIT 子句
+//   - 原始 SQL 会被子查询包裹以安全添加 LIMIT/OFFSET
+//
+// 示例：
+//
+//	// 1. 不分页查询（page=-1 或 limit<=0）
+//	var result1 []map[string]interface{}
+//	total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//		return db.Model(&model.CpDealer{}).
+//			Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
+//			Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
+//			Where("cp_dealer.status = ?", 1).
+//			Order("cp_dealer.id DESC")
+//	}, &result1, -1, 0)
+//
+//	// 2. 原始 SQL 分页查询
+//	var result2 []map[string]interface{}
+//	total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//		return db.Raw("SELECT cp_dealer.id, cp_dealer.name FROM cp_dealer WHERE cp_dealer.status = ? ORDER BY cp_dealer.id DESC", 1)
+//	}, &result2, 0, 10)
+//
+//	// 3. 常规 ORM 分页查询（page=0, limit=10）
+//	var result3 []map[string]interface{}
+//	total, err := s.iCpDealerDao.GetByCustomQuery(ctx, func(db *gorm.DB) *gorm.DB {
+//		return db.Model(&model.CpDealer{}).
+//			Select("cp_dealer.id, cp_dealer.name, cp_dealer_order.order_sn").
+//			Joins("LEFT JOIN cp_dealer_order ON cp_dealer.id = cp_dealer_order.dealer_id").
+//			Where("cp_dealer.status = ?", 1).
+//			Order("cp_dealer.id DESC")
+//	}, &result3, 0, 10)
 func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...UserExampleQueryOption) (int64, error) {
 	optsConfig := userExampleApplyOptions(opts...)
-	var total int64 = -1 // 使用 -1 表示未计算总数
+	var total int64 = -1 // -1 表示未計算總數
 
-	// 构建查询（支持强制主库查询）
-	db := d.db.WithContext(ctx)
+	// 1. 建立基礎 DB 句柄（套用強制主庫與 Unscoped）
+	baseDB := d.db.WithContext(ctx)
 	if optsConfig.forceMaster {
-		db = db.Clauses(dbresolver.Write)
+		baseDB = baseDB.Clauses(dbresolver.Write)
 	}
 	if optsConfig.unscoped {
-		db = db.Unscoped()
+		baseDB = baseDB.Unscoped()
 	}
-	// 应用自定义查询函数
-	db = queryFunc(db)
 
-	// 判断是否需要分页
+	// 2. 套用使用者自定義的查詢邏輯
+	db := queryFunc(baseDB)
+
+	// 3. 處理分頁邏輯
 	if page >= 0 && limit > 0 {
-		// 需要分页，先计算总数
 		stmt := db.Statement
 		if stmt != nil {
 			if stmt.Table != "" || stmt.Model != nil {
-				// 对于常规查询，使用GORM内置的Count方法
-				err := db.Count(&total).Error
-				if err != nil {
+				// -------------------------------------------------------------
+				// 方案 A: 常規 GORM ORM 鏈式查詢 (非 Raw SQL)
+				// -------------------------------------------------------------
+				// 計算總筆數
+				if err := db.Count(&total).Error; err != nil {
 					return 0, fmt.Errorf("GetByCustomQuery: count failed: %w", err)
 				}
-				// 应用分页
+
+				// 套用分頁條件
 				offset := page * limit
 				db = db.Offset(offset).Limit(limit)
 			} else if stmt.SQL.Len() > 0 {
-				// 对于原始 SQL 查询，手动构造 COUNT 查询
-				originalSQL := stmt.SQL.String()
-				countSQL := d.convertToCountSQL(ctx, originalSQL)
+				// -------------------------------------------------------------
+				// 方案 B: 原始 SQL 查詢 (db.Raw)
+				// -------------------------------------------------------------
+				originalSQL := strings.TrimRight(stmt.SQL.String(), ";")
+				vars := stmt.Vars // 備份原始 SQL 綁定參數
 
+				// 檢測原始 SQL 是否包含 LIMIT 子句（简单检测，忽略字符串常量）
+				upperSQL := strings.ToUpper(originalSQL)
+				if strings.Contains(upperSQL, " LIMIT ") || strings.HasSuffix(upperSQL, " LIMIT") {
+					logger.ErrorWithCtx(ctx, "GetByCustomQuery: raw SQL must not contain LIMIT clause", logger.String("sql", originalSQL))
+					return 0, fmt.Errorf("GetByCustomQuery: raw SQL must not contain LIMIT clause, original SQL: %s", originalSQL)
+				}
+
+				// 檢測危險子句並記錄日誌（AST 隨後會自動剝離，此處僅作為監控提醒）
+				if strings.Contains(upperSQL, "FOR UPDATE") || strings.Contains(upperSQL, "LOCK IN SHARE MODE") {
+					logger.WarnWithCtx(ctx, "GetByCustomQuery: FOR UPDATE/LOCK IN SHARE MODE detected in raw SQL, AST will strip lock clause for count query",
+						logger.String("sql", originalSQL))
+				}
+
+				// Step 1: 利用 AST 剝離危險/排序/分頁子句，生成 COUNT SQL 並計算總數
+				countSQL := d.convertToCountSQL(ctx, originalSQL)
 				var count int64
-				err := db.Raw(countSQL, stmt.Vars...).Scan(&count).Error
-				if err != nil {
+
+				// 使用全新的 baseDB 句柄執行，防止 GORM Statement 狀態污染
+				if err := baseDB.Raw(countSQL, vars...).Scan(&count).Error; err != nil {
 					return 0, fmt.Errorf("GetByCustomQuery: count raw sql failed: %w", err)
 				}
 				total = count
 
-				// 对于原始 SQL 查询，手动应用分页
-				pagedSQL := originalSQL + " LIMIT ? OFFSET ?"
+				// Step 2: 構造分頁 SQL（使用子查詢包裹原始 SQL，安全添加 LIMIT/OFFSET）
+				wrappedSQL := "SELECT * FROM (" + originalSQL + ") AS t LIMIT ? OFFSET ?"
 				offset := page * limit
-				db = db.Raw(pagedSQL, append(stmt.Vars, limit, offset)...)
+
+				params := make([]interface{}, 0, len(vars)+2)
+				params = append(params, vars...)
+				params = append(params, limit, offset)
+
+				// 重新覆蓋 db 句柄，準備執行最終的分頁資料獲取
+				db = baseDB.Raw(wrappedSQL, params...)
 			}
 		}
 	}
 
-	// 执行查询
+	// 4. 執行最終查詢
 	var err error
 	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
-		// 对于原始SQL查询，使用Scan方法
+		// 若已有 SQL（如 Raw SQL 或子查詢分頁 SQL），使用 Scan
 		err = db.Scan(result).Error
 	} else {
-		// 对于常规查询，使用Find方法
+		// 常規 ORM 鏈式查詢使用 Find
 		err = db.Find(result).Error
 	}
 
@@ -1991,54 +2330,93 @@ func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*g
 //
 //	输入：SELECT * FROM users WHERE age > 18 ORDER BY id DESC LIMIT 10
 //	输出：SELECT COUNT(*) FROM (SELECT * FROM users WHERE age > 18) AS count_query
+//
+// convertToCountSQL 使用 AST 解析将 SELECT 语句转为 COUNT 查询
+
+// parserPool 复用 Parser 对象，减少高并发下的 GC 压力
+var parserPool = sync.Pool{
+	New: func() any {
+		return parser.New()
+	},
+}
+
+// convertToCountSQL 将普通 SQL SELECT 查询转换为 COUNT 查询 SQL
+// 使用 TiDB Parser AST 精准解析，支持 GROUP BY / DISTINCT
+//
+// 参数：
+//   - ctx: 上下文
+//   - sql: 原始 SELECT SQL 语句
+//
+// 返回：
+//   - 转换后的 COUNT SQL
+//
+// 示例：
+//
+//	输入：SELECT * FROM users WHERE age > 18 ORDER BY id DESC LIMIT 10
+//	输出：SELECT COUNT(*) FROM (SELECT * FROM users WHERE age > 18) AS count_query
 func (d *userExampleDao) convertToCountSQL(ctx context.Context, sql string) string {
-	if sql == "" {
+	rawSQL := strings.TrimSpace(sql)
+	if rawSQL == "" {
 		return consts.DaoEmptyCountSQL
 	}
 
-	sql = strings.TrimSpace(sql)
-	lowerSQL := strings.ToLower(sql)
+	p := parserPool.Get().(*parser.Parser) //nolint:errcheck
+	p.SetSQLMode(mysql.ModeNone)
+	defer parserPool.Put(p)
 
-	// 1. 移除 FOR UPDATE（如果有）
-	if idx := strings.Index(lowerSQL, " for update"); idx != -1 {
-		sql = sql[:idx]
-		lowerSQL = strings.ToLower(sql)
+	stmt, err := p.ParseOneStmt(rawSQL, "", "")
+	if err != nil {
+		logger.WarnWithCtx(ctx, "convertToCountSQL: parse failed, fallback to subquery",
+			logger.Err(err), logger.String("sql", rawSQL))
+		return "SELECT COUNT(*) FROM (" + rawSQL + ") AS count_query"
 	}
 
-	// 2. 移除 OFFSET 子句（如果有）
-	if idx := strings.Index(lowerSQL, " offset "); idx != -1 {
-		sql = sql[:idx]
-		lowerSQL = strings.ToLower(sql)
+	sel, ok := stmt.(*ast.SelectStmt)
+	if !ok {
+		return "SELECT COUNT(*) FROM (" + rawSQL + ") AS count_query"
 	}
 
-	// 3. 移除 LIMIT 子句（如果有）
-	if idx := strings.Index(lowerSQL, " limit "); idx != -1 {
-		sql = sql[:idx]
-		lowerSQL = strings.ToLower(sql)
-	}
+	// 剥离 ORDER BY 和 LIMIT
+	sel.OrderBy = nil
+	sel.Limit = nil
 
-	// 4. 移除 ORDER BY 子句（从后往前找，避免误判子查询中的 ORDER BY）
-	orderByIndex := strings.LastIndex(lowerSQL, " order by")
-	if orderByIndex != -1 {
-		// 简单验证：统计括号数量，确保在最外层
-		afterOrderBy := sql[orderByIndex:]
-		openParens := strings.Count(afterOrderBy, "(")
-		closeParens := strings.Count(afterOrderBy, ")")
-		if openParens == closeParens || openParens-closeParens <= 1 {
-			sql = sql[:orderByIndex]
+	hasGroupBy := sel.GroupBy != nil
+	hasHaving := sel.Having != nil
+	hasDistinct := sel.Distinct
+
+	// 无分组/去重时，直接改写为 COUNT(1)
+	if !hasGroupBy && !hasHaving && !hasDistinct {
+		// 使用 ast.NewValueExpr 构造常量 1，避免手动构造 ValueExpr
+		countOne := &ast.AggregateFuncExpr{
+			F: ast.AggFuncCount,
+			Args: []ast.ExprNode{
+				ast.NewValueExpr(1, "", ""), // 返回 *ast.ValueExpr，实现了 ast.ExprNode
+			},
+		}
+		sel.Fields = &ast.FieldList{
+			Fields: []*ast.SelectField{
+				{Expr: countOne},
+			},
 		}
 	}
 
-	trimmedSQL := strings.TrimSpace(sql)
+	sb := &strings.Builder{}
+	flags := format.DefaultRestoreFlags |
+		format.RestoreKeyWordUppercase |
+		format.RestoreStringSingleQuotes |
+		format.RestoreNameBackQuotes
 
-	// 最终校验：确保是有效的 SELECT 语句
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(trimmedSQL)), "select") {
-		// 非 SELECT 语句属于预期内的边界情况，使用 Info 级别记录
-		logger.InfoWithCtx(ctx, "convertToCountSQL: received non-SELECT SQL, returning empty result",
-			logger.String("original_sql", sql),
-			logger.String("processed_sql", trimmedSQL))
-		return consts.DaoEmptyCountSQL
+	restoreCtx := format.NewRestoreCtx(flags, sb)
+	if err := sel.Restore(restoreCtx); err != nil {
+		logger.WarnWithCtx(ctx, "convertToCountSQL: restore failed, fallback to subquery",
+			logger.Err(err), logger.String("sql", rawSQL))
+		return "SELECT COUNT(*) FROM (" + rawSQL + ") AS count_query"
 	}
 
-	return "SELECT COUNT(*) FROM (" + trimmedSQL + ") AS count_query"
+	cleanedSQL := sb.String()
+
+	if !hasGroupBy && !hasHaving && !hasDistinct {
+		return cleanedSQL
+	}
+	return "SELECT COUNT(*) FROM (" + cleanedSQL + ") AS count_query"
 }
