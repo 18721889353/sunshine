@@ -67,6 +67,10 @@ const (
 	LockMaxTries = 400
 	// InnoDBLockWaitTimeout MySQL InnoDB锁等待超时时间(秒) (SET SESSION innodb_lock_wait_timeout)
 	InnoDBLockWaitTimeout = 5
+
+	// LockRefreshSleepMs 锁获取失败后的等待时间（毫秒），重试读取缓存前等待
+	// 默认值 50ms，可通过配置文件覆盖
+	LockRefreshSleepMs = 50
 )
 
 // MQ业务类型常量 (cp_mq_log.bus_type / rabbitmq routing_key)

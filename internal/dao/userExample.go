@@ -137,6 +137,7 @@ type UserExampleDao interface {
 	ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm.DB) *gorm.DB) error
 
 	GetByID(ctx context.Context, id uint64, opts ...UserExampleQueryOption) (*model.UserExample, error)
+
 	GetByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) ([]*model.UserExample, int64, error)
 	GetOneByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) (*model.UserExample, error)
 	GetByCondition(ctx context.Context, c *query.Conditions, opts ...UserExampleQueryOption) (ids []uint64, err error)
@@ -265,7 +266,7 @@ func (m *userExampleCacheManager) get(ctx context.Context, id uint64, queryFunc 
 				}
 			} else {
 				// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
 					return record, nil
 				}
@@ -377,7 +378,7 @@ func (m *userExampleCacheManager) executeConditionQueryWithSingleflight(ctx cont
 			}
 		} else {
 			// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
 				if record, hit, hitErr := m.handleConditionCacheHit(ctx, cacheKey, cachedID); hit {
 					return record, hitErr
@@ -497,7 +498,7 @@ func (m *userExampleCacheManager) getByCondition(ctx context.Context, key string
 				}
 			} else {
 				// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
-				time.Sleep(50 * time.Millisecond)
+				time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 				if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil {
 					if len(cachedIDs) <= consts.DaoMaxCacheableIDs {
 						return cachedIDs, nil
@@ -674,8 +675,8 @@ func (m *userExampleCacheManager) getByIDsBatch(ctx context.Context, ids []uint6
 				}
 			}
 		} else {
-			// 锁获取失败：避让 50ms 后重试读缓存
-			time.Sleep(50 * time.Millisecond)
+			// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+			time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 			itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missedIDs)
 			if tmpErr == nil {
 				foundAll := true
@@ -1575,8 +1576,8 @@ func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singl
 				}
 			}
 		} else {
-			// 锁获取失败：避让 50ms 后重试读缓存
-			time.Sleep(50 * time.Millisecond)
+			// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+			time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 			if cachedTotal, cacheErr := d.cache.GetIDByKey(ctx, fullCacheKey+":total"); cacheErr == nil {
 				if result, hit, hitErr := d.handleColumnsCacheHit(ctx, fullCacheKey, optsConfig, cachedTotal); hit {
 					return result, hitErr
@@ -1635,52 +1636,56 @@ func (d *userExampleDao) executeColumnsQueryWithCache(ctx context.Context, singl
 //   - error: 执行错误
 //
 // 注意：
-//   - 使用 OFFSET 分页，深度分页时性能下降
-//   - 结果集过大时（>1000 条）不会缓存
+//   - params.Limit 每页最大条数受全局 defaultMaxSize 限制（默认为 10000，可通过 query.SetMaxSize() 调整）
+//     若传入的 limit 超过 defaultMaxSize，会被自动截断为 defaultMaxSize，仅返回一页数据。
+//   - 如需获取全部数据，请勿依赖 GetByColumns，应使用 GetByCustomQuery（不分页）或 GetByCondition（仅 ID）。
+//   - 深度分页（page 过大）性能下降，建议使用游标分页或限制最大页码。
+//   - 结果集过大时（>1000 条）不会缓存到 Redis，避免内存压力。
 //
 // 示例：
 //
-//	// 1. 简单分页查询（年龄大于 18 的男性）
-//	params := &query.Params{
-//	    Page: 0,
-//	    Limit: 20,
-//	    Sort: "-id", // 按 id 倒序
-//	    Columns: []query.Column{
-//	        {Name: "age", Exp: ">", Value: 18},
-//	        {Name: "gender", Value: "male"},
-//	    },
-//	}
-//	records, total, err := userDao.GetByColumns(ctx, params)
+//			// 1. 简单分页查询（年龄大于 18 的男性）
+//			params := &query.Params{
+//			    Page: 0,
+//			    Limit: 20, // 若 Limit > defaultMaxSize，会被截断
+//			    Sort: "-id", // 按 id 倒序
+//			    Columns: []query.Column{
+//			        {Name: "age", Exp: ">", Value: 18},
+//			        {Name: "gender", Value: "male"},
+//			    },
+//			}
+//			records, total, err := userDao.GetByColumns(ctx, params)
+//	  // total 为真实总数，records 仅包含当前页
 //
-//	// 2. LIKE 模糊查询
-//	params := &query.Params{
-//	    Page: 0,
-//	    Limit: 20,
-//	    Columns: []query.Column{
-//	        {Name: "name", Exp: "like", Value: "%张%"},
-//	    },
-//	}
-//	records, total, err := userDao.GetByColumns(ctx, params)
+//			// 2. LIKE 模糊查询
+//			params := &query.Params{
+//			    Page: 0,
+//			    Limit: 20,
+//			    Columns: []query.Column{
+//			        {Name: "name", Exp: "like", Value: "%张%"},
+//			    },
+//			}
+//			records, total, err := userDao.GetByColumns(ctx, params)
 //
-//	// 3. IN 查询
-//	params := &query.Params{
-//	    Page: 0,
-//	    Limit: 20,
-//	    Columns: []query.Column{
-//	        {Name: "status", Exp: "in", Value: "1,2,3"},
-//	    },
-//	}
-//	records, total, err := userDao.GetByColumns(ctx, params)
+//			// 3. IN 查询
+//			params := &query.Params{
+//			    Page: 0,
+//			    Limit: 20,
+//			    Columns: []query.Column{
+//			        {Name: "status", Exp: "in", Value: "1,2,3"},
+//			    },
+//			}
+//			records, total, err := userDao.GetByColumns(ctx, params)
 //
-//	// 4. OR 条件
-//	params := &query.Params{
-//	    Page: 0,
-//	    Limit: 20,
-//	    Columns: []query.Column{
-//	        {Name: "status", Value: 1, Logic: "or"},
-//	        {Name: "status", Value: 2},
-//	    },
-//	}
+//			// 4. OR 条件
+//			params := &query.Params{
+//			    Page: 0,
+//			    Limit: 20,
+//			    Columns: []query.Column{
+//			        {Name: "status", Value: 1, Logic: "or"},
+//			        {Name: "status", Value: 2},
+//			    },
+//			}
 func (d *userExampleDao) GetByColumns(ctx context.Context, params *query.Params, opts ...UserExampleQueryOption) ([]*model.UserExample, int64, error) {
 	optsConfig := userExampleApplyOptions(opts...)
 
@@ -2018,8 +2023,8 @@ func (d *userExampleDao) CountByCondition(ctx context.Context, c *query.Conditio
 				return int64(cachedCount), nil
 			}
 		} else {
-			// 锁获取失败：避让 50ms 后重试读缓存
-			time.Sleep(50 * time.Millisecond)
+			// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+			time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 			if cachedCount, cacheErr := d.cache.GetIDByKey(ctx, countCacheKey); cacheErr == nil {
 				return int64(cachedCount), nil
 			}
@@ -2133,8 +2138,8 @@ func (d *userExampleDao) ExistsByCondition(ctx context.Context, c *query.Conditi
 				return cachedValue > 0, nil
 			}
 		} else {
-			// 锁获取失败：避让 50ms 后重试读缓存
-			time.Sleep(50 * time.Millisecond)
+			// 锁获取失败（说明别的实例正在写缓存）：避让等待 50ms 后再读一次缓存
+			time.Sleep(time.Duration(consts.LockRefreshSleepMs) * time.Millisecond)
 			if cachedValue, cacheErr := d.cache.GetIDByKey(ctx, existsCacheKey); cacheErr == nil {
 				return cachedValue > 0, nil
 			}
@@ -2333,8 +2338,8 @@ func (d *userExampleDao) GetByCustomQuery(ctx context.Context, queryFunc func(*g
 //
 // convertToCountSQL 使用 AST 解析将 SELECT 语句转为 COUNT 查询
 
-// parserPool 复用 Parser 对象，减少高并发下的 GC 压力
-var parserPool = sync.Pool{
+// userExampleParserPool 复用 Parser 对象，减少高并发下的 GC 压力
+var userExampleParserPool = sync.Pool{
 	New: func() any {
 		return parser.New()
 	},
@@ -2360,9 +2365,9 @@ func (d *userExampleDao) convertToCountSQL(ctx context.Context, sql string) stri
 		return consts.DaoEmptyCountSQL
 	}
 
-	p := parserPool.Get().(*parser.Parser) //nolint:errcheck
+	p := userExampleParserPool.Get().(*parser.Parser) //nolint:errcheck
 	p.SetSQLMode(mysql.ModeNone)
-	defer parserPool.Put(p)
+	defer userExampleParserPool.Put(p)
 
 	stmt, err := p.ParseOneStmt(rawSQL, "", "")
 	if err != nil {

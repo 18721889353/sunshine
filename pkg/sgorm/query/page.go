@@ -2,7 +2,7 @@ package query
 
 import "strings"
 
-var defaultMaxSize = 1000
+var defaultMaxSize = 10000
 
 // SetMaxSize change the default maximum number of pages per page
 func SetMaxSize(maxSize int) {
