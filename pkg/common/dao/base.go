@@ -521,6 +521,72 @@ func (d *BaseDao[T]) existsByConditionDB(ctx context.Context, c *query.Condition
 	return exists, err
 }
 
+// handleORMQuery 处理常规 ORM 查询（有 Model/Table）
+func (d *BaseDao[T]) handleORMQuery(db *gorm.DB, result interface{}, page, limit int) (int64, error) {
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return 0, fmt.Errorf("count failed: %w", err)
+	}
+	offset := page * limit
+	db = db.Offset(offset).Limit(limit)
+	if err := db.Find(result).Error; err != nil {
+		return 0, fmt.Errorf("find failed: %w", err)
+	}
+	return total, nil
+}
+
+// handleRawSQLQuery 处理原始 SQL 查询
+func (d *BaseDao[T]) handleRawSQLQuery(ctx context.Context, baseDB *gorm.DB, stmt *gorm.Statement, result interface{}, page, limit int) (int64, error) {
+	originalSQL := strings.TrimRight(stmt.SQL.String(), ";")
+	vars := stmt.Vars
+
+	// 计算总数
+	total, err := d.executeCountQuery(ctx, baseDB, originalSQL, vars)
+	if err != nil {
+		return 0, err
+	}
+
+	// 构建分页查询
+	wrappedSQL := "SELECT * FROM (" + originalSQL + ") AS t LIMIT ? OFFSET ?"
+	offset := page * limit
+	params := make([]interface{}, 0, len(vars)+2)
+	params = append(params, vars...)
+	params = append(params, limit, offset)
+	db := baseDB.Raw(wrappedSQL, params...)
+	if err := db.Scan(result).Error; err != nil {
+		return 0, fmt.Errorf("raw sql pagination failed: %w", err)
+	}
+	return total, nil
+}
+
+// executeCountQuery 执行计数查询（原始 SQL 场景）
+func (d *BaseDao[T]) executeCountQuery(ctx context.Context, baseDB *gorm.DB, originalSQL string, vars []interface{}) (int64, error) {
+	countSQL, err := ConvertToCountSQL(ctx, originalSQL)
+	if err != nil {
+		return 0, fmt.Errorf("convert to count SQL failed: %w", err)
+	}
+	placeholderCount := strings.Count(countSQL, "?")
+	if placeholderCount < len(vars) {
+		vars = vars[:placeholderCount]
+	} else if placeholderCount > len(vars) {
+		return 0, fmt.Errorf("count SQL expects %d placeholders but got %d args", placeholderCount, len(vars))
+	}
+	var count int64
+	errCount := baseDB.Raw(countSQL, vars...).Scan(&count).Error
+	if errCount != nil {
+		// 若错误为参数数量不匹配，回退到子查询方式
+		if strings.Contains(errCount.Error(), "expected") && strings.Contains(errCount.Error(), "arguments") {
+			subQuerySQL := "SELECT COUNT(*) FROM (" + originalSQL + ") AS t"
+			if err := baseDB.Raw(subQuerySQL, vars...).Scan(&count).Error; err != nil {
+				return 0, fmt.Errorf("count subquery failed: %w", err)
+			}
+			return count, nil
+		}
+		return 0, fmt.Errorf("count raw sql failed: %w", errCount)
+	}
+	return count, nil
+}
+
 // GetByCustomQuery 执行自定义查询，支持分页和原始 SQL（无缓存）
 // 参数：
 //   - queryFunc: 自定义查询构建函数，接收 *gorm.DB 返回 *gorm.DB
@@ -553,8 +619,6 @@ func (d *BaseDao[T]) existsByConditionDB(ctx context.Context, c *query.Condition
 //	}, &results, 0, 20)
 func (d *BaseDao[T]) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.DB) *gorm.DB, result interface{}, page, limit int, opts ...QueryOption) (int64, error) {
 	cfg := ApplyOptions(opts...)
-	var total int64 = -1
-
 	baseDB := d.db.WithContext(ctx)
 	if cfg.ForceMaster {
 		baseDB = baseDB.Clauses(dbresolver.Write)
@@ -564,77 +628,30 @@ func (d *BaseDao[T]) GetByCustomQuery(ctx context.Context, queryFunc func(*gorm.
 	}
 
 	db := queryFunc(baseDB)
-
-	if page >= 0 && limit > 0 {
-		stmt := db.Statement
-		if stmt != nil {
-			if stmt.Table != "" || stmt.Model != nil {
-				// 常规 ORM 链式查询
-				if err := db.Count(&total).Error; err != nil {
-					return 0, fmt.Errorf("GetByCustomQuery: count failed: %w", err)
-				}
-				offset := page * limit
-				db = db.Offset(offset).Limit(limit)
-			} else if stmt.SQL.Len() > 0 {
-				originalSQL := strings.TrimRight(stmt.SQL.String(), ";")
-				vars := stmt.Vars
-
-				// 直接调用 ConvertToCountSQL，若失败则返回错误
-				countSQL, err := ConvertToCountSQL(ctx, originalSQL)
-				if err != nil {
-					return 0, fmt.Errorf("GetByCustomQuery: convert to count SQL failed: %w", err)
-				}
-
-				// 确保 countSQL 中的占位符数量与 vars 长度匹配
-				placeholderCount := strings.Count(countSQL, "?")
-				if placeholderCount != len(vars) {
-					if placeholderCount < len(vars) {
-						// 只取需要的参数，截断多余参数（例如 limit/offset 等）
-						vars = vars[:placeholderCount]
-					} else {
-						return 0, fmt.Errorf("count SQL expects %d placeholders but got %d args", placeholderCount, len(vars))
-					}
-				}
-
-				// 尝试执行 COUNT 查询
-				var count int64
-				errCount := baseDB.Raw(countSQL, vars...).Scan(&count).Error
-				if errCount != nil {
-					// 若错误为参数数量不匹配，回退到子查询方式
-					if strings.Contains(errCount.Error(), "expected") && strings.Contains(errCount.Error(), "arguments") {
-						subQuerySQL := "SELECT COUNT(*) FROM (" + originalSQL + ") AS t"
-						if err := baseDB.Raw(subQuerySQL, vars...).Scan(&count).Error; err != nil {
-							return 0, fmt.Errorf("GetByCustomQuery: count subquery failed: %w", err)
-						}
-						total = count
-					} else {
-						return 0, fmt.Errorf("GetByCustomQuery: count raw sql failed: %w", errCount)
-					}
-				} else {
-					total = count
-				}
-
-				// 构建分页查询 SQL
-				wrappedSQL := "SELECT * FROM (" + originalSQL + ") AS t LIMIT ? OFFSET ?"
-				offset := page * limit
-				params := make([]interface{}, 0, len(vars)+2)
-				params = append(params, vars...)
-				params = append(params, limit, offset)
-				db = baseDB.Raw(wrappedSQL, params...)
+	if page < 0 || limit <= 0 {
+		// 不分页
+		if db.Statement != nil && db.Statement.SQL.Len() > 0 {
+			if err := db.Scan(result).Error; err != nil {
+				return -1, fmt.Errorf("execute raw sql failed: %w", err)
 			}
+			return -1, nil
+		}
+		if err := db.Find(result).Error; err != nil {
+			return -1, fmt.Errorf("find failed: %w", err)
+		}
+		return -1, nil
+	}
+
+	stmt := db.Statement
+	if stmt != nil {
+		if stmt.Table != "" || stmt.Model != nil {
+			return d.handleORMQuery(db, result, page, limit)
+		}
+		if stmt.SQL.Len() > 0 {
+			return d.handleRawSQLQuery(ctx, baseDB, stmt, result, page, limit)
 		}
 	}
-
-	var err error
-	if db.Statement != nil && db.Statement.SQL.Len() > 0 {
-		err = db.Scan(result).Error
-	} else {
-		err = db.Find(result).Error
-	}
-	if err != nil {
-		return 0, fmt.Errorf("GetByCustomQuery: execute query failed: %w", err)
-	}
-	return total, nil
+	return -1, fmt.Errorf("unsupported query type")
 }
 
 // ---- 创建方法 ----

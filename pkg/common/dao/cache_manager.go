@@ -164,7 +164,8 @@ func (m *cacheManager[T]) getCondition(ctx context.Context, key string, queryFun
 	cacheKey := CacheKeyPrefixCondition + key
 	cachedID, err := m.cache.GetIDByKey(ctx, cacheKey)
 	if err == nil && cachedID != 0 {
-		if record, hit, _ := m.getByCachedID(ctx, cachedID, nil); hit {
+		// 修改：将 err 改为 getErr 避免阴影
+		if record, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
 			return record, nil
 		}
 	}
@@ -202,14 +203,16 @@ func (m *cacheManager[T]) executeConditionSingleflight(ctx context.Context, key,
 		}
 		if lockErr == nil {
 			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-				if record, hit, _ := m.getByCachedID(ctx, cachedID, nil); hit {
+				// 修改：将 err 改为 getErr 避免阴影
+				if record, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
 					return record, nil
 				}
 			}
 		} else {
 			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
 			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-				if record, hit, _ := m.getByCachedID(ctx, cachedID, nil); hit {
+				// 修改：将 err 改为 getErr 避免阴影
+				if record, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
 					return record, nil
 				}
 			}
@@ -352,6 +355,57 @@ func (m *cacheManager[T]) getByIDs(ctx context.Context, ids []uint64, queryFunc 
 	return m.getByIDsBatch(ctx, ids, queryFunc)
 }
 
+// fetchBatchFromDB 从数据库获取批量数据并回填缓存，由 singleflight 调用
+func (m *cacheManager[T]) fetchBatchFromDB(ctx context.Context, missed []uint64, queryFunc func([]uint64) ([]*T, error), hashKey string) (interface{}, error) {
+	lockKey := BuildLockKey(LockKeyPrefixRefreshBatch, hashKey)
+	lock, lockErr := m.cache.GetLock(ctx, lockKey)
+	if lock != nil {
+		defer func() {
+			unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "unlock failed in fetchBatchFromDB", logger.Err(unlockErr))
+			}
+		}()
+	}
+	// 尝试从缓存获取全部
+	if m.tryGetAllFromCache(ctx, lockErr) {
+		itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missed)
+		if tmpErr == nil {
+			foundAll := true
+			for _, id := range missed {
+				if _, ok := itemMapTmp[id]; !ok {
+					foundAll = false
+					break
+				}
+			}
+			if foundAll {
+				return itemMapTmp, nil
+			}
+		}
+	}
+	// 从DB获取
+	records, dbErr := queryFunc(missed)
+	if dbErr != nil {
+		return nil, dbErr
+	}
+	if len(records) > 0 {
+		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
+		if setErr := m.cache.MultiSet(ctx, records, expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "multi set failed", logger.Err(setErr))
+		}
+	}
+	m.setPlaceholdersForMissing(ctx, records, missed)
+	resultMap := make(map[uint64]*T)
+	for _, rec := range records {
+		id := GetObjectID(*rec)
+		if id != 0 {
+			resultMap[id] = rec
+		}
+	}
+	return resultMap, nil
+}
+
 func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, queryFunc func([]uint64) ([]*T, error)) (map[uint64]*T, error) {
 	itemMap, err := m.cache.MultiGet(ctx, ids)
 	if err != nil {
@@ -368,53 +422,7 @@ func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, query
 	hashKey := gocrypto.Md5([]byte(fmt.Sprintf("%v", sorted)))
 
 	val, sfErr, _ := m.sfg.Do(SFKeyPrefixBatchIDs+hashKey, func() (interface{}, error) {
-		lockKey := BuildLockKey(LockKeyPrefixRefreshBatch, hashKey)
-		lock, lockErr := m.cache.GetLock(ctx, lockKey)
-		if lock != nil {
-			defer func() {
-				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-				defer cancel()
-				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
-					logger.WarnWithCtx(ctx, "unlock failed in getByIDsBatch", logger.Err(unlockErr))
-				}
-			}()
-		}
-		// 尝试从缓存获取全部
-		if m.tryGetAllFromCache(ctx, missed, lockErr) {
-			itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missed)
-			if tmpErr == nil {
-				foundAll := true
-				for _, id := range missed {
-					if _, ok := itemMapTmp[id]; !ok {
-						foundAll = false
-						break
-					}
-				}
-				if foundAll {
-					return itemMapTmp, nil
-				}
-			}
-		}
-		// 从DB获取
-		records, dbErr := queryFunc(missed)
-		if dbErr != nil {
-			return nil, dbErr
-		}
-		if len(records) > 0 {
-			expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-			if setErr := m.cache.MultiSet(ctx, records, expire); setErr != nil {
-				logger.WarnWithCtx(ctx, "multi set failed", logger.Err(setErr))
-			}
-		}
-		m.setPlaceholdersForMissing(ctx, records, missed)
-		resultMap := make(map[uint64]*T)
-		for _, rec := range records {
-			id := GetObjectID(*rec)
-			if id != 0 {
-				resultMap[id] = rec
-			}
-		}
-		return resultMap, nil
+		return m.fetchBatchFromDB(ctx, missed, queryFunc, hashKey)
 	})
 	if sfErr != nil {
 		return nil, sfErr
@@ -430,7 +438,8 @@ func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, query
 }
 
 // tryGetAllFromCache 辅助函数，尝试从缓存获取所有缺失ID
-func (m *cacheManager[T]) tryGetAllFromCache(ctx context.Context, missed []uint64, lockErr error) bool {
+// 注意：missed 参数在函数体内未使用，保留仅为保持接口清晰，以 _ 占位避免 lint 警告
+func (m *cacheManager[T]) tryGetAllFromCache(_ context.Context, lockErr error) bool {
 	if lockErr == nil {
 		return true
 	}
@@ -471,13 +480,13 @@ func (m *cacheManager[T]) getColumns(ctx context.Context, queryFunc func() ([]*T
 	fullKey := CacheKeyPrefixColumns + cacheKey
 
 	// 尝试从缓存获取
-	if total, ids, ok := m.tryGetColumnsFromCache(ctx, fullKey); ok {
+	if total, ids, ok := m.tryGetColumnsFromCache(ctx, fullKey, idsQueryFunc); ok {
 		return ids, total, nil
 	}
 
 	val, sfErr, _ := m.sfg.Do(SFKeyPrefixColumns+cacheKey, func() (interface{}, error) {
 		// 再次尝试从缓存获取（使用锁）
-		if total, ids, ok := m.tryGetColumnsFromCacheWithLock(ctx, fullKey); ok {
+		if total, ids, ok := m.tryGetColumnsFromCacheWithLock(ctx, fullKey, idsQueryFunc); ok {
 			return struct {
 				records []*T
 				total   int64
@@ -514,7 +523,7 @@ func (m *cacheManager[T]) getColumns(ctx context.Context, queryFunc func() ([]*T
 }
 
 // tryGetColumnsFromCache 尝试从缓存获取分页数据（无锁）
-func (m *cacheManager[T]) tryGetColumnsFromCache(ctx context.Context, fullKey string) (int64, []*T, bool) {
+func (m *cacheManager[T]) tryGetColumnsFromCache(ctx context.Context, fullKey string, idsQueryFunc func([]uint64) ([]*T, error)) (int64, []*T, bool) {
 	cachedTotal, err := m.cache.GetIDByKey(ctx, fullKey+":total")
 	if err != nil {
 		return 0, nil, false
@@ -533,7 +542,7 @@ func (m *cacheManager[T]) tryGetColumnsFromCache(ctx context.Context, fullKey st
 		}
 		return 0, nil, false
 	}
-	recordsMap, getErr := m.getByIDs(ctx, ids, nil) // 使用空查询，实际会直接走缓存
+	recordsMap, getErr := m.getByIDs(ctx, ids, idsQueryFunc)
 	if getErr != nil {
 		return 0, nil, false
 	}
@@ -550,7 +559,7 @@ func (m *cacheManager[T]) tryGetColumnsFromCache(ctx context.Context, fullKey st
 }
 
 // tryGetColumnsFromCacheWithLock 带锁尝试从缓存获取
-func (m *cacheManager[T]) tryGetColumnsFromCacheWithLock(ctx context.Context, fullKey string) (int64, []*T, bool) {
+func (m *cacheManager[T]) tryGetColumnsFromCacheWithLock(ctx context.Context, fullKey string, idsQueryFunc func([]uint64) ([]*T, error)) (int64, []*T, bool) {
 	lockKey := BuildLockKey(LockKeyPrefixRefresh, fullKey)
 	lock, lockErr := m.cache.GetLock(ctx, lockKey)
 	if lock != nil {
@@ -563,10 +572,10 @@ func (m *cacheManager[T]) tryGetColumnsFromCacheWithLock(ctx context.Context, fu
 		}()
 	}
 	if lockErr == nil {
-		return m.tryGetColumnsFromCache(ctx, fullKey)
+		return m.tryGetColumnsFromCache(ctx, fullKey, idsQueryFunc)
 	}
 	time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-	return m.tryGetColumnsFromCache(ctx, fullKey)
+	return m.tryGetColumnsFromCache(ctx, fullKey, idsQueryFunc)
 }
 
 func (m *cacheManager[T]) cacheColumnsResult(ctx context.Context, fullKey string, records []*T, total int64) {
