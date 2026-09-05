@@ -19,19 +19,22 @@ import (
 
 // cacheManager 统一管理缓存操作，包含单飞合并、分布式锁、防击穿、防穿透等特性。
 type cacheManager[T any] struct {
-	cache     Cache[T]
-	sfg       *singleflight.Group
-	config    CacheConfig
-	tableName string // 用于生成单条缓存前缀（可能需转换）
+	cache      Cache[T]
+	sfg        *singleflight.Group
+	config     CacheConfig
+	tableName  string // 用于生成单条缓存前缀（可能需转换）
+	basePrefix string // 自动生成，如 "data:userExample:"
 }
 
 // newCacheManager 创建缓存管理器实例
 func newCacheManager[T any](c Cache[T], config CacheConfig, tableName string) *cacheManager[T] {
+	camelName := underscoreToCamel(tableName)
 	return &cacheManager[T]{
-		cache:     c,
-		sfg:       new(singleflight.Group),
-		config:    config,
-		tableName: tableName,
+		cache:      c,
+		sfg:        new(singleflight.Group),
+		config:     config,
+		tableName:  tableName,
+		basePrefix: "data:" + camelName + ":",
 	}
 }
 
@@ -664,38 +667,43 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, deleteType
 	if m.cache == nil {
 		return
 	}
+	singlePrefix := m.getSingleCachePrefix() // 例如 "data:userExample:"
+
 	switch deleteType {
 	case DeleteDaoTypeSingle:
 		_ = m.cache.Del(ctx, id)
+
 	case DeleteDaoTypeCondition:
+		// 删除条件类缓存（condition、columns、count、exists）
 		prefixes := []string{
-			strings.TrimSuffix(CacheKeyPrefixCondition, ":"),
-			strings.TrimSuffix(CacheKeyPrefixColumns, ":"),
-			strings.TrimSuffix(CacheKeyPrefixCount, ":"),
-			strings.TrimSuffix(CacheKeyPrefixExists, ":"),
+			singlePrefix + CacheKeyPrefixCondition,
+			singlePrefix + CacheKeyPrefixColumns,
+			singlePrefix + CacheKeyPrefixCount,
+			singlePrefix + CacheKeyPrefixExists,
 		}
 		for _, p := range prefixes {
 			_ = m.cache.DelByPrefix(ctx, p)
 		}
+
 	case DeleteDaoTypeAll:
-		// 删除条件缓存
+		// 删除所有缓存（条件类 + 单条）
+		// 先删除条件类子前缀
 		prefixes := []string{
-			strings.TrimSuffix(CacheKeyPrefixCondition, ":"),
-			strings.TrimSuffix(CacheKeyPrefixColumns, ":"),
-			strings.TrimSuffix(CacheKeyPrefixCount, ":"),
-			strings.TrimSuffix(CacheKeyPrefixExists, ":"),
+			singlePrefix + CacheKeyPrefixCondition,
+			singlePrefix + CacheKeyPrefixColumns,
+			singlePrefix + CacheKeyPrefixCount,
+			singlePrefix + CacheKeyPrefixExists,
 		}
 		for _, p := range prefixes {
 			_ = m.cache.DelByPrefix(ctx, p)
 		}
-		// 删除单条缓存前缀（自动转换表名为驼峰以匹配业务适配器）
-		singlePrefix := m.getSingleCachePrefix()
+		// 再删除整个数据前缀（包括单条缓存和可能遗漏的其他键）
 		_ = m.cache.DelByPrefix(ctx, singlePrefix)
+
 	default:
 		_ = m.cache.DelByPrefix(ctx, "")
 	}
 }
-
 func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, ids []uint64, deleteType string) {
 	if m.cache == nil {
 		return
@@ -708,6 +716,10 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 			}
 		}()
 		time.Sleep(m.config.DelayedDeleteInterval)
+
+		singlePrefix := m.getSingleCachePrefix()
+
+		// 删除单条缓存
 		if id > 0 {
 			_ = m.cache.Del(ctx, id)
 		}
@@ -716,30 +728,31 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 				_ = m.cache.Del(ctx, batchID)
 			}
 		}
+
 		switch deleteType {
 		case DeleteDaoTypeCondition:
 			prefixes := []string{
-				strings.TrimSuffix(CacheKeyPrefixCondition, ":"),
-				strings.TrimSuffix(CacheKeyPrefixColumns, ":"),
-				strings.TrimSuffix(CacheKeyPrefixCount, ":"),
-				strings.TrimSuffix(CacheKeyPrefixExists, ":"),
+				singlePrefix + CacheKeyPrefixCondition,
+				singlePrefix + CacheKeyPrefixColumns,
+				singlePrefix + CacheKeyPrefixCount,
+				singlePrefix + CacheKeyPrefixExists,
 			}
 			for _, p := range prefixes {
 				_ = m.cache.DelByPrefix(ctx, p)
 			}
+
 		case DeleteDaoTypeAll:
 			prefixes := []string{
-				strings.TrimSuffix(CacheKeyPrefixCondition, ":"),
-				strings.TrimSuffix(CacheKeyPrefixColumns, ":"),
-				strings.TrimSuffix(CacheKeyPrefixCount, ":"),
-				strings.TrimSuffix(CacheKeyPrefixExists, ":"),
+				singlePrefix + CacheKeyPrefixCondition,
+				singlePrefix + CacheKeyPrefixColumns,
+				singlePrefix + CacheKeyPrefixCount,
+				singlePrefix + CacheKeyPrefixExists,
 			}
 			for _, p := range prefixes {
 				_ = m.cache.DelByPrefix(ctx, p)
 			}
-			// 删除单条缓存前缀
-			singlePrefix := m.getSingleCachePrefix()
 			_ = m.cache.DelByPrefix(ctx, singlePrefix)
+
 		default:
 			_ = m.cache.DelByPrefix(ctx, "")
 		}

@@ -869,7 +869,7 @@ func (d *BaseDao[T]) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *qu
 //   - 若表有软删除字段（deleted_at），则执行软删除；否则物理删除
 //   - 自动清理单条缓存和条件缓存，并触发延迟双删
 func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
-	err := d.db.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Delete(nil).Error
+	err := d.db.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -889,7 +889,7 @@ func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
 // 返回：
 //   - error: 执行错误
 func (d *BaseDao[T]) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	err := d.db.WithContext(ctx).Table(d.tableName).Where("id IN (?)", ids).Delete(nil).Error
+	err := d.db.WithContext(ctx).Table(d.tableName).Where("id IN (?)", ids).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -919,7 +919,7 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 	if err != nil {
 		return err
 	}
-	err = d.db.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Delete(nil).Error
+	err = d.db.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -939,7 +939,7 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 // 返回：
 //   - error: 执行错误
 func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	err := tx.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Delete(nil).Error
+	err := tx.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -960,7 +960,7 @@ func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) err
 // 返回：
 //   - error: 执行错误
 func (d *BaseDao[T]) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	err := tx.WithContext(ctx).Table(d.tableName).Where("id IN (?)", ids).Delete(nil).Error
+	err := tx.WithContext(ctx).Table(d.tableName).Where("id IN (?)", ids).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -987,7 +987,7 @@ func (d *BaseDao[T]) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *qu
 	if err != nil {
 		return err
 	}
-	err = tx.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Delete(nil).Error
+	err = tx.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
