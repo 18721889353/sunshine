@@ -137,7 +137,7 @@ func (d *BaseDao[T]) GetByID(ctx context.Context, id uint64, opts ...QueryOption
 // 直接查库，不涉及缓存。由 GetByID 在缓存未命中或禁用时调用。
 func (d *BaseDao[T]) queryDBByID(ctx context.Context, id uint64, cfg *QueryOptions) (*T, error) {
 	var entity T
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -213,7 +213,7 @@ func (d *BaseDao[T]) queryByColumnsDB(ctx context.Context, params *query.Params,
 	}
 	var total int64
 	var records []*T
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -281,7 +281,7 @@ func (d *BaseDao[T]) queryOneByColumnsDB(ctx context.Context, params *query.Para
 	}
 	order, _, _ := params.ConvertToPage()
 	var entity T
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -339,7 +339,7 @@ func (d *BaseDao[T]) queryByConditionDB(ctx context.Context, c *query.Conditions
 		return nil, err
 	}
 	var entities []*T
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -389,7 +389,7 @@ func (d *BaseDao[T]) GetByIDs(ctx context.Context, ids []uint64, opts ...QueryOp
 // queryByIDsDB 按 ID 列表查询 DB（返回 []*T）
 func (d *BaseDao[T]) queryByIDsDB(ctx context.Context, ids []uint64, cfg *QueryOptions) ([]*T, error) {
 	var entities []*T
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -458,7 +458,7 @@ func (d *BaseDao[T]) countByConditionDB(ctx context.Context, c *query.Conditions
 		return 0, err
 	}
 	var count int64
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -510,7 +510,7 @@ func (d *BaseDao[T]) existsByConditionDB(ctx context.Context, c *query.Condition
 		return false, err
 	}
 	var exists bool
-	db := d.db.WithContext(ctx).Table(d.tableName)
+	db := d.db.WithContext(ctx).Model(new(T))
 	if cfg.ForceMaster {
 		db = db.Clauses(dbresolver.Write)
 	}
@@ -744,7 +744,8 @@ func (d *BaseDao[T]) UpdateByID(ctx context.Context, entity *T) error {
 	if id == 0 {
 		return errors.New("invalid id")
 	}
-	err := d.db.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Updates(update).Error
+	// 使用 Model 以自动添加 deleted_at IS NULL 条件
+	err := d.db.WithContext(ctx).Model(new(T)).Where("id = ?", id).Updates(update).Error
 	if err != nil {
 		return err
 	}
@@ -780,7 +781,7 @@ func (d *BaseDao[T]) UpdateByCondition(ctx context.Context, c *query.Conditions,
 	if err != nil {
 		return err
 	}
-	err = d.db.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Updates(update).Error
+	err = d.db.WithContext(ctx).Model(new(T)).Where(queryStr, args...).Updates(update).Error
 	if err != nil {
 		return err
 	}
@@ -811,7 +812,7 @@ func (d *BaseDao[T]) UpdateByTx(ctx context.Context, tx *gorm.DB, entity *T) err
 	if id == 0 {
 		return errors.New("invalid id")
 	}
-	err := tx.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Updates(update).Error
+	err := tx.WithContext(ctx).Model(new(T)).Where("id = ?", id).Updates(update).Error
 	if err != nil {
 		return err
 	}
@@ -844,7 +845,7 @@ func (d *BaseDao[T]) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *qu
 	if err != nil {
 		return err
 	}
-	err = tx.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Updates(update).Error
+	err = tx.WithContext(ctx).Model(new(T)).Where(queryStr, args...).Updates(update).Error
 	if err != nil {
 		return err
 	}
@@ -857,7 +858,7 @@ func (d *BaseDao[T]) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *qu
 
 // ---- 删除方法 ----
 
-// DeleteByID 根据 ID 删除记录
+// DeleteByID 根据 ID 删除记录（软删除）
 // 参数：
 //   - ctx: 上下文
 //   - id: 记录 ID
@@ -869,7 +870,8 @@ func (d *BaseDao[T]) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *qu
 //   - 若表有软删除字段（deleted_at），则执行软删除；否则物理删除
 //   - 自动清理单条缓存和条件缓存，并触发延迟双删
 func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
-	err := d.db.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Delete(new(T)).Error
+	// 直接使用 Delete(new(T))，GORM 从参数获取模型信息以启用软删除
+	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -881,7 +883,7 @@ func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
 	return nil
 }
 
-// DeleteByIDs 根据 ID 列表批量删除
+// DeleteByIDs 根据 ID 列表批量删除（软删除）
 // 参数：
 //   - ctx: 上下文
 //   - ids: ID 列表
@@ -889,7 +891,7 @@ func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
 // 返回：
 //   - error: 执行错误
 func (d *BaseDao[T]) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	err := d.db.WithContext(ctx).Table(d.tableName).Where("id IN (?)", ids).Delete(new(T)).Error
+	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -903,7 +905,7 @@ func (d *BaseDao[T]) DeleteByIDs(ctx context.Context, ids []uint64) error {
 	return nil
 }
 
-// DeleteByCondition 根据条件删除记录
+// DeleteByCondition 根据条件删除记录（软删除）
 // 参数：
 //   - ctx: 上下文
 //   - c: 查询条件
@@ -919,7 +921,7 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 	if err != nil {
 		return err
 	}
-	err = d.db.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Delete(new(T)).Error
+	err = d.db.WithContext(ctx).Where(queryStr, args...).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -930,7 +932,7 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 	return nil
 }
 
-// DeleteByTx 在事务中根据 ID 删除记录
+// DeleteByTx 在事务中根据 ID 删除记录（软删除）
 // 参数：
 //   - ctx: 上下文
 //   - tx: GORM 事务实例
@@ -939,7 +941,7 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 // 返回：
 //   - error: 执行错误
 func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	err := tx.WithContext(ctx).Table(d.tableName).Where("id = ?", id).Delete(new(T)).Error
+	err := tx.WithContext(ctx).Where("id = ?", id).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -951,7 +953,7 @@ func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) err
 	return nil
 }
 
-// DeleteByIDsTx 在事务中根据 ID 列表批量删除
+// DeleteByIDsTx 在事务中根据 ID 列表批量删除（软删除）
 // 参数：
 //   - ctx: 上下文
 //   - tx: GORM 事务实例
@@ -960,7 +962,7 @@ func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) err
 // 返回：
 //   - error: 执行错误
 func (d *BaseDao[T]) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	err := tx.WithContext(ctx).Table(d.tableName).Where("id IN (?)", ids).Delete(new(T)).Error
+	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
@@ -974,7 +976,7 @@ func (d *BaseDao[T]) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint6
 	return nil
 }
 
-// DeleteByTxCondition 在事务中根据条件删除记录
+// DeleteByTxCondition 在事务中根据条件删除记录（软删除）
 // 参数：
 //   - ctx: 上下文
 //   - tx: GORM 事务实例
@@ -987,7 +989,7 @@ func (d *BaseDao[T]) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *qu
 	if err != nil {
 		return err
 	}
-	err = tx.WithContext(ctx).Table(d.tableName).Where(queryStr, args...).Delete(new(T)).Error
+	err = tx.WithContext(ctx).Where(queryStr, args...).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}

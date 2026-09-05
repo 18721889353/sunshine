@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"os"
 	"sync"
@@ -32,11 +31,11 @@ func int64Ptr(v int64) *int64 {
 var (
 	testDBHost        = "bj-cdb-3hacsolk.sql.tencentcdb.com"
 	testDBPort        = "23163"
-	testDBUser        = "" //tcbank
-	testDBPassword    = ""
+	testDBUser        = "tcbank" //tcbank
+	testDBPassword    = "tcbank@1234"
 	testDBName        = "coupon_platform"
 	testRedisHost     = "43.143.78.234:6379"
-	testRedisPassword = ""
+	testRedisPassword = "jianguo123"
 
 	testLogFile *os.File
 )
@@ -74,13 +73,6 @@ func newRedisCache() cache.SysUserExampleCache {
 
 // ---------- TestMain ----------
 func TestMain(m *testing.M) {
-	var err error
-	testLogFile, err = os.Create("test_output.log")
-	if err != nil {
-		log.Fatalf("无法创建日志文件: %v", err)
-	}
-	defer testLogFile.Close()
-
 	testRedisCache = newRedisCache()
 	db := initTestDB()
 	clearTable(db)
@@ -694,7 +686,7 @@ func TestCachePenetration(t *testing.T) {
 	}
 }
 
-// TestSoftDelete 验证删除行为（当前为物理删除）
+// TestSoftDelete 验证批量软删除行为
 func TestSoftDelete(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
@@ -702,26 +694,121 @@ func TestSoftDelete(t *testing.T) {
 	ctx := context.Background()
 	_ = userDao.ClearCache(ctx)
 
-	user := &model.SysUserExample{Name: "delete_test", Age: int64Ptr(30), Status: int64Ptr(1)}
-	if err := userDao.Create(ctx, user); err != nil {
-		t.Fatalf("Create failed: %v", err)
+	// 1. 创建多条记录
+	const batchSize = 10
+	users := make([]*model.SysUserExample, batchSize)
+	for i := 0; i < batchSize; i++ {
+		users[i] = &model.SysUserExample{
+			Name:   fmt.Sprintf("delete_test_%d", i),
+			Age:    int64Ptr(int64(20 + i)),
+			Status: int64Ptr(1),
+		}
 	}
-	id := user.ID
+	if err := userDao.CreateInBatches(ctx, users, 5); err != nil {
+		t.Fatalf("批量创建失败: %v", err)
+	}
 
-	if err := userDao.DeleteByID(ctx, id); err != nil {
-		t.Fatalf("DeleteByID 失败: %v", err)
+	// 收集所有 ID
+	ids := make([]uint64, 0, batchSize)
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	t.Logf("已创建 %d 条记录，ID: %v", len(ids), ids)
+
+	// 2. 批量软删除（使用 DeleteByIDs）
+	if err := userDao.DeleteByIDs(ctx, ids); err != nil {
+		t.Fatalf("DeleteByIDs 失败: %v", err)
 	}
 
-	_, err := userDao.GetByID(ctx, id)
-	if !errors.Is(err, database.ErrRecordNotFound) {
-		t.Fatalf("删除后默认查询应返回 ErrRecordNotFound，实际: %v", err)
+	// 3. 默认查询（自动过滤 deleted_at IS NOT NULL）应返回空 map
+	gotMap, err := userDao.GetByIDs(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetByIDs 默认查询失败: %v", err)
+	}
+	if len(gotMap) != 0 {
+		t.Errorf("删除后默认查询应返回空 map，实际返回 %d 条", len(gotMap))
 	}
 
-	_, err = userDao.GetByID(ctx, id, SysUserExampleWithUnscoped())
-	if !errors.Is(err, database.ErrRecordNotFound) {
-		t.Fatalf("删除后 WithUnscoped 查询应返回 ErrRecordNotFound（物理删除），实际: %v", err)
+	// 4. 使用 WithUnscoped 忽略软删除过滤，应能查到所有记录
+	gotMapUnscoped, err := userDao.GetByIDs(ctx, ids, SysUserExampleWithUnscoped())
+	if err != nil {
+		t.Fatalf("GetByIDs WithUnscoped 查询失败: %v", err)
 	}
-	t.Log("删除测试通过（当前为物理删除）")
+	if len(gotMapUnscoped) != batchSize {
+		t.Fatalf("WithUnscoped 查询应返回 %d 条记录，实际返回 %d 条", batchSize, len(gotMapUnscoped))
+	}
+
+	// 5. 验证每条记录的 DeletedAt 字段已被设置（非零）
+	for _, id := range ids {
+		record, ok := gotMapUnscoped[id]
+		if !ok {
+			t.Errorf("ID %d 未在 WithUnscoped 结果中", id)
+			continue
+		}
+		if record.DeletedAt.Time.IsZero() {
+			t.Errorf("ID %d 的 DeletedAt 字段仍为零值，软删除未生效", id)
+		}
+	}
+
+	t.Logf("批量软删除测试通过，共 %d 条记录，每条 DeletedAt 均非零", batchSize)
+}
+
+// TestHardDelete 验证物理删除（硬删除）行为
+func TestHardDelete(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 1. 创建多条记录
+	const batchSize = 5
+	users := make([]*model.SysUserExample, batchSize)
+	for i := 0; i < batchSize; i++ {
+		users[i] = &model.SysUserExample{
+			Name:   fmt.Sprintf("hard_delete_%d", i),
+			Age:    int64Ptr(int64(20 + i)),
+			Status: int64Ptr(1),
+		}
+	}
+	if err := userDao.CreateInBatches(ctx, users, 3); err != nil {
+		t.Fatalf("批量创建失败: %v", err)
+	}
+
+	ids := make([]uint64, 0, batchSize)
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	t.Logf("已创建 %d 条记录，ID: %v", len(ids), ids)
+
+	// 2. 执行硬删除（物理删除）—— 使用 Unscoped() + Delete 传入模型
+	// 无需 Table，GORM 自动从模型获取表名
+	err := db.WithContext(ctx).Unscoped().
+		Where("id IN (?)", ids).
+		Delete(&model.SysUserExample{}).Error
+	if err != nil {
+		t.Fatalf("硬删除失败: %v", err)
+	}
+
+	// 3. 默认查询（应返回空）
+	gotMap, err := userDao.GetByIDs(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetByIDs 默认查询失败: %v", err)
+	}
+	if len(gotMap) != 0 {
+		t.Errorf("硬删除后默认查询应返回空 map，实际返回 %d 条", len(gotMap))
+	}
+
+	// 4. 使用 WithUnscoped 查询（应同样为空，因为记录已被物理删除）
+	gotMapUnscoped, err := userDao.GetByIDs(ctx, ids, SysUserExampleWithUnscoped())
+	if err != nil {
+		t.Fatalf("GetByIDs WithUnscoped 查询失败: %v", err)
+	}
+	if len(gotMapUnscoped) != 0 {
+		t.Errorf("硬删除后 WithUnscoped 查询应返回空 map，实际返回 %d 条", len(gotMapUnscoped))
+	}
+
+	t.Logf("硬删除测试通过，共 %d 条记录已被物理删除", batchSize)
 }
 
 // TestPaginationCacheLimit 验证分页缓存限流
