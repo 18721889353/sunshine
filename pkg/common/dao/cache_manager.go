@@ -17,16 +17,14 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// cacheManager 统一管理缓存操作，包含单飞合并、分布式锁、防击穿、防穿透等特性。
 type cacheManager[T any] struct {
 	cache      Cache[T]
 	sfg        *singleflight.Group
 	config     CacheConfig
-	tableName  string // 用于生成单条缓存前缀（可能需转换）
-	basePrefix string // 自动生成，如 "data:userExample:"
+	tableName  string
+	basePrefix string
 }
 
-// newCacheManager 创建缓存管理器实例
 func newCacheManager[T any](c Cache[T], config CacheConfig, tableName string) *cacheManager[T] {
 	camelName := underscoreToCamel(tableName)
 	return &cacheManager[T]{
@@ -38,8 +36,6 @@ func newCacheManager[T any](c Cache[T], config CacheConfig, tableName string) *c
 	}
 }
 
-// underscoreToCamel 将下划线命名转为驼峰（首字母小写，后续单词首字母大写）
-// 例如: sys_user_example -> sysUserExample
 func underscoreToCamel(s string) string {
 	parts := strings.Split(s, "_")
 	for i := 1; i < len(parts); i++ {
@@ -50,16 +46,13 @@ func underscoreToCamel(s string) string {
 	return strings.Join(parts, "")
 }
 
-// getSingleCachePrefix 获取单条缓存的前缀（含末尾冒号）
 func (m *cacheManager[T]) getSingleCachePrefix() string {
-	// 将表名转为驼峰以匹配业务适配器前缀
 	camelName := underscoreToCamel(m.tableName)
 	return "data:" + camelName + ":"
 }
 
 // -------------------- 单条缓存 --------------------
 
-// get 从缓存中获取单条记录
 func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (*T, error)) (*T, error) {
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -95,13 +88,17 @@ func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (
 			table, dbErr := queryFunc()
 			if dbErr != nil {
 				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-					_ = m.cache.SetPlaceholder(ctx, id)
+					if setErr := m.cache.SetPlaceholder(ctx, id); setErr != nil {
+						logger.WarnWithCtx(ctx, "set placeholder failed", logger.Err(setErr))
+					}
 					return nil, database.ErrRecordNotFound
 				}
 				return nil, dbErr
 			}
 			expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-			_ = m.cache.Set(ctx, id, table, expire)
+			if setErr := m.cache.Set(ctx, id, table, expire); setErr != nil {
+				logger.WarnWithCtx(ctx, "cache set failed", logger.Err(setErr))
+			}
 			return table, nil
 		})
 		if sfErr != nil {
@@ -118,7 +115,6 @@ func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (
 	return m.handleFallback(ctx, id, err, queryFunc)
 }
 
-// handleFallback ...
 func (m *cacheManager[T]) handleFallback(ctx context.Context, id uint64, err error, queryFunc func() (*T, error)) (*T, error) {
 	if m.cache.IsPlaceholderErr(err) {
 		return nil, database.ErrRecordNotFound
@@ -127,21 +123,29 @@ func (m *cacheManager[T]) handleFallback(ctx context.Context, id uint64, err err
 		lockKey := BuildLockKey(LockKeyPrefixRefresh, fmt.Sprintf("%d", id))
 		if lock, lockErr := m.cache.GetLock(ctx, lockKey); lockErr == nil {
 			if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
-				_, _ = lock.UnlockContext(ctx)
+				if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "unlock failed in handleFallback", logger.Err(unlockErr))
+				}
 				return record, nil
 			}
-			_, _ = lock.UnlockContext(ctx)
+			if _, unlockErr := lock.UnlockContext(ctx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "unlock failed in handleFallback", logger.Err(unlockErr))
+			}
 		}
 		table, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				_ = m.cache.SetPlaceholder(ctx, id)
+				if setErr := m.cache.SetPlaceholder(ctx, id); setErr != nil {
+					logger.WarnWithCtx(ctx, "set placeholder failed", logger.Err(setErr))
+				}
 				return nil, database.ErrRecordNotFound
 			}
 			return nil, dbErr
 		}
 		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-		_ = m.cache.Set(ctx, id, table, expire)
+		if setErr := m.cache.Set(ctx, id, table, expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "cache set failed", logger.Err(setErr))
+		}
 		return table, nil
 	})
 	if sfErr != nil {
@@ -160,7 +164,7 @@ func (m *cacheManager[T]) getCondition(ctx context.Context, key string, queryFun
 	cacheKey := CacheKeyPrefixCondition + key
 	cachedID, err := m.cache.GetIDByKey(ctx, cacheKey)
 	if err == nil && cachedID != 0 {
-		if record, hit, _ := m.getByCachedID(ctx, cachedID, queryFunc); hit {
+		if record, hit, _ := m.getByCachedID(ctx, cachedID, nil); hit {
 			return record, nil
 		}
 	}
@@ -174,7 +178,8 @@ func (m *cacheManager[T]) getCondition(ctx context.Context, key string, queryFun
 	return m.executeConditionSingleflight(ctx, key, cacheKey, queryFunc)
 }
 
-func (m *cacheManager[T]) getByCachedID(ctx context.Context, cachedID uint64, queryFunc func() (*T, error)) (*T, bool, error) {
+// getByCachedID 参数 queryFunc 保留用于接口一致性，但实际未使用
+func (m *cacheManager[T]) getByCachedID(ctx context.Context, cachedID uint64, _ func() (*T, error)) (*T, bool, error) {
 	record, err := m.cache.Get(ctx, cachedID)
 	if err == nil {
 		return record, true, nil
@@ -190,19 +195,21 @@ func (m *cacheManager[T]) executeConditionSingleflight(ctx context.Context, key,
 			defer func() {
 				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 				defer cancel()
-				_, _ = lock.UnlockContext(unlockCtx)
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "unlock failed in executeConditionSingleflight", logger.Err(unlockErr))
+				}
 			}()
 		}
 		if lockErr == nil {
 			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-				if record, hit, _ := m.getByCachedID(ctx, cachedID, queryFunc); hit {
+				if record, hit, _ := m.getByCachedID(ctx, cachedID, nil); hit {
 					return record, nil
 				}
 			}
 		} else {
 			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
 			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-				if record, hit, _ := m.getByCachedID(ctx, cachedID, queryFunc); hit {
+				if record, hit, _ := m.getByCachedID(ctx, cachedID, nil); hit {
 					return record, nil
 				}
 			}
@@ -210,7 +217,9 @@ func (m *cacheManager[T]) executeConditionSingleflight(ctx context.Context, key,
 		record, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				_ = m.cache.SetPlaceholderByKey(ctx, cacheKey)
+				if setErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); setErr != nil {
+					logger.WarnWithCtx(ctx, "set placeholder by key failed", logger.Err(setErr))
+				}
 				return nil, database.ErrRecordNotFound
 			}
 			return nil, dbErr
@@ -237,8 +246,12 @@ func (m *cacheManager[T]) cacheConditionResult(ctx context.Context, cacheKey str
 		return
 	}
 	expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-	_ = m.cache.SetIDByKey(ctx, cacheKey, id, expire)
-	_ = m.cache.Set(ctx, id, record, expire)
+	if setErr := m.cache.SetIDByKey(ctx, cacheKey, id, expire); setErr != nil {
+		logger.WarnWithCtx(ctx, "set id by key failed", logger.Err(setErr))
+	}
+	if setErr := m.cache.Set(ctx, id, record, expire); setErr != nil {
+		logger.WarnWithCtx(ctx, "cache set failed", logger.Err(setErr))
+	}
 }
 
 // -------------------- 条件 ID 列表缓存 --------------------
@@ -253,7 +266,9 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 		}
 		logger.WarnWithCtx(ctx, "cached id list too large, deleting stale cache",
 			logger.Any("count", len(ids)), logger.Any("key", key))
-		_ = m.cache.DelByKey(ctx, cacheKey)
+		if delErr := m.cache.DelByKey(ctx, cacheKey); delErr != nil {
+			logger.WarnWithCtx(ctx, "delete stale cache failed", logger.Err(delErr))
+		}
 	} else if !errors.Is(err, database.ErrCacheNotFound) {
 		logger.WarnWithCtx(ctx, "cache.GetIDsByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
 		if m.cache.IsPlaceholderErr(err) {
@@ -268,7 +283,9 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 			defer func() {
 				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 				defer cancel()
-				_, _ = lock.UnlockContext(unlockCtx)
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "unlock failed in getByCondition", logger.Err(unlockErr))
+				}
 			}()
 		}
 		if lockErr == nil {
@@ -284,7 +301,9 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 		result, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				_ = m.cache.SetPlaceholderByKey(ctx, cacheKey)
+				if setErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); setErr != nil {
+					logger.WarnWithCtx(ctx, "set placeholder by key failed", logger.Err(setErr))
+				}
 				return nil, database.ErrRecordNotFound
 			}
 			return nil, dbErr
@@ -294,7 +313,9 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 			return result, nil
 		}
 		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-		_ = m.cache.SetIDsByKey(ctx, cacheKey, result, expire)
+		if setErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "set ids by key failed", logger.Err(setErr))
+		}
 		return result, nil
 	})
 	if sfErr != nil {
@@ -353,25 +374,13 @@ func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, query
 			defer func() {
 				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 				defer cancel()
-				_, _ = lock.UnlockContext(unlockCtx)
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "unlock failed in getByIDsBatch", logger.Err(unlockErr))
+				}
 			}()
 		}
-		if lockErr == nil {
-			itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missed)
-			if tmpErr == nil {
-				foundAll := true
-				for _, id := range missed {
-					if _, ok := itemMapTmp[id]; !ok {
-						foundAll = false
-						break
-					}
-				}
-				if foundAll {
-					return itemMapTmp, nil
-				}
-			}
-		} else {
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
+		// 尝试从缓存获取全部
+		if m.tryGetAllFromCache(ctx, missed, lockErr) {
 			itemMapTmp, tmpErr := m.cache.MultiGet(ctx, missed)
 			if tmpErr == nil {
 				foundAll := true
@@ -386,13 +395,16 @@ func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, query
 				}
 			}
 		}
+		// 从DB获取
 		records, dbErr := queryFunc(missed)
 		if dbErr != nil {
 			return nil, dbErr
 		}
 		if len(records) > 0 {
 			expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-			_ = m.cache.MultiSet(ctx, records, expire)
+			if setErr := m.cache.MultiSet(ctx, records, expire); setErr != nil {
+				logger.WarnWithCtx(ctx, "multi set failed", logger.Err(setErr))
+			}
 		}
 		m.setPlaceholdersForMissing(ctx, records, missed)
 		resultMap := make(map[uint64]*T)
@@ -417,6 +429,15 @@ func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, query
 	return itemMap, nil
 }
 
+// tryGetAllFromCache 辅助函数，尝试从缓存获取所有缺失ID
+func (m *cacheManager[T]) tryGetAllFromCache(ctx context.Context, missed []uint64, lockErr error) bool {
+	if lockErr == nil {
+		return true
+	}
+	time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
+	return true
+}
+
 func (m *cacheManager[T]) findMissedIDs(ids []uint64, itemMap map[uint64]*T) []uint64 {
 	var missed []uint64
 	for _, id := range ids {
@@ -437,7 +458,9 @@ func (m *cacheManager[T]) setPlaceholdersForMissing(ctx context.Context, records
 	}
 	for _, id := range missedIDs {
 		if !existing[id] {
-			_ = m.cache.SetPlaceholder(ctx, id)
+			if setErr := m.cache.SetPlaceholder(ctx, id); setErr != nil {
+				logger.WarnWithCtx(ctx, "set placeholder for missing id failed", logger.Err(setErr))
+			}
 		}
 	}
 }
@@ -447,81 +470,20 @@ func (m *cacheManager[T]) setPlaceholdersForMissing(ctx context.Context, records
 func (m *cacheManager[T]) getColumns(ctx context.Context, queryFunc func() ([]*T, int64, error), idsQueryFunc func([]uint64) ([]*T, error), cacheKey string) ([]*T, int64, error) {
 	fullKey := CacheKeyPrefixColumns + cacheKey
 
-	cachedTotal, err := m.cache.GetIDByKey(ctx, fullKey+":total")
-	if err == nil {
-		ids, idsErr := m.cache.GetIDsByKey(ctx, fullKey+":ids")
-		if idsErr == nil && len(ids) > 0 {
-			if len(ids) <= m.config.MaxCacheableRecords {
-				recordsMap, getErr := m.getByIDs(ctx, ids, idsQueryFunc)
-				if getErr == nil && len(recordsMap) > 0 {
-					records := make([]*T, 0, len(ids))
-					for _, id := range ids {
-						if rec, ok := recordsMap[id]; ok {
-							records = append(records, rec)
-						}
-					}
-					if len(records) == len(ids) {
-						return records, int64(cachedTotal), nil
-					}
-				}
-			} else {
-				logger.WarnWithCtx(ctx, "cached ids count exceeds max, deleting stale cache",
-					logger.Any("count", len(ids)), logger.String("key", fullKey))
-				_ = m.cache.DelByKey(ctx, fullKey+":total")
-				_ = m.cache.DelByKey(ctx, fullKey+":ids")
-			}
-		}
+	// 尝试从缓存获取
+	if total, ids, ok := m.tryGetColumnsFromCache(ctx, fullKey); ok {
+		return ids, total, nil
 	}
 
 	val, sfErr, _ := m.sfg.Do(SFKeyPrefixColumns+cacheKey, func() (interface{}, error) {
-		lockKey := BuildLockKey(LockKeyPrefixRefresh, fullKey)
-		lock, lockErr := m.cache.GetLock(ctx, lockKey)
-		if lock != nil {
-			defer func() {
-				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-				defer cancel()
-				_, _ = lock.UnlockContext(unlockCtx)
-			}()
+		// 再次尝试从缓存获取（使用锁）
+		if total, ids, ok := m.tryGetColumnsFromCacheWithLock(ctx, fullKey); ok {
+			return struct {
+				records []*T
+				total   int64
+			}{records: ids, total: total}, nil
 		}
-		if lockErr == nil {
-			if total, cacheErr := m.cache.GetIDByKey(ctx, fullKey+":total"); cacheErr == nil {
-				if ids, idsErr := m.cache.GetIDsByKey(ctx, fullKey+":ids"); idsErr == nil && len(ids) > 0 && len(ids) <= m.config.MaxCacheableRecords {
-					recordsMap, getErr := m.getByIDs(ctx, ids, idsQueryFunc)
-					if getErr == nil && len(recordsMap) == len(ids) {
-						records := make([]*T, 0, len(ids))
-						for _, id := range ids {
-							if rec, ok := recordsMap[id]; ok {
-								records = append(records, rec)
-							}
-						}
-						return struct {
-							records []*T
-							total   int64
-						}{records: records, total: int64(total)}, nil
-					}
-				}
-			}
-		} else {
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-			if total, cacheErr := m.cache.GetIDByKey(ctx, fullKey+":total"); cacheErr == nil {
-				if ids, idsErr := m.cache.GetIDsByKey(ctx, fullKey+":ids"); idsErr == nil && len(ids) > 0 && len(ids) <= m.config.MaxCacheableRecords {
-					recordsMap, getErr := m.getByIDs(ctx, ids, idsQueryFunc)
-					if getErr == nil && len(recordsMap) == len(ids) {
-						records := make([]*T, 0, len(ids))
-						for _, id := range ids {
-							if rec, ok := recordsMap[id]; ok {
-								records = append(records, rec)
-							}
-						}
-						return struct {
-							records []*T
-							total   int64
-						}{records: records, total: int64(total)}, nil
-					}
-				}
-			}
-		}
-
+		// 从DB查询
 		records, total, dbErr := queryFunc()
 		if dbErr != nil {
 			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
@@ -532,21 +494,7 @@ func (m *cacheManager[T]) getColumns(ctx context.Context, queryFunc func() ([]*T
 			}
 			return nil, dbErr
 		}
-		if len(records) <= m.config.MaxCacheableRecords && total > 0 {
-			expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-			_ = m.cache.SetIDByKey(ctx, fullKey+":total", uint64(total), expire)
-			ids := make([]uint64, 0, len(records))
-			for _, rec := range records {
-				id := GetObjectID(*rec)
-				if id != 0 {
-					ids = append(ids, id)
-				}
-			}
-			if len(ids) > 0 {
-				_ = m.cache.SetIDsByKey(ctx, fullKey+":ids", ids, expire)
-				_ = m.cache.MultiSet(ctx, records, expire)
-			}
-		}
+		m.cacheColumnsResult(ctx, fullKey, records, total)
 		return struct {
 			records []*T
 			total   int64
@@ -565,6 +513,86 @@ func (m *cacheManager[T]) getColumns(ctx context.Context, queryFunc func() ([]*T
 	return result.records, result.total, nil
 }
 
+// tryGetColumnsFromCache 尝试从缓存获取分页数据（无锁）
+func (m *cacheManager[T]) tryGetColumnsFromCache(ctx context.Context, fullKey string) (int64, []*T, bool) {
+	cachedTotal, err := m.cache.GetIDByKey(ctx, fullKey+":total")
+	if err != nil {
+		return 0, nil, false
+	}
+	ids, idsErr := m.cache.GetIDsByKey(ctx, fullKey+":ids")
+	if idsErr != nil || len(ids) == 0 || len(ids) > m.config.MaxCacheableRecords {
+		if idsErr == nil && len(ids) > m.config.MaxCacheableRecords {
+			logger.WarnWithCtx(ctx, "cached ids count exceeds max, deleting stale cache",
+				logger.Any("count", len(ids)), logger.String("key", fullKey))
+			if delErr := m.cache.DelByKey(ctx, fullKey+":total"); delErr != nil {
+				logger.WarnWithCtx(ctx, "delete total key failed", logger.Err(delErr))
+			}
+			if delErr := m.cache.DelByKey(ctx, fullKey+":ids"); delErr != nil {
+				logger.WarnWithCtx(ctx, "delete ids key failed", logger.Err(delErr))
+			}
+		}
+		return 0, nil, false
+	}
+	recordsMap, getErr := m.getByIDs(ctx, ids, nil) // 使用空查询，实际会直接走缓存
+	if getErr != nil {
+		return 0, nil, false
+	}
+	records := make([]*T, 0, len(ids))
+	for _, id := range ids {
+		if rec, ok := recordsMap[id]; ok {
+			records = append(records, rec)
+		}
+	}
+	if len(records) == len(ids) {
+		return int64(cachedTotal), records, true
+	}
+	return 0, nil, false
+}
+
+// tryGetColumnsFromCacheWithLock 带锁尝试从缓存获取
+func (m *cacheManager[T]) tryGetColumnsFromCacheWithLock(ctx context.Context, fullKey string) (int64, []*T, bool) {
+	lockKey := BuildLockKey(LockKeyPrefixRefresh, fullKey)
+	lock, lockErr := m.cache.GetLock(ctx, lockKey)
+	if lock != nil {
+		defer func() {
+			unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "unlock failed in tryGetColumnsFromCacheWithLock", logger.Err(unlockErr))
+			}
+		}()
+	}
+	if lockErr == nil {
+		return m.tryGetColumnsFromCache(ctx, fullKey)
+	}
+	time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
+	return m.tryGetColumnsFromCache(ctx, fullKey)
+}
+
+func (m *cacheManager[T]) cacheColumnsResult(ctx context.Context, fullKey string, records []*T, total int64) {
+	if len(records) <= m.config.MaxCacheableRecords && total > 0 {
+		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
+		if setErr := m.cache.SetIDByKey(ctx, fullKey+":total", uint64(total), expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "set total key failed", logger.Err(setErr))
+		}
+		ids := make([]uint64, 0, len(records))
+		for _, rec := range records {
+			id := GetObjectID(*rec)
+			if id != 0 {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			if setErr := m.cache.SetIDsByKey(ctx, fullKey+":ids", ids, expire); setErr != nil {
+				logger.WarnWithCtx(ctx, "set ids key failed", logger.Err(setErr))
+			}
+			if setErr := m.cache.MultiSet(ctx, records, expire); setErr != nil {
+				logger.WarnWithCtx(ctx, "multi set failed", logger.Err(setErr))
+			}
+		}
+	}
+}
+
 // -------------------- 计数缓存 --------------------
 
 func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc func() (int64, error)) (int64, error) {
@@ -580,7 +608,9 @@ func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc fu
 			defer func() {
 				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 				defer cancel()
-				_, _ = lock.UnlockContext(unlockCtx)
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "unlock failed in getCount", logger.Err(unlockErr))
+				}
 			}()
 		}
 		if lockErr == nil {
@@ -598,7 +628,9 @@ func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc fu
 			return 0, dbErr
 		}
 		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-		_ = m.cache.SetIDByKey(ctx, cacheKey, uint64(count), expire)
+		if setErr := m.cache.SetIDByKey(ctx, cacheKey, uint64(count), expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "set count key failed", logger.Err(setErr))
+		}
 		return count, nil
 	})
 	if sfErr != nil {
@@ -626,7 +658,9 @@ func (m *cacheManager[T]) getExists(ctx context.Context, key string, queryFunc f
 			defer func() {
 				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 				defer cancel()
-				_, _ = lock.UnlockContext(unlockCtx)
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "unlock failed in getExists", logger.Err(unlockErr))
+				}
 			}()
 		}
 		if lockErr == nil {
@@ -648,7 +682,9 @@ func (m *cacheManager[T]) getExists(ctx context.Context, key string, queryFunc f
 			val = 1
 		}
 		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-		_ = m.cache.SetIDByKey(ctx, cacheKey, val, expire)
+		if setErr := m.cache.SetIDByKey(ctx, cacheKey, val, expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "set exists key failed", logger.Err(setErr))
+		}
 		return exists, nil
 	})
 	if sfErr != nil {
@@ -667,14 +703,14 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, deleteType
 	if m.cache == nil {
 		return
 	}
-	singlePrefix := m.getSingleCachePrefix() // 例如 "data:userExample:"
+	singlePrefix := m.getSingleCachePrefix()
 
 	switch deleteType {
 	case DeleteDaoTypeSingle:
-		_ = m.cache.Del(ctx, id)
-
+		if delErr := m.cache.Del(ctx, id); delErr != nil {
+			logger.WarnWithCtx(ctx, "cache Del failed", logger.Err(delErr), logger.Any("id", id))
+		}
 	case DeleteDaoTypeCondition:
-		// 删除条件类缓存（condition、columns、count、exists）
 		prefixes := []string{
 			singlePrefix + CacheKeyPrefixCondition,
 			singlePrefix + CacheKeyPrefixColumns,
@@ -682,12 +718,11 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, deleteType
 			singlePrefix + CacheKeyPrefixExists,
 		}
 		for _, p := range prefixes {
-			_ = m.cache.DelByPrefix(ctx, p)
+			if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
+				logger.WarnWithCtx(ctx, "cache DelByPrefix failed", logger.Err(delErr), logger.String("prefix", p))
+			}
 		}
-
 	case DeleteDaoTypeAll:
-		// 删除所有缓存（条件类 + 单条）
-		// 先删除条件类子前缀
 		prefixes := []string{
 			singlePrefix + CacheKeyPrefixCondition,
 			singlePrefix + CacheKeyPrefixColumns,
@@ -695,15 +730,20 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, deleteType
 			singlePrefix + CacheKeyPrefixExists,
 		}
 		for _, p := range prefixes {
-			_ = m.cache.DelByPrefix(ctx, p)
+			if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
+				logger.WarnWithCtx(ctx, "cache DelByPrefix failed", logger.Err(delErr), logger.String("prefix", p))
+			}
 		}
-		// 再删除整个数据前缀（包括单条缓存和可能遗漏的其他键）
-		_ = m.cache.DelByPrefix(ctx, singlePrefix)
-
+		if delErr := m.cache.DelByPrefix(ctx, singlePrefix); delErr != nil {
+			logger.WarnWithCtx(ctx, "cache DelByPrefix failed for singlePrefix", logger.Err(delErr), logger.String("prefix", singlePrefix))
+		}
 	default:
-		_ = m.cache.DelByPrefix(ctx, "")
+		if delErr := m.cache.DelByPrefix(ctx, ""); delErr != nil {
+			logger.WarnWithCtx(ctx, "cache DelByPrefix failed with empty prefix", logger.Err(delErr))
+		}
 	}
 }
+
 func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, ids []uint64, deleteType string) {
 	if m.cache == nil {
 		return
@@ -719,13 +759,16 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 
 		singlePrefix := m.getSingleCachePrefix()
 
-		// 删除单条缓存
 		if id > 0 {
-			_ = m.cache.Del(ctx, id)
+			if delErr := m.cache.Del(ctx, id); delErr != nil {
+				logger.WarnWithCtx(bgCtx, "delayed delete single id failed", logger.Err(delErr), logger.Any("id", id))
+			}
 		}
 		if len(ids) > 0 {
 			for _, batchID := range ids {
-				_ = m.cache.Del(ctx, batchID)
+				if delErr := m.cache.Del(ctx, batchID); delErr != nil {
+					logger.WarnWithCtx(bgCtx, "delayed delete batch id failed", logger.Err(delErr), logger.Any("id", batchID))
+				}
 			}
 		}
 
@@ -738,9 +781,10 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 				singlePrefix + CacheKeyPrefixExists,
 			}
 			for _, p := range prefixes {
-				_ = m.cache.DelByPrefix(ctx, p)
+				if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
+					logger.WarnWithCtx(bgCtx, "delayed delete prefix failed", logger.Err(delErr), logger.String("prefix", p))
+				}
 			}
-
 		case DeleteDaoTypeAll:
 			prefixes := []string{
 				singlePrefix + CacheKeyPrefixCondition,
@@ -749,12 +793,17 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 				singlePrefix + CacheKeyPrefixExists,
 			}
 			for _, p := range prefixes {
-				_ = m.cache.DelByPrefix(ctx, p)
+				if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
+					logger.WarnWithCtx(bgCtx, "delayed delete prefix failed", logger.Err(delErr), logger.String("prefix", p))
+				}
 			}
-			_ = m.cache.DelByPrefix(ctx, singlePrefix)
-
+			if delErr := m.cache.DelByPrefix(ctx, singlePrefix); delErr != nil {
+				logger.WarnWithCtx(bgCtx, "delayed delete singlePrefix failed", logger.Err(delErr), logger.String("prefix", singlePrefix))
+			}
 		default:
-			_ = m.cache.DelByPrefix(ctx, "")
+			if delErr := m.cache.DelByPrefix(ctx, ""); delErr != nil {
+				logger.WarnWithCtx(bgCtx, "delayed delete empty prefix failed", logger.Err(delErr))
+			}
 		}
 	}()
 }

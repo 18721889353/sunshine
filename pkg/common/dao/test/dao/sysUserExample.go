@@ -1,17 +1,16 @@
 // Package dao 数据访问层
-// 提供数据库操作的统一接口，包含缓存管理、事务支持、延迟双删等高级特性
 package dao
 
 import (
 	"context"
-	"github.com/18721889353/sunshine/pkg/dao/test/cache"
-	"github.com/18721889353/sunshine/pkg/dao/test/model"
 	"time"
 
 	"github.com/go-redsync/redsync/v4" // 分布式锁选项（适配器需要）
 	"gorm.io/gorm"
 
-	"github.com/18721889353/sunshine/pkg/dao"
+	"github.com/18721889353/sunshine/pkg/common/dao"
+	"github.com/18721889353/sunshine/pkg/common/dao/test/cache"
+	"github.com/18721889353/sunshine/pkg/common/dao/test/model"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 )
 
@@ -35,8 +34,7 @@ func SysUserExampleWithUnscoped() SysUserExampleQueryOption {
 	return dao.WithUnscoped()
 }
 
-// ----- SysUserExampleDao 接口（与原始接口保持一致，但内部实现委托给 BaseDao） -----
-
+// SysUserExampleDao 接口定义
 type SysUserExampleDao interface {
 	Create(ctx context.Context, table *model.SysUserExample) error
 	CreateInBatches(ctx context.Context, tables []*model.SysUserExample, batchSize int) error

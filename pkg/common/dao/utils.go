@@ -3,6 +3,7 @@ package dao
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -44,16 +45,20 @@ var parserPool = sync.Pool{
 
 // ConvertToCountSQL 将普通 SQL SELECT 查询转换为 COUNT 查询 SQL
 // 现在返回 error，解析失败时不再静默降级
-func ConvertToCountSQL(ctx context.Context, sql string) (string, error) {
+func ConvertToCountSQL(_ context.Context, sql string) (string, error) {
 	rawSQL := strings.TrimSpace(sql)
 	if rawSQL == "" {
 		return emptyCountSQL, nil
 	}
 
-	p := parserPool.Get().(*parser.Parser)
-	p.SetSQLMode(mysql.ModeNone)
+	pAny := parserPool.Get()
+	p, ok := pAny.(*parser.Parser)
+	if !ok {
+		return "", errors.New("failed to assert parser type from pool")
+	}
 	defer parserPool.Put(p)
 
+	p.SetSQLMode(mysql.ModeNone)
 	stmt, err := p.ParseOneStmt(rawSQL, "", "")
 	if err != nil {
 		return "", fmt.Errorf("parse SQL failed: %w", err)

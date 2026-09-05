@@ -1,9 +1,11 @@
+// Package model sys_user_example table
 package model
 
 import (
 	"github.com/18721889353/sunshine/pkg/sgorm"
 )
 
+// SysUserExample model
 type SysUserExample struct {
 	sgorm.Model `gorm:"embedded"` // embed id and time
 

@@ -222,8 +222,8 @@ func (d *BaseDao[T]) queryByColumnsDB(ctx context.Context, params *query.Params,
 	}
 	// 若 sort 为 "ignore count"，则跳过计数（性能优化）
 	if params.Sort != SortIgnoreCount {
-		if err := db.Where(queryStr, args...).Count(&total).Error; err != nil {
-			return nil, 0, err
+		if countErr := db.Where(queryStr, args...).Count(&total).Error; countErr != nil {
+			return nil, 0, countErr
 		}
 		if total == 0 {
 			return []*T{}, 0, nil

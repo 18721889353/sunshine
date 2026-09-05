@@ -11,7 +11,7 @@ import (
 
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/model"
-	"github.com/18721889353/sunshine/pkg/dao"
+	"github.com/18721889353/sunshine/pkg/common/dao"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
 )
 

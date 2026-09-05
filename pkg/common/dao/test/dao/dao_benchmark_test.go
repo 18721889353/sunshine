@@ -10,16 +10,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/18721889353/sunshine/internal/database"
-	"github.com/18721889353/sunshine/pkg/dao"
-	"github.com/18721889353/sunshine/pkg/dao/test/cache"
-	"github.com/18721889353/sunshine/pkg/dao/test/model"
-	"github.com/18721889353/sunshine/pkg/sgorm"
-	"github.com/18721889353/sunshine/pkg/sgorm/query"
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+
+	"github.com/18721889353/sunshine/internal/database"
+	"github.com/18721889353/sunshine/pkg/common/dao"
+	"github.com/18721889353/sunshine/pkg/common/dao/test/cache"
+	"github.com/18721889353/sunshine/pkg/common/dao/test/model"
+	"github.com/18721889353/sunshine/pkg/sgorm"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
 )
 
 // ---------- 辅助函数 ----------
