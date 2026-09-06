@@ -233,7 +233,7 @@ func NewSysUserExampleDao(
 	// 注意：此处必须包含模型的所有可更新字段，且根据业务需求决定零值是否更新
 	// 对于时间类型，只更新非零值；对于数字类型，若 0 有意义则需调整判断条件
 	updateBuilder := func(table *model.SysUserExample) map[string]interface{} {
-		if table == nil || table.ID < 1 {
+		if table == nil {
 			return nil
 		}
 		update := map[string]interface{}{}
