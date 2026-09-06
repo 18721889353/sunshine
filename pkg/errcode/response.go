@@ -21,6 +21,7 @@ import (
 
 var (
 	// SkipResponse 用于中间件或业务逻辑中跳过后续响应处理（如已自行处理）
+	//nolint:revive // 保留命名以兼容已有代码
 	SkipResponse = errors.New("skip response")
 	// unwrapCache 缓存结构体拆包分析结果，避免重复反射造成性能损失
 	unwrapCache sync.Map // map[reflect.Type]unwrapInfo

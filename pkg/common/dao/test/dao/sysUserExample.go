@@ -34,7 +34,7 @@ func SysUserExampleWithUnscoped() SysUserExampleQueryOption {
 	return dao.WithUnscoped()
 }
 
-// SysUserExampleDao 接口定义
+// SysUserExampleDao 数据访问接口
 type SysUserExampleDao interface {
 	Create(ctx context.Context, table *model.SysUserExample) error
 	CreateInBatches(ctx context.Context, tables []*model.SysUserExample, batchSize int) error
@@ -164,7 +164,6 @@ func SysUserExampleWithLongCache() SysUserExampleDaoOption {
 }
 
 // SysUserExampleWithShortCache 使用短时间缓存（5 分钟），适用于高频变更数据（如实时状态、库存）
-// 用法：dao.NewSysUserExampleDao(db, cache, dao.WithShortCache())
 func SysUserExampleWithShortCache() SysUserExampleDaoOption {
 	return func(o *sysUserExampleDaoOptions) {
 		o.cacheConfig = &dao.CacheConfig{
@@ -173,8 +172,7 @@ func SysUserExampleWithShortCache() SysUserExampleDaoOption {
 	}
 }
 
-// WithCustomCache 语义同 WithCacheConfig，为方便阅读保留别名
-// WithCustomCache 与 WithCacheConfig 完全等价，可按需使用
+// SysUserExampleWithCustomCache 使用自定义缓存配置
 func SysUserExampleWithCustomCache(cfg dao.CacheConfig) SysUserExampleDaoOption {
 	return SysUserExampleWithCacheConfig(cfg)
 }

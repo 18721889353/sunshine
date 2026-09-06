@@ -35,8 +35,7 @@ func UserExampleWithUnscoped() UserExampleQueryOption {
 	return dao.WithUnscoped()
 }
 
-// ----- UserExampleDao 接口（与原始接口保持一致，但内部实现委托给 BaseDao） -----
-
+// UserExampleDao 数据访问接口
 type UserExampleDao interface {
 	Create(ctx context.Context, table *model.UserExample) error
 	CreateInBatches(ctx context.Context, tables []*model.UserExample, batchSize int) error
@@ -166,7 +165,6 @@ func UserExampleWithLongCache() UserExampleDaoOption {
 }
 
 // UserExampleWithShortCache 使用短时间缓存（5 分钟），适用于高频变更数据（如实时状态、库存）
-// 用法：dao.NewUserExampleDao(db, cache, dao.WithShortCache())
 func UserExampleWithShortCache() UserExampleDaoOption {
 	return func(o *userExampleDaoOptions) {
 		o.cacheConfig = &dao.CacheConfig{
@@ -175,8 +173,7 @@ func UserExampleWithShortCache() UserExampleDaoOption {
 	}
 }
 
-// WithCustomCache 语义同 WithCacheConfig，为方便阅读保留别名
-// WithCustomCache 与 WithCacheConfig 完全等价，可按需使用
+// UserExampleWithCustomCache 与 UserExampleWithCustomCache 完全等价，可按需使用
 func UserExampleWithCustomCache(cfg dao.CacheConfig) UserExampleDaoOption {
 	return UserExampleWithCacheConfig(cfg)
 }
