@@ -3,37 +3,105 @@ package dao
 
 import "time"
 
+// -------------------- 缓存配置结构体（控制面板） --------------------
+
 // CacheConfig 缓存配置
 // 所有字段均有默认值，用户只需传入需要修改的字段即可
+// 这个结构体就像是缓存系统的“仪表盘”，所有关键参数都在这里集中管理
 type CacheConfig struct {
+	// ==================== 1. 过期时间相关 ====================
+
 	// DefaultExpireTime 正常缓存过期时间，默认 30 分钟
+	// 作用：当数据被成功写入缓存后，多久自动失效。
+	// 为什么是 30 分钟？这是一个经验值：太短（如 1 分钟）会导致缓存命中率低，频繁查数据库；
+	// 太长（如 24 小时）会导致数据更新不及时。
+	// 注意：实际过期时间会在此基础上随机浮动 ±5 分钟（见 GetRandomExpireTime），防止缓存雪崩。
 	DefaultExpireTime time.Duration
+
 	// DefaultNotFoundExpireTime 占位符缓存过期时间，默认 1 分钟
+	// 作用：当查询的数据在数据库中不存在时，缓存一个“空标记”（占位符），防止缓存穿透。
+	// 为什么是 1 分钟？这个时间应该足够短，因为“不存在”这个事实可能因为新数据的插入而改变。
+	// 设为 1 分钟，既能挡住高频穿透请求，又能在数据真正插入后尽快失效，让用户能查到新数据。
 	DefaultNotFoundExpireTime time.Duration
+
+	// ==================== 2. 分布式锁相关 ====================
+
 	// LockRefreshSleepMs 锁获取失败后的等待毫秒数，默认 50ms
+	// 场景：当缓存失效时，大量请求涌来，只有一个请求能拿到分布式锁去查数据库。
+	// 其他没拿到锁的请求，会 sleep 这个时间（50ms），然后重新读缓存。
+	// 为什么是 50ms？这个时间不能太长（否则请求会堆积阻塞），也不能太短（否则 CPU 空转浪费）。
+	// 50ms 是一个合理的折中，配合 singleflight 机制，能让大部分请求在 50ms 内读到新数据。
 	LockRefreshSleepMs int
+
+	// ==================== 3. 缓存一致性相关 ====================
+
 	// DelayedDeleteInterval 延迟双删间隔，默认 100ms
+	// 场景：更新或删除数据后，需要先删除缓存，过一会儿再删一次（延迟双删）。
+	// 为什么需要“双删”？因为在第一次删除缓存后，可能会有其他读请求在瞬间把“旧数据”写回缓存。
+	// 100ms 后第二次删除，能确保把这种“残余旧数据”也清理掉，保证最终一致性。
+	// 这个时间要大于一次数据库主从同步的延迟（通常主从延迟在几十毫秒内）。
 	DelayedDeleteInterval time.Duration
+
+	// ==================== 4. 缓存容量限制（防内存爆炸） ====================
+
 	// MaxCacheableRecords 分页查询最大缓存记录数，默认 1000
+	// 场景：分页查询会把当前页的所有 ID 存到缓存里。
+	// 如果一页有 1 万条记录，缓存这个列表会占用大量 Redis 内存。
+	// 这里限制最大 1000 条，超过这个数量就不缓存该分页结果，直接查数据库。
+	// 这是为了防止“大结果集”撑爆缓存，是保护 Redis 的一道防线。
 	MaxCacheableRecords int
+
 	// MaxCacheableIDs 条件查询最大缓存 ID 数，默认 10000
+	// 场景：GetByCondition 会把满足条件的所有 ID 都缓存起来（比如“所有状态为 1 的用户 ID”）。
+	// 如果符合条件的 ID 有 100 万个，缓存这个巨大的列表会非常消耗内存。
+	// 限制 10000 个，超过则不缓存。同样是为了保护 Redis 内存。
 	MaxCacheableIDs int
+
 	// MaxBatchSize 批量操作批次大小，默认 1000
+	// 场景：GetByIDs 批量查询时，如果一次性传入 10 万个 ID，直接把数据库打崩了。
+	// 这个参数会把大切片拆成多个小批次（每批 1000 个），分批去缓存和数据库查询。
+	// 1000 是一个业界通用的批次大小，既能减少网络往返次数，又不会单次查询过大。
 	MaxBatchSize int
+
+	// ==================== 5. 占位符标记 ====================
+
 	// PlaceholderValue 占位符值，默认 "*"
+	// 作用：当数据不存在时，用这个特殊字符串作为缓存值，表示“这个 ID 查过了，数据库里没有”。
+	// 为什么是 "*"？因为正常的业务数据不可能等于这个字符串（除非你的业务数据真的叫 "*"）。
+	// 这个值用于缓存层判断：如果读到的值是 "*"，就知道是占位符，直接返回“未找到”，不再查数据库。
 	PlaceholderValue string
 }
 
+// -------------------- 默认配置工厂 --------------------
+
 // DefaultCacheConfig 返回默认配置
+// 这是一个“制造默认配置单”的函数，所有字段都设置了经验值。
+// 大部分业务场景下，直接使用这些默认值就能工作得很好。
+// 如果某个业务有特殊需求（比如数据变更频繁需要更短的过期时间），可以创建 CacheConfig 覆盖对应字段。
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
-		DefaultExpireTime:         30 * time.Minute,
+		// 正常缓存 30 分钟
+		DefaultExpireTime: 30 * time.Minute,
+
+		// 占位符 1 分钟（因为“不存在”的状态可能很快改变）
 		DefaultNotFoundExpireTime: 1 * time.Minute,
-		LockRefreshSleepMs:        50,
-		DelayedDeleteInterval:     100 * time.Millisecond,
-		MaxCacheableRecords:       1000,
-		MaxCacheableIDs:           10000,
-		MaxBatchSize:              1000,
-		PlaceholderValue:          "*",
+
+		// 锁等待 50ms（配合 singleflight，让大部分请求快速拿到结果）
+		LockRefreshSleepMs: 50,
+
+		// 延迟双删间隔 100ms（要大于主从同步延迟）
+		DelayedDeleteInterval: 100 * time.Millisecond,
+
+		// 分页最多缓存 1000 条记录（防止大结果集撑爆内存）
+		MaxCacheableRecords: 1000,
+
+		// 条件查询最多缓存 10000 个 ID（同样是为了保护 Redis）
+		MaxCacheableIDs: 10000,
+
+		// 批量操作每批 1000 个（平衡网络开销和数据库压力）
+		MaxBatchSize: 1000,
+
+		// 占位符标记为 "*"（正常数据不可能等于这个字符串）
+		PlaceholderValue: "*",
 	}
 }

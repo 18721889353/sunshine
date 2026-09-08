@@ -271,7 +271,7 @@ func NewUserExampleDao(
 	// 注：如果 cacheAdapter == nil（即无缓存），BaseDao 会忽略 config，但不影响
 
 	// 7. 创建 BaseDao
-	base := dao.NewBaseDao(
+	base := dao.NewBaseDao[model.UserExample](
 		db,
 		cacheAdapter,
 		tableName,
