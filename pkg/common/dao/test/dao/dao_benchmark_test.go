@@ -30,11 +30,11 @@ func int64Ptr(v int64) *int64 {
 
 // ---------- 测试配置 ----------
 var (
-	testDBHost        = "bj-cdb-3hacsolk.sql.tencentcdb.com"
-	testDBPort        = "23163"
-	testDBUser        = "tcbank"
-	testDBPassword    = "tcbank@1234"
-	testDBName        = "coupon_platform"
+	testDBHost        = "127.0.0.1"
+	testDBPort        = "3306"
+	testDBUser        = "root"
+	testDBPassword    = "jianguo123"
+	testDBName        = "sunshine"
 	testRedisHost     = "127.0.0.1:6379"
 	testRedisPassword = "jianguo123"
 )

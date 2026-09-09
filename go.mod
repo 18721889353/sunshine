@@ -10,7 +10,7 @@ require (
 	github.com/alibabacloud-go/darabonba-openapi v0.1.18
 	github.com/alibabacloud-go/dm-20151123 v1.0.4
 	github.com/alibabacloud-go/dysmsapi-20170525/v4 v4.1.3
-	github.com/alicebob/miniredis/v2 v2.35.0
+	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/aliyun/aliyun-log-go-sdk v0.1.117
 	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible
 	github.com/bojand/ghz v0.120.0

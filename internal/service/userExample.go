@@ -15,7 +15,6 @@ import (
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/ecode"
 	"github.com/18721889353/sunshine/internal/model"
-	commonDao "github.com/18721889353/sunshine/pkg/common/dao"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/sgorm/query"
@@ -33,7 +32,7 @@ var _ time.Time
 type userExample struct {
 	serverNameExampleV1.UnimplementedUserExampleServer
 
-	iDao *commonDao.BaseDao[model.UserExample]
+	iDao *dao.UserExampleDao
 }
 
 // NewUserExampleServer create a new service
