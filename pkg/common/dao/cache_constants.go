@@ -104,11 +104,14 @@ const (
 	DeleteDaoTypeAll = "all"
 )
 
-// ==================== 第六组：特殊排序标记（性能优化） ====================
+// ==================== 第六组：分页查询相关常量 ====================
 
 // SortIgnoreCount 排序忽略统计常量
 // 适用场景：GetByColumns 分页查询时，如果传了 Sort = "ignore count"，
 // 框架会跳过 SELECT COUNT(*) 这一步，只查当前页的数据。
 // 为什么要这么设计？有些前端场景（比如“下拉加载更多”）只需要返回数据列表，不需要知道总条数。
 // 跳过 COUNT 可以大幅提升查询性能（尤其是在数据量巨大时）。
+//
+// 注意：此常量与 query.SortIgnoreCount 相同，用于兼容现有代码。
+// 新代码建议直接使用 query.SortIgnoreCount。
 const SortIgnoreCount = "ignore count"

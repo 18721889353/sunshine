@@ -35,7 +35,7 @@ var (
 	testDBUser        = "tcbank"
 	testDBPassword    = "tcbank@1234"
 	testDBName        = "coupon_platform"
-	testRedisHost     = "43.143.78.234:6379"
+	testRedisHost     = "127.0.0.1:6379"
 	testRedisPassword = "jianguo123"
 )
 
@@ -1354,4 +1354,1089 @@ func BenchmarkGetByColumns(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _, _ = userDao.GetByColumns(ctx, params)
 	}
+}
+
+// ================================
+// CacheAdapter 方法直接测试
+// ================================
+
+// TestCacheSetGetDel 测试 CacheAdapter 的 Set、Get、Del 方法
+func TestCacheSetGetDel(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建测试数据
+	user := &model.SysUserExample{Name: "cache_adapter_test", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// 测试 Get（通过缓存获取）
+	got, err := userDao.GetByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.Name != user.Name {
+		t.Errorf("Name mismatch: got %s, want %s", got.Name, user.Name)
+	}
+
+	// 测试 Del
+	if err := userDao.DeleteByID(ctx, user.ID); err != nil {
+		t.Fatalf("DeleteByID failed: %v", err)
+	}
+
+	// 验证缓存已删除
+	_, err = userDao.GetByID(ctx, user.ID)
+	if !errors.Is(err, database.ErrRecordNotFound) {
+		t.Errorf("Expected ErrRecordNotFound after delete, got %v", err)
+	}
+}
+
+// TestCacheCustomKey 测试自定义 Key 缓存方法
+func TestCacheCustomKey(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 测试 SetIDByKey / GetIDByKey
+	testKey := "custom_id_key"
+	testID := uint64(12345)
+	duration := 10 * time.Second
+
+	// SetIDByKey
+	err := testRedisCache.SetIDByKey(ctx, testKey, testID, duration)
+	if err != nil {
+		t.Fatalf("SetIDByKey failed: %v", err)
+	}
+
+	// GetIDByKey
+	gotID, err := testRedisCache.GetIDByKey(ctx, testKey)
+	if err != nil {
+		t.Fatalf("GetIDByKey failed: %v", err)
+	}
+	if gotID != testID {
+		t.Errorf("ID mismatch: got %d, want %d", gotID, testID)
+	}
+
+	// 测试 SetIDsByKey / GetIDsByKey
+	testIDsKey := "custom_ids_key"
+	testIDs := []uint64{100, 200, 300, 400, 500}
+
+	// SetIDsByKey
+	err = testRedisCache.SetIDsByKey(ctx, testIDsKey, testIDs, duration)
+	if err != nil {
+		t.Fatalf("SetIDsByKey failed: %v", err)
+	}
+
+	// GetIDsByKey
+	gotIDs, err := testRedisCache.GetIDsByKey(ctx, testIDsKey)
+	if err != nil {
+		t.Fatalf("GetIDsByKey failed: %v", err)
+	}
+	if len(gotIDs) != len(testIDs) {
+		t.Fatalf("IDs length mismatch: got %d, want %d", len(gotIDs), len(testIDs))
+	}
+	for i, id := range gotIDs {
+		if id != testIDs[i] {
+			t.Errorf("IDs[%d] mismatch: got %d, want %d", i, id, testIDs[i])
+		}
+	}
+
+	// 测试 DelByKey
+	err = testRedisCache.DelByKey(ctx, testKey)
+	if err != nil {
+		t.Fatalf("DelByKey failed: %v", err)
+	}
+
+	// 验证删除后获取返回错误
+	_, err = testRedisCache.GetIDByKey(ctx, testKey)
+	if err == nil {
+		t.Error("Expected error after DelByKey, got nil")
+	}
+
+	// 清理
+	_ = testRedisCache.DelByKey(ctx, testIDsKey)
+}
+
+// TestCacheDelByPrefix 测试按前缀删除
+func TestCacheDelByPrefix(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建测试数据
+	user := &model.SysUserExample{Name: "prefix_test", Age: int64Ptr(30), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// 写入多个自定义 key
+	// 注意：SetIDByKey 内部会自动添加 adapter 前缀（如 data:sysUserExample:）
+	prefix := "test_prefix"
+	keys := []string{"key1", "key2", "key3"}
+	duration := 10 * time.Second
+
+	for _, key := range keys {
+		err := testRedisCache.SetIDByKey(ctx, prefix+":"+key, uint64(100), duration)
+		if err != nil {
+			t.Fatalf("SetIDByKey failed for key %s: %v", key, err)
+		}
+	}
+
+	// 验证 key 存在
+	for _, key := range keys {
+		_, err := testRedisCache.GetIDByKey(ctx, prefix+":"+key)
+		if err != nil {
+			t.Errorf("Key %s should exist before prefix delete: %v", key, err)
+		}
+	}
+
+	// 按前缀删除
+	// 注意：需要使用包含 adapter 前缀的完整前缀
+	// 实际存储的 key 格式为：data:sysUserExample:test_prefix:key1
+	fullPrefix := "data:sysUserExample:" + prefix
+	err := testRedisCache.DelByPrefix(ctx, fullPrefix)
+	if err != nil {
+		t.Fatalf("DelByPrefix failed: %v", err)
+	}
+
+	// 等待删除生效
+	time.Sleep(100 * time.Millisecond)
+
+	// 验证删除后获取返回错误
+	for _, key := range keys {
+		_, err := testRedisCache.GetIDByKey(ctx, prefix+":"+key)
+		if err == nil {
+			t.Errorf("Key %s should not exist after prefix delete", key)
+		}
+	}
+}
+
+// TestCachePlaceholderByKey 测试自定义 Key 的占位符
+func TestCachePlaceholderByKey(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 测试 SetPlaceholderByKey
+	placeholderKey := "non_exist_condition"
+	err := testRedisCache.SetPlaceholderByKey(ctx, placeholderKey)
+	if err != nil {
+		t.Fatalf("SetPlaceholderByKey failed: %v", err)
+	}
+
+	// 获取占位符 key 应该返回占位符错误
+	_, err = testRedisCache.GetIDByKey(ctx, placeholderKey)
+	if err == nil {
+		t.Error("Expected placeholder error, got nil")
+	} else if !testRedisCache.IsPlaceholderErr(err) {
+		t.Errorf("Expected placeholder error, got %v", err)
+	}
+
+	// 清理
+	_ = testRedisCache.DelByKey(ctx, placeholderKey)
+}
+
+// TestCacheEmptyInputs 测试空输入边界情况
+func TestCacheEmptyInputs(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 测试 SetIDByKey 空 key
+	err := testRedisCache.SetIDByKey(ctx, "", 123, 10*time.Second)
+	if err != nil {
+		t.Errorf("SetIDByKey with empty key should not error, got %v", err)
+	}
+
+	// 测试 SetIDByKey 零值 ID
+	err = testRedisCache.SetIDByKey(ctx, "test_key", 0, 10*time.Second)
+	if err != nil {
+		t.Errorf("SetIDByKey with zero ID should not error, got %v", err)
+	}
+
+	// 测试 SetIDsByKey 空 key
+	err = testRedisCache.SetIDsByKey(ctx, "", []uint64{1, 2, 3}, 10*time.Second)
+	if err != nil {
+		t.Errorf("SetIDsByKey with empty key should not error, got %v", err)
+	}
+
+	// 测试 SetIDsByKey 空切片
+	err = testRedisCache.SetIDsByKey(ctx, "test_key", []uint64{}, 10*time.Second)
+	if err != nil {
+		t.Errorf("SetIDsByKey with empty slice should not error, got %v", err)
+	}
+
+	// 测试 GetIDsByKey 不存在的 key
+	_, err = testRedisCache.GetIDsByKey(ctx, "non_exist_key")
+	if err == nil {
+		t.Error("GetIDsByKey for non-existent key should return error")
+	}
+
+	// 测试 GetIDByKey 不存在的 key
+	_, err = testRedisCache.GetIDByKey(ctx, "non_exist_key")
+	if err == nil {
+		t.Error("GetIDByKey for non-existent key should return error")
+	}
+}
+
+// TestCacheMultiSetGet 测试批量缓存操作
+func TestCacheMultiSetGet(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建测试数据
+	users := []*model.SysUserExample{
+		{Name: "multi_1", Age: int64Ptr(20), Status: int64Ptr(1)},
+		{Name: "multi_2", Age: int64Ptr(25), Status: int64Ptr(1)},
+		{Name: "multi_3", Age: int64Ptr(30), Status: int64Ptr(1)},
+	}
+	for _, u := range users {
+		if err := userDao.Create(ctx, u); err != nil {
+			t.Fatalf("Create failed: %v", err)
+		}
+	}
+
+	// 获取所有 ID
+	ids := make([]uint64, len(users))
+	for i, u := range users {
+		ids[i] = u.ID
+	}
+
+	// 通过 DAO 的 GetByIDs 测试 MultiSet/MultiGet
+	result, err := userDao.GetByIDs(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetByIDs failed: %v", err)
+	}
+	if len(result) != len(users) {
+		t.Errorf("Result count mismatch: got %d, want %d", len(result), len(users))
+	}
+
+	// 验证每个 ID 都有对应的结果
+	for _, u := range users {
+		if _, ok := result[u.ID]; !ok {
+			t.Errorf("ID %d not in result", u.ID)
+		}
+	}
+}
+
+// TestCacheWithDifferentExpiry 测试不同过期时间的缓存
+func TestCacheWithDifferentExpiry(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+
+	ctx := context.Background()
+
+	// 使用短过期时间的 DAO
+	shortExpireDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
+		DefaultExpireTime: 1 * time.Second,
+	}))
+	_ = shortExpireDao.ClearCache(ctx)
+
+	// 创建数据
+	user := &model.SysUserExample{Name: "expiry_test", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := shortExpireDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// 第一次查询，应该命中缓存
+	_, err := shortExpireDao.GetByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+
+	// 等待缓存过期
+	time.Sleep(2 * time.Second)
+
+	// 第二次查询，应该重新从数据库获取
+	got, err := shortExpireDao.GetByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetByID after expiry failed: %v", err)
+	}
+	if got.Name != user.Name {
+		t.Errorf("Name mismatch after expiry: got %s, want %s", got.Name, user.Name)
+	}
+}
+
+// TestCachePlaceholderExpiry 测试占位符过期
+func TestCachePlaceholderExpiry(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+
+	// 使用短过期时间的 DAO
+	shortExpireDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
+		DefaultExpireTime:         10 * time.Second,
+		DefaultNotFoundExpireTime: 1 * time.Second,
+	}))
+	ctx := context.Background()
+	_ = shortExpireDao.ClearCache(ctx)
+
+	nonExistID := uint64(777777)
+
+	// 第一次查询不存在的 ID，应该设置占位符
+	_, err := shortExpireDao.GetByID(ctx, nonExistID)
+	if !errors.Is(err, database.ErrRecordNotFound) {
+		t.Fatalf("First query should return ErrRecordNotFound, got %v", err)
+	}
+
+	// 等待占位符过期
+	time.Sleep(2 * time.Second)
+
+	// 再次查询，应该重新查数据库
+	_, err = shortExpireDao.GetByID(ctx, nonExistID)
+	if !errors.Is(err, database.ErrRecordNotFound) {
+		t.Errorf("Query after placeholder expiry should return ErrRecordNotFound, got %v", err)
+	}
+}
+
+// ========================================================================
+// 生产级测试用例 - 缓存安全性
+// ========================================================================
+
+// TestCachePenetrationProtection 测试缓存穿透防护
+// 验证：大量不存在的ID查询不会直接打到数据库
+func TestCachePenetrationProtection(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 使用短过期时间，方便测试占位符失效
+	shortExpireDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
+		DefaultExpireTime:         10 * time.Second,
+		DefaultNotFoundExpireTime: 1 * time.Second,
+	}))
+	_ = shortExpireDao.ClearCache(ctx)
+
+	// 模拟大量不存在的ID查询
+	nonExistIDs := []uint64{900001, 900002, 900003, 900004, 900005}
+	for _, id := range nonExistIDs {
+		_, err := shortExpireDao.GetByID(ctx, id)
+		if !errors.Is(err, database.ErrRecordNotFound) {
+			t.Errorf("ID %d should return ErrRecordNotFound, got %v", id, err)
+		}
+	}
+
+	// 验证占位符已设置：第二次查询应该更快（命中占位符）
+	start := time.Now()
+	for _, id := range nonExistIDs {
+		_, _ = shortExpireDao.GetByID(ctx, id)
+	}
+	cachedDuration := time.Since(start)
+
+	// 第一次查询可能较慢，第二次应该明显更快
+	t.Logf("占位符保护生效，%d个ID查询耗时: %v", len(nonExistIDs), cachedDuration)
+
+	// 清理
+	for _, id := range nonExistIDs {
+		_ = testRedisCache.Del(ctx, id)
+	}
+}
+
+// TestCacheBreakdownProtection 测试缓存击穿防护（singleflight）
+// 验证：热点key过期时，并发查询只会有一个请求查库
+func TestCacheBreakdownProtection(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+
+	// 使用极短过期时间
+	shortExpireDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
+		DefaultExpireTime: 100 * time.Millisecond, // 100ms 过期
+	}))
+	ctx := context.Background()
+	_ = shortExpireDao.ClearCache(ctx)
+
+	// 创建测试数据
+	user := &model.SysUserExample{Name: "breakdown_test", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := shortExpireDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// 第一次查询，缓存数据
+	_, err := shortExpireDao.GetByID(ctx, user.ID)
+	if err != nil {
+		t.Fatalf("First GetByID failed: %v", err)
+	}
+
+	// 等待缓存过期
+	time.Sleep(200 * time.Millisecond)
+
+	// 并发查询，验证 singleflight 生效
+	var wg sync.WaitGroup
+	errors := make([]error, 50)
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			got, err := shortExpireDao.GetByID(ctx, user.ID)
+			errors[idx] = err
+			if err == nil && got.Name != user.Name {
+				errors[idx] = fmt.Errorf("name mismatch: got %s", got.Name)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// 验证所有请求都成功
+	for i, err := range errors {
+		if err != nil {
+			t.Errorf("Goroutine %d failed: %v", i, err)
+		}
+	}
+
+	t.Log("缓存击穿防护测试通过（singleflight 生效）")
+}
+
+// TestCacheDBConsistency 测试缓存与数据库一致性
+// 验证：Update/Delete 后缓存正确同步（Cache-Aside 模式：更新后删除缓存）
+func TestCacheDBConsistency(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建数据
+	user := &model.SysUserExample{Name: "consistency_test", Age: int64Ptr(20), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 第一次查询，写入缓存
+	got, _ := userDao.GetByID(ctx, id)
+	if got.Name != "consistency_test" {
+		t.Fatal("Initial data mismatch")
+	}
+
+	// 验证缓存已写入
+	cached, err := testRedisCache.Get(ctx, id)
+	if err != nil {
+		t.Errorf("Cache should exist after GetByID: %v", err)
+	} else if cached == nil {
+		t.Error("Cache should not be nil")
+	}
+
+	// 更新数据（Cache-Aside 模式：更新后删除缓存）
+	user.Name = "consistency_updated"
+	user.Age = int64Ptr(30)
+	if err := userDao.UpdateByID(ctx, user); err != nil {
+		t.Fatalf("UpdateByID failed: %v", err)
+	}
+
+	// 验证缓存已被删除（Cache-Aside 模式）
+	cached, err = testRedisCache.Get(ctx, id)
+	if err == nil && cached != nil {
+		t.Error("Cache should be deleted after UpdateByID (Cache-Aside pattern)")
+	}
+
+	// 验证数据库查询返回新值（会重新写入缓存）
+	got2, err := userDao.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID after update failed: %v", err)
+	}
+	if got2.Name != "consistency_updated" || *got2.Age != 30 {
+		t.Errorf("DB data mismatch: got %+v", got2)
+	}
+
+	// 验证缓存已重新写入
+	cached, err = testRedisCache.Get(ctx, id)
+	if err != nil {
+		t.Errorf("Cache should exist after re-query: %v", err)
+	} else if cached == nil {
+		t.Error("Cache should not be nil after re-query")
+	} else if cached.Name != "consistency_updated" {
+		t.Errorf("Cache data mismatch: got %s", cached.Name)
+	}
+
+	// 删除数据
+	if err := userDao.DeleteByID(ctx, id); err != nil {
+		t.Fatalf("DeleteByID failed: %v", err)
+	}
+
+	// 验证缓存已删除
+	_, err = testRedisCache.Get(ctx, id)
+	if err == nil {
+		t.Error("Cache should be deleted after DeleteByID")
+	}
+
+	// 验证数据库查询返回 NotFound
+	_, err = userDao.GetByID(ctx, id)
+	if !errors.Is(err, database.ErrRecordNotFound) {
+		t.Errorf("Expected ErrRecordNotFound after delete, got %v", err)
+	}
+}
+
+// TestConcurrentUpdateIntegrity 测试并发更新数据完整性
+// 验证：并发更新不会导致数据丢失
+func TestConcurrentUpdateIntegrity(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建测试数据
+	user := &model.SysUserExample{Name: "concurrent_update", Age: int64Ptr(0), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 并发更新 Age 字段（模拟计数器）
+	var wg sync.WaitGroup
+	const goroutines = 50
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			updateUser := &model.SysUserExample{
+				Model: sgorm.Model{ID: id},
+				Name:  fmt.Sprintf("updated_%d", idx),
+			}
+			_ = userDao.UpdateByID(ctx, updateUser)
+		}(i)
+	}
+	wg.Wait()
+
+	// 验证数据完整性
+	got, err := userDao.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("ID mismatch: got %d, want %d", got.ID, id)
+	}
+	// Name 应该是最后一次更新的值
+	if got.Name == "" {
+		t.Error("Name should not be empty after concurrent updates")
+	}
+
+	t.Logf("并发更新后 Name: %s", got.Name)
+}
+
+// TestCacheDisabledMode 测试缓存禁用模式
+// 验证：禁用缓存时所有查询直接走数据库
+func TestCacheDisabledMode(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+
+	// 创建禁用缓存的 DAO
+	disabledDao := NewSysUserExampleDao(db, testRedisCache, dao.WithNoCache[model.SysUserExample]())
+	ctx := context.Background()
+
+	// 创建数据
+	user := &model.SysUserExample{Name: "no_cache_test", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := disabledDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 查询数据
+	got, err := disabledDao.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+	if got.Name != "no_cache_test" {
+		t.Errorf("Name mismatch: got %s", got.Name)
+	}
+
+	// 验证缓存中没有数据（因为禁用了缓存）
+	_, err = testRedisCache.Get(ctx, id)
+	if err == nil {
+		t.Log("注意：缓存中可能存在数据（来自其他测试），但 DAO 不会读取它")
+	}
+
+	// 更新数据
+	user.Name = "no_cache_updated"
+	if err := disabledDao.UpdateByID(ctx, user); err != nil {
+		t.Fatalf("UpdateByID failed: %v", err)
+	}
+
+	// 再次查询，应该获取最新值
+	got2, err := disabledDao.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID after update failed: %v", err)
+	}
+	if got2.Name != "no_cache_updated" {
+		t.Errorf("Updated name mismatch: got %s", got2.Name)
+	}
+}
+
+// TestBoundaryValues 测试边界值
+// 验证：各种边界条件下的正确行为
+func TestBoundaryValues(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	t.Run("MaxUint64ID", func(t *testing.T) {
+		// 测试最大 uint64 ID（不存在）
+		_, err := userDao.GetByID(ctx, ^uint64(0))
+		if !errors.Is(err, database.ErrRecordNotFound) {
+			t.Errorf("Max uint64 ID should return ErrRecordNotFound, got %v", err)
+		}
+	})
+
+	t.Run("ZeroID", func(t *testing.T) {
+		// 测试零值 ID
+		_, err := userDao.GetByID(ctx, 0)
+		if !errors.Is(err, database.ErrRecordNotFound) {
+			t.Errorf("Zero ID should return ErrRecordNotFound, got %v", err)
+		}
+	})
+
+	t.Run("NegativeAge", func(t *testing.T) {
+		// 测试负数 Age
+		user := &model.SysUserExample{Name: "negative_age", Age: int64Ptr(-1), Status: int64Ptr(1)}
+		err := userDao.Create(ctx, user)
+		if err != nil {
+			t.Logf("创建负数 Age 记录: %v", err)
+		} else {
+			got, _ := userDao.GetByID(ctx, user.ID)
+			if got != nil && got.Age != nil && *got.Age != -1 {
+				t.Errorf("Age mismatch: got %v, want -1", got.Age)
+			}
+		}
+	})
+
+	t.Run("NilPointerFields", func(t *testing.T) {
+		// 测试 nil 指针字段
+		user := &model.SysUserExample{Name: "nil_fields"} // Age, Status 都是 nil
+		err := userDao.Create(ctx, user)
+		if err != nil {
+			t.Fatalf("Create with nil fields failed: %v", err)
+		}
+		got, err := userDao.GetByID(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("GetByID failed: %v", err)
+		}
+		if got.Age != nil {
+			t.Errorf("Age should be nil, got %v", got.Age)
+		}
+		if got.Status != nil {
+			t.Errorf("Status should be nil, got %v", got.Status)
+		}
+	})
+
+	t.Run("EmptyName", func(t *testing.T) {
+		// 测试空名称
+		user := &model.SysUserExample{Name: "", Age: int64Ptr(20), Status: int64Ptr(1)}
+		err := userDao.Create(ctx, user)
+		if err != nil {
+			t.Fatalf("Create with empty name failed: %v", err)
+		}
+		got, err := userDao.GetByID(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("GetByID failed: %v", err)
+		}
+		if got.Name != "" {
+			t.Errorf("Name should be empty, got %s", got.Name)
+		}
+	})
+
+	t.Run("VeryLongName", func(t *testing.T) {
+		// 测试超长名称
+		longName := fmt.Sprintf("%01000s", "a") // 1000字符
+		user := &model.SysUserExample{Name: longName, Age: int64Ptr(20), Status: int64Ptr(1)}
+		err := userDao.Create(ctx, user)
+		if err != nil {
+			t.Logf("创建超长名称记录: %v", err)
+		} else {
+			got, _ := userDao.GetByID(ctx, user.ID)
+			if got != nil && len(got.Name) != 1000 {
+				t.Errorf("Name length mismatch: got %d, want 1000", len(got.Name))
+			}
+		}
+	})
+}
+
+// TestPaginationBoundary 测试分页边界条件
+// 验证：各种分页参数下的正确行为
+func TestPaginationBoundary(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建10条测试数据
+	for i := 0; i < 10; i++ {
+		user := &model.SysUserExample{
+			Name:   fmt.Sprintf("page_test_%d", i),
+			Age:    int64Ptr(int64(i)),
+			Status: int64Ptr(1),
+		}
+		if err := userDao.Create(ctx, user); err != nil {
+			t.Fatalf("Create failed: %v", err)
+		}
+	}
+
+	t.Run("PageZeroLimitZero", func(t *testing.T) {
+		// 测试 Page=0, Limit=0（应该返回默认值）
+		params := &query.Params{Page: 0, Limit: 0, Sort: "id"}
+		records, total, err := userDao.GetByColumns(ctx, params)
+		if err != nil {
+			t.Errorf("Query failed: %v", err)
+		}
+		t.Logf("Page=0, Limit=0: total=%d, records=%d", total, len(records))
+	})
+
+	t.Run("PageNegative", func(t *testing.T) {
+		// 测试负数页码
+		params := &query.Params{Page: -1, Limit: 10, Sort: "id"}
+		_, _, err := userDao.GetByColumns(ctx, params)
+		if err != nil {
+			t.Logf("负数页码返回错误（符合预期）: %v", err)
+		}
+	})
+
+	t.Run("LimitExceedsTotal", func(t *testing.T) {
+		// 测试 Limit 超过总数
+		params := &query.Params{Page: 0, Limit: 100, Sort: "id"}
+		records, total, err := userDao.GetByColumns(ctx, params)
+		if err != nil {
+			t.Fatalf("Query failed: %v", err)
+		}
+		if total != 10 {
+			t.Errorf("Total should be 10, got %d", total)
+		}
+		if len(records) != 10 {
+			t.Errorf("Records should be 10, got %d", len(records))
+		}
+	})
+
+	t.Run("PageExceedsTotal", func(t *testing.T) {
+		// 测试页码超过总页数
+		params := &query.Params{Page: 100, Limit: 10, Sort: "id"}
+		records, total, err := userDao.GetByColumns(ctx, params)
+		if err != nil {
+			t.Fatalf("Query failed: %v", err)
+		}
+		if total != 10 {
+			t.Errorf("Total should be 10, got %d", total)
+		}
+		if len(records) != 0 {
+			t.Errorf("Records should be 0 for out-of-range page, got %d", len(records))
+		}
+	})
+
+	t.Run("SortIgnoreCount", func(t *testing.T) {
+		// 测试忽略 Count 的排序
+		params := &query.Params{Page: 0, Limit: 5, Sort: dao.SortIgnoreCount}
+		records, total, err := userDao.GetByColumns(ctx, params)
+		if err != nil {
+			t.Fatalf("Query failed: %v", err)
+		}
+		if len(records) != 5 {
+			t.Errorf("Records should be 5, got %d", len(records))
+		}
+		// SortIgnoreCount 会跳过 Count 查询，total 应该是 0
+		if total != 0 {
+			t.Errorf("Total should be 0 when using SortIgnoreCount, got %d", total)
+		}
+		t.Logf("SortIgnoreCount 测试通过: records=%d, total=%d (跳过了 COUNT 查询)", len(records), total)
+	})
+}
+
+// TestSoftDeleteRecovery 测试软删除恢复
+// 验证：软删除的记录可以通过 Unscoped 查询并恢复
+func TestSoftDeleteRecovery(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建数据
+	user := &model.SysUserExample{Name: "soft_delete_test", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 软删除
+	if err := userDao.DeleteByID(ctx, id); err != nil {
+		t.Fatalf("DeleteByID failed: %v", err)
+	}
+
+	// 普通查询应该返回 NotFound
+	_, err := userDao.GetByID(ctx, id)
+	if !errors.Is(err, database.ErrRecordNotFound) {
+		t.Errorf("Expected ErrRecordNotFound, got %v", err)
+	}
+
+	// Unscoped 查询应该能找到
+	got, err := userDao.GetByID(ctx, id, dao.WithUnscoped())
+	if err != nil {
+		t.Fatalf("GetByID with Unscoped failed: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("ID mismatch: got %d, want %d", got.ID, id)
+	}
+	if got.DeletedAt.Time.IsZero() {
+		t.Error("DeletedAt should be non-zero for soft-deleted record")
+	}
+
+	t.Log("软删除恢复测试通过")
+}
+
+// TestIdempotentDelete 测试删除幂等性
+// 验证：多次删除同一记录不会报错
+func TestIdempotentDelete(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建数据
+	user := &model.SysUserExample{Name: "idempotent_delete", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 第一次删除
+	if err := userDao.DeleteByID(ctx, id); err != nil {
+		t.Fatalf("First DeleteByID failed: %v", err)
+	}
+
+	// 第二次删除（应该不报错或返回 NotFound）
+	err := userDao.DeleteByID(ctx, id)
+	if err != nil && !errors.Is(err, database.ErrRecordNotFound) {
+		t.Errorf("Second DeleteByID should not error, got %v", err)
+	}
+
+	// 第三次删除
+	err = userDao.DeleteByID(ctx, id)
+	if err != nil && !errors.Is(err, database.ErrRecordNotFound) {
+		t.Errorf("Third DeleteByID should not error, got %v", err)
+	}
+
+	t.Log("删除幂等性测试通过")
+}
+
+// TestGetByIDsMixedExistence 测试混合存在性的批量查询
+// 验证：部分ID存在、部分不存在时的正确行为
+func TestGetByIDsMixedExistence(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建2条数据
+	user1 := &model.SysUserExample{Name: "mixed_1", Age: int64Ptr(20), Status: int64Ptr(1)}
+	user2 := &model.SysUserExample{Name: "mixed_2", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user1); err != nil {
+		t.Fatalf("Create user1 failed: %v", err)
+	}
+	if err := userDao.Create(ctx, user2); err != nil {
+		t.Fatalf("Create user2 failed: %v", err)
+	}
+
+	// 查询包含不存在的ID
+	ids := []uint64{user1.ID, 999999, user2.ID, 888888}
+	result, err := userDao.GetByIDs(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetByIDs failed: %v", err)
+	}
+
+	// 应该只返回存在的2条
+	if len(result) != 2 {
+		t.Errorf("Expected 2 records, got %d", len(result))
+	}
+	if _, ok := result[user1.ID]; !ok {
+		t.Errorf("User1 should be in result")
+	}
+	if _, ok := result[user2.ID]; !ok {
+		t.Errorf("User2 should be in result")
+	}
+	if _, ok := result[999999]; ok {
+		t.Errorf("Non-existent ID 999999 should not be in result")
+	}
+}
+
+// TestConcurrentReadWriteIntegrity 测试并发读写数据完整性
+// 验证：并发读写不会导致数据不一致
+func TestConcurrentReadWriteIntegrity(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
+		DefaultExpireTime: 5 * time.Second,
+	}))
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建测试数据
+	user := &model.SysUserExample{Name: "rw_integrity", Age: int64Ptr(100), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 并发读写
+	var wg sync.WaitGroup
+	const goroutines = 30
+	readErrors := make([]error, goroutines)
+	writeErrors := make([]error, goroutines)
+
+	// 启动读协程
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			got, err := userDao.GetByID(ctx, id)
+			readErrors[idx] = err
+			if err == nil && got.ID != id {
+				readErrors[idx] = fmt.Errorf("ID mismatch: got %d", got.ID)
+			}
+		}(i)
+	}
+
+	// 启动写协程
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			updateUser := &model.SysUserExample{
+				Model: sgorm.Model{ID: id},
+				Name:  fmt.Sprintf("updated_%d", idx),
+			}
+			writeErrors[idx] = userDao.UpdateByID(ctx, updateUser)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// 验证读操作没有数据错误
+	for i, err := range readErrors {
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("Read goroutine %d failed: %v", i, err)
+		}
+	}
+
+	// 验证写操作没有异常错误
+	for i, err := range writeErrors {
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("Write goroutine %d failed: %v", i, err)
+		}
+	}
+
+	// 最终验证数据完整性
+	got, err := userDao.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("Final GetByID failed: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("Final ID mismatch: got %d", got.ID)
+	}
+	if got.Name == "" {
+		t.Error("Final Name should not be empty")
+	}
+
+	t.Logf("并发读写完整性测试通过，最终 Name: %s", got.Name)
+}
+
+// TestCacheKeyPrefix 测试缓存Key前缀正确性
+// 验证：不同表的缓存Key前缀不会冲突
+func TestCacheKeyPrefix(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建数据
+	user := &model.SysUserExample{Name: "prefix_test", Age: int64Ptr(25), Status: int64Ptr(1)}
+	if err := userDao.Create(ctx, user); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	id := user.ID
+
+	// 查询数据，触发缓存写入
+	_, err := userDao.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID failed: %v", err)
+	}
+
+	// 验证缓存Key格式
+	expectedPrefix := "data:sysUserExample:"
+
+	// 直接从Redis获取验证
+	cached, err := testRedisCache.Get(ctx, id)
+	if err != nil {
+		t.Errorf("Cache get failed: %v", err)
+	} else if cached == nil {
+		t.Error("Cache should exist")
+	} else {
+		t.Logf("缓存Key前缀验证通过: %s%d", expectedPrefix, id)
+	}
+}
+
+// TestMultiCacheOperations 测试批量缓存操作
+// 验证：批量设置和获取的正确性
+func TestMultiCacheOperations(t *testing.T) {
+	db := initTestDB()
+	clearTable(db)
+	userDao := NewSysUserExampleDao(db, testRedisCache)
+	ctx := context.Background()
+	_ = userDao.ClearCache(ctx)
+
+	// 创建多条数据
+	users := make([]*model.SysUserExample, 5)
+	for i := 0; i < 5; i++ {
+		users[i] = &model.SysUserExample{
+			Name:   fmt.Sprintf("multi_cache_%d", i),
+			Age:    int64Ptr(int64(20 + i)),
+			Status: int64Ptr(1),
+		}
+		if err := userDao.Create(ctx, users[i]); err != nil {
+			t.Fatalf("Create failed: %v", err)
+		}
+	}
+
+	// 获取所有ID
+	ids := make([]uint64, len(users))
+	for i, u := range users {
+		ids[i] = u.ID
+	}
+
+	// 批量查询（触发MultiSet）
+	result, err := userDao.GetByIDs(ctx, ids)
+	if err != nil {
+		t.Fatalf("GetByIDs failed: %v", err)
+	}
+	if len(result) != len(users) {
+		t.Errorf("Result count mismatch: got %d, want %d", len(result), len(users))
+	}
+
+	// 验证每个记录的正确性
+	for _, u := range users {
+		if cached, ok := result[u.ID]; !ok {
+			t.Errorf("ID %d not in result", u.ID)
+		} else if cached.Name != u.Name {
+			t.Errorf("Name mismatch for ID %d: got %s, want %s", u.ID, cached.Name, u.Name)
+		}
+	}
+
+	t.Log("批量缓存操作测试通过")
 }

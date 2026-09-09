@@ -83,9 +83,19 @@ func (m *cacheManager[T]) getSingleCachePrefix() string {
 //   - ctx：上下文
 //   - id：要查询的记录 ID（uint64）
 //   - queryFunc：当缓存未命中时，调用这个函数去数据库查询
+//   - opts：查询选项（如 ForceMaster、Unscoped）
 //
 // 返回：记录指针 *T，或错误
-func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (*T, error)) (*T, error) {
+func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (*T, error), opts ...QueryOption) (*T, error) {
+	// 应用查询选项
+	cfg := ApplyOptions(opts...)
+
+	// 【特殊处理】如果设置了 Unscoped，跳过缓存直接查数据库
+	// 因为 Unscoped 查询需要获取包含软删除的记录，缓存无法区分
+	if cfg.Unscoped {
+		return queryFunc()
+	}
+
 	// 【步骤1】先尝试从缓存中读取
 	record, err := m.cache.Get(ctx, id)
 	if err == nil {
@@ -95,94 +105,91 @@ func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (
 
 	// 【步骤2】如果缓存返回的是"未找到"（ErrCacheNotFound），说明缓存里没有这个 key
 	if errors.Is(err, database.ErrCacheNotFound) {
-		// 进入 singleflight 流程：把针对同一个 ID 的并发请求合并成一个
-		// sfg.Do 的参数：
-		//   - key：用 ID 的字符串表示（如 "123"）作为去重键
-		//   - fn：实际执行查询的函数（只会有 1 个请求执行它）
-		val, sfErr, _ := m.sfg.Do(fmt.Sprintf("%d", id), func() (interface{}, error) {
-			// 【步骤3】构建分布式锁的 Key
-			// 格式："lock:refresh:123"
-			lockKey := BuildLockKey(LockKeyPrefixRefresh, fmt.Sprintf("%d", id))
-
-			// 【步骤4】尝试获取分布式锁（非阻塞，只尝试一次）
-			lock, lockErr := m.cache.GetLock(ctx, lockKey)
-
-			// 【步骤5】如果拿到了锁（lock != nil），确保函数退出时释放锁
-			if lock != nil {
-				defer func() {
-					// 使用独立的上下文来释放锁，避免因原上下文超时而无法释放
-					unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-					defer cancel()
-					if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
-						logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
-					}
-				}()
-			}
-
-			// 【步骤6】如果成功拿到锁，说明当前节点是"主执行者"
-			if lockErr == nil {
-				// 再次检查缓存（Double-Check）：可能在获取锁的过程中，别的节点已经把数据写进缓存了
-				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
-					return record, nil
-				}
-			} else {
-				// 【步骤7】如果没拿到锁（被其他节点占用了），等待一小段时间（默认 50ms）
-				time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-				// 然后再次检查缓存（很可能其他节点已经查完数据库并回填了缓存）
-				if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
-					return record, nil
-				}
-			}
-
-			// 【步骤8】缓存依然没有数据，执行 queryFunc 去数据库查询
-			table, dbErr := queryFunc()
-
-			if dbErr != nil {
-				// 如果数据库返回"记录不存在"
-				if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-					// 【步骤9】设置占位符，防止缓存穿透
-					// 例如：在 Redis 里存 key="123"，value="*"，过期时间 1 分钟
-					if setErr := m.cache.SetPlaceholder(ctx, id); setErr != nil {
-						logger.WarnWithCtx(ctx, "set placeholder failed", logger.Err(setErr))
-					}
-					// 返回"记录不存在"错误
-					return nil, database.ErrRecordNotFound
-				}
-				// 其他数据库错误，直接返回
-				return nil, dbErr
-			}
-
-			// 【步骤10】数据库查询成功，把结果写入缓存
-			// 生成随机过期时间（在基础时间上 ±5 分钟随机偏移，防雪崩）
-			expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-			if setErr := m.cache.Set(ctx, id, table, expire); setErr != nil {
-				logger.WarnWithCtx(ctx, "cache set failed", logger.Err(setErr))
-			}
-
-			// 返回查到的记录
-			return table, nil
-		})
-
-		// 【步骤11】处理 singleflight 的结果
-		if sfErr != nil {
-			return nil, sfErr
-		}
-		// 类型断言：将 interface{} 转成 *T
-		table, ok := val.(*T)
-		if !ok {
-			return nil, database.ErrRecordNotFound
-		}
-		return table, nil
+		return m.executeSingleflight(ctx, id, queryFunc)
 	}
 
-	// 【步骤12】如果缓存返回的是其他错误（非 ErrCacheNotFound），进入 fallback 流程
+	// 【步骤3】如果缓存返回的是其他错误（非 ErrCacheNotFound），进入 fallback 流程
 	// 可能原因：Redis 连接超时、网络中断等
 	logger.WarnWithCtx(ctx, "cache.Get error, falling back to database", logger.Err(err), logger.Any("id", id))
 	return m.handleFallback(ctx, id, err, queryFunc)
 }
 
 // ============================================================================
-// 第三部分：handleFallback（缓存异常时的降级处理）
+// 第三部分：executeSingleflight（singleflight 流程）
+// ============================================================================
+
+// executeSingleflight 执行 singleflight 流程，把针对同一个 ID 的并发请求合并成一个
+func (m *cacheManager[T]) executeSingleflight(ctx context.Context, id uint64, queryFunc func() (*T, error)) (*T, error) {
+	val, sfErr, _ := m.sfg.Do(fmt.Sprintf("%d", id), func() (interface{}, error) {
+		// 构建分布式锁的 Key
+		lockKey := BuildLockKey(LockKeyPrefixRefresh, fmt.Sprintf("%d", id))
+
+		// 尝试获取分布式锁（非阻塞，只尝试一次）
+		lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+		// 如果拿到了锁（lock != nil），确保函数退出时释放锁
+		if lock != nil {
+			defer func() {
+				// 使用独立的上下文来释放锁，避免因原上下文超时而无法释放
+				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+				defer cancel()
+				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+					logger.WarnWithCtx(ctx, "cache: unlock refresh lock failed", logger.Err(unlockErr))
+				}
+			}()
+		}
+
+		// 如果成功拿到锁，说明当前节点是"主执行者"
+		if lockErr == nil {
+			// 再次检查缓存（Double-Check）：可能在获取锁的过程中，别的节点已经把数据写进缓存了
+			if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
+				return record, nil
+			}
+		} else {
+			// 如果没拿到锁（被其他节点占用了），等待一小段时间（默认 50ms）
+			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
+			// 然后再次检查缓存（很可能其他节点已经查完数据库并回填了缓存）
+			if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
+				return record, nil
+			}
+		}
+
+		// 缓存依然没有数据，执行 queryFunc 去数据库查询
+		table, dbErr := queryFunc()
+
+		if dbErr != nil {
+			// 如果数据库返回"记录不存在"
+			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+				// 设置占位符，防止缓存穿透
+				if setErr := m.cache.SetPlaceholder(ctx, id); setErr != nil {
+					logger.WarnWithCtx(ctx, "set placeholder failed", logger.Err(setErr))
+				}
+				return nil, database.ErrRecordNotFound
+			}
+			return nil, dbErr
+		}
+
+		// 数据库查询成功，把结果写入缓存（生成随机过期时间，防雪崩）
+		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
+		if setErr := m.cache.Set(ctx, id, table, expire); setErr != nil {
+			logger.WarnWithCtx(ctx, "cache set failed", logger.Err(setErr))
+		}
+
+		return table, nil
+	})
+
+	if sfErr != nil {
+		return nil, sfErr
+	}
+	table, ok := val.(*T)
+	if !ok {
+		return nil, database.ErrRecordNotFound
+	}
+	return table, nil
+}
+
+// ============================================================================
+// 第四部分：handleFallback（缓存异常时的降级处理）
 // ============================================================================
 
 // handleFallback 是当缓存出现非"未找到"错误时的降级处理

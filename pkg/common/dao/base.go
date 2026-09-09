@@ -188,7 +188,7 @@ func (d *BaseDao[T]) GetByID(ctx context.Context, id uint64, opts ...QueryOption
 	// 传入一个闭包函数，当缓存未命中时，执行这个函数查数据库
 	return d.cacheManager.get(ctx, id, func() (*T, error) {
 		return d.queryDBByID(ctx, id, cfg)
-	})
+	}, opts...)
 }
 
 // queryDBByID 执行数据库查询（内部方法）
@@ -326,9 +326,10 @@ func (d *BaseDao[T]) queryByColumnsDB(ctx context.Context, params *query.Params,
 		db = db.Unscoped()
 	}
 
-	// 【步骤4】计算总数（如果 sort 不是 "ignore count"，则执行 Count）
-	// "ignore count" 是性能优化：当业务不需要总条数时，跳过 COUNT 查询
-	if params.Sort != SortIgnoreCount {
+	// 【步骤4】创建 Page 对象，判断是否跳过 Count 查询
+	page := query.NewPage(params.Page, params.Limit, params.Sort)
+	if !page.SortIgnoreCount() {
+		// 执行 COUNT 查询获取总数
 		if countErr := db.Where(queryStr, args...).Count(&total).Error; countErr != nil {
 			return nil, 0, countErr
 		}
@@ -338,9 +339,8 @@ func (d *BaseDao[T]) queryByColumnsDB(ctx context.Context, params *query.Params,
 		}
 	}
 
-	// 【步骤5】转换分页参数并执行查询
-	order, limit, offset := params.ConvertToPage()
-	err = db.Order(order).Limit(limit).Offset(offset).Where(queryStr, args...).Find(&records).Error
+	// 【步骤5】执行分页查询
+	err = db.Order(page.Sort()).Limit(page.Limit()).Offset(page.Offset()).Where(queryStr, args...).Find(&records).Error
 	if err != nil {
 		return nil, 0, err
 	}
