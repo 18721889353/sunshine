@@ -12,7 +12,34 @@ import (
 	"github.com/18721889353/sunshine/pkg/common/dao"
 )
 
-// UserExampleDao UserExample 的扩展 DAO
+// 编译时检查：确保 UserExampleDao 实现了 UserExampleDaoInterface 接口
+var _ UserExampleDaoInterface = (*UserExampleDao)(nil)
+
+// UserExampleDaoInterface UserExample 业务 DAO 接口
+//
+// 设计思路：
+//   - 嵌入 dao.BaseDaoInterface[model.UserExample]，自动继承所有泛型方法：
+//     GetByID、GetByIDs、Create、Update、Del、GetByColumns、CountByCondition 等
+//   - 如需添加自定义方法，在此接口中声明并在 UserExampleDao 中实现
+//   - 便于依赖注入、单元测试时 Mock 替换
+//
+// 使用示例：
+//
+//	type UserService struct {
+//	    dao UserExampleDaoInterface  // 依赖注入
+//	}
+//
+//	func (s *UserService) GetUser(ctx context.Context, id uint64) (*model.UserExample, error) {
+//	    return s.dao.GetByID(ctx, id)
+//	}
+type UserExampleDaoInterface interface {
+	dao.BaseDaoInterface[model.UserExample]
+
+	// 此处可添加自定义方法声明（如 GetByEmail）
+	// GetByEmail(ctx context.Context, email string) (*model.UserExample, error)
+}
+
+// UserExampleDao UserExample 的扩展 DAO 实现
 //
 // 设计思路：
 //   - 嵌入 *dao.BaseDao[model.UserExample]，自动继承所有泛型方法：
