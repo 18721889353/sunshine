@@ -17,13 +17,14 @@ import (
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/ecode"
 	"github.com/18721889353/sunshine/internal/model"
+	commonDao "github.com/18721889353/sunshine/pkg/common/dao"
 )
 
 var _ serverNameExampleV1.UserExampleLogicer = (*userExamplePbHandler)(nil)
 var _ time.Time
 
 type userExamplePbHandler struct {
-	userExampleDao dao.UserExampleDao
+	userExampleDao *commonDao.BaseDao[model.UserExample]
 }
 
 // NewUserExamplePbHandler create a handler

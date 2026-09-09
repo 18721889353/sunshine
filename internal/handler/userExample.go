@@ -6,17 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/copier"
 
-	"github.com/18721889353/sunshine/pkg/gin/middleware"
-	"github.com/18721889353/sunshine/pkg/gin/response"
-	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/18721889353/sunshine/pkg/utils"
-
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/ecode"
 	"github.com/18721889353/sunshine/internal/model"
 	"github.com/18721889353/sunshine/internal/types"
+	commonDao "github.com/18721889353/sunshine/pkg/common/dao"
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/gin/response"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/utils"
 )
 
 var _ UserExampleHandler = (*userExampleHandler)(nil)
@@ -31,7 +31,7 @@ type UserExampleHandler interface {
 }
 
 type userExampleHandler struct {
-	iDao dao.UserExampleDao
+	iDao *commonDao.BaseDao[model.UserExample]
 }
 
 // NewUserExampleHandler creating the handler interface

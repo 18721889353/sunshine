@@ -1039,7 +1039,7 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 
 		// 删除单个 ID
 		if id > 0 {
-			if delErr := m.cache.Del(ctx, id); delErr != nil {
+			if delErr := m.cache.Del(bgCtx, id); delErr != nil {
 				logger.WarnWithCtx(bgCtx, "delayed delete single id failed", logger.Err(delErr), logger.Any("id", id))
 			}
 		}
@@ -1047,7 +1047,7 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 		// 删除批量 ID
 		if len(ids) > 0 {
 			for _, batchID := range ids {
-				if delErr := m.cache.Del(ctx, batchID); delErr != nil {
+				if delErr := m.cache.Del(bgCtx, batchID); delErr != nil {
 					logger.WarnWithCtx(bgCtx, "delayed delete batch id failed", logger.Err(delErr), logger.Any("id", batchID))
 				}
 			}
@@ -1063,7 +1063,7 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 				singlePrefix + CacheKeyPrefixExists,
 			}
 			for _, p := range prefixes {
-				if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
+				if delErr := m.cache.DelByPrefix(bgCtx, p); delErr != nil {
 					logger.WarnWithCtx(bgCtx, "delayed delete prefix failed", logger.Err(delErr), logger.String("prefix", p))
 				}
 			}
@@ -1075,15 +1075,15 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 				singlePrefix + CacheKeyPrefixExists,
 			}
 			for _, p := range prefixes {
-				if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
+				if delErr := m.cache.DelByPrefix(bgCtx, p); delErr != nil {
 					logger.WarnWithCtx(bgCtx, "delayed delete prefix failed", logger.Err(delErr), logger.String("prefix", p))
 				}
 			}
-			if delErr := m.cache.DelByPrefix(ctx, singlePrefix); delErr != nil {
+			if delErr := m.cache.DelByPrefix(bgCtx, singlePrefix); delErr != nil {
 				logger.WarnWithCtx(bgCtx, "delayed delete singlePrefix failed", logger.Err(delErr), logger.String("prefix", singlePrefix))
 			}
 		default:
-			if delErr := m.cache.DelByPrefix(ctx, ""); delErr != nil {
+			if delErr := m.cache.DelByPrefix(bgCtx, ""); delErr != nil {
 				logger.WarnWithCtx(bgCtx, "delayed delete empty prefix failed", logger.Err(delErr))
 			}
 		}

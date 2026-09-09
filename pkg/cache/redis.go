@@ -89,6 +89,116 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	return mutex, nil
 }
 
+func (c *redisCache) WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
+	// 1. 获取普通锁
+	lock, err := c.GetLock(ctx, key, options...)
+	if err != nil {
+		return err
+	}
+
+	// 2. 获取当前的过期时间，用于计算续期频率
+	if expiry <= 0 {
+		expiry = 10 * time.Second // 默认兜底
+	}
+	// --- 看门狗实现开始 ---
+	// 3. 启动看门狗协程
+	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(expiry / 3) // 建议三分之一时间续期一次，更安全
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// 使用原始 ctx 确保续期动作本身不被 task 的取消所影响
+				ok, err := lock.ExtendContext(ctx)
+				if err != nil || !ok {
+					// 关键点：续期失败，立即取消任务 context
+					if err != nil {
+						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(err), logger.String("key", key))
+					} else {
+						logger.WarnWithCtx(ctx, "看门狗续期失败：锁已过期", logger.String("key", key))
+					}
+					stopWatchdog() // 续期失败，通知业务中断
+					return
+				}
+			case <-watchdogCtx.Done(): // 业务执行完或被取消，看门狗退出
+				return
+			}
+		}
+	}()
+	// --- 看门狗实现结束 ---
+	// 4. 执行业务逻辑并在结束时释放所有资源
+	defer func() {
+		stopWatchdog() // 确保退出时关闭协程
+		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
+			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
+				logger.WarnWithCtx(ctx, "释放分布式锁失败", logger.Err(releaseErr))
+			}
+		}
+	}()
+	if task == nil {
+		logger.WarnWithCtx(ctx, "WatchDogLock: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
+	return task(watchdogCtx)
+}
+
+func (c *redisCache) WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
+	// 1. 获取循环锁 (复用已有的 GetLoopLock 逻辑)
+	lock, err := c.GetLoopLock(ctx, key, options...)
+	if err != nil {
+		return err
+	}
+
+	// 2. 获取当前的过期时间，用于计算续期频率
+	if expiry <= 0 {
+		expiry = 10 * time.Second // 默认兜底
+	}
+	// --- 看门狗实现开始 ---
+	// 3. 启动看门狗协程
+	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(expiry / 3) // 建议三分之一时间续期一次，更安全
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// 使用原始 ctx 确保续期动作本身不被 task 的取消所影响
+				ok, err := lock.ExtendContext(ctx)
+				if err != nil || !ok {
+					// 关键点：续期失败，立即取消任务 context
+					if err != nil {
+						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(err), logger.String("key", key))
+					} else {
+						logger.WarnWithCtx(ctx, "看门狗续期失败：锁已过期", logger.String("key", key))
+					}
+					stopWatchdog() // 续期失败，通知业务中断
+					return
+				}
+			case <-watchdogCtx.Done(): // 业务执行完或被取消，看门狗退出
+				return
+			}
+		}
+	}()
+	// --- 看门狗实现结束 ---
+	// 4. 执行业务逻辑并在结束时释放所有资源
+	defer func() {
+		stopWatchdog() // 确保退出时关闭协程
+		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
+			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
+				logger.WarnWithCtx(ctx, "释放分布式锁失败", logger.Err(releaseErr))
+			}
+		}
+	}()
+	if task == nil {
+		logger.WarnWithCtx(ctx, "WatchDogLoopLock: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
+	return task(watchdogCtx)
+}
+
 // Set 将一个值序列化后写入 Redis，并设置过期时间。
 // 如果 expireTime 为 0，则使用 DefaultExpireTime。
 // key 为业务 key（不含前缀），内部会通过 BuildCacheKey 拼接前缀。

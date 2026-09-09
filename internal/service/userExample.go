@@ -9,16 +9,16 @@ import (
 	"github.com/jinzhu/copier"
 	"google.golang.org/grpc"
 
-	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-	"github.com/18721889353/sunshine/pkg/logger"
-	"github.com/18721889353/sunshine/pkg/sgorm/query"
-
 	serverNameExampleV1 "github.com/18721889353/sunshine/api/serverNameExample/v1"
 	"github.com/18721889353/sunshine/internal/cache"
 	"github.com/18721889353/sunshine/internal/dao"
 	"github.com/18721889353/sunshine/internal/database"
 	"github.com/18721889353/sunshine/internal/ecode"
 	"github.com/18721889353/sunshine/internal/model"
+	commonDao "github.com/18721889353/sunshine/pkg/common/dao"
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/sgorm/query"
 )
 
 func init() {
@@ -33,16 +33,15 @@ var _ time.Time
 type userExample struct {
 	serverNameExampleV1.UnimplementedUserExampleServer
 
-	iDao dao.UserExampleDao
+	iDao *commonDao.BaseDao[model.UserExample]
 }
 
 // NewUserExampleServer create a new service
 func NewUserExampleServer() serverNameExampleV1.UserExampleServer {
 	return &userExample{
 		iDao: dao.NewUserExampleDao(
-			database.GetDB(), // todo show db driver name here
-			cache.NewUserExampleCache(database.GetCacheType()),
-		),
+			database.GetDB(),
+			cache.NewUserExampleCache(database.GetCacheType())),
 	}
 }
 

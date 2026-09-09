@@ -108,7 +108,7 @@ func clearTable(db *gorm.DB) {
 func TestBasicCRUD(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime: 5 * time.Second,
 	}))
 	ctx := context.Background()
@@ -156,7 +156,7 @@ func TestBasicCRUD(t *testing.T) {
 func TestConditionalQueries(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime: 5 * time.Second,
 	}))
 	ctx := context.Background()
@@ -236,7 +236,7 @@ func TestConditionalQueries(t *testing.T) {
 func TestBatchOperations(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime: 5 * time.Second,
 		MaxBatchSize:      100,
 	}))
@@ -351,7 +351,7 @@ func TestTransactionMethods(t *testing.T) {
 			t.Fatalf("Commit failed: %v", err)
 		}
 
-		got, err := userDao.GetByID(ctx, id, SysUserExampleWithForceMaster())
+		got, err := userDao.GetByID(ctx, id, dao.WithUnscoped())
 		if err != nil {
 			t.Fatalf("GetByID after commit failed: %v", err)
 		}
@@ -544,7 +544,7 @@ func TestCacheManagement(t *testing.T) {
 // TestConcurrentReadWrite 并发读写（1000次操作）
 func TestConcurrentReadWrite(t *testing.T) {
 	db := initTestDB()
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime:   5 * time.Second,
 		MaxCacheableRecords: 50,
 		MaxCacheableIDs:     100,
@@ -647,7 +647,7 @@ func TestConcurrentReadWrite(t *testing.T) {
 func TestCachePenetration(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime: 5 * time.Second,
 	}))
 	ctx := context.Background()
@@ -713,7 +713,7 @@ func TestSoftDelete(t *testing.T) {
 		t.Errorf("删除后默认查询应返回空 map，实际返回 %d 条", len(gotMap))
 	}
 
-	gotMapUnscoped, err := userDao.GetByIDs(ctx, ids, SysUserExampleWithUnscoped())
+	gotMapUnscoped, err := userDao.GetByIDs(ctx, ids, dao.WithUnscoped())
 	if err != nil {
 		t.Fatalf("GetByIDs WithUnscoped 查询失败: %v", err)
 	}
@@ -776,7 +776,7 @@ func TestHardDelete(t *testing.T) {
 		t.Errorf("硬删除后默认查询应返回空 map，实际返回 %d 条", len(gotMap))
 	}
 
-	gotMapUnscoped, err := userDao.GetByIDs(ctx, ids, SysUserExampleWithUnscoped())
+	gotMapUnscoped, err := userDao.GetByIDs(ctx, ids, dao.WithUnscoped())
 	if err != nil {
 		t.Fatalf("GetByIDs WithUnscoped 查询失败: %v", err)
 	}
@@ -790,7 +790,7 @@ func TestHardDelete(t *testing.T) {
 func TestPaginationCacheLimit(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime:   5 * time.Second,
 		MaxCacheableRecords: 2,
 		MaxCacheableIDs:     100,
@@ -949,7 +949,7 @@ func TestGetByIDsDuplicates(t *testing.T) {
 func TestGetByIDsLargeBatch(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		MaxBatchSize: 10,
 	}))
 	ctx := context.Background()
@@ -1047,7 +1047,7 @@ func TestUnscopedGetByID(t *testing.T) {
 		t.Errorf("Expected ErrRecordNotFound, got %v", err)
 	}
 
-	got, err := userDao.GetByID(ctx, id, SysUserExampleWithUnscoped())
+	got, err := userDao.GetByID(ctx, id, dao.WithUnscoped())
 	if err != nil {
 		t.Fatalf("GetByID WithUnscoped failed: %v", err)
 	}
@@ -1063,7 +1063,7 @@ func TestUnscopedGetByID(t *testing.T) {
 func TestPlaceholderExpire(t *testing.T) {
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultNotFoundExpireTime: 1 * time.Second,
 	}))
 	ctx := context.Background()
@@ -1126,7 +1126,7 @@ func TestLargeDataset(t *testing.T) {
 
 	db := initTestDB()
 	clearTable(db)
-	userDao := NewSysUserExampleDao(db, testRedisCache, SysUserExampleWithCacheConfig(dao.CacheConfig{
+	userDao := NewSysUserExampleDao(db, testRedisCache, dao.WithCacheConfig[model.SysUserExample](dao.CacheConfig{
 		DefaultExpireTime:   10 * time.Second,
 		MaxCacheableRecords: 200,
 		MaxCacheableIDs:     5000,
@@ -1259,7 +1259,7 @@ func TestLargeDataset(t *testing.T) {
 	page2 := 0
 	for {
 		params3 := &query.Params{Page: page2, Limit: 100, Sort: "id", Columns: []query.Column{{Name: "status", Value: "2"}}}
-		records3, _, err := userDao.GetByColumns(ctx, params3, SysUserExampleWithUnscoped())
+		records3, _, err := userDao.GetByColumns(ctx, params3, dao.WithUnscoped())
 		if err != nil {
 			t.Fatalf("查询已删除记录失败: %v", err)
 		}
