@@ -63,10 +63,11 @@ func NewUserExampleDao(
 			return nil
 		}
 		update := map[string]interface{}{}
-		// TODO: 生成器会根据表结构自动填充字段映射逻辑
 		// 示例：
 		// if table.Name != "" { update["name"] = table.Name }
 		// if table.Age != 0 { update["age"] = table.Age }
+		//生成器会根据表结构自动填充字段映射逻辑
+		// todo generate the update fields code to here
 		return update
 	}
 
