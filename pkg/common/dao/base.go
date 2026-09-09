@@ -45,6 +45,10 @@ type BaseDao[T any] struct {
 	// 例如："users"、"orders"
 	tableName string
 
+	// primaryKey：主键列名（默认为 "id"，可自定义）
+	// 用于所有 WHERE 条件查询，如 WHERE user_id = ?
+	primaryKey string
+
 	// updateBuilder：更新字段构建器，将实体转为 map[string]interface{}
 	// 例如：传入 User{Name: "张三", Age: 18}，返回 map{"name": "张三", "age": 18}
 	// 零值字段（如 Age=0）会被忽略，避免误更新
@@ -67,6 +71,7 @@ type BaseDao[T any] struct {
 //   - db: GORM 数据库连接（必需）
 //   - cache: 缓存适配器，实现了 Cache[T] 接口。若传 nil，则禁用缓存
 //   - tableName: 数据库表名（字符串），如 "users"
+//   - primaryKey: 主键列名（字符串），如 "id"、"user_id"。若传空字符串，默认为 "id"
 //   - updateBuilder: 更新字段构建函数，将实体中需要更新的字段转为 map，零值字段会被忽略（避免误更新）
 //   - idExtractor: ID 提取函数，从实体中返回 uint64 类型的 ID
 //   - config: 可选缓存配置，不传则使用默认配置（DefaultCacheConfig）
@@ -76,32 +81,42 @@ type BaseDao[T any] struct {
 //
 // 示例：
 //
-//	// 基础用法（使用默认缓存配置）
-//	base := dao.NewBaseDao(db, cacheAdapter, "users", updateBuilder, idExtractor)
+//	// 基础用法（使用默认主键 "id"）
+//	base := dao.NewBaseDao(db, cacheAdapter, "users", "", updateBuilder, idExtractor)
+//
+//	// 自定义主键（如 user_id）
+//	base := dao.NewBaseDao(db, cacheAdapter, "users", "user_id", updateBuilder, idExtractor)
 //
 //	// 自定义缓存配置
 //	cfg := dao.CacheConfig{DefaultExpireTime: 10 * time.Minute}
-//	base := dao.NewBaseDao(db, cacheAdapter, "users", updateBuilder, idExtractor, cfg)
+//	base := dao.NewBaseDao(db, cacheAdapter, "users", "id", updateBuilder, idExtractor, cfg)
 //
 //	// 禁用缓存（传 nil）
-//	base := dao.NewBaseDao(db, nil, "users", updateBuilder, idExtractor)
+//	base := dao.NewBaseDao(db, nil, "users", "id", updateBuilder, idExtractor)
 func NewBaseDao[T any](
 	db *gorm.DB,
 	cache Cache[T],
 	tableName string,
+	primaryKey string,
 	updateBuilder func(*T) map[string]interface{},
 	idExtractor func(*T) uint64,
 	config ...CacheConfig,
 ) *BaseDao[T] {
-	// 【步骤1】创建 BaseDao 实例，先填充非缓存字段
+	// 【步骤1】设置主键默认值
+	if primaryKey == "" {
+		primaryKey = "id"
+	}
+
+	// 【步骤2】创建 BaseDao 实例，先填充非缓存字段
 	dao := &BaseDao[T]{
 		db:            db,
 		tableName:     tableName,
+		primaryKey:    primaryKey,
 		updateBuilder: updateBuilder,
 		idExtractor:   idExtractor,
 	}
 
-	// 【步骤2】如果传入了缓存适配器（cache != nil），则初始化缓存管理器
+	// 【步骤3】如果传入了缓存适配器（cache != nil），则初始化缓存管理器
 	if cache != nil {
 		// 2.1 先加载默认配置
 		cfg := DefaultCacheConfig()
@@ -140,7 +155,7 @@ func NewBaseDao[T any](
 		dao.cacheManager = newCacheManager(cache, cfg, tableName)
 	}
 
-	// 【步骤3】返回完整的 BaseDao 实例
+	// 【步骤4】返回完整的 BaseDao 实例
 	return dao
 }
 
@@ -212,8 +227,8 @@ func (d *BaseDao[T]) queryDBByID(ctx context.Context, id uint64, cfg *QueryOptio
 		db = db.Unscoped()
 	}
 
-	// 【步骤5】执行查询：WHERE id = ?，取第一条
-	err := db.Where("id = ?", id).First(&entity).Error
+	// 【步骤5】执行查询：WHERE primaryKey = ?，取第一条
+	err := db.Where(d.primaryKey+" = ?", id).First(&entity).Error
 
 	// 【步骤6】处理结果
 	if err != nil {
@@ -524,7 +539,7 @@ func (d *BaseDao[T]) queryByIDsDB(ctx context.Context, ids []uint64, cfg *QueryO
 	if cfg.Unscoped {
 		db = db.Unscoped()
 	}
-	err := db.Where("id IN (?)", ids).Find(&entities).Error
+	err := db.Where(d.primaryKey+" IN (?)", ids).Find(&entities).Error
 	if err != nil {
 		return nil, err
 	}
@@ -811,7 +826,7 @@ func (d *BaseDao[T]) Create(ctx context.Context, entity *T) error {
 	err := d.db.WithContext(ctx).Table(d.tableName).Create(entity).Error
 	if err == nil && d.cacheManager != nil {
 		// 创建后清理条件缓存（因为新数据可能影响条件查询结果）
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeCondition)
 	}
 	return err
@@ -821,7 +836,7 @@ func (d *BaseDao[T]) Create(ctx context.Context, entity *T) error {
 func (d *BaseDao[T]) CreateInBatches(ctx context.Context, entities []*T, batchSize int) error {
 	err := d.db.WithContext(ctx).Table(d.tableName).CreateInBatches(entities, batchSize).Error
 	if err == nil && d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeCondition)
 	}
 	return err
@@ -832,7 +847,7 @@ func (d *BaseDao[T]) CreateInBatches(ctx context.Context, entities []*T, batchSi
 func (d *BaseDao[T]) CreateByTx(ctx context.Context, tx *gorm.DB, entity *T) (uint64, error) {
 	err := tx.WithContext(ctx).Table(d.tableName).Create(entity).Error
 	if err == nil && d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeCondition)
 	}
 	return d.idExtractor(entity), err
@@ -842,7 +857,7 @@ func (d *BaseDao[T]) CreateByTx(ctx context.Context, tx *gorm.DB, entity *T) (ui
 func (d *BaseDao[T]) CreateByInBatchesTx(ctx context.Context, tx *gorm.DB, entities []*T, batchSize int) error {
 	err := tx.WithContext(ctx).Table(d.tableName).CreateInBatches(entities, batchSize).Error
 	if err == nil && d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeCondition)
 	}
 	return err
@@ -872,14 +887,63 @@ func (d *BaseDao[T]) UpdateByID(ctx context.Context, entity *T) error {
 		return errors.New("invalid id")
 	}
 	// 使用 Model(new(T)) 自动添加 deleted_at IS NULL
-	err := d.db.WithContext(ctx).Model(new(T)).Where("id = ?", id).Updates(update).Error
+	err := d.db.WithContext(ctx).Model(new(T)).Where(d.primaryKey+" = ?", id).Updates(update).Error
 	if err != nil {
 		return err
 	}
 	if d.cacheManager != nil {
 		// 删除单条缓存 + 条件缓存
-		d.cacheManager.deleteCache(ctx, id, DeleteDaoTypeSingle)
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, id, nil, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
+		d.cacheManager.delayedDoubleDelete(ctx, id, nil, DeleteDaoTypeCondition)
+	}
+	return nil
+}
+
+// UpdateFields 根据 ID 更新指定字段（支持零值更新）
+// 与 UpdateByID 不同，此方法直接接受 map[string]interface{} 参数，
+// 允许调用方显式指定要更新的列名和值，包括零值。
+//
+// 适用场景：
+//   - 需要将字段更新为零值（如将 age 从 25 改为 0，将 name 从 "张三" 改为 ""）
+//   - 只更新部分字段，不确定其他字段是否应该被忽略
+//
+// 参数：
+//   - ctx: 上下文
+//   - id: 记录 ID
+//   - fields: 要更新的字段映射，key 为列名，value 为新值
+//
+// 返回：
+//   - error: 执行错误
+//
+// 示例：
+//
+//	// 将 name 更新为空字符串，age 更新为 0
+//	err := dao.UpdateFields(ctx, 1, map[string]interface{}{
+//	    "name": "",
+//	    "age":  0,
+//	})
+//
+//	// 只更新单个字段
+//	err := dao.UpdateFields(ctx, 1, map[string]interface{}{
+//	    "status": "inactive",
+//	})
+func (d *BaseDao[T]) UpdateFields(ctx context.Context, id uint64, fields map[string]interface{}) error {
+	if len(fields) == 0 {
+		return errors.New("no fields to update")
+	}
+	if id == 0 {
+		return errors.New("invalid id")
+	}
+	// 使用 Model(new(T)) 自动添加 deleted_at IS NULL
+	err := d.db.WithContext(ctx).Model(new(T)).Where(d.primaryKey+" = ?", id).Updates(fields).Error
+	if err != nil {
+		return err
+	}
+	if d.cacheManager != nil {
+		// 删除单条缓存 + 条件缓存
+		d.cacheManager.deleteCache(ctx, id, nil, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, id, nil, DeleteDaoTypeCondition)
 	}
 	return nil
@@ -906,7 +970,7 @@ func (d *BaseDao[T]) UpdateByCondition(ctx context.Context, c *query.Conditions,
 	}
 	if d.cacheManager != nil {
 		// 批量更新影响范围未知，清空所有缓存
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeAll)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeAll)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeAll)
 	}
 	return nil
@@ -925,13 +989,53 @@ func (d *BaseDao[T]) UpdateByTx(ctx context.Context, tx *gorm.DB, entity *T) err
 	if id == 0 {
 		return errors.New("invalid id")
 	}
-	err := tx.WithContext(ctx).Model(new(T)).Where("id = ?", id).Updates(update).Error
+	err := tx.WithContext(ctx).Model(new(T)).Where(d.primaryKey+" = ?", id).Updates(update).Error
 	if err != nil {
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, id, DeleteDaoTypeSingle)
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, id, nil, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
+		d.cacheManager.delayedDoubleDelete(ctx, id, nil, DeleteDaoTypeCondition)
+	}
+	return nil
+}
+
+// UpdateFieldsByTx 在事务中根据 ID 更新指定字段（支持零值更新）
+// 与 UpdateByTx 不同，此方法直接接受 map[string]interface{} 参数，
+// 允许调用方显式指定要更新的列名和值，包括零值。
+//
+// 参数：
+//   - ctx: 上下文
+//   - tx: GORM 事务实例
+//   - id: 记录 ID
+//   - fields: 要更新的字段映射，key 为列名，value 为新值
+//
+// 返回：
+//   - error: 执行错误
+//
+// 示例：
+//
+//	err := db.Transaction(func(tx *gorm.DB) error {
+//	    return dao.UpdateFieldsByTx(ctx, tx, 1, map[string]interface{}{
+//	        "name": "",
+//	        "age":  0,
+//	    })
+//	})
+func (d *BaseDao[T]) UpdateFieldsByTx(ctx context.Context, tx *gorm.DB, id uint64, fields map[string]interface{}) error {
+	if len(fields) == 0 {
+		return errors.New("no fields to update")
+	}
+	if id == 0 {
+		return errors.New("invalid id")
+	}
+	err := tx.WithContext(ctx).Model(new(T)).Where(d.primaryKey+" = ?", id).Updates(fields).Error
+	if err != nil {
+		return err
+	}
+	if d.cacheManager != nil {
+		d.cacheManager.deleteCache(ctx, id, nil, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, id, nil, DeleteDaoTypeCondition)
 	}
 	return nil
@@ -955,7 +1059,7 @@ func (d *BaseDao[T]) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *qu
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeAll)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeAll)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeAll)
 	}
 	return nil
@@ -970,13 +1074,13 @@ func (d *BaseDao[T]) UpdateByConditionTx(ctx context.Context, tx *gorm.DB, c *qu
 // 自动清理单条缓存和条件缓存，并触发延迟双删
 func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
 	// 使用 Delete(new(T))，GORM 从参数获取模型信息以启用软删除
-	err := d.db.WithContext(ctx).Where("id = ?", id).Delete(new(T)).Error
+	err := d.db.WithContext(ctx).Where(d.primaryKey+" = ?", id).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, id, DeleteDaoTypeSingle)
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, id, nil, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, id, nil, DeleteDaoTypeCondition)
 	}
 	return nil
@@ -984,15 +1088,14 @@ func (d *BaseDao[T]) DeleteByID(ctx context.Context, id uint64) error {
 
 // DeleteByIDs 根据 ID 列表批量删除（软删除）
 func (d *BaseDao[T]) DeleteByIDs(ctx context.Context, ids []uint64) error {
-	err := d.db.WithContext(ctx).Where("id IN (?)", ids).Delete(new(T)).Error
+	err := d.db.WithContext(ctx).Where(d.primaryKey+" IN (?)", ids).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
 	if d.cacheManager != nil {
-		for _, id := range ids {
-			d.cacheManager.deleteCache(ctx, id, DeleteDaoTypeSingle)
-		}
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		// 一次性批量删除所有 ID 的缓存（单次 Redis DEL）
+		d.cacheManager.deleteCache(ctx, 0, ids, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, ids, DeleteDaoTypeCondition)
 	}
 	return nil
@@ -1011,7 +1114,7 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeAll)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeAll)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeAll)
 	}
 	return nil
@@ -1019,13 +1122,13 @@ func (d *BaseDao[T]) DeleteByCondition(ctx context.Context, c *query.Conditions)
 
 // DeleteByTx 在事务中根据 ID 删除记录（软删除）
 func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) error {
-	err := tx.WithContext(ctx).Where("id = ?", id).Delete(new(T)).Error
+	err := tx.WithContext(ctx).Where(d.primaryKey+" = ?", id).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, id, DeleteDaoTypeSingle)
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		d.cacheManager.deleteCache(ctx, id, nil, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, id, nil, DeleteDaoTypeCondition)
 	}
 	return nil
@@ -1033,15 +1136,14 @@ func (d *BaseDao[T]) DeleteByTx(ctx context.Context, tx *gorm.DB, id uint64) err
 
 // DeleteByIDsTx 在事务中根据 ID 列表批量删除（软删除）
 func (d *BaseDao[T]) DeleteByIDsTx(ctx context.Context, tx *gorm.DB, ids []uint64) error {
-	err := tx.WithContext(ctx).Where("id IN (?)", ids).Delete(new(T)).Error
+	err := tx.WithContext(ctx).Where(d.primaryKey+" IN (?)", ids).Delete(new(T)).Error
 	if err != nil {
 		return err
 	}
 	if d.cacheManager != nil {
-		for _, id := range ids {
-			d.cacheManager.deleteCache(ctx, id, DeleteDaoTypeSingle)
-		}
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeCondition)
+		// 一次性批量删除所有 ID 的缓存（单次 Redis DEL）
+		d.cacheManager.deleteCache(ctx, 0, ids, DeleteDaoTypeSingle)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeCondition)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, ids, DeleteDaoTypeCondition)
 	}
 	return nil
@@ -1058,7 +1160,7 @@ func (d *BaseDao[T]) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *qu
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeAll)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeAll)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeAll)
 	}
 	return nil
@@ -1073,7 +1175,7 @@ func (d *BaseDao[T]) DeleteByTxCondition(ctx context.Context, tx *gorm.DB, c *qu
 // 谨慎使用，避免影响其他表的缓存
 func (d *BaseDao[T]) ClearCache(ctx context.Context) error {
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeAll)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeAll)
 	}
 	return nil
 }
@@ -1109,7 +1211,7 @@ func (d *BaseDao[T]) ExecByCustomFunc(ctx context.Context, updateFunc func(*gorm
 		return err
 	}
 	if d.cacheManager != nil {
-		d.cacheManager.deleteCache(ctx, 0, DeleteDaoTypeAll)
+		d.cacheManager.deleteCache(ctx, 0, nil, DeleteDaoTypeAll)
 		d.cacheManager.delayedDoubleDelete(ctx, 0, nil, DeleteDaoTypeAll)
 	}
 	return nil

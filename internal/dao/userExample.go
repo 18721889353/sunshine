@@ -103,6 +103,7 @@ func NewUserExampleDao(
 			db,
 			cache,
 			(&model.UserExample{}).TableName(),
+			"",
 			updateBuilder,
 			opts...,
 		),

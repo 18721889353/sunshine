@@ -105,6 +105,23 @@ func (a *CacheAdapter[T]) Del(ctx context.Context, id uint64) error {
 	return a.driver.Del(ctx, a.buildKey(id))
 }
 
+// DelByIDs 根据 id 列表批量删除对象缓存，底层使用单次 Redis DEL 命令（variadic）。
+func (a *CacheAdapter[T]) DelByIDs(ctx context.Context, ids []uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != 0 {
+			keys = append(keys, a.buildKey(id))
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return a.driver.Del(ctx, keys...)
+}
+
 // ----- 自定义 Key 缓存实现 -----
 
 // SetIDByKey 按自定义 key 缓存一个 uint64 类型的 ID。

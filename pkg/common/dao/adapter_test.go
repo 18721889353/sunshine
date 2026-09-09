@@ -442,27 +442,134 @@ func TestAdapterIsPlaceholderErr(t *testing.T) {
 	}
 }
 
+// testModel 用于 MultiSet/MultiGet 测试的带 ID 字段的模型
+type testModel struct {
+	ID   uint64
+	Name string
+}
+
 // TestAdapterMultiSetMultiGet 测试批量操作
 func TestAdapterMultiSetMultiGet(t *testing.T) {
 	mock := newMockCache()
-	_ = NewCacheAdapter[string](mock, "test:", func() interface{} {
-		return new(string)
+	adapter := NewCacheAdapter[testModel](mock, "test:", func() interface{} {
+		return new(testModel)
 	})
-	// 注意：这个测试需要真实的 Cache 实现
-	// 由于 mock 的 MultiGet 需要特殊的类型处理，这里只测试方法签名
-	// 实际的批量操作测试在 dao_benchmark_test.go 中通过真实 Redis 进行
-	t.Skip("MultiSet/MultiGet 需要真实 Cache 实现进行测试")
+	ctx := context.Background()
+
+	t.Run("批量写入和读取", func(t *testing.T) {
+		data := []*testModel{
+			{ID: 1, Name: "hello"},
+			{ID: 2, Name: "world"},
+			{ID: 3, Name: "foo"},
+		}
+		err := adapter.MultiSet(ctx, data, time.Minute)
+		if err != nil {
+			t.Fatalf("MultiSet failed: %v", err)
+		}
+
+		// 通过 ID 1、2、3 读取
+		result, err := adapter.MultiGet(ctx, []uint64{1, 2, 3})
+		if err != nil {
+			t.Fatalf("MultiGet failed: %v", err)
+		}
+		if len(result) != 3 {
+			t.Errorf("expected 3 results, got %d", len(result))
+		}
+		if v := result[1]; v == nil || v.Name != "hello" {
+			t.Errorf("expected name='hello' for id=1, got %v", v)
+		}
+		if v := result[2]; v == nil || v.Name != "world" {
+			t.Errorf("expected name='world' for id=2, got %v", v)
+		}
+		if v := result[3]; v == nil || v.Name != "foo" {
+			t.Errorf("expected name='foo' for id=3, got %v", v)
+		}
+	})
+
+	t.Run("空切片", func(t *testing.T) {
+		err := adapter.MultiSet(ctx, []*testModel{}, time.Minute)
+		if err != nil {
+			t.Errorf("MultiSet with empty slice should return nil, got %v", err)
+		}
+		result, err := adapter.MultiGet(ctx, []uint64{})
+		if err != nil {
+			t.Fatalf("MultiGet with empty slice failed: %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty result, got %d items", len(result))
+		}
+	})
+
+	t.Run("部分不存在的 ID", func(t *testing.T) {
+		data := []*testModel{{ID: 10, Name: "exists"}}
+		err := adapter.MultiSet(ctx, data, time.Minute)
+		if err != nil {
+			t.Fatalf("MultiSet failed: %v", err)
+		}
+
+		result, err := adapter.MultiGet(ctx, []uint64{10, 999})
+		if err != nil {
+			t.Fatalf("MultiGet failed: %v", err)
+		}
+		if len(result) != 1 {
+			t.Errorf("expected 1 result, got %d", len(result))
+		}
+	})
 }
 
 // TestAdapterDelByPrefix 测试前缀删除
 func TestAdapterDelByPrefix(t *testing.T) {
 	mock := newMockCache()
-	_ = NewCacheAdapter[string](mock, "test:", func() interface{} {
+	adapter := NewCacheAdapter[string](mock, "test:", func() interface{} {
 		return new(string)
 	})
-	// 注意：这个测试需要真实的 Cache 实现
-	// DelByPrefix 的 mock 实现是空操作，无法验证删除效果
-	t.Skip("DelByPrefix 需要真实 Cache 实现进行测试")
+	ctx := context.Background()
+
+	t.Run("删除匹配前缀的缓存", func(t *testing.T) {
+		// 写入多条数据
+		data1 := "data1"
+		data2 := "data2"
+		adapter.Set(ctx, 1, &data1, time.Minute)
+		adapter.Set(ctx, 2, &data2, time.Minute)
+
+		// 确认数据存在
+		if _, err := adapter.Get(ctx, 1); err != nil {
+			t.Fatalf("Get before delete failed: %v", err)
+		}
+
+		// 通过前缀删除
+		err := adapter.DelByPrefix(ctx, "test:")
+		if err != nil {
+			t.Fatalf("DelByPrefix failed: %v", err)
+		}
+
+		// 确认数据已删除
+		if _, err := adapter.Get(ctx, 1); err == nil {
+			t.Error("expected error after DelByPrefix, got nil")
+		}
+		if _, err := adapter.Get(ctx, 2); err == nil {
+			t.Error("expected error after DelByPrefix, got nil")
+		}
+	})
+
+	t.Run("删除不匹配的前缀", func(t *testing.T) {
+		data := "keep_me"
+		adapter.Set(ctx, 10, &data, time.Minute)
+
+		err := adapter.DelByPrefix(ctx, "other:")
+		if err != nil {
+			t.Fatalf("DelByPrefix failed: %v", err)
+		}
+
+		// 数据应仍在
+		got, err := adapter.Get(ctx, 10)
+		if err != nil {
+			t.Fatalf("Get should succeed after deleting non-matching prefix: %v", err)
+		}
+		if *got != "keep_me" {
+			t.Errorf("expected 'keep_me', got '%s'", *got)
+		}
+	})
 }
 
 // TestAdapterSetPlaceholder 测试占位符设置

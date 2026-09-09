@@ -135,6 +135,7 @@ func WithShortCache[T any]() Option[T] {
 //   - db: GORM 数据库连接（必需）
 //   - cache: 缓存适配器，实现了 Cache[T] 接口。若传 nil，则禁用缓存
 //   - tableName: 数据库表名（字符串），如 "users"
+//   - primaryKey: 主键列名（字符串），如 "id"、"user_id"。若传空字符串，默认为 "id"
 //   - updateBuilder: 更新字段构建函数，将实体中需要更新的字段转为 map，零值字段会被忽略
 //   - opts: 可变配置选项（Functional Options）
 //
@@ -143,23 +144,23 @@ func WithShortCache[T any]() Option[T] {
 //
 // 示例：
 //
-//	// 基础用法（使用默认缓存配置）
-//	userDao := dao.NewDao(db, userCache, "users", func(u *User) map[string]interface{} {
+//	// 基础用法（使用默认主键 "id"）
+//	userDao := dao.NewDao(db, userCache, "users", "", func(u *User) map[string]interface{} {
 //	    update := map[string]interface{}{}
 //	    if u.Name != "" { update["name"] = u.Name }
 //	    return update
 //	})
 //
-//	// 自定义缓存配置（10 分钟）
-//	userDao := dao.NewDao(db, userCache, "users", updateBuilder,
-//	    dao.WithCacheConfig[User](dao.CacheConfig{DefaultExpireTime: 10 * time.Minute}))
+//	// 自定义主键（如 user_id）
+//	userDao := dao.NewDao(db, userCache, "users", "user_id", updateBuilder)
 //
 //	// 禁用缓存
-//	userDao := dao.NewDao(db, nil, "users", updateBuilder, dao.WithNoCache[User]())
+//	userDao := dao.NewDao(db, nil, "users", "id", updateBuilder, dao.WithNoCache[User]())
 func NewDao[T any](
 	db *gorm.DB,
 	cache Cache[T],
 	tableName string,
+	primaryKey string,
 	updateBuilder func(*T) map[string]interface{},
 	opts ...Option[T],
 ) *BaseDao[T] {
@@ -191,6 +192,7 @@ func NewDao[T any](
 		db,
 		cacheDriver,
 		tableName,
+		primaryKey,
 		updateBuilder,
 		idExtractor,
 		getCacheConfigValue(finalConfig),

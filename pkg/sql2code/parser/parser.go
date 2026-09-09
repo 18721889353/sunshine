@@ -182,6 +182,8 @@ func (d tmplData) isCommonStyle(isEmbed bool) bool {
 }
 
 // ConditionZero type of condition 0, used in dao template code
+// 注意：指针类型（如 *int64、*string）使用 != nil 判断，
+// 这样可以正确区分 "未设置（nil）" 和 "显式设为零值（指向0）" 两种情况。
 func (t tmplField) ConditionZero() string {
 	switch t.GoType {
 	case "int8", "int16", "int32", "int64", "int", "uint8", "uint16", "uint32", "uint64", "uint", "float64", "float32", //nolint
@@ -195,6 +197,12 @@ func (t tmplField) ConditionZero() string {
 		return `!= nil` //nolint
 	case "bool": //nolint
 		return `!= false /*Warning: if the value itself is false, can't be updated*/`
+	}
+
+	// 指针类型（如 *int64、*string、*bool）使用 nil 判断
+	// 指针 != nil 表示字段已设置，即使指向零值也会更新
+	if strings.HasPrefix(t.GoType, "*") {
+		return `!= nil`
 	}
 
 	return `!= ` + t.GoType
@@ -410,7 +418,6 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			gormTag.WriteString(";primary_key")
 		}
 		isNotNull := false
-		canNull := false
 		for _, o := range col.Options {
 			switch o.Tp {
 			case ast.ColumnOptionPrimaryKey:
@@ -432,7 +439,6 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 				gormTag.WriteString(";unique")
 			case ast.ColumnOptionNull:
 				//gormTag.WriteString(";NULL")
-				canNull = true
 			case ast.ColumnOptionOnUpdate: // For Timestamp and Datetime only.
 			case ast.ColumnOptionFulltext:
 			case ast.ColumnOptionComment:
@@ -461,11 +467,9 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			field.Tag = makeTagStr(tags)
 
 			// get type in golang
-			nullStyle := opt.NullStyle
-			if !canNull {
-				nullStyle = NullDisable
-			}
-			goType, pkg, rrField := mysqlToGoType(col.Tp, nullStyle)
+			// 注意：NOT NULL 列不再强制覆盖 NullStyle，用户可通过 --null-style=pointer
+			// 生成指针类型（如 *int、*string），使 ConditionZero 能区分未设置和显式零值
+			goType, pkg, rrField := mysqlToGoType(col.Tp, opt.NullStyle)
 			if pkg != "" {
 				importPath = append(importPath, pkg)
 			}

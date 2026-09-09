@@ -89,113 +89,70 @@ func (c *redisCache) GetLock(ctx context.Context, key string, options ...redsync
 	return mutex, nil
 }
 
+// WatchDogLock 获取一个带看门狗自动续期的分布式锁（非阻塞）。
+// 内部委托给 executeWithWatchdog，仅获取锁的方式为 GetLock（非阻塞）。
 func (c *redisCache) WatchDogLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
-	// 1. 获取普通锁
 	lock, err := c.GetLock(ctx, key, options...)
 	if err != nil {
 		return err
 	}
-
-	// 2. 获取当前的过期时间，用于计算续期频率
-	if expiry <= 0 {
-		expiry = 10 * time.Second // 默认兜底
-	}
-	// --- 看门狗实现开始 ---
-	// 3. 启动看门狗协程
-	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
-	go func() {
-		ticker := time.NewTicker(expiry / 3) // 建议三分之一时间续期一次，更安全
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				// 使用原始 ctx 确保续期动作本身不被 task 的取消所影响
-				ok, err := lock.ExtendContext(ctx)
-				if err != nil || !ok {
-					// 关键点：续期失败，立即取消任务 context
-					if err != nil {
-						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(err), logger.String("key", key))
-					} else {
-						logger.WarnWithCtx(ctx, "看门狗续期失败：锁已过期", logger.String("key", key))
-					}
-					stopWatchdog() // 续期失败，通知业务中断
-					return
-				}
-			case <-watchdogCtx.Done(): // 业务执行完或被取消，看门狗退出
-				return
-			}
-		}
-	}()
-	// --- 看门狗实现结束 ---
-	// 4. 执行业务逻辑并在结束时释放所有资源
-	defer func() {
-		stopWatchdog() // 确保退出时关闭协程
-		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
-			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
-				logger.WarnWithCtx(ctx, "释放分布式锁失败", logger.Err(releaseErr))
-			}
-		}
-	}()
-	if task == nil {
-		logger.WarnWithCtx(ctx, "WatchDogLock: task 参数为 nil", logger.String("key", key))
-		return errors.New("task function cannot be nil")
-	}
-	return task(watchdogCtx)
+	return c.executeWithWatchdog(ctx, key, expiry, task, lock)
 }
 
+// WatchDogLoopLock 获取一个带看门狗自动续期的分布式锁（阻塞式）。
+// 内部委托给 executeWithWatchdog，仅获取锁的方式为 GetLoopLock（阻塞等待）。
 func (c *redisCache) WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error {
-	// 1. 获取循环锁 (复用已有的 GetLoopLock 逻辑)
 	lock, err := c.GetLoopLock(ctx, key, options...)
 	if err != nil {
 		return err
 	}
+	return c.executeWithWatchdog(ctx, key, expiry, task, lock)
+}
 
-	// 2. 获取当前的过期时间，用于计算续期频率
+// executeWithWatchdog 看门狗的核心执行逻辑，供 WatchDogLock 和 WatchDogLoopLock 共用。
+// 流程：启动看门狗 goroutine 定时续期 -> 执行 task -> 释放锁并停止看门狗。
+func (c *redisCache) executeWithWatchdog(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, lock *redsync.Mutex) error {
 	if expiry <= 0 {
 		expiry = 10 * time.Second // 默认兜底
 	}
-	// --- 看门狗实现开始 ---
-	// 3. 启动看门狗协程
+	if task == nil {
+		logger.WarnWithCtx(ctx, "executeWithWatchdog: task 参数为 nil", logger.String("key", key))
+		return errors.New("task function cannot be nil")
+	}
+
+	// 启动看门狗协程，每 expiry/3 时间续期一次
 	watchdogCtx, stopWatchdog := context.WithCancel(ctx)
 	go func() {
-		ticker := time.NewTicker(expiry / 3) // 建议三分之一时间续期一次，更安全
+		ticker := time.NewTicker(expiry / 3)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ticker.C:
-				// 使用原始 ctx 确保续期动作本身不被 task 的取消所影响
-				ok, err := lock.ExtendContext(ctx)
-				if err != nil || !ok {
-					// 关键点：续期失败，立即取消任务 context
-					if err != nil {
-						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(err), logger.String("key", key))
+				ok, extendErr := lock.ExtendContext(ctx)
+				if extendErr != nil || !ok {
+					if extendErr != nil {
+						logger.WarnWithCtx(ctx, "看门狗续期异常", logger.Err(extendErr), logger.String("key", key))
 					} else {
 						logger.WarnWithCtx(ctx, "看门狗续期失败：锁已过期", logger.String("key", key))
 					}
-					stopWatchdog() // 续期失败，通知业务中断
+					stopWatchdog()
 					return
 				}
-			case <-watchdogCtx.Done(): // 业务执行完或被取消，看门狗退出
+			case <-watchdogCtx.Done():
 				return
 			}
 		}
 	}()
-	// --- 看门狗实现结束 ---
-	// 4. 执行业务逻辑并在结束时释放所有资源
+
+	// 执行业务逻辑并在结束时释放所有资源
 	defer func() {
-		stopWatchdog() // 确保退出时关闭协程
+		stopWatchdog()
 		if _, releaseErr := lock.UnlockContext(ctx); releaseErr != nil {
 			if !strings.Contains(releaseErr.Error(), "lock was already expired") {
 				logger.WarnWithCtx(ctx, "释放分布式锁失败", logger.Err(releaseErr))
 			}
 		}
 	}()
-	if task == nil {
-		logger.WarnWithCtx(ctx, "WatchDogLoopLock: task 参数为 nil", logger.String("key", key))
-		return errors.New("task function cannot be nil")
-	}
 	return task(watchdogCtx)
 }
 
@@ -350,10 +307,14 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 			if v == nil {
 				continue
 			}
+			strVal, ok := v.(string)
+			if !ok {
+				logger.WarnWithCtx(ctx, "unexpected value type in cache", logger.Any("type", reflect.TypeOf(v)), logger.String("key", keys[i]))
+				continue
+			}
 			object := c.newObject()
-			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object) //nolint:errcheck
-			if err != nil {
-				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(err), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]), logger.String("type", reflect.TypeOf(value).String()))
+			if unmarshalErr := encoding.Unmarshal(c.encoding, []byte(strVal), object); unmarshalErr != nil {
+				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(unmarshalErr), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]))
 				continue
 			}
 			m[keys[i]] = object
@@ -368,10 +329,14 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 			if v == nil {
 				continue
 			}
+			strVal, ok := v.(string)
+			if !ok {
+				logger.WarnWithCtx(ctx, "unexpected value type in cache", logger.Any("type", reflect.TypeOf(v)), logger.String("key", keys[i]))
+				continue
+			}
 			object := c.newObject()
-			err = encoding.Unmarshal(c.encoding, []byte(v.(string)), object) //nolint:errcheck
-			if err != nil {
-				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(err), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]), logger.String("type", reflect.TypeOf(value).String()))
+			if unmarshalErr := encoding.Unmarshal(c.encoding, []byte(strVal), object); unmarshalErr != nil {
+				logger.WarnWithCtx(ctx, "unmarshal data error", logger.Err(unmarshalErr), logger.String("key", keys[i]), logger.String("cacheKey", cacheKeys[i]))
 				continue
 			}
 			valueMap.SetMapIndex(reflect.ValueOf(keys[i]), reflect.ValueOf(object))
@@ -408,7 +373,7 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) (err error) {
 }
 
 // DelByPrefix 根据前缀批量删除 Redis key。
-// 使用 SCAN 命令遍历所有匹配 prefix* 的 key，每次扫描 100 个，然后通过 Pipeline 批量删除。
+// 使用 SCAN 命令遍历所有匹配 prefix* 的 key，每扫描 batchSize 个后立即执行 Pipeline 删除，避免内存堆积。
 // 注意：该操作可能耗时较长，且会遍历整个 Redis 键空间，请谨慎使用。
 func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error) {
 	start := time.Now()
@@ -417,20 +382,25 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error)
 	}()
 
 	var cursor uint64
-	const batchSize = 100
+	const scanBatch = 100       // SCAN 每次扫描的 key 数量
+	const pipelineBatch = 100   // Pipeline 每批执行的删除命令数
 
-	pipeline := c.client.Pipeline()
 	var totalDeleted int64
 
 	for {
-		keys, nextCursor, scanErr := c.client.Scan(ctx, cursor, prefix+"*", batchSize).Result()
+		keys, nextCursor, scanErr := c.client.Scan(ctx, cursor, prefix+"*", scanBatch).Result()
 		if scanErr != nil {
 			return fmt.Errorf("c.client.Scan error: %v, prefix=%s", scanErr, prefix)
 		}
 
 		if len(keys) > 0 {
+			pipeline := c.client.Pipeline()
 			for _, key := range keys {
 				pipeline.Del(ctx, key)
+			}
+			_, execErr := pipeline.Exec(ctx)
+			if execErr != nil {
+				return fmt.Errorf("pipeline.Del error: %v", execErr)
 			}
 			totalDeleted += int64(len(keys))
 		}
@@ -441,10 +411,6 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error)
 		cursor = nextCursor
 	}
 
-	_, err = pipeline.Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("pipeline.Del error: %v", err)
-	}
 	return nil
 }
 

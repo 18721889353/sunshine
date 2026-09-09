@@ -34,9 +34,6 @@ type cacheManager[T any] struct {
 	// config：缓存配置，包含过期时间、批次大小、锁等待时间等
 	config CacheConfig
 
-	// tableName：表名（如 "users"），用于生成缓存前缀
-	tableName string
-
 	// basePrefix：缓存键的基础前缀，格式为 "data:表名:"
 	// 例如：表名 "users" -> basePrefix = "data:Users:"
 	basePrefix string
@@ -59,7 +56,6 @@ func newCacheManager[T any](c Cache[T], config CacheConfig, tableName string) *c
 		cache:      c,                         // 缓存适配器
 		sfg:        new(singleflight.Group),   // 新建 singleflight 组
 		config:     config,                    // 配置
-		tableName:  tableName,                 // 原始表名
 		basePrefix: "data:" + camelName + ":", // 基础前缀：data:UserExample:
 	}
 }
@@ -69,8 +65,7 @@ func newCacheManager[T any](c Cache[T], config CacheConfig, tableName string) *c
 // 例如：表名 "users" -> "data:Users:"
 // 所有单个 ID 缓存（如 key="123"）都存储在这个前缀下
 func (m *cacheManager[T]) getSingleCachePrefix() string {
-	camelName := UnderscoreToCamel(m.tableName)
-	return "data:" + camelName + ":"
+	return m.basePrefix
 }
 
 // ============================================================================
@@ -114,9 +109,20 @@ func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (
 	return m.handleFallback(ctx, id, err, queryFunc)
 }
 
-// ============================================================================
-// 第三部分：executeSingleflight（singleflight 流程）
-// ============================================================================
+// waitForCachePoll 轮询等待缓存被其他节点/实例写入，避免未获锁时只等一次就穿透到 DB。
+// interval: 每次轮询间隔（默认 50ms）
+// maxWait:  最大等待时间（默认 5s）
+// queryCache: 每轮调用的缓存读取函数，返回 (*T, error)，缓存命中时 err == nil
+func (m *cacheManager[T]) waitForCachePoll(ctx context.Context, interval, maxWait time.Duration, queryCache func() (*T, error)) (*T, bool) {
+	deadline := time.Now().Add(maxWait)
+	for time.Now().Before(deadline) {
+		time.Sleep(interval)
+		if record, cacheErr := queryCache(); cacheErr == nil {
+			return record, true
+		}
+	}
+	return nil, false
+}
 
 // executeSingleflight 执行 singleflight 流程，把针对同一个 ID 的并发请求合并成一个
 func (m *cacheManager[T]) executeSingleflight(ctx context.Context, id uint64, queryFunc func() (*T, error)) (*T, error) {
@@ -146,12 +152,15 @@ func (m *cacheManager[T]) executeSingleflight(ctx context.Context, id uint64, qu
 				return record, nil
 			}
 		} else {
-			// 如果没拿到锁（被其他节点占用了），等待一小段时间（默认 50ms）
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-			// 然后再次检查缓存（很可能其他节点已经查完数据库并回填了缓存）
-			if record, cacheErr := m.cache.Get(ctx, id); cacheErr == nil {
+			// 未拿到锁，轮询等待其他实例完成 DB 查询并回填缓存
+			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+			if record, ok := m.waitForCachePoll(ctx, interval, 5*time.Second, func() (*T, error) {
+				return m.cache.Get(ctx, id)
+			}); ok {
 				return record, nil
 			}
+			logger.WarnWithCtx(ctx, "cache poll timeout, falling back to database",
+				logger.Any("id", id), logger.String("lockKey", lockKey))
 		}
 
 		// 缓存依然没有数据，执行 queryFunc 去数据库查询
@@ -321,11 +330,17 @@ func (m *cacheManager[T]) executeConditionSingleflight(ctx context.Context, key,
 				}
 			}
 		} else {
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-				if record, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
-					return record, nil
+			// 未拿到锁，轮询等待其他实例写入缓存
+			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+			if record, ok := m.waitForCachePoll(ctx, interval, 5*time.Second, func() (*T, error) {
+				if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
+					if r, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
+						return r, nil
+					}
 				}
+				return nil, database.ErrCacheNotFound
+			}); ok {
+				return record, nil
 			}
 		}
 
@@ -437,9 +452,14 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 				return cachedIDs, nil
 			}
 		} else {
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-			if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
-				return cachedIDs, nil
+			// 未拿到锁，轮询等待其他实例写入缓存
+			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				time.Sleep(interval)
+				if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
+					return cachedIDs, nil
+				}
 			}
 		}
 
@@ -863,9 +883,14 @@ func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc fu
 				return int64(cached), nil
 			}
 		} else {
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-			if cached, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil {
-				return int64(cached), nil
+			// 未拿到锁，轮询等待其他实例写入缓存
+			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				time.Sleep(interval)
+				if cached, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil {
+					return int64(cached), nil
+				}
 			}
 		}
 
@@ -926,9 +951,14 @@ func (m *cacheManager[T]) getExists(ctx context.Context, key string, queryFunc f
 				return cached > 0, nil
 			}
 		} else {
-			time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-			if cached, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil {
-				return cached > 0, nil
+			// 未拿到锁，轮询等待其他实例写入缓存
+			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				time.Sleep(interval)
+				if cached, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil {
+					return cached > 0, nil
+				}
 			}
 		}
 
@@ -966,8 +996,9 @@ func (m *cacheManager[T]) getExists(ctx context.Context, key string, queryFunc f
 // deleteCache 立即删除缓存
 // 参数：
 //   - id：单个 ID（如果是 DeleteDaoTypeSingle 时使用）
+//   - ids：ID 列表（DeleteDaoTypeSingle 时支持批量删除）
 //   - deleteType：删除类型（Single / Condition / All）
-func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, deleteType string) {
+func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, ids []uint64, deleteType string) {
 	if m.cache == nil {
 		return
 	}
@@ -975,9 +1006,16 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, deleteType
 
 	switch deleteType {
 	case DeleteDaoTypeSingle:
-		// 只删除单个 ID 的缓存
-		if delErr := m.cache.Del(ctx, id); delErr != nil {
-			logger.WarnWithCtx(ctx, "cache Del failed", logger.Err(delErr), logger.Any("id", id))
+		// 合并单个 ID 和 ID 列表，一次性批量删除
+		allIDs := make([]uint64, 0, len(ids)+1)
+		if id > 0 {
+			allIDs = append(allIDs, id)
+		}
+		allIDs = append(allIDs, ids...)
+		if len(allIDs) > 0 {
+			if delErr := m.cache.DelByIDs(ctx, allIDs); delErr != nil {
+				logger.WarnWithCtx(ctx, "cache DelByIDs failed", logger.Err(delErr), logger.Any("ids", allIDs))
+			}
 		}
 
 	case DeleteDaoTypeCondition:
@@ -1051,12 +1089,10 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 			}
 		}
 
-		// 删除批量 ID
+		// 删除批量 ID（一次 Redis DEL 调用）
 		if len(ids) > 0 {
-			for _, batchID := range ids {
-				if delErr := m.cache.Del(bgCtx, batchID); delErr != nil {
-					logger.WarnWithCtx(bgCtx, "delayed delete batch id failed", logger.Err(delErr), logger.Any("id", batchID))
-				}
+			if delErr := m.cache.DelByIDs(bgCtx, ids); delErr != nil {
+				logger.WarnWithCtx(bgCtx, "delayed delete batch ids failed", logger.Err(delErr), logger.Any("ids", ids))
 			}
 		}
 

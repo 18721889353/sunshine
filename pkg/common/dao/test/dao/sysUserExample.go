@@ -84,6 +84,7 @@ func NewSysUserExampleDao(
 		db,
 		cache,
 		(&model.SysUserExample{}).TableName(),
+		"",
 		updateBuilder,
 		opts...,
 	)
