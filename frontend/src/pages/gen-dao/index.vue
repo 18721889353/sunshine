@@ -25,7 +25,7 @@
         <el-card v-if="tables.length > 0" class="config-card">
           <template #header>
             <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span>表名</span>
+              <span><span style="color:#f56c6c;">*</span> 表名</span>
               <span style="color:#909399;font-size:12px;">已选 {{ selectedTables.length }} 个</span>
             </div>
           </template>
@@ -53,10 +53,7 @@
         <el-card class="config-card">
           <template #header><span>DAO 配置</span></template>
           <el-form label-width="100px">
-            <FormField v-model="form.moduleName" label="模块名称" placeholder="go.mod 中的 module 名称" />
-            <FormField v-model="form.serverName" label="服务名称" placeholder="服务名称（mono-repo 模式）" />
-            <FormField v-model="form.outPath" label="输出路径" placeholder="输出目录（可选）" />
-            <FormField v-model="form.jsonNameType" label="JSON 风格" type="radio" :options="[{ label: '驼峰', value: 1 }, { label: '下划线', value: 0 }]" />
+            <FormField v-model="form.moduleName" label="模块名称" placeholder="go.mod 中的 module 名称" required />
             <el-form-item label="选项">
               <el-switch v-model="form.embed" active-text="嵌入 gorm.Model" />
               <el-switch v-model="form.extendedApi" active-text="扩展 CRUD API" style="margin-left:16px" />
@@ -104,16 +101,13 @@ const {
   command: 'web dao',
   buildArgs: (f, { dbDriver, dsn, tables }) => {
     const args = []
+    if (f.moduleName) args.push(`--module-name=${f.moduleName}`)
     if (dbDriver) args.push(`--db-driver=${dbDriver}`)
     if (dsn) args.push(`--db-dsn=${dsn}`)
     if (tables.length) args.push(`--db-table=${tables.join(',')}`)
-    if (f.moduleName) args.push(`--module-name=${f.moduleName}`)
-    if (f.serverName) args.push(`--server-name=${f.serverName}`)
-    if (f.outPath) args.push(`--out=${f.outPath}`)
-    args.push(`--json-name-type=${f.jsonNameType ?? 1}`)
-    if (f.embed) args.push('--embed')
-    if (f.extendedApi) args.push('--extended-api')
-    if (f.suitedMonoRepo) args.push('--suited-mono-repo')
+    args.push(`--embed=${f.embed}`)
+    args.push(`--suited-mono-repo=${!f.suitedMonoRepo}`)
+    args.push(`--extended-api=${f.extendedApi}`)
     return args
   },
   canSubmit: (f, { tables }) => tables.length > 0,

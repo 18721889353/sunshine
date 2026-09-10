@@ -1,5 +1,5 @@
 <template>
-  <el-form-item :label="label" :prop="prop">
+  <el-form-item :label="label" :prop="prop" :required="required">
     <el-input
       v-if="type === 'text'"
       :model-value="modelValue"
@@ -36,6 +36,7 @@ defineProps({
   type: { type: String, default: 'text' },
   label: { type: String, default: '' },
   prop: { type: String, default: '' },
+  required: { type: Boolean, default: false },
   modelValue: { type: [String, Number, Boolean], default: '' },
   placeholder: { type: String, default: '' },
   options: { type: Array, default: () => [] },

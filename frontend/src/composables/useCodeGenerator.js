@@ -32,6 +32,7 @@ export function useCodeGenerator(options) {
     extendedApi: false,
     suitedMonoRepo: false,
     jsonNameType: 1,
+    includeInitDb: false,
   })
 
   const form = ref(defaultForm())
@@ -157,7 +158,8 @@ export function useCodeGenerator(options) {
     loading.generate = true
     try {
       const arg = buildArg()
-      const path = (await uploadFileIfNeeded()) || form.value.outPath || '.'
+      // path 使用 command 部分（用 - 连接），用于文件名生成
+      const path = (await uploadFileIfNeeded()) || command.replace(/\s+/g, '-') || '.'
       const baseURL = getConfig()
 
       const response = await fetch(baseURL + '/generate', {
@@ -171,12 +173,12 @@ export function useCodeGenerator(options) {
       }
 
       const blob = await response.blob()
-      const contentDisposition = response.headers.get('content-disposition')
-      let filename = 'generated-code.zip'
-      if (contentDisposition) {
-        const m = contentDisposition.match(/filename=([^;]+)/)
-        if (m) filename = m[1]
-      }
+      // 构建文件名：moduleName-command-时间戳.zip
+      const now = new Date()
+      const timeStr = `${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`
+      const cmdName = command.replace(/\s+/g, '-')
+      const moduleName = form.value.moduleName || 'output'
+      const filename = `${moduleName}-${cmdName}-${timeStr}.zip`
 
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
