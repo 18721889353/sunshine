@@ -191,8 +191,12 @@ func (t tmplField) ConditionZero() string {
 		return `!= 0`
 	case "string", "sql.NullString": //nolint
 		return `!= ""`
-	case "time.Time", "*time.Time", "sql.NullTime": //nolint
+	case "time.Time", "sql.NullTime": //nolint
 		return `.IsZero() == false`
+	case "*time.Time": //nolint
+		// 指针类型需要先检查 nil，再调用 IsZero()
+		// 生成代码: if table.FieldName != nil && !table.FieldName.IsZero() { ... }
+		return `!= nil && !table.` + t.Name + `.IsZero()`
 	case "[]byte", "[]string", "[]int", "interface{}": //nolint
 		return `!= nil` //nolint
 	case "bool": //nolint
