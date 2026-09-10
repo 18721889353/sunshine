@@ -12,9 +12,7 @@
             <FormField v-model="form.keyType" label="键类型" placeholder="例如: uint64、string" />
             <FormField v-model="form.valueName" label="值变量名" placeholder="例如: token、data" />
             <FormField v-model="form.valueType" label="值类型" placeholder="例如: string、*User" />
-            <el-form-item label="选项">
-              <el-switch v-model="form.suitedMonoRepo" active-text="适配单体仓库" />
-            </el-form-item>
+
             <FormField v-model="form.outPath" label="输出路径" placeholder="输出目录（可选）" />
           </el-form>
         </el-card>
@@ -60,7 +58,7 @@ const {
     if (f.keyType) args.push(`--key-type=${f.keyType}`)
     if (f.valueName) args.push(`--value-name=${f.valueName}`)
     if (f.valueType) args.push(`--value-type=${f.valueType}`)
-    if (f.suitedMonoRepo) args.push('--suited-mono-repo')
+    args.push('--suited-mono-repo=false')
     if (f.outPath) args.push(`--out=${f.outPath}`)
     return args
   },

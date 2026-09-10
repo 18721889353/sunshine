@@ -55,9 +55,14 @@
           <el-form label-width="100px">
             <FormField v-model="form.moduleName" label="模块名称" placeholder="go.mod 中的 module 名称" required />
             <el-form-item label="选项">
-              <el-switch v-model="form.embed" active-text="嵌入 gorm.Model" />
-              <el-switch v-model="form.extendedApi" active-text="扩展 CRUD API" style="margin-left:16px" />
-              <el-switch v-model="form.suitedMonoRepo" active-text="适配单体仓库" style="margin-left:16px" />
+              <el-switch v-model="form.embed" />
+              <span style="margin-left:8px">嵌入Model</span>
+              <el-tooltip placement="right">
+                <template #content>
+                  gorm.Model结构体字段对应表的id、created_at、updated_at、deleted_at 这4个列名，支持软删除。<br/>如果表包含这些列名，请开启嵌入Model，<br/>如果表不包含这些列名，请关闭嵌入Model。
+                </template>
+                <el-icon style="color:#c0c4cc;cursor:pointer;margin-left:4px;"><QuestionFilled /></el-icon>
+              </el-tooltip>
             </el-form-item>
           </el-form>
         </el-card>
@@ -89,6 +94,7 @@
 </template>
 
 <script setup>
+import { QuestionFilled } from '@element-plus/icons-vue'
 import { useCodeGenerator } from '../../composables/useCodeGenerator.js'
 import FormField from '../../components/FormField.vue'
 
@@ -106,8 +112,8 @@ const {
     if (dsn) args.push(`--db-dsn=${dsn}`)
     if (tables.length) args.push(`--db-table=${tables.join(',')}`)
     args.push(`--embed=${f.embed}`)
-    args.push(`--suited-mono-repo=${!f.suitedMonoRepo}`)
-    args.push(`--extended-api=${f.extendedApi}`)
+    args.push('--extended-api=true')
+    args.push('--suited-mono-repo=false')
     return args
   },
   canSubmit: (f, { tables }) => tables.length > 0,

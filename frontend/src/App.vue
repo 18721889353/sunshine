@@ -20,7 +20,7 @@
             </template>
             <el-menu-item index="sql-http">创建 Web 服务</el-menu-item>
             <el-menu-item index="sql-rpc">创建 gRPC 服务</el-menu-item>
-            <el-menu-item index="sql-handler-pb">创建 Handler+Protobuf</el-menu-item>
+
           </el-sub-menu>
 
           <el-sub-menu index="proto">
@@ -29,6 +29,7 @@
               <span>Protobuf 生成</span>
             </template>
             <el-menu-item index="proto-http">创建 Web 服务</el-menu-item>
+            <el-menu-item index="proto-rpc-pb">创建 gRPC 服务</el-menu-item>
             <el-menu-item index="proto-rpc-gw">创建 gRPC 网关</el-menu-item>
             <el-menu-item index="proto-grpc-http">创建 gRPC+HTTP</el-menu-item>
           </el-sub-menu>
@@ -41,13 +42,12 @@
             <el-menu-item index="gen-handler">Handler CRUD</el-menu-item>
             <el-menu-item index="gen-service">Service</el-menu-item>
             <el-menu-item index="gen-service-handler">Service+Handler</el-menu-item>
-            <el-menu-item index="gen-dao">DAO CRUD</el-menu-item>
+            <el-menu-item index="gen-dao">生成 DAO CRUD 代码</el-menu-item>
             <el-menu-item index="gen-proto">Protobuf CRUD</el-menu-item>
-            <el-menu-item index="gen-model">Model</el-menu-item>
+            <el-menu-item index="gen-model">生成 Model 代码</el-menu-item>
             <el-menu-item index="gen-cache">Cache</el-menu-item>
-            <el-menu-item index="gen-rpc-conn">gRPC 连接</el-menu-item>
-            <el-menu-item index="gen-config">Config (YAML→Go)</el-menu-item>
-            <el-menu-item index="gen-graph">业务架构图</el-menu-item>
+            <el-menu-item index="gen-rpc-conn">生成 gRPC 服务连接代码</el-menu-item>
+
           </el-sub-menu>
         </el-menu>
       </el-aside>
@@ -61,10 +61,11 @@
           <Home v-if="activeMenu === 'home'" />
           <SqlHttp v-else-if="activeMenu === 'sql-http'" />
           <SqlRpc v-else-if="activeMenu === 'sql-rpc'" />
-          <SqlHandlerPb v-else-if="activeMenu === 'sql-handler-pb'" />
+
           <ProtoHttp v-else-if="activeMenu === 'proto-http'" />
           <ProtoRpcGw v-else-if="activeMenu === 'proto-rpc-gw'" />
           <ProtoGrpcHttp v-else-if="activeMenu === 'proto-grpc-http'" />
+          <ProtoRpcPb v-else-if="activeMenu === 'proto-rpc-pb'" />
           <GenHandler v-else-if="activeMenu === 'gen-handler'" />
           <GenService v-else-if="activeMenu === 'gen-service'" />
           <GenServiceHandler v-else-if="activeMenu === 'gen-service-handler'" />
@@ -73,8 +74,7 @@
           <GenModel v-else-if="activeMenu === 'gen-model'" />
           <GenCache v-else-if="activeMenu === 'gen-cache'" />
           <GenRpcConn v-else-if="activeMenu === 'gen-rpc-conn'" />
-          <GenConfig v-else-if="activeMenu === 'gen-config'" />
-          <GenGraph v-else-if="activeMenu === 'gen-graph'" />
+
         </el-main>
       </el-container>
     </el-container>
@@ -88,10 +88,11 @@ import { HomeFilled, Coin, Document, FolderOpened } from '@element-plus/icons-vu
 import Home from './pages/home/index.vue'
 import SqlHttp from './pages/sql-http/index.vue'
 import SqlRpc from './pages/sql-rpc/index.vue'
-import SqlHandlerPb from './pages/sql-handler-pb/index.vue'
+
 import ProtoHttp from './pages/proto-http/index.vue'
 import ProtoRpcGw from './pages/proto-rpc-gw/index.vue'
 import ProtoGrpcHttp from './pages/proto-grpc-http/index.vue'
+import ProtoRpcPb from './pages/proto-rpc-pb/index.vue'
 import GenHandler from './pages/gen-handler/index.vue'
 import GenService from './pages/gen-service/index.vue'
 import GenServiceHandler from './pages/gen-service-handler/index.vue'
@@ -100,8 +101,7 @@ import GenProto from './pages/gen-proto/index.vue'
 import GenModel from './pages/gen-model/index.vue'
 import GenCache from './pages/gen-cache/index.vue'
 import GenRpcConn from './pages/gen-rpc-conn/index.vue'
-import GenConfig from './pages/gen-config/index.vue'
-import GenGraph from './pages/gen-graph/index.vue'
+
 
 const activeMenu = ref('home')
 
@@ -114,10 +114,11 @@ const pageTitle = computed(() => {
     'home': '首页',
     'sql-http': 'SQL → Web 服务',
     'sql-rpc': 'SQL → gRPC 服务',
-    'sql-handler-pb': 'SQL → Handler + Protobuf',
+
     'proto-http': 'Protobuf → Web 服务',
     'proto-rpc-gw': 'Protobuf → gRPC 网关',
     'proto-grpc-http': 'Protobuf → gRPC + HTTP',
+    'proto-rpc-pb': 'Protobuf → gRPC 服务',
     'gen-handler': '独立生成 → Handler CRUD',
     'gen-service': '独立生成 → Service',
     'gen-service-handler': '独立生成 → Service + Handler',
@@ -126,8 +127,7 @@ const pageTitle = computed(() => {
     'gen-model': '独立生成 → Model',
     'gen-cache': '独立生成 → Cache',
     'gen-rpc-conn': '独立生成 → gRPC 连接',
-    'gen-config': '独立生成 → Config (YAML→Go)',
-    'gen-graph': '独立生成 → 业务架构图',
+
   }
   return titles[activeMenu.value] || 'Sunshine Code Generator'
 })

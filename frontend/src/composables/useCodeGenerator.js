@@ -29,10 +29,11 @@ export function useCodeGenerator(options) {
     repoAddr: '',
     outPath: '',
     embed: true,
-    extendedApi: false,
+    extendedApi: true,
     suitedMonoRepo: false,
     jsonNameType: 1,
     includeInitDb: false,
+    rpcServerNames: '',
   })
 
   const form = ref(defaultForm())

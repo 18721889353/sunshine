@@ -1,35 +1,30 @@
 <template>
-  <!-- SQL → Web 服务 -->
+  <!-- ①基于SQL创建Web服务 -->
   <div class="generate-page">
-    <el-row :gutter="20">
-      <!-- 左列：数据库 + 表选择 + 生成配置 -->
-      <el-col :span="12">
-        <!-- 数据库连接 -->
-        <el-card class="config-card">
-          <template #header><span>数据库连接</span></template>
-          <el-form label-width="80px">
-            <el-form-item label="驱动">
-              <el-select v-model="dbDriver" placeholder="选择驱动" style="width:100%">
-                <el-option v-for="d in dbDrivers" :key="d.value" :label="d.label" :value="d.value" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="DSN">
-              <el-input v-model="dsn" placeholder="root:123456@tcp(127.0.0.1:3306)/dbname" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" :loading="loading.tables" @click="loadTables">加载表结构</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+    <el-card class="main-card">
+      <template #header>
+        <span class="card-title">①基于<el-text type="danger">sql</el-text>创建web服务 <el-text type="info" size="small">生成完整的web服务后端代码</el-text></span>
+      </template>
 
-        <!-- 表选择 -->
-        <el-card v-if="tables.length > 0" class="config-card">
-          <template #header>
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <span>表名</span>
-              <span style="color:#909399;font-size:12px;">已选 {{ selectedTables.length }} 个</span>
-            </div>
-          </template>
+      <el-form label-width="120px" label-position="right">
+        <!-- 数据库 -->
+        <el-form-item label="数据库" required>
+          <el-select v-model="dbDriver" placeholder="选择数据库驱动" style="width:100%">
+            <el-option v-for="d in dbDrivers" :key="d.value" :label="d.label" :value="d.value" />
+          </el-select>
+        </el-form-item>
+
+        <!-- 数据库dsn -->
+        <el-form-item label="数据库dsn" required>
+          <el-input v-model="dsn" placeholder="root:123456@(127.0.0.1:3306)/dbname">
+            <template #append>
+              <el-button :loading="loading.tables" @click="loadTables">获取表名</el-button>
+            </template>
+          </el-input>
+        </el-form-item>
+
+        <!-- 表名 -->
+        <el-form-item v-if="tables.length > 0" label="表名" required>
           <el-select
             v-model="selectedTables"
             multiple
@@ -48,38 +43,51 @@
             </div>
             <el-option v-for="t in tables" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
-        </el-card>
+        </el-form-item>
 
-        <!-- 生成配置 -->
-        <el-card class="config-card">
-          <template #header><span>生成配置</span></template>
-          <el-form label-width="100px">
-            <FormField v-model="form.moduleName" label="模块名称" placeholder="go.mod 中的 module 名称" />
-            <FormField v-model="form.serverName" label="服务名称" placeholder="服务名称" />
-            <FormField v-model="form.projectName" label="项目名称" placeholder="用于部署名称" />
-            <FormField v-model="form.repoAddr" label="镜像仓库" placeholder="Docker 镜像仓库地址（可选）" />
-            <FormField v-model="form.outPath" label="输出路径" placeholder="输出目录（可选）" />
-            <FormField v-model="form.jsonNameType" label="JSON 风格" type="radio" :options="[{ label: '驼峰', value: 1 }, { label: '下划线', value: 0 }]" />
-            <el-form-item label="选项">
-              <el-switch v-model="form.embed" active-text="嵌入 gorm.Model" />
-              <el-switch v-model="form.extendedApi" active-text="扩展 CRUD API" style="margin-left:16px" />
-              <el-switch v-model="form.suitedMonoRepo" active-text="适配单体仓库" style="margin-left:16px" />
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
+        <!-- 服务名称 -->
+        <el-form-item label="服务名称" required>
+          <el-input v-model="form.serverName" placeholder="服务名称" />
+        </el-form-item>
 
-      <!-- 右列：操作按钮 -->
-      <el-col :span="12">
-        <el-card class="action-card">
-          <template #header><span>操作</span></template>
-          <div style="display:flex;gap:10px;">
-            <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
-            <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+        <!-- module名称 -->
+        <el-form-item label="module名称" required>
+          <el-input v-model="form.moduleName" placeholder="go.mod 中的 module 名称" />
+        </el-form-item>
+
+        <!-- 项目名称 -->
+        <el-form-item label="项目名称" required>
+          <el-input v-model="form.projectName" placeholder="用于部署名称" />
+        </el-form-item>
+
+        <!-- docker镜像仓库 -->
+        <el-form-item label="docker镜像仓库">
+          <el-input v-model="form.repoAddr" placeholder="Docker 镜像仓库地址（可选）" />
+        </el-form-item>
+
+        <!-- 开关选项 -->
+        <el-form-item label=" ">
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <el-switch v-model="form.embed" />
+              <span>嵌入Model</span>
+              <el-tooltip placement="right">
+                <template #content>
+                  gorm.Model结构体字段对应表的id、created_at、updated_at、deleted_at 这4个列名，支持软删除。<br/>如果表包含这些列名，请开启嵌入Model，<br/>如果表不包含这些列名，请关闭嵌入Model。
+                </template>
+                <el-icon style="color:#c0c4cc;cursor:pointer;"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </div>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 操作按钮 -->
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
+      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+    </div>
 
     <!-- 预览结果 -->
     <el-card v-if="previewResult" class="config-card" style="margin-top:20px;">
@@ -95,8 +103,8 @@
 </template>
 
 <script setup>
+import { QuestionFilled } from '@element-plus/icons-vue'
 import { useCodeGenerator } from '../../composables/useCodeGenerator.js'
-import FormField from '../../components/FormField.vue'
 
 const {
   form, dbDrivers, dbDriver, dsn, tables, selectedTables,
@@ -116,9 +124,8 @@ const {
     if (f.repoAddr) args.push(`--repo-addr=${f.repoAddr}`)
     if (f.outPath) args.push(`--out=${f.outPath}`)
     args.push(`--json-name-type=${f.jsonNameType ?? 1}`)
-    if (f.embed) args.push('--embed')
-    if (f.extendedApi) args.push('--extended-api')
-    if (f.suitedMonoRepo) args.push('--suited-mono-repo')
+    args.push(`--embed=${f.embed}`)
+    args.push('--extended-api=true')
     return args
   },
   canSubmit: (f, { tables }) => tables.length > 0,
@@ -126,6 +133,19 @@ const {
 </script>
 
 <style scoped>
-.config-card { margin-bottom: 20px; }
-.action-card { margin-bottom: 20px; }
+.generate-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.main-card {
+  margin-bottom: 20px;
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+.config-card {
+  margin-bottom: 20px;
+}
 </style>

@@ -8,6 +8,7 @@ export default defineConfig({
     emptyOutDir: true
   },
   server: {
+    port: 518,
     proxy: {
       '/api': {
         target: 'http://localhost:24631',

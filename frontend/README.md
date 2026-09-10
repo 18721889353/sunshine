@@ -45,7 +45,7 @@ npm run dev
 pnpm run dev
 ```
 
-开发服务器启动后，访问 `http://localhost:5173`，API 请求会自动代理到后端 `http://localhost:24631`。
+开发服务器启动后，访问 `http://localhost:518`，API 请求会自动代理到后端 `http://localhost:24631`。
 
 ## 构建打包
 
@@ -125,7 +125,7 @@ go run ./cmd/sunshine/main.go run
    pnpm run dev
    ```
 
-3. 访问 `http://localhost:5173` 进行开发调试。
+3. 访问 `http://localhost:518` 进行开发调试。
 
 ## 配置说明
 
