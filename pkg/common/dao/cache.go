@@ -25,7 +25,7 @@ type LockDriver interface {
 	WatchDogLoopLock(ctx context.Context, key string, expiry time.Duration, task func(ctx context.Context) error, options ...redsync.Option) error
 }
 
-// CacheDriver[T] 缓存读写驱动接口
+// CacheDriver 缓存读写驱动接口
 // 职责：提供按 ID / 自定义 Key / 批量 / 前缀删除的缓存读写能力
 // 使用者：cacheManager（核心缓存操作）、业务层缓存
 type CacheDriver[T any] interface {
@@ -64,7 +64,7 @@ type PlaceholderDriver interface {
 	IsPlaceholderErr(err error) bool
 }
 
-// Cache[T] 泛型缓存接口，由 LockDriver + CacheDriver[T] + PlaceholderDriver 组合而成
+// Cache 泛型缓存接口，由 LockDriver + CacheDriver[T] + PlaceholderDriver 组合而成
 //
 // 设计说明：
 //   - 将单一巨型接口拆分为三个职责明确的小接口（ISP 原则）

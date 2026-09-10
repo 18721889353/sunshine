@@ -246,6 +246,16 @@ func (t tmplField) GoTypeZero() string {
 	return t.GoType
 }
 
+// DerefExpr 返回字段值的表达式，指针类型自动解引用
+// prefix: 字段访问前缀，如 "table"、"m" 等
+// 用于 updateBuilder 等需要获取实际值的场景
+func (t tmplField) DerefExpr(prefix string) string {
+	if strings.HasPrefix(t.GoType, "*") {
+		return "*" + prefix + "." + t.Name
+	}
+	return prefix + "." + t.Name
+}
+
 // AddOne counter
 func (t tmplField) AddOne(i int) int {
 	return i + 1
@@ -467,9 +477,12 @@ func makeCode(stmt *ast.CreateTableStmt, opt options) (*codeText, error) {
 			field.Tag = makeTagStr(tags)
 
 			// get type in golang
-			// 注意：NOT NULL 列不再强制覆盖 NullStyle，用户可通过 --null-style=pointer
-			// 生成指针类型（如 *int、*string），使 ConditionZero 能区分未设置和显式零值
-			goType, pkg, rrField := mysqlToGoType(col.Tp, opt.NullStyle)
+			// NOT NULL 列强制使用值类型，NULL 列根据 NullStyle 决定
+			nullStyle := opt.NullStyle
+			if isNotNull {
+				nullStyle = NullDisable
+			}
+			goType, pkg, rrField := mysqlToGoType(col.Tp, nullStyle)
 			if pkg != "" {
 				importPath = append(importPath, pkg)
 			}

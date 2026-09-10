@@ -39,7 +39,7 @@ type options struct {
 var defaultOptions = options{
 	DBDriver:   "mysql",             // 默认数据库驱动为 mysql
 	FieldTypes: map[string]string{}, // 默认字段类型映射为空
-	NullStyle:  NullInPointer,         // 默认使用指针类型，支持零值更新（nil=未设置，非nil=更新）
+	NullStyle:  NullInPointer,       // 默认使用指针类型，支持零值更新（nil=未设置，非nil=更新）
 	Package:    "model",             // 默认生成代码的包名为 model
 }
 

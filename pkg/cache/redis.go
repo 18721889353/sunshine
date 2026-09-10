@@ -382,8 +382,7 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error)
 	}()
 
 	var cursor uint64
-	const scanBatch = 100       // SCAN 每次扫描的 key 数量
-	const pipelineBatch = 100   // Pipeline 每批执行的删除命令数
+	const scanBatch = 100 // SCAN 每次扫描的 key 数量
 
 	var totalDeleted int64
 

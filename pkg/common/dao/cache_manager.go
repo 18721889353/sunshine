@@ -113,7 +113,7 @@ func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (
 // interval: 每次轮询间隔（默认 50ms）
 // maxWait:  最大等待时间（默认 5s）
 // queryCache: 每轮调用的缓存读取函数，返回 (*T, error)，缓存命中时 err == nil
-func (m *cacheManager[T]) waitForCachePoll(ctx context.Context, interval, maxWait time.Duration, queryCache func() (*T, error)) (*T, bool) {
+func (m *cacheManager[T]) waitForCachePoll(_ context.Context, interval, maxWait time.Duration, queryCache func() (*T, error)) (*T, bool) {
 	deadline := time.Now().Add(maxWait)
 	for time.Now().Before(deadline) {
 		time.Sleep(interval)
@@ -411,82 +411,47 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 	// 【步骤1】尝试从缓存读取 ID 列表
 	ids, err := m.cache.GetIDsByKey(ctx, cacheKey)
 
-	// 【步骤2】如果缓存命中
+	// 【步骤2】检查缓存结果
+	if result, ok := m.checkConditionCacheResult(ctx, key, cacheKey, ids, err); ok {
+		return result, nil
+	}
+
+	// 【步骤3】进入 singleflight 流程
+	return m.executeConditionIDsSingleflight(ctx, key, cacheKey, queryFunc)
+}
+
+// checkConditionCacheResult 检查条件 ID 列表的缓存结果
+// 返回值：(结果, 是否命中)
+func (m *cacheManager[T]) checkConditionCacheResult(ctx context.Context, key, cacheKey string, ids []uint64, err error) ([]uint64, bool) {
+	// 缓存命中
 	if err == nil {
-		// 检查列表长度是否超过最大缓存限制（默认 10000）
 		if len(ids) <= m.config.MaxCacheableIDs {
-			return ids, nil
+			return ids, true
 		}
-		// 列表太大，删除过期缓存（避免 Redis 内存浪费）
+		// 列表太大，删除过期缓存
 		logger.WarnWithCtx(ctx, "cached id list too large, deleting stale cache",
 			logger.Any("count", len(ids)), logger.Any("key", key))
 		if delErr := m.cache.DelByKey(ctx, cacheKey); delErr != nil {
 			logger.WarnWithCtx(ctx, "delete stale cache failed", logger.Err(delErr))
 		}
-	} else if !errors.Is(err, database.ErrCacheNotFound) {
-		// 【步骤3】如果不是"缓存未找到"错误，记录日志并检查是否是占位符
+		return nil, false
+	}
+
+	// 不是"缓存未找到"错误
+	if !errors.Is(err, database.ErrCacheNotFound) {
 		logger.WarnWithCtx(ctx, "cache.GetIDsByKey error, falling back to database", logger.Err(err), logger.Any("key", cacheKey))
 		if m.cache.IsPlaceholderErr(err) {
-			return nil, database.ErrRecordNotFound
+			return nil, true // 返回 true 表示已处理
 		}
 	}
 
-	// 【步骤4】进入 singleflight 流程
+	return nil, false
+}
+
+// executeConditionIDsSingleflight 执行条件 ID 列表查询的 singleflight 流程
+func (m *cacheManager[T]) executeConditionIDsSingleflight(ctx context.Context, key, cacheKey string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
 	val, sfErr, _ := m.sfg.Do(SFKeyPrefixIDsCondition+key, func() (interface{}, error) {
-		lockKey := BuildLockKey(LockKeyPrefixRefresh, cacheKey)
-		lock, lockErr := m.cache.GetLock(ctx, lockKey)
-
-		if lock != nil {
-			defer func() {
-				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-				defer cancel()
-				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
-					logger.WarnWithCtx(ctx, "unlock failed in getByCondition", logger.Err(unlockErr))
-				}
-			}()
-		}
-
-		// 双检
-		if lockErr == nil {
-			if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
-				return cachedIDs, nil
-			}
-		} else {
-			// 未拿到锁，轮询等待其他实例写入缓存
-			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
-			deadline := time.Now().Add(5 * time.Second)
-			for time.Now().Before(deadline) {
-				time.Sleep(interval)
-				if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
-					return cachedIDs, nil
-				}
-			}
-		}
-
-		// 查数据库
-		result, dbErr := queryFunc()
-		if dbErr != nil {
-			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				if setErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); setErr != nil {
-					logger.WarnWithCtx(ctx, "set placeholder by key failed", logger.Err(setErr))
-				}
-				return nil, database.ErrRecordNotFound
-			}
-			return nil, dbErr
-		}
-
-		// 如果结果集太大，不缓存，直接返回
-		if len(result) > m.config.MaxCacheableIDs {
-			logger.WarnWithCtx(ctx, "result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key))
-			return result, nil
-		}
-
-		// 缓存结果
-		expire := GetRandomExpireTime(m.config.DefaultExpireTime)
-		if setErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expire); setErr != nil {
-			logger.WarnWithCtx(ctx, "set ids by key failed", logger.Err(setErr))
-		}
-		return result, nil
+		return m.fetchConditionIDsFromDB(ctx, cacheKey, key, queryFunc)
 	})
 
 	if sfErr != nil {
@@ -495,6 +460,64 @@ func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryF
 	result, ok := val.([]uint64)
 	if !ok {
 		return nil, database.ErrRecordNotFound
+	}
+	return result, nil
+}
+
+// fetchConditionIDsFromDB 从数据库获取条件 ID 列表并处理缓存
+func (m *cacheManager[T]) fetchConditionIDsFromDB(ctx context.Context, cacheKey, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
+	lockKey := BuildLockKey(LockKeyPrefixRefresh, cacheKey)
+	lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+	if lock != nil {
+		defer func() {
+			unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "unlock failed in getByCondition", logger.Err(unlockErr))
+			}
+		}()
+	}
+
+	// 双检
+	if lockErr == nil {
+		if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
+			return cachedIDs, nil
+		}
+	} else {
+		// 未拿到锁，轮询等待
+		interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			time.Sleep(interval)
+			if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
+				return cachedIDs, nil
+			}
+		}
+	}
+
+	// 查数据库
+	result, dbErr := queryFunc()
+	if dbErr != nil {
+		if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+			if setErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); setErr != nil {
+				logger.WarnWithCtx(ctx, "set placeholder by key failed", logger.Err(setErr))
+			}
+			return nil, database.ErrRecordNotFound
+		}
+		return nil, dbErr
+	}
+
+	// 如果结果集太大，不缓存
+	if len(result) > m.config.MaxCacheableIDs {
+		logger.WarnWithCtx(ctx, "result set too large to cache", logger.Any("count", len(result)), logger.Any("key", key))
+		return result, nil
+	}
+
+	// 缓存结果
+	expire := GetRandomExpireTime(m.config.DefaultExpireTime)
+	if setErr := m.cache.SetIDsByKey(ctx, cacheKey, result, expire); setErr != nil {
+		logger.WarnWithCtx(ctx, "set ids by key failed", logger.Err(setErr))
 	}
 	return result, nil
 }

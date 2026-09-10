@@ -43,7 +43,7 @@ import (
 	updateFieldTmplRaw = `
 {{- range .Fields}}
 	if table.{{.Name}} {{.ConditionZero}} {
-		update["{{.ColName}}"] = table.{{.Name}}
+		update["{{.ColName}}"] = {{.DerefExpr "table"}}
 	}
 {{- end}}`
 

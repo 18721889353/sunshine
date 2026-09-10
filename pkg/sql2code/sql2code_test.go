@@ -1,6 +1,7 @@
 package sql2code_test
 
 import (
+	"strings"
 	"testing"
 
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
@@ -62,7 +63,7 @@ CREATE TABLE test_table (
 	}
 
 	if code == "" {
-		t.Fatal("Generated JSON code is empty")
+		t.Fatal("Generated code is empty")
 	}
 
 	t.Logf("Generated JSON code:\n%s", code)
@@ -90,8 +91,55 @@ CREATE TABLE product (
 	}
 
 	if code == "" {
-		t.Fatal("Generated proto code is empty")
+		t.Fatal("Generated code is empty")
 	}
 
 	t.Logf("Generated proto code:\n%s", code)
+}
+
+func TestGenerateDAO(t *testing.T) {
+	sql := `
+CREATE TABLE sys_user_example (
+    id bigint unsigned NOT NULL AUTO_INCREMENT COMMENT 'ID',
+    name varchar(100) NOT NULL COMMENT '名称',
+    email varchar(100) DEFAULT NULL COMMENT '邮箱',
+    age int DEFAULT NULL COMMENT '年龄',
+    status int NOT NULL DEFAULT 1 COMMENT '状态',
+    PRIMARY KEY (id)
+)
+`
+
+	args := &sql2code.Args{
+		SQL:      sql,
+		CodeType: "dao",
+		JSONTag:  true,
+		IsEmbed:  true,
+	}
+
+	code, err := sql2code.GenerateOne(args)
+	if err != nil {
+		t.Fatalf("GenerateOne failed: %v", err)
+	}
+
+	if code == "" {
+		t.Fatal("Generated code is empty")
+	}
+
+	// 验证：NOT NULL 字段使用值类型，NULL 字段使用指针类型
+	if !strings.Contains(code, "table.Name") {
+		t.Error("NOT NULL field should use value type (table.Name)")
+	}
+	// NULL 字段应该解引用指针（*table.Email, *table.Age）
+	if !strings.Contains(code, "*table.Email") {
+		t.Error("NULL pointer field should be dereferenced (*table.Email)")
+	}
+	if !strings.Contains(code, "*table.Age") {
+		t.Error("NULL pointer field should be dereferenced (*table.Age)")
+	}
+	// NOT NULL 字段不解引用
+	if strings.Contains(code, "*table.Status") {
+		t.Error("NOT NULL field should NOT be dereferenced")
+	}
+
+	t.Logf("Generated dao code:\n%s", code)
 }

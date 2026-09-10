@@ -152,8 +152,6 @@ func setOptions(args *Args) []parser.Option {
 			fmt.Printf("无效的 null 样式: %s\n", args.NullStyle)
 			return nil
 		}
-	} else {
-		opts = append(opts, parser.WithNullStyle(parser.NullDisable))
 	}
 	if args.Package != "" {
 		opts = append(opts, parser.WithPackage(args.Package))
