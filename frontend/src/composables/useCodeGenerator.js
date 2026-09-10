@@ -34,6 +34,7 @@ export function useCodeGenerator(options) {
     jsonNameType: 1,
     includeInitDb: false,
     rpcServerNames: '',
+    webType: true,
   })
 
   const form = ref(defaultForm())
@@ -214,7 +215,9 @@ export function useCodeGenerator(options) {
     const f = form.value
     const t = selectedTables.value
     const p = protoFiles.value
-    return canSubmit(f, { tables: t, protoFiles: p })
+    const d = dbDriver.value
+    const dsnVal = dsn.value
+    return canSubmit(f, { tables: t, protoFiles: p, dbDriver: d, dsn: dsnVal })
   })
 
   // ======================== 重置 ========================

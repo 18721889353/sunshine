@@ -39,11 +39,11 @@
               <el-icon><FolderOpened /></el-icon>
               <span>独立生成</span>
             </template>
-            <el-menu-item index="gen-handler">Handler CRUD</el-menu-item>
-            <el-menu-item index="gen-service">Service</el-menu-item>
-            <el-menu-item index="gen-service-handler">Service+Handler</el-menu-item>
+            <el-menu-item index="gen-handler">生成 handler CRUD代码</el-menu-item>
+            <el-menu-item index="gen-service">生成 service CRUD代码</el-menu-item>
+            <el-menu-item index="gen-service-handler">生成 service+handler CRUD代码</el-menu-item>
             <el-menu-item index="gen-dao">生成 DAO CRUD 代码</el-menu-item>
-            <el-menu-item index="gen-proto">Protobuf CRUD</el-menu-item>
+            <el-menu-item index="gen-proto">生成 protobuf CRUD代码</el-menu-item>
             <el-menu-item index="gen-model">生成 Model 代码</el-menu-item>
             <el-menu-item index="gen-cache">生成 cache 代码</el-menu-item>
             <el-menu-item index="gen-rpc-conn">生成 gRPC 服务连接代码</el-menu-item>
