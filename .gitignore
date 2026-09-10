@@ -38,3 +38,4 @@ cmd/sunshine/sunshine
 pkg/goexcel/files/
 *.env
 cmd/sunshine/commands/generate/testdata/
+frontend/node_modules/

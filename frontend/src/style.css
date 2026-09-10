@@ -1,0 +1,23 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f7fa;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.el-tooltip__popper {
+  box-shadow: 3px 3px 10px 5px #d3d3d6;
+  border-width: 0px !important;
+}
+
+.el-tooltip__popper[x-placement^="top"] .popper__arrow:after {
+  border-top-color: #dcdfe6 !important;
+}
