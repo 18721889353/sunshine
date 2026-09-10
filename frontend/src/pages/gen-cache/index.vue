@@ -1,32 +1,50 @@
 <template>
   <div class="generate-page">
-    <el-row :gutter="20">
-      <el-col :span="12">
-        <el-card class="config-card">
-          <template #header><span>Cache 配置</span></template>
-          <el-form label-width="100px">
-            <FormField v-model="form.moduleName" label="模块名称" placeholder="Go 模块名" />
-            <FormField v-model="form.cacheName" label="缓存名称" placeholder="例如: userToken" />
-            <FormField v-model="form.prefixKey" label="键前缀" placeholder="例如: user:token（可选）" />
-            <FormField v-model="form.keyName" label="键参数名" placeholder="例如: id、uid" />
-            <FormField v-model="form.keyType" label="键类型" placeholder="例如: uint64、string" />
-            <FormField v-model="form.valueName" label="值变量名" placeholder="例如: token、data" />
-            <FormField v-model="form.valueType" label="值类型" placeholder="例如: string、*User" />
+    <el-card class="main-card">
+      <template #header>
+        <span class="card-title">生成cache代码</span>
+      </template>
 
-            <FormField v-model="form.outPath" label="输出路径" placeholder="输出目录（可选）" />
-          </el-form>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card class="action-card">
-          <template #header><span>操作</span></template>
-          <div style="display:flex;gap:10px;">
-            <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
-            <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+      <el-form label-width="120px" label-position="right">
+        <!-- module名称 -->
+        <el-form-item label="module名称" required>
+          <el-input v-model="form.moduleName" placeholder="Go 模块名" />
+        </el-form-item>
+
+        <!-- 缓存名称 -->
+        <el-form-item label="缓存名称" required>
+          <el-input v-model="form.cacheName" placeholder="例如: userToken" />
+        </el-form-item>
+
+        <!-- key名称 + key类型 -->
+        <el-form-item label="key名称" required>
+          <div style="display:flex;gap:12px;">
+            <el-input v-model="form.keyName" placeholder="例如: id、uid" style="flex:1;" />
+            <el-select v-model="form.keyType" placeholder="类型" style="width:120px;">
+              <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
+            </el-select>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </el-form-item>
+
+        <!-- value名称 + value类型 -->
+        <el-form-item label="value名称" required>
+          <div style="display:flex;gap:12px;">
+            <el-input v-model="form.valueName" placeholder="例如: token、data" style="flex:1;" />
+            <el-select v-model="form.valueType" placeholder="类型" style="width:120px;">
+              <el-option v-for="t in typeOptions" :key="t" :label="t" :value="t" />
+            </el-select>
+          </div>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
+    <!-- 操作按钮 -->
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
+      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+    </div>
+
+    <!-- 预览结果 -->
     <el-card v-if="previewResult" class="config-card" style="margin-top:20px;">
       <template #header>
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -41,32 +59,45 @@
 
 <script setup>
 import { useCodeGenerator } from '../../composables/useCodeGenerator.js'
-import FormField from '../../components/FormField.vue'
+
+const typeOptions = ['uint64', 'string', 'int', 'int64']
 
 const {
   form,
   previewResult, loading, canGenerate,
   previewCode, generateCode, copyCommand,
 } = useCodeGenerator({
-  command: 'cache',
+  command: 'web cache',
   buildArgs: (f) => {
     const args = []
     if (f.moduleName) args.push(`--module-name=${f.moduleName}`)
     if (f.cacheName) args.push(`--cache-name=${f.cacheName}`)
-    if (f.prefixKey) args.push(`--prefix-key=${f.prefixKey}`)
     if (f.keyName) args.push(`--key-name=${f.keyName}`)
     if (f.keyType) args.push(`--key-type=${f.keyType}`)
     if (f.valueName) args.push(`--value-name=${f.valueName}`)
     if (f.valueType) args.push(`--value-type=${f.valueType}`)
+    if (f.prefixKey) args.push(`--prefix-key=${f.prefixKey}`)
     args.push('--suited-mono-repo=false')
-    if (f.outPath) args.push(`--out=${f.outPath}`)
     return args
   },
-  canSubmit: (f) => f.moduleName && f.cacheName && f.keyName && f.keyType && f.valueName && f.valueType,
+  canSubmit: (f) => f.moduleName?.trim() && f.cacheName?.trim() && f.keyName?.trim() && f.keyType && f.valueName?.trim() && f.valueType,
 })
 </script>
 
 <style scoped>
-.config-card { margin-bottom: 20px; }
-.action-card { margin-bottom: 20px; }
+.generate-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+.main-card {
+  margin-bottom: 20px;
+}
+.card-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+.config-card {
+  margin-bottom: 20px;
+}
 </style>
