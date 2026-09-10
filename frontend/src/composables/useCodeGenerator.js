@@ -6,7 +6,7 @@
  */
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listDrivers, listTables, getTemplateInfo, uploadFiles as apiUploadFiles, getConfig } from '../api'
+import { listDrivers, listTables, uploadFiles as apiUploadFiles, getConfig } from '../api'
 
 /**
  * @param {Object} options
@@ -18,7 +18,7 @@ import { listDrivers, listTables, getTemplateInfo, uploadFiles as apiUploadFiles
  * @param {Function} options.resetForm - () => Object 重置表单（特殊页面用）
  */
 export function useCodeGenerator(options) {
-  const { command, title, fields = [], buildArgs, canSubmit, resetForm } = options
+  const { command, fields = [], buildArgs, canSubmit, resetForm } = options
 
   // ======================== 表单状态 ========================
   const defaultForm = () => ({
@@ -56,15 +56,22 @@ export function useCodeGenerator(options) {
         if (cfg.driver) dbDriver.value = cfg.driver
         if (cfg.dsn) dsn.value = cfg.dsn
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   const saveDbConfig = () => {
     try {
-      localStorage.setItem(DB_STORAGE_KEY, JSON.stringify({
-        driver: dbDriver.value,
-        dsn: dsn.value,
-      }))
-    } catch { /* ignore */ }
+      localStorage.setItem(
+        DB_STORAGE_KEY,
+        JSON.stringify({
+          driver: dbDriver.value,
+          dsn: dsn.value,
+        })
+      )
+    } catch {
+      /* ignore */
+    }
   }
 
   // Proto 文件（支持多个）
@@ -102,14 +109,12 @@ export function useCodeGenerator(options) {
   }
 
   // ======================== 表全选 ========================
-  const isAllSelected = computed(() =>
-    tables.value.length > 0 && selectedTables.value.length === tables.value.length
-  )
-  const isIndeterminate = computed(() =>
-    selectedTables.value.length > 0 && selectedTables.value.length < tables.value.length
+  const isAllSelected = computed(() => tables.value.length > 0 && selectedTables.value.length === tables.value.length)
+  const isIndeterminate = computed(
+    () => selectedTables.value.length > 0 && selectedTables.value.length < tables.value.length
   )
   const toggleAll = (val) => {
-    selectedTables.value = val ? tables.value.map(t => t.value) : []
+    selectedTables.value = val ? tables.value.map((t) => t.value) : []
   }
 
   // ======================== 命令构建 ========================
@@ -155,7 +160,9 @@ export function useCodeGenerator(options) {
   const generateCode = async () => {
     try {
       await ElMessageBox.confirm('确定要生成代码吗？生成的代码将打包为 zip 文件下载。', '确认生成', { type: 'info' })
-    } catch { return }
+    } catch {
+      return
+    }
 
     loading.generate = true
     try {
@@ -167,7 +174,7 @@ export function useCodeGenerator(options) {
       const response = await fetch(baseURL + '/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ arg, path })
+        body: JSON.stringify({ arg, path }),
       })
 
       if (!response.ok) {
@@ -245,14 +252,26 @@ export function useCodeGenerator(options) {
     form,
     fields,
     // 数据库
-    dbDrivers, dbDriver, dsn,
-    tables, selectedTables,
-    isAllSelected, isIndeterminate, toggleAll, loadTables,
+    dbDrivers,
+    dbDriver,
+    dsn,
+    tables,
+    selectedTables,
+    isAllSelected,
+    isIndeterminate,
+    toggleAll,
+    loadTables,
     // Proto
     protoFiles,
     // 状态
-    previewResult, loading, canGenerate,
+    previewResult,
+    loading,
+    canGenerate,
     // 操作
-    previewCode, generateCode, copyCommand, buildCommand, reset,
+    previewCode,
+    generateCode,
+    copyCommand,
+    buildCommand,
+    reset,
   }
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="app-container">
-    <el-container style="height: 100vh;">
+    <el-container style="height: 100vh">
       <!-- 左侧菜单 -->
       <el-aside width="220px" class="app-aside">
         <div class="aside-header">
@@ -20,7 +20,6 @@
             </template>
             <el-menu-item index="sql-http">创建 Web 服务</el-menu-item>
             <el-menu-item index="sql-rpc">创建 gRPC 服务</el-menu-item>
-
           </el-sub-menu>
 
           <el-sub-menu index="proto">
@@ -47,7 +46,6 @@
             <el-menu-item index="gen-model">生成 Model 代码</el-menu-item>
             <el-menu-item index="gen-cache">生成 cache 代码</el-menu-item>
             <el-menu-item index="gen-rpc-conn">生成 gRPC 服务连接代码</el-menu-item>
-
           </el-sub-menu>
         </el-menu>
       </el-aside>
@@ -74,7 +72,6 @@
           <GenModel v-else-if="activeMenu === 'gen-model'" />
           <GenCache v-else-if="activeMenu === 'gen-cache'" />
           <GenRpcConn v-else-if="activeMenu === 'gen-rpc-conn'" />
-
         </el-main>
       </el-container>
     </el-container>
@@ -102,7 +99,6 @@ import GenModel from './pages/gen-model/index.vue'
 import GenCache from './pages/gen-cache/index.vue'
 import GenRpcConn from './pages/gen-rpc-conn/index.vue'
 
-
 const activeMenu = ref('home')
 
 const handleMenuSelect = (index) => {
@@ -111,7 +107,7 @@ const handleMenuSelect = (index) => {
 
 const pageTitle = computed(() => {
   const titles = {
-    'home': '首页',
+    home: '首页',
     'sql-http': 'SQL → Web 服务',
     'sql-rpc': 'SQL → gRPC 服务',
 
@@ -127,20 +123,54 @@ const pageTitle = computed(() => {
     'gen-model': '独立生成 → Model',
     'gen-cache': '独立生成 → Cache',
     'gen-rpc-conn': '独立生成 → gRPC 连接',
-
   }
   return titles[activeMenu.value] || 'Sunshine Code Generator'
 })
 </script>
 
 <style scoped>
-.app-container { height: 100vh; }
-.app-aside { background-color: #fff; border-right: 1px solid #e6e6e6; overflow-y: auto; }
-.aside-header { height: 60px; display: flex; align-items: center; justify-content: center; gap: 8px; border-bottom: 1px solid #e6e6e6; }
-.logo-icon { font-size: 24px; }
-.logo-text { font-size: 18px; font-weight: bold; color: #409eff; }
-.aside-menu { border-right: none; }
-.app-header { background-color: #fff; border-bottom: 1px solid #e6e6e6; display: flex; align-items: center; padding: 0 20px; }
-.app-header h2 { margin: 0; font-size: 18px; color: #333; }
-.app-main { background-color: #f5f7fa; padding: 20px; overflow-y: auto; }
+.app-container {
+  height: 100vh;
+}
+.app-aside {
+  background-color: #fff;
+  border-right: 1px solid #e6e6e6;
+  overflow-y: auto;
+}
+.aside-header {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-bottom: 1px solid #e6e6e6;
+}
+.logo-icon {
+  font-size: 24px;
+}
+.logo-text {
+  font-size: 18px;
+  font-weight: bold;
+  color: #409eff;
+}
+.aside-menu {
+  border-right: none;
+}
+.app-header {
+  background-color: #fff;
+  border-bottom: 1px solid #e6e6e6;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+}
+.app-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+.app-main {
+  background-color: #f5f7fa;
+  padding: 20px;
+  overflow-y: auto;
+}
 </style>

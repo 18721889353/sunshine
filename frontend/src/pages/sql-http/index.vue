@@ -3,13 +3,16 @@
   <div class="generate-page">
     <el-card class="main-card">
       <template #header>
-        <span class="card-title">①基于<el-text type="danger">sql</el-text>创建web服务 <el-text type="info" size="small">生成完整的web服务后端代码</el-text></span>
+        <span class="card-title"
+          >①基于<el-text type="danger">sql</el-text>创建web服务
+          <el-text type="info" size="small">生成完整的web服务后端代码</el-text></span
+        >
       </template>
 
       <el-form label-width="120px" label-position="right">
         <!-- 数据库 -->
         <el-form-item label="数据库" required>
-          <el-select v-model="dbDriver" placeholder="选择数据库驱动" style="width:100%">
+          <el-select v-model="dbDriver" placeholder="选择数据库驱动" style="width: 100%">
             <el-option v-for="d in dbDrivers" :key="d.value" :label="d.label" :value="d.value" />
           </el-select>
         </el-form-item>
@@ -30,16 +33,14 @@
             multiple
             filterable
             placeholder="请选择表名，支持多选"
-            style="width:100%"
+            style="width: 100%"
             collapse-tags
             collapse-tags-tooltip
           >
-            <div style="padding:8px 12px;border-bottom:1px solid #e4e7ed;">
-              <el-checkbox
-                :model-value="isAllSelected"
-                :indeterminate="isIndeterminate"
-                @change="toggleAll"
-              >全选</el-checkbox>
+            <div style="padding: 8px 12px; border-bottom: 1px solid #e4e7ed">
+              <el-checkbox :model-value="isAllSelected" :indeterminate="isIndeterminate" @change="toggleAll"
+                >全选</el-checkbox
+              >
             </div>
             <el-option v-for="t in tables" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
@@ -67,15 +68,15 @@
 
         <!-- 开关选项 -->
         <el-form-item label=" ">
-          <div style="display:flex;flex-direction:column;gap:16px;">
-            <div style="display:flex;align-items:center;gap:8px;">
+          <div style="display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; align-items: center; gap: 8px">
               <el-switch v-model="form.embed" />
               <span>嵌入Model</span>
               <el-tooltip placement="right">
                 <template #content>
-                  gorm.Model结构体字段对应表的id、created_at、updated_at、deleted_at 这4个列名，支持软删除。<br/>如果表包含这些列名，请开启嵌入Model，<br/>如果表不包含这些列名，请关闭嵌入Model。
+                  gorm.Model结构体字段对应表的id、created_at、updated_at、deleted_at 这4个列名，支持软删除。<br />如果表包含这些列名，请开启嵌入Model，<br />如果表不包含这些列名，请关闭嵌入Model。
                 </template>
-                <el-icon style="color:#c0c4cc;cursor:pointer;"><QuestionFilled /></el-icon>
+                <el-icon style="color: #c0c4cc; cursor: pointer"><QuestionFilled /></el-icon>
               </el-tooltip>
             </div>
           </div>
@@ -84,20 +85,24 @@
     </el-card>
 
     <!-- 操作按钮 -->
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
-      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+    <div style="display: flex; gap: 10px; margin-top: 20px">
+      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode"
+        >预览命令</el-button
+      >
+      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode"
+        >生成代码</el-button
+      >
     </div>
 
     <!-- 预览结果 -->
-    <el-card v-if="previewResult" class="config-card" style="margin-top:20px;">
+    <el-card v-if="previewResult" class="config-card" style="margin-top: 20px">
       <template #header>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display: flex; justify-content: space-between; align-items: center">
           <span>预览结果</span>
           <el-button type="primary" size="small" link @click="copyCommand">复制</el-button>
         </div>
       </template>
-      <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;">{{ previewResult }}</pre>
+      <pre style="margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 13px">{{ previewResult }}</pre>
     </el-card>
   </div>
 </template>
@@ -107,10 +112,22 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 import { useCodeGenerator } from '../../composables/useCodeGenerator.js'
 
 const {
-  form, dbDrivers, dbDriver, dsn, tables, selectedTables,
-  isAllSelected, isIndeterminate, toggleAll, loadTables,
-  previewResult, loading, canGenerate,
-  previewCode, generateCode, copyCommand,
+  form,
+  dbDrivers,
+  dbDriver,
+  dsn,
+  tables,
+  selectedTables,
+  isAllSelected,
+  isIndeterminate,
+  toggleAll,
+  loadTables,
+  previewResult,
+  loading,
+  canGenerate,
+  previewCode,
+  generateCode,
+  copyCommand,
 } = useCodeGenerator({
   command: 'web http',
   buildArgs: (f, { dbDriver, dsn, tables }) => {

@@ -1,0 +1,23 @@
+{
+  "extends": ["stylelint-config-standard", "stylelint-config-recommended-vue"],
+  "rules": {
+    "selector-pseudo-class-no-unknown": [
+      true,
+      {
+        "ignorePseudoClasses": ["deep", "global", "slotted"]
+      }
+    ],
+    "selector-pseudo-element-no-unknown": [
+      true,
+      {
+        "ignorePseudoElements": ["v-deep", "v-global", "v-slotted"]
+      }
+    ],
+    "no-descending-specificity": null,
+    "selector-class-pattern": null,
+    "rule-empty-line-before": null,
+    "declaration-block-single-line-max-declarations": null,
+    "length-zero-no-unit": null,
+    "selector-pseudo-element-colon-notation": null
+  }
+}

@@ -3,7 +3,7 @@
     <el-card class="main-card">
       <template #header>
         <span class="card-title"
-          >⑥基于<el-text type="danger">protobuf</el-text>创建grpc+http服务
+          >④基于<el-text type="danger">protobuf</el-text>创建grpc服务
           <el-text type="info" size="small">生成通用的微服务项目代码</el-text></span
         >
       </template>
@@ -92,46 +92,16 @@ syntax = "proto3";
 
 package api.user.v1;
 
-import "google/api/annotations.proto";
-import "protoc-gen-openapiv2/options/annotations.proto";
-
 // 第一个user是go module名称, 第二个user是服务名称, v1是版本号
 option go_package = "user/api/user/v1;v1";
 
-option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
-  host: "localhost:8080"
-  base_path: ""
-  info: {
-    title: "user api docs";
-    version: "2.0";
-  };
-  schemes: HTTP;
-  schemes: HTTPS;
-  consumes: "application/json";
-  produces: "application/json";
-};
-
 service user {
   // Login 登录注释
-  rpc Login(LoginRequest) returns (LoginReply) {
-    option (google.api.http) = {
-      post: "/api/v1/login"
-      body: "*"
-    };
-    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
-      summary: "登录",
-      description: "使用邮箱登录",
-    };
-  }
+  rpc Login(LoginRequest) returns (LoginReply) {}
 
-  // 注意：下面两类rpc会被忽略生成http相关代码
-  //    1. 在rpc没有设置google.api.http，例如 SayHi
-  //    2. rpc属于stream类型，例如 ClientSteam、ServerSteam、BidiSteam
-
-  //rpc SayHi(HelloRequest) returns (HelloReply) {}
-  //rpc ClientSteam(stream HelloRequest) returns (HelloReply) {}
-  //rpc ServerSteam(HelloRequest) returns (stream HelloReply) {}
-  //rpc BidiSteam(stream HelloRequest) returns (stream HelloReply) {}
+  rpc ClientSteam(stream HelloRequest) returns (HelloReply) {}
+  rpc ServerSteam(HelloRequest) returns (stream HelloReply) {}
+  rpc BidiSteam(stream HelloRequest) returns (stream HelloReply) {}
 }
 
 message LoginRequest {
@@ -163,7 +133,7 @@ const showProtoExample = ref(false)
 
 const { form, protoFiles, previewResult, loading, canGenerate, previewCode, generateCode, copyCommand } =
   useCodeGenerator({
-    command: 'micro grpc-http-pb',
+    command: 'micro rpc-pb',
     buildArgs: (f, { protoFiles }) => {
       const args = []
       if (f.moduleName) args.push(`--module-name=${f.moduleName}`)

@@ -7,7 +7,7 @@ export const getConfig = () => {
     if (window.appConfig && window.appConfig.sunshineServiceAddr) {
       return window.appConfig.sunshineServiceAddr
     }
-  } catch (e) {
+  } catch {
     console.warn('读取配置失败，使用默认地址')
   }
   return '/api/v1'
@@ -17,13 +17,13 @@ const api = axios.create({
   baseURL: getConfig(),
   timeout: 120000,
   headers: {
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
 })
 
 // 响应拦截器
 api.interceptors.response.use(
-  response => {
+  (response) => {
     const data = response.data
     if (data.code === 0 || data.code === '0') {
       return data.data
@@ -31,7 +31,7 @@ api.interceptors.response.use(
       return Promise.reject(new Error(data.msg || '请求失败'))
     }
   },
-  error => {
+  (error) => {
     console.error('API请求错误:', error)
     return Promise.reject(error)
   }
@@ -63,10 +63,14 @@ export const listTables = (dsn, dbDriver = 'mysql') => {
  * 返回: 二进制 zip 文件
  */
 export const generateCode = (arg, path = '') => {
-  return api.post('/generate', { arg, path }, {
-    responseType: 'blob',
-    headers: { 'Content-Type': 'application/json' }
-  })
+  return api.post(
+    '/generate',
+    { arg, path },
+    {
+      responseType: 'blob',
+      headers: { 'Content-Type': 'application/json' },
+    }
+  )
 }
 
 /**
@@ -88,11 +92,11 @@ export const getTemplateInfo = (arg, path = '') => {
  */
 export const uploadFiles = (files) => {
   const formData = new FormData()
-  files.forEach(file => {
+  files.forEach((file) => {
     formData.append('file', file)
   })
   return api.post('/uploadFiles', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
 

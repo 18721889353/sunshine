@@ -8,7 +8,7 @@
       <el-form label-width="120px" label-position="right">
         <!-- 数据库 -->
         <el-form-item label="数据库" required>
-          <el-select v-model="dbDriver" placeholder="选择数据库驱动" style="width:100%">
+          <el-select v-model="dbDriver" placeholder="选择数据库驱动" style="width: 100%">
             <el-option v-for="d in dbDrivers" :key="d.value" :label="d.label" :value="d.value" />
           </el-select>
         </el-form-item>
@@ -29,16 +29,14 @@
             multiple
             filterable
             placeholder="请选择表名，支持多选"
-            style="width:100%"
+            style="width: 100%"
             collapse-tags
             collapse-tags-tooltip
           >
-            <div style="padding:8px 12px;border-bottom:1px solid #e4e7ed;">
-              <el-checkbox
-                :model-value="isAllSelected"
-                :indeterminate="isIndeterminate"
-                @change="toggleAll"
-              >全选</el-checkbox>
+            <div style="padding: 8px 12px; border-bottom: 1px solid #e4e7ed">
+              <el-checkbox :model-value="isAllSelected" :indeterminate="isIndeterminate" @change="toggleAll"
+                >全选</el-checkbox
+              >
             </div>
             <el-option v-for="t in tables" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
@@ -57,20 +55,24 @@
     </el-card>
 
     <!-- 操作按钮 -->
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
-      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+    <div style="display: flex; gap: 10px; margin-top: 20px">
+      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode"
+        >预览命令</el-button
+      >
+      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode"
+        >生成代码</el-button
+      >
     </div>
 
     <!-- 预览结果 -->
-    <el-card v-if="previewResult" class="config-card" style="margin-top:20px;">
+    <el-card v-if="previewResult" class="config-card" style="margin-top: 20px">
       <template #header>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display: flex; justify-content: space-between; align-items: center">
           <span>预览结果</span>
           <el-button type="primary" size="small" link @click="copyCommand">复制</el-button>
         </div>
       </template>
-      <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;">{{ previewResult }}</pre>
+      <pre style="margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 13px">{{ previewResult }}</pre>
     </el-card>
   </div>
 </template>
@@ -79,10 +81,22 @@
 import { useCodeGenerator } from '../../composables/useCodeGenerator.js'
 
 const {
-  form, dbDrivers, dbDriver, dsn, tables, selectedTables,
-  isAllSelected, isIndeterminate, toggleAll, loadTables,
-  previewResult, loading, canGenerate,
-  previewCode, generateCode, copyCommand,
+  form,
+  dbDrivers,
+  dbDriver,
+  dsn,
+  tables,
+  selectedTables,
+  isAllSelected,
+  isIndeterminate,
+  toggleAll,
+  loadTables,
+  previewResult,
+  loading,
+  canGenerate,
+  previewCode,
+  generateCode,
+  copyCommand,
 } = useCodeGenerator({
   command: 'micro protobuf',
   buildArgs: (f, { dbDriver, dsn, tables }) => {

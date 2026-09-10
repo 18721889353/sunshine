@@ -19,20 +19,24 @@
     </el-card>
 
     <!-- 操作按钮 -->
-    <div style="display:flex;gap:10px;margin-top:20px;">
-      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode">预览命令</el-button>
-      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode">生成代码</el-button>
+    <div style="display: flex; gap: 10px; margin-top: 20px">
+      <el-button type="primary" :disabled="!canGenerate" :loading="loading.preview" @click="previewCode"
+        >预览命令</el-button
+      >
+      <el-button type="success" :disabled="!canGenerate" :loading="loading.generate" @click="generateCode"
+        >生成代码</el-button
+      >
     </div>
 
     <!-- 预览结果 -->
-    <el-card v-if="previewResult" class="config-card" style="margin-top:20px;">
+    <el-card v-if="previewResult" class="config-card" style="margin-top: 20px">
       <template #header>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display: flex; justify-content: space-between; align-items: center">
           <span>预览结果</span>
           <el-button type="primary" size="small" link @click="copyCommand">复制</el-button>
         </div>
       </template>
-      <pre style="margin:0;white-space:pre-wrap;word-break:break-all;font-size:13px;">{{ previewResult }}</pre>
+      <pre style="margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 13px">{{ previewResult }}</pre>
     </el-card>
   </div>
 </template>
@@ -40,11 +44,7 @@
 <script setup>
 import { useCodeGenerator } from '../../composables/useCodeGenerator.js'
 
-const {
-  form,
-  previewResult, loading, canGenerate,
-  previewCode, generateCode, copyCommand,
-} = useCodeGenerator({
+const { form, previewResult, loading, canGenerate, previewCode, generateCode, copyCommand } = useCodeGenerator({
   command: 'micro rpc-conn',
   buildArgs: (f) => {
     const args = []
