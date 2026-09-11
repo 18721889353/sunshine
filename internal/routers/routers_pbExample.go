@@ -38,7 +38,7 @@ var (
 //func customLogFunc(c *gin.Context, reqBody []byte, respBody []byte, startTime time.Time, endTime time.Time, spendTime int64) {
 //	go func() {
 //		// 保存到数据库
-//		database.GetDB().Create(&model.CpDealerApiLog{
+//		result := database.GetDB().WithContext(context.WithoutCancel(c.Request.Context())).Create(&model.CpDealerApiLog{
 //			Type:       "接口",
 //			Category:   "API",
 //			IP:         c.ClientIP(),
@@ -47,12 +47,17 @@ var (
 //			Response:   string(respBody),
 //			StartTime:  cast.ToString(startTime.UnixMilli()),
 //			EndTime:    cast.ToString(endTime.UnixMilli()),
-//			SpendTime:  cast.ToString(spendTime),
+//			SpendTime:  cast.ToInt(spendTime),
 //			DealerID:   cast.ToInt(c.GetString("uid")),
-//			Active:     "golang api",
+//			Active:     lo.ToPtr("golang api"),
 //			CreateTime: cast.ToString(time.Now().Unix()),
 //			UpdateTime: int(time.Now().Unix()),
 //		})
+//		if result.Error != nil {
+//			// 打印错误，至少知道为什么丢了
+//			logger.ErrorWithCtx(c.Request.Context(), "cp_dealer_api_log insert failed",
+//				logger.String("error", result.Error.Error()))
+//		}
 //	}()
 //}
 
@@ -101,6 +106,11 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		middleware.WithLogFrom(cfg.App.Name+"_"+utils.GetLocalIP()),
 		middleware.WithIgnoreRoutes("/metrics"), // ignore path
 	))
+
+	// APILogMiddleware 必须在 RequestID/Tracing/Logging 之后注册
+	// 这样 customLogFunc 捕获的 context 才包含 request_id、trace_id、caller_func
+	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
+
 	// 将签名添加为全局中间件
 	if cfg.App.OpenSign {
 		r.Use(
@@ -178,7 +188,6 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...)),
 		)
 	}
-	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
 
 	c := newMiddlewareConfig()
 
