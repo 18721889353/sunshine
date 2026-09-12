@@ -35,7 +35,7 @@ func TestSetMetrics_GetMetrics(t *testing.T) {
 // ============================================================================
 
 func TestAtomicCounters_Initial(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	if v := metricsMgr.successCount.Load(); v != 0 {
 		t.Errorf("successCount = %d, want 0", v)
@@ -49,7 +49,7 @@ func TestAtomicCounters_Initial(t *testing.T) {
 }
 
 func TestAtomicCounters_IncrementSuccess(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	// 创建最小池并提交一个简单任务
 	p, err := newAntsPool(MinPoolSize)
@@ -73,7 +73,7 @@ func TestAtomicCounters_IncrementSuccess(t *testing.T) {
 }
 
 func TestAtomicCounters_IncrementMultiple(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	for i := 0; i < 10; i++ {
 		metricsMgr.successCount.Add(1)

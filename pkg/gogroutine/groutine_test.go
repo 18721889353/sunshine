@@ -25,7 +25,7 @@ func resetForTest() {
 	defaultPoolOnce = sync.Once{}
 
 	// 重置全局指标管理器
-	metricsMgr.reset()
+	resetMetrics()
 }
 
 // mockMetrics 用于测试的指标采集器。
@@ -214,8 +214,6 @@ func TestGoWithTimeout_ContextCancelled(t *testing.T) {
 
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
-
-
 
 // ============================================================================
 // 测试 GoBatch - 批量任务
@@ -530,8 +528,6 @@ func TestPoolStats(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-
-
 // ============================================================================
 // 测试 Release / ReleaseAndWait
 // ============================================================================
@@ -733,8 +729,6 @@ func TestGo_CancelledCtxSkipped(t *testing.T) {
 
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
-
-
 
 // ============================================================================
 // 测试自动释放相关功能
@@ -1287,8 +1281,8 @@ func TestGoWithName_VeryLongName(t *testing.T) {
 // TestWithPoolSize_BoundaryValues 池大小边界值
 func TestWithPoolSize_BoundaryValues(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   int
+		name     string
+		input    int
 		expected int
 	}{
 		{"below_min", 0, MinPoolSize},
@@ -1584,4 +1578,3 @@ func TestGoWithTimeout_ContextAlreadyCancelled(t *testing.T) {
 
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
-

@@ -34,6 +34,7 @@ type Config struct {
 	Elasticsearch Elasticsearch `yaml:"elasticsearch" json:"elasticsearch"`
 	Email         Email         `yaml:"email" json:"email"`
 	EtcdInfo      EtcdInfo      `yaml:"etcdInfo" json:"etcdInfo"`
+	Goroutine     Goroutine     `yaml:"goroutine" json:"goroutine"`
 	Grpc          Grpc          `yaml:"grpc" json:"grpc"`
 	GrpcClient    []GrpcClient  `yaml:"grpcClient" json:"grpcClient"`
 	HTTP          HTTP          `yaml:"http" json:"http"`
@@ -337,6 +338,14 @@ type Pool struct {
 	ReconnectTime     int    `yaml:"reconnectTime" json:"reconnectTime"`
 	StatsLogOpen      bool   `yaml:"statsLogOpen" json:"statsLogOpen"`
 	URL               string `yaml:"url" json:"url"`
+}
+
+type Goroutine struct {
+	DisablePurge            bool `yaml:"disablePurge" json:"disablePurge"`
+	GracefulShutdown        bool `yaml:"gracefulShutdown" json:"gracefulShutdown"`
+	GracefulShutdownTimeout int  `yaml:"gracefulShutdownTimeout" json:"gracefulShutdownTimeout"`
+	PoolSize                int  `yaml:"poolSize" json:"poolSize"`
+	PreAlloc                bool `yaml:"preAlloc" json:"preAlloc"`
 }
 
 type Websocket struct {

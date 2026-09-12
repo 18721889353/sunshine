@@ -16,6 +16,7 @@ import (
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/database"
 
+	"github.com/18721889353/sunshine/pkg/gogroutine"
 	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
@@ -176,6 +177,16 @@ func InitApp() {
 		}
 		logger.InfoWithCtx(initCtx, "init RabbitMQ succeeded")
 	}
+
+	// 初始化协程池（从配置文件读取）
+	gogroutine.Init(
+		gogroutine.WithPoolSize(cfg.Goroutine.PoolSize),
+		gogroutine.WithPreAlloc(cfg.Goroutine.PreAlloc),
+		gogroutine.WithDisablePurge(cfg.Goroutine.DisablePurge),
+		gogroutine.WithGracefulShutdown(cfg.Goroutine.GracefulShutdown),
+		gogroutine.WithGracefulShutdownTimeout(time.Duration(cfg.Goroutine.GracefulShutdownTimeout)*time.Second),
+	)
+	logger.InfoWithCtx(initCtx, "[gogroutine] was initialized")
 }
 
 func initConfig() {

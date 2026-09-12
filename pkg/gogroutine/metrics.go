@@ -35,18 +35,8 @@ type metricsManager struct {
 	panicCount    atomic.Int64 // 累计 panic 次数
 	fallbackCount atomic.Int64 // 累计降级次数
 
-	collector Metrics    // 外部指标采集器（可选）
+	collector Metrics // 外部指标采集器（可选）
 	mu        sync.RWMutex
-}
-
-// reset 重置所有状态（仅用于测试）。
-func (m *metricsManager) reset() {
-	m.successCount.Store(0)
-	m.panicCount.Store(0)
-	m.fallbackCount.Store(0)
-	m.mu.Lock()
-	m.collector = nil
-	m.mu.Unlock()
 }
 
 // ============================================================================

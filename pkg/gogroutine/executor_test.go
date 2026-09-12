@@ -8,6 +8,16 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// resetMetrics 重置全局指标状态（仅用于测试）。
+func resetMetrics() {
+	metricsMgr.successCount.Store(0)
+	metricsMgr.panicCount.Store(0)
+	metricsMgr.fallbackCount.Store(0)
+	metricsMgr.mu.Lock()
+	metricsMgr.collector = nil
+	metricsMgr.mu.Unlock()
+}
+
 // ============================================================================
 // 测试 requestIDAttr - 链路追踪属性
 // ============================================================================
@@ -87,7 +97,7 @@ func TestShouldSkipSubmit_DeadlineExceeded(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_Success(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	done := make(chan struct{})
 	executeTask(context.Background(), "test-task", func() {
@@ -107,7 +117,7 @@ func TestExecuteTask_Success(t *testing.T) {
 }
 
 func TestExecuteTask_WithoutName(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	done := make(chan struct{})
 	executeTask(context.Background(), "", func() {
@@ -127,7 +137,7 @@ func TestExecuteTask_WithoutName(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_PanicRecovery(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	// executeTask 不应传播 panic
 	done := make(chan struct{})
@@ -149,7 +159,7 @@ func TestExecuteTask_PanicRecovery(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_WithMetrics(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	mm := &mockMetrics{}
 	SetMetrics(mm)
@@ -170,7 +180,7 @@ func TestExecuteTask_WithMetrics(t *testing.T) {
 }
 
 func TestExecuteTask_PanicWithMetrics(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	mm := &mockMetrics{}
 	SetMetrics(mm)
@@ -198,7 +208,7 @@ func TestExecuteTask_PanicWithMetrics(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_Concurrent(t *testing.T) {
-	metricsMgr.reset()
+	resetMetrics()
 
 	const goroutines = 50
 	done := make(chan struct{}, goroutines)

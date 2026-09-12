@@ -240,4 +240,3 @@ func TestBuildAntsOptions_NonBlockingTrue(t *testing.T) {
 		t.Errorf("len(opts) = %d, want >= 3", len(opts))
 	}
 }
-
