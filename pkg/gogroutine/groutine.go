@@ -66,10 +66,10 @@ var (
 // Init 初始化全局协程池（可选，不调用则使用默认配置）。
 // 使用 sync.Once 确保并发安全，多次调用只有首次生效。
 func Init(opts ...Option) {
-	defaultPoolOnce.Do(func() {
+	globalPoolOnce.Do(func() {
 		cfg := defaultPoolConfig()
 		cfg.apply(opts...)
-		if _, err := getOrCreatePool(cfg); err != nil {
+		if _, err := getOrCreateGlobalPool(cfg); err != nil {
 			panic(fmt.Sprintf("gogroutine: init pool failed: %v", err))
 		}
 
@@ -271,8 +271,8 @@ func PoolStats() StatsInfo {
 // 注意：不会执行 shutdown hooks，不会等待运行中的任务完成。
 // 如需等待任务完成，请使用 ReleaseAndWait 或 ReleaseAndWaitWithTimeout。
 func Release() {
-	if defaultPool != nil {
-		defaultPool.Release()
+	if globalPool != nil {
+		globalPool.Release()
 	}
 }
 
@@ -290,16 +290,16 @@ func ReleaseAndWait() {
 //
 // 执行流程：Release 停止接收新任务 → 轮询等待运行中任务完成 → 超时则强制返回。
 func ReleaseAndWaitWithTimeout(timeout time.Duration) {
-	if defaultPool == nil {
+	if globalPool == nil {
 		return
 	}
-	defaultPool.Release()
+	globalPool.Release()
 
 	deadline := time.Now().Add(timeout)
-	for defaultPool.GetRunningNum() > 0 {
+	for globalPool.GetRunningNum() > 0 {
 		if time.Now().After(deadline) {
 			logger.WarnWithCtx(context.Background(), "gogroutine: ReleaseAndWait timeout",
-				logger.Int("remaining", defaultPool.GetRunningNum()),
+				logger.Int("remaining", globalPool.GetRunningNum()),
 				logger.String("timeout", timeout.String()),
 			)
 			return
@@ -362,10 +362,10 @@ func executeGracefulShutdownHooks() {
 // initAndGetPool 确保全局池已初始化并返回。
 // 首次调用时使用默认配置创建池。
 func initAndGetPool() Pool {
-	defaultPoolOnce.Do(func() {
-		if _, err := getOrCreatePool(defaultPoolConfig()); err != nil {
+	globalPoolOnce.Do(func() {
+		if _, err := getOrCreateGlobalPool(defaultPoolConfig()); err != nil {
 			panic(fmt.Sprintf("gogroutine: init pool failed: %v", err))
 		}
 	})
-	return defaultPool
+	return globalPool
 }

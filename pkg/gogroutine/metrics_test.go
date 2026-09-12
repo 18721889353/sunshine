@@ -52,9 +52,9 @@ func TestAtomicCounters_IncrementSuccess(t *testing.T) {
 	resetMetrics()
 
 	// 创建最小池并提交一个简单任务
-	p, err := newAntsPool(MinPoolSize)
+	p, err := newInstance("test-metrics", MinPoolSize)
 	if err != nil {
-		t.Fatalf("newAntsPool failed: %v", err)
+		t.Fatalf("newInstance failed: %v", err)
 	}
 	defer p.Release()
 

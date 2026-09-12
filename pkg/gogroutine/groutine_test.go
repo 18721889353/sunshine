@@ -17,12 +17,12 @@ import (
 // resetForTest 重置全局状态，确保测试隔离。
 func resetForTest() {
 	// 释放旧池
-	if defaultPool != nil {
-		defaultPool.Release()
-		defaultPool = nil
+	if globalPool != nil {
+		globalPool.Release()
+		globalPool = nil
 	}
 	// 重置 sync.Once（重新赋值为零值）
-	defaultPoolOnce = sync.Once{}
+	globalPoolOnce = sync.Once{}
 
 	// 重置全局指标管理器
 	resetMetrics()
@@ -49,30 +49,30 @@ func TestInit_DefaultConfig(t *testing.T) {
 	resetForTest()
 	Init()
 
-	if defaultPool == nil {
-		t.Fatal("defaultPool should be initialized after Init()")
+	if globalPool == nil {
+		t.Fatal("globalPool should be initialized after Init()")
 	}
-	if v := defaultPool.GetCap(); v != DefaultPoolSize {
+	if v := globalPool.GetCap(); v != DefaultPoolSize {
 		t.Errorf("GetCap() = %d, want %d", v, DefaultPoolSize)
 	}
 
-	defaultPool.Release()
-	defaultPool = nil
+	globalPool.Release()
+	globalPool = nil
 }
 
 func TestInit_WithOptions(t *testing.T) {
 	resetForTest()
 	Init(WithPoolSize(50))
 
-	if defaultPool == nil {
-		t.Fatal("defaultPool should be initialized after Init()")
+	if globalPool == nil {
+		t.Fatal("globalPool should be initialized after Init()")
 	}
-	if v := defaultPool.GetCap(); v != 50 {
+	if v := globalPool.GetCap(); v != 50 {
 		t.Errorf("GetCap() = %d, want 50", v)
 	}
 
-	defaultPool.Release()
-	defaultPool = nil
+	globalPool.Release()
+	globalPool = nil
 }
 
 func TestInit_Idempotent(t *testing.T) {
@@ -82,12 +82,12 @@ func TestInit_Idempotent(t *testing.T) {
 	// 第二次 Init 应被忽略
 	Init(WithPoolSize(200))
 
-	if v := defaultPool.GetCap(); v != 50 {
+	if v := globalPool.GetCap(); v != 50 {
 		t.Errorf("GetCap() = %d, want 50 (second Init should be ignored)", v)
 	}
 
-	defaultPool.Release()
-	defaultPool = nil
+	globalPool.Release()
+	globalPool = nil
 }
 
 // ============================================================================
@@ -437,20 +437,24 @@ func TestCollectBatchErrors_EmptySlice(t *testing.T) {
 // 用于测试 handleSubmitFallback 降级路径。
 type rejectPool struct{}
 
-func (p *rejectPool) Submit(_ func()) error {
-	return errors.New("pool full")
-}
-func (p *rejectPool) GetRunningNum() int { return 0 }
-func (p *rejectPool) GetWaitingNum() int { return 0 }
-func (p *rejectPool) GetCap() int        { return 10 }
-func (p *rejectPool) Release()           {}
-func (p *rejectPool) IsFull() bool       { return true }
+func (p *rejectPool) Name() string                                         { return "reject" }
+func (p *rejectPool) SetCap(_ int32)                                       {}
+func (p *rejectPool) Go(_ func())                                          {}
+func (p *rejectPool) CtxGo(_ context.Context, _ func())                    {}
+func (p *rejectPool) SetPanicHandler(_ func(context.Context, interface{})) {}
+func (p *rejectPool) Submit(_ func()) error                                { return errors.New("pool full") }
+func (p *rejectPool) GetRunningNum() int                                   { return 0 }
+func (p *rejectPool) GetWaitingNum() int                                   { return 0 }
+func (p *rejectPool) GetCap() int                                          { return 10 }
+func (p *rejectPool) Release()                                             {}
+func (p *rejectPool) IsFull() bool                                         { return true }
+func (p *rejectPool) Stats() PoolStatsInfo                                 { return PoolStatsInfo{} }
 
 func TestGoWithName_FallbackWhenPoolFull(t *testing.T) {
 	resetForTest()
 
 	// 注入 mock Pool，使 Submit 始终返回错误，触发降级路径
-	defaultPool = &rejectPool{}
+	globalPool = &rejectPool{}
 
 	var fallbackExecuted atomic.Bool
 	done := make(chan struct{})
@@ -474,7 +478,7 @@ func TestGoWithName_FallbackWhenPoolFull(t *testing.T) {
 		t.Errorf("fallbackCount = %d, want >= 1", v)
 	}
 
-	defaultPool = nil
+	globalPool = nil
 }
 
 func TestGoWithName_FallbackWithMetrics(t *testing.T) {
@@ -484,7 +488,7 @@ func TestGoWithName_FallbackWithMetrics(t *testing.T) {
 	SetMetrics(mm)
 
 	// 注入 mock Pool，使 Submit 始终返回错误，触发降级路径
-	defaultPool = &rejectPool{}
+	globalPool = &rejectPool{}
 
 	// 提交应触发降级
 	done := make(chan struct{})
@@ -503,7 +507,7 @@ func TestGoWithName_FallbackWithMetrics(t *testing.T) {
 	}
 
 	SetMetrics(nil)
-	defaultPool = nil
+	globalPool = nil
 }
 
 // ============================================================================
@@ -543,7 +547,7 @@ func TestRelease(t *testing.T) {
 	Release()
 
 	// Release 后不应 panic
-	if defaultPool != nil {
+	if globalPool != nil {
 		// pool 已释放但引用可能还在（取决于实现）
 	}
 }
@@ -565,7 +569,7 @@ func TestReleaseAndWait(t *testing.T) {
 		t.Error("task should have completed before ReleaseAndWait returned")
 	}
 
-	defaultPool = nil
+	globalPool = nil
 }
 
 func TestReleaseAndWaitWithTimeout_Timeout(t *testing.T) {
@@ -582,11 +586,11 @@ func TestReleaseAndWaitWithTimeout_Timeout(t *testing.T) {
 	ReleaseAndWaitWithTimeout(1 * time.Millisecond)
 
 	close(blockCh)
-	defaultPool = nil
+	globalPool = nil
 }
 
 func TestReleaseAndWaitWithTimeout_NilPool(t *testing.T) {
-	// defaultPool 为 nil 时不应 panic
+	// globalPool 为 nil 时不应 panic
 	ReleaseAndWaitWithTimeout(1 * time.Second)
 }
 
@@ -609,7 +613,7 @@ func TestReleaseAndWaitWithTimeout_WaitForCompletion(t *testing.T) {
 		t.Error("task should have completed before timeout")
 	}
 
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestReleaseAndWaitWithTimeout_TimeoutPath 测试超时路径
@@ -627,7 +631,7 @@ func TestReleaseAndWaitWithTimeout_TimeoutPath(t *testing.T) {
 	ReleaseAndWaitWithTimeout(1 * time.Millisecond)
 
 	close(blockCh)
-	defaultPool = nil
+	globalPool = nil
 }
 
 // ============================================================================
@@ -944,7 +948,7 @@ func TestReleaseAndWaitWithTimeout_ZeroTimeout(t *testing.T) {
 	ReleaseAndWaitWithTimeout(0)
 
 	close(blockCh)
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestPoolStats_WithRunningTasks 测试运行中任务的统计
@@ -996,7 +1000,7 @@ func TestConcurrentInit(t *testing.T) {
 	wg.Wait()
 
 	// 只有第一次 Init 生效
-	if v := defaultPool.GetCap(); v != 100 {
+	if v := globalPool.GetCap(); v != 100 {
 		t.Errorf("GetCap() = %d, want 100", v)
 	}
 
@@ -1018,7 +1022,7 @@ func TestConcurrentRelease(t *testing.T) {
 	wg.Wait()
 
 	// 不应 panic
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestConcurrentReleaseAndWaitWithTimeout 多 goroutine 同时调用 ReleaseAndWaitWithTimeout
@@ -1035,7 +1039,7 @@ func TestConcurrentReleaseAndWaitWithTimeout(t *testing.T) {
 	}
 	wg.Wait()
 
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestConcurrentPoolStats 多 goroutine 同时访问 PoolStats
@@ -1363,7 +1367,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// 9. 清理
 	SetMetrics(nil)
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestGracefulShutdownFlow 优雅关闭完整流程
@@ -1487,7 +1491,7 @@ func TestSubmitToReleasedPool(t *testing.T) {
 		t.Error("task was not executed")
 	}
 
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestIsFull 各种池状态下的 IsFull 检查
@@ -1498,17 +1502,17 @@ func TestIsFull(t *testing.T) {
 	Init(WithPoolSize(10))
 
 	// 2. 空池不应满
-	if defaultPool.IsFull() {
+	if globalPool.IsFull() {
 		t.Error("empty pool should not be full")
 	}
 
 	// 3. 使用 rejectPool 测试满池
-	defaultPool = &rejectPool{}
-	if !defaultPool.IsFull() {
+	globalPool = &rejectPool{}
+	if !globalPool.IsFull() {
 		t.Error("rejectPool should be full")
 	}
 
-	defaultPool = nil
+	globalPool = nil
 }
 
 // TestBatchWithCancelledCtx 批量任务使用已取消的 ctx
@@ -1553,9 +1557,9 @@ func TestBatchWithCancelledCtx(t *testing.T) {
 	}
 
 	// 清理
-	if defaultPool != nil {
-		defaultPool.Release()
-		defaultPool = nil
+	if globalPool != nil {
+		globalPool.Release()
+		globalPool = nil
 	}
 }
 

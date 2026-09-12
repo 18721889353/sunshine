@@ -4,23 +4,33 @@ import (
 	"context"
 	"fmt"
 	"sync"
-
-	"github.com/panjf2000/ants/v2"
+	"time"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ============================================================================
-// 全局默认池管理
+// Pool 接口定义 - 参考字节跳动 gopool 设计
 // ============================================================================
 
-var (
-	defaultPool     Pool      // 默认协程池实例
-	defaultPoolOnce sync.Once // 用于确保默认池只初始化一次
-)
-
 // Pool 协程池抽象接口，便于 mock 测试和多实例管理。
+// 包含字节 gopool 标准接口和扩展接口。
 type Pool interface {
+	// ---- 字节 gopool 标准接口 ----
+
+	// Name 返回池名称（唯一标识）
+	Name() string
+	// SetCap 设置池容量（动态调整）
+	SetCap(capacity int32)
+	// Go 提交任务到池中执行（无 Context）
+	Go(f func())
+	// CtxGo 提交带 Context 的任务到池中执行
+	CtxGo(ctx context.Context, f func())
+	// SetPanicHandler 设置自定义 panic 处理器
+	SetPanicHandler(f func(ctx context.Context, r interface{}))
+
+	// ---- 扩展接口（保持兼容） ----
+
 	// Submit 提交任务到池中执行
 	Submit(task func()) error
 	// GetRunningNum 返回当前运行中的任务数
@@ -33,120 +43,66 @@ type Pool interface {
 	Release()
 	// IsFull 检查池是否已满
 	IsFull() bool
+	// Stats 返回池统计信息
+	Stats() PoolStatsInfo
 }
 
-// antsPool 基于 ants 的 Pool 实现，封装线程安全的池访问。
-type antsPool struct {
-	pool *ants.Pool
-	mu   sync.RWMutex
+// PoolStatsInfo 池统计信息。
+type PoolStatsInfo struct {
+	Name    string    // 池名称
+	Running int       // 当前运行中任务数
+	Waiting int       // 等待队列中的任务数
+	Cap     int       // 池容量
+	Submit  int64     // 累计提交任务数
+	Success int64     // 累计成功任务数
+	Panic   int64     // 累计 panic 次数
+	Created time.Time // 创建时间
 }
 
-// newAntsPool 创建一个基于 ants 的协程池实例。
-func newAntsPool(size int, opts ...ants.Option) (*antsPool, error) {
-	p, err := ants.NewPool(size, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("gogroutine: create ants pool: %w", err)
-	}
-	return &antsPool{pool: p}, nil
-}
+// ============================================================================
+// 全局默认池管理
+// ============================================================================
 
-func (p *antsPool) Submit(task func()) error {
-	p.mu.RLock()
-	pool := p.pool
-	p.mu.RUnlock()
-	if pool == nil {
-		return ants.ErrPoolClosed
-	}
-	return pool.Submit(task)
-}
+var (
+	// globalPool 全局默认协程池实例
+	globalPool Pool
+	// globalPoolOnce 确保全局池只初始化一次
+	globalPoolOnce sync.Once
+)
 
-func (p *antsPool) GetRunningNum() int {
-	p.mu.RLock()
-	pool := p.pool
-	p.mu.RUnlock()
-	if pool == nil {
-		return 0
-	}
-	return pool.Running()
-}
+// ============================================================================
+// 全局池辅助函数
+// ============================================================================
 
-func (p *antsPool) GetWaitingNum() int {
-	p.mu.RLock()
-	pool := p.pool
-	p.mu.RUnlock()
-	if pool == nil {
-		return 0
-	}
-	return pool.Waiting()
-}
-
-func (p *antsPool) GetCap() int {
-	p.mu.RLock()
-	pool := p.pool
-	p.mu.RUnlock()
-	if pool == nil {
-		return 0
-	}
-	return pool.Cap()
-}
-
-func (p *antsPool) Release() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.pool != nil {
-		p.pool.Release()
-		p.pool = nil
-	}
-}
-
-func (p *antsPool) IsFull() bool {
-	p.mu.RLock()
-	pool := p.pool
-	p.mu.RUnlock()
-	if pool == nil {
-		return false
-	}
-	return pool.Running() >= pool.Cap()
-}
-
-// getOrCreatePool 获取或创建全局默认协程池。
+// getOrCreateGlobalPool 获取或创建全局默认协程池。
 // 注意：此函数不使用 sync.Once，调用方（Init）需自行保证并发安全。
-func getOrCreatePool(cfg *poolConfig) (Pool, error) {
-	if defaultPool != nil {
-		return defaultPool, nil
+func getOrCreateGlobalPool(cfg *poolConfig) (Pool, error) {
+	if globalPool != nil {
+		return globalPool, nil
 	}
 
-	// 创建新的协程池实例
-	p, err := newAntsPool(
-		cfg.PoolSize,
-		buildAntsOptions(cfg)...,
-	)
+	// 创建新的全局池实例（使用 "_global" 作为名称）
+	p, err := newInstance("_global", cfg.PoolSize, poolConfigToOptions(cfg)...)
 	if err != nil {
-		return nil, fmt.Errorf("gogroutine: create pool: %w", err)
+		return nil, fmt.Errorf("gogroutine: create global pool: %w", err)
 	}
-	defaultPool = p
-	logger.InfoWithCtx(context.Background(), "gogroutine pool initialized",
+	globalPool = p
+	logger.InfoWithCtx(context.Background(), "gogroutine global pool initialized",
 		logger.Int("pool_size", cfg.PoolSize))
-	return defaultPool, nil
+	return globalPool, nil
 }
 
-// buildAntsOptions 将 poolConfig 转换为 ants.Option 列表。
-func buildAntsOptions(cfg *poolConfig) []ants.Option {
-	// 创建 ants.Option 列表
-	opts := []ants.Option{
-		// 非阻塞模式
-		ants.WithNonblocking(cfg.NonBlocking),
-		// 异常处理（备份：executor.go 已完整处理 panic 恢复）
-		ants.WithPanicHandler(func(r any) {
-			logger.ErrorWithCtx(context.Background(), "goroutine panic recovered in pool handler",
-				logger.Any("panic", r))
-		}),
+// poolConfigToOptions 将 poolConfig 转换为 Option 列表。
+func poolConfigToOptions(cfg *poolConfig) []Option {
+	var opts []Option
+	if cfg.NonBlocking {
+		opts = append(opts, WithNonBlocking(true))
 	}
 	if cfg.PreAlloc {
-		opts = append(opts, ants.WithPreAlloc(true))
+		opts = append(opts, WithPreAlloc(true))
 	}
 	if cfg.DisablePurge {
-		opts = append(opts, ants.WithDisablePurge(true))
+		opts = append(opts, WithDisablePurge(true))
 	}
 	return opts
 }

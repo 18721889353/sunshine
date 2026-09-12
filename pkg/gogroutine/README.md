@@ -1,66 +1,21 @@
 # gogroutine - 生产级 goroutine 管理
 
-基于 [ants](https://github.com/panjf2000/ants) 协程池的生产级 goroutine 管理包，提供安全、可控、可观测的异步任务执行能力。
+基于 [ants](https://github.com/panjf2000/ants) 协程池，参考字节跳动 gopool 设计，支持多实例池管理。
 
 ## 核心特性
 
 | 特性 | 说明 |
 |------|------|
 | **自动 panic 恢复** | 任务 panic 不会导致程序崩溃 |
-| **并发控制** | 基于协程池，防止 goroutine 泄漏和资源耗尽 |
-| **池满降级** | 池满时自动降级为原生 goroutine，保证任务不丢失 |
-| **context 校验** | ctx 已取消的任务直接跳过 |
-| **链路追踪** | 内置 OpenTelemetry Span，每个任务自动创建追踪链路 |
-| **指标监控** | 内置 Metrics 接口，支持 Prometheus 等监控系统 |
+| **并发控制** | 基于协程池，防止 goroutine 泄漏 |
+| **池满降级** | 池满时自动降级为原生 goroutine |
+| **链路追踪** | 内置 OpenTelemetry Span |
 | **优雅关闭** | 支持自动释放和手动控制 |
-
-## 快速开始
-
-```go
-import "github.com/18721889353/sunshine/pkg/gogroutine"
-
-// 基础用法（自动初始化）
-gogroutine.Go(ctx, func() {
-    // 异步任务
-})
-
-// 带名称（便于日志追踪和监控）
-gogroutine.GoWithName(ctx, "sendMQ", func() {
-    // 异步任务
-})
-
-// 带超时控制
-gogroutine.GoWithTimeout(ctx, "download", 30*time.Second, func(ctx context.Context) {
-    // ctx 会在 30 秒后自动取消
-})
-
-// 批量执行并等待全部完成
-tasks := []func(){task1, task2, task3}
-gogroutine.GoBatch(ctx, tasks)
-
-// 泛型版本：批量执行并收集结果（返回所有错误）
-results, err := gogroutine.GoBatchWithResult(ctx, "fetchUsers", tasks)
-if err != nil {
-    // err 包含所有失败任务的错误（errors.Join 聚合）
-    // 可使用 errors.Is(err, targetErr) 检查特定错误
-}
-```
-
-## 生产配置
-
-```go
-gogroutine.Init(
-    gogroutine.WithPoolSize(500),        // 池大小（默认 1000）
-    gogroutine.WithPreAlloc(true),        // 预分配内存（高并发场景）
-    gogroutine.WithDisablePurge(true),    // 禁用自动清理（突发流量场景）
-    gogroutine.WithGracefulShutdown(true),// 启用优雅关闭（推荐）
-    gogroutine.WithGracefulShutdownTimeout(10*time.Second), // 关闭超时（默认 30s）
-)
-```
+| **多实例池** | 支持创建独立命名的池实例 |
 
 ## 生产案例
 
-### HTTP Handler 异步任务
+### 案例一：HTTP Handler 异步任务
 
 ```go
 func RegisterHandler(c *gin.Context) {
@@ -83,7 +38,7 @@ func RegisterHandler(c *gin.Context) {
 }
 ```
 
-### 批量并发查询
+### 案例二：批量并发查询
 
 ```go
 func DashboardHandler(c *gin.Context) {
@@ -95,7 +50,6 @@ func DashboardHandler(c *gin.Context) {
 
     results, err := gogroutine.GoBatchWithResult(ctx, "dashboard", tasks)
     if err != nil {
-        // err 包含所有失败任务的错误
         logger.WarnWithCtx(ctx, "dashboard batch failed", logger.Err(err))
     }
 
@@ -107,7 +61,7 @@ func DashboardHandler(c *gin.Context) {
 }
 ```
 
-### 消息队列消费者
+### 案例三：消息队列消费者
 
 ```go
 func ConsumeOrder(ctx context.Context, msg amqp.Delivery) {
@@ -126,7 +80,7 @@ func ConsumeOrder(ctx context.Context, msg amqp.Delivery) {
 }
 ```
 
-### 批量数据同步
+### 案例四：批量数据同步
 
 ```go
 func SyncDataToDownstream(ctx context.Context) {
@@ -149,82 +103,133 @@ func SyncDataToDownstream(ctx context.Context) {
 }
 ```
 
-## 优雅关闭
+### 案例五：独立服务池（订单处理）
 
-### 方式一：自动释放（推荐）
+```go
+// 启动时初始化独立池
+var orderPool = gogroutine.New("order-processor", 100)
+
+// 订单处理
+func HandleOrder(ctx context.Context, order *Order) {
+    orderPool.CtxGo(ctx, func() {
+        svc.ProcessOrder(ctx, order)
+    })
+}
+
+// 关闭时释放
+func Shutdown() {
+    orderPool.Release()
+}
+```
+
+### 案例六：多服务池隔离
+
+```go
+// 不同服务使用独立池，互不影响
+var (
+    orderPool    = gogroutine.New("orders", 50)
+    paymentPool  = gogroutine.New("payments", 30)
+    notifyPool   = gogroutine.New("notifications", 20)
+)
+
+func HandlePayment(ctx context.Context, payment *Payment) {
+    paymentPool.CtxGo(ctx, func() {
+        paymentSvc.Process(ctx, payment)
+    })
+    // 通知异步
+    notifyPool.Go(func() {
+        notifySvc.Send(ctx, payment.UserID)
+    })
+}
+```
+
+### 案例七：Kafka 消费者并发处理
+
+```go
+func KafkaConsumer(ctx context.Context, msg *kafka.Message) {
+    var event Event
+    if err := json.Unmarshal(msg.Value, &event); err != nil {
+        logger.ErrorWithCtx(ctx, "unmarshal failed", logger.Err(err))
+        return
+    }
+
+    gogroutine.GoWithName(ctx, "kafka-"+event.Type, func() {
+        switch event.Type {
+        case "order.created":
+            orderSvc.HandleCreated(ctx, &event)
+        case "order.paid":
+            orderSvc.HandlePaid(ctx, &event)
+        }
+    })
+}
+```
+
+### 案例八：定时任务批量执行
+
+```go
+func DailySync(ctx context.Context) {
+    tasks := []func(){
+        func() { syncUsers(ctx) },
+        func() { syncOrders(ctx) },
+        func() { syncProducts(ctx) },
+        func() { cleanExpiredCache(ctx) },
+    }
+    gogroutine.GoBatch(ctx, tasks)
+}
+```
+
+## 生产配置
 
 ```go
 gogroutine.Init(
-    gogroutine.WithGracefulShutdown(true),
-    gogroutine.WithGracefulShutdownTimeout(10*time.Second),
+    gogroutine.WithPoolSize(500),                      // 池大小（默认 1000）
+    gogroutine.WithPreAlloc(true),                      // 预分配内存
+    gogroutine.WithGracefulShutdown(true),              // 启用优雅关闭
+    gogroutine.WithGracefulShutdownTimeout(10*time.Second), // 关闭超时
 )
-
-// 注册退出回调（可选）
-gogroutine.RegisterGracefulShutdownHook(func() {
-    db.Close()
-    cache.Flush()
-})
 ```
 
-### 方式二：手动控制
+## 优雅关闭
 
 ```go
-// 程序退出前调用
+// 方式一：自动释放（推荐）
+gogroutine.Init(gogroutine.WithGracefulShutdown(true))
+
+// 方式二：手动控制
 gogroutine.ReleaseAndWaitWithTimeout(10 * time.Second)
 ```
 
-## 监控集成
+## 监控
 
 ```go
-// 获取池状态
 s := gogroutine.PoolStats()
 fmt.Printf("running: %d, waiting: %d, cap: %d\n", s.Running, s.Waiting, s.Cap)
 fmt.Printf("success: %d, panic: %d, fallback: %d\n", s.Success, s.Panic, s.Fallback)
 ```
 
-### 注入 Prometheus 监控
+## 注意事项
 
-```go
-type myMetrics struct {
-    running  *prometheus.GaugeVec
-    panic    *prometheus.CounterVec
-    fallback *prometheus.CounterVec
-}
-
-func (m *myMetrics) IncRunning(name string)  { m.running.WithLabelValues(name).Inc() }
-func (m *myMetrics) DecRunning(name string)  { m.running.WithLabelValues(name).Dec() }
-func (m *myMetrics) IncPanic(name string)    { m.panic.WithLabelValues(name).Inc() }
-func (m *myMetrics) IncFallback(name string) { m.fallback.WithLabelValues(name).Inc() }
-func (m *myMetrics) ObserveTaskDuration(name string, d time.Duration) {}
-
-gogroutine.SetMetrics(&myMetrics{})
-```
-
-## 生产注意事项
-
-1. **Init 可选**：不调用 `Init()` 时，首次提交任务会自动使用默认配置
-2. **panic 安全**：任务内的 panic 不会崩溃程序，自动恢复并记录日志
-3. **池满不阻塞**：池满时自动降级为原生 goroutine（默认行为）
-4. **资源释放**：推荐启用 `WithGracefulShutdown(true)` 自动释放
-5. **ctx 传递**：使用 `c.Request.Context()` 传递 request_id，便于链路追踪
-6. **任务命名**：使用 `GoWithName` 便于监控系统按任务名称聚合指标
-7. **K8s 配置**：`terminationGracePeriodSeconds` 建议比 ShutdownTimeout 大 5 秒
+1. **panic 安全**：任务内 panic 不会崩溃程序
+2. **池满不阻塞**：自动降级为原生 goroutine
+3. **ctx 传递**：使用 `c.Request.Context()` 传递 request_id
+4. **任务命名**：使用 `GoWithName` 便于监控聚合
+5. **K8s 配置**：`terminationGracePeriodSeconds` 建议比 ShutdownTimeout 大 5 秒
 
 ## API 速查
 
 | 函数 | 说明 |
 |------|------|
-| `Init(opts ...Option)` | 初始化全局协程池（可选） |
-| `Go(ctx, task)` | 提交任务（fire-and-forget） |
+| `Init(opts ...Option)` | 初始化全局协程池 |
+| `Go(ctx, task)` | 提交任务 |
 | `GoWithName(ctx, name, task)` | 提交带名称的任务 |
 | `GoWithTimeout(ctx, name, timeout, task)` | 提交带超时的任务 |
 | `GoBatch(ctx, tasks)` | 批量执行并等待完成 |
-| `GoBatchWithName(ctx, name, tasks)` | 批量执行带统一名称前缀 |
-| `GoBatchWithResult(ctx, name, tasks)` | 泛型版本：批量执行并收集结果（返回所有错误） |
-| `PoolStats()` | 获取池统计信息 |
-| `Release()` | 释放池（非阻塞） |
-| `ReleaseAndWait()` | 释放池并等待完成（默认 30s 超时） |
-| `ReleaseAndWaitWithTimeout(timeout)` | 释放池并等待完成（自定义超时） |
-| `SetMetrics(m)` | 注入自定义监控实现 |
-| `RegisterGracefulShutdownHook(hook)` | 注册退出回调 |
-| `IsGracefulShutdownEnabled()` | 检查是否启用优雅关闭 |
+| `GoBatchWithResult(ctx, name, tasks)` | 批量执行并收集结果 |
+| `New(name, capacity, opts...)` | 创建独立池实例 |
+| `Get(name)` | 获取池实例 |
+| `ReleasePool(name)` | 释放指定池实例 |
+| `ReleaseAllPools()` | 释放所有池实例 |
+| `PoolStats()` | 获取全局池统计 |
+| `Release()` | 释放全局池 |
+| `ReleaseAndWait()` | 释放并等待完成 |
+| `SetMetrics(m)` | 注入自定义监控 |
