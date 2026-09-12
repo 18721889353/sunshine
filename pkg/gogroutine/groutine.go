@@ -37,9 +37,12 @@ package gogroutine
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -49,15 +52,64 @@ import (
 // 初始化
 // ============================================================================
 
+var (
+	// gracefulShutdown 优雅关闭的运行时状态
+	gracefulShutdown struct {
+		hooks   []func()      // 优雅关闭时执行的钩子函数
+		hooksMu sync.Mutex    // 保护 hooks 的互斥锁
+		once    sync.Once     // 确保钩子只执行一次
+		enabled bool          // 是否启用优雅关闭
+		timeout time.Duration // 优雅关闭超时时间
+	}
+)
+
 // Init 初始化全局协程池（可选，不调用则使用默认配置）。
 // 使用 sync.Once 确保并发安全，多次调用只有首次生效。
 func Init(opts ...Option) {
 	defaultPoolOnce.Do(func() {
 		cfg := defaultPoolConfig()
 		cfg.apply(opts...)
-		cfg.normalize()
-		_ = getOrCreatePool(cfg)
+		if _, err := getOrCreatePool(cfg); err != nil {
+			panic(fmt.Sprintf("gogroutine: init pool failed: %v", err))
+		}
+
+		// 保存优雅关闭配置
+		gracefulShutdown.enabled = cfg.GracefulShutdown
+		// 保存优雅关闭超时时间
+		gracefulShutdown.timeout = cfg.GracefulShutdownTimeout
+
+		// 启用优雅关闭时，启动信号监听
+		if cfg.GracefulShutdown {
+			startSignalWatcher(cfg.GracefulShutdownTimeout)
+		}
 	})
+}
+
+// startSignalWatcher 启动信号监听，收到退出信号时自动释放协程池。
+//
+// 触发条件：
+//   - SIGINT  (Ctrl+C / kill -2)
+//   - SIGTERM (kill -15 / K8s 终止 Pod)
+//
+// 执行流程：收到信号 → 执行 shutdown hooks → ReleaseAndWaitWithTimeout → 日志记录
+// 注意：仅在 Init() 中启用 GracefulShutdown 时启动，监听 goroutine 常驻直到收到信号。
+func startSignalWatcher(timeout time.Duration) {
+	// 创建一个信号通道，监听 SIGINT 和 SIGTERM 信号
+	quit := make(chan os.Signal, 1)
+	// 注册信号监听
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// 启动一个 goroutine 监听信号
+	go func() {
+		// 阻塞等待信号
+		<-quit
+		logger.InfoWithCtx(context.Background(), "gogroutine: received shutdown signal, cleaning up...")
+		// 执行 shutdown hooks
+		executeGracefulShutdownHooks()
+		// 释放协程池并等待完成
+		ReleaseAndWaitWithTimeout(timeout)
+		logger.InfoWithCtx(context.Background(), "gogroutine: cleanup completed")
+	}()
 }
 
 // ============================================================================
@@ -73,7 +125,7 @@ func Go(ctx context.Context, task func()) {
 // 如果 ctx 已取消，任务将被跳过而非入队浪费资源。
 // 如果池已满，自动降级为原生 goroutine 执行。
 func GoWithName(ctx context.Context, name string, task func()) {
-	if task == nil || shouldSkipSubmit(ctx, name, task) {
+	if task == nil || shouldSkipSubmit(ctx, name) {
 		return
 	}
 
@@ -96,26 +148,6 @@ func GoWithTimeout(ctx context.Context, name string, timeout time.Duration, task
 	})
 }
 
-// GoWithDeadline 提交一个带截止时间的任务。
-// 任务接收的 ctx 会在到达 deadline 后自动取消。
-func GoWithDeadline(ctx context.Context, name string, deadline time.Time, task func(ctx context.Context)) {
-	GoWithName(ctx, name, func() {
-		deadlineCtx, cancel := context.WithDeadline(ctx, deadline)
-		defer cancel()
-		task(deadlineCtx)
-	})
-}
-
-// GoWithCancel 提交一个支持取消的任务，返回取消函数。
-// 调用返回的 cancel 函数可以提前终止任务的 ctx。
-func GoWithCancel(ctx context.Context, name string, task func(ctx context.Context)) context.CancelFunc {
-	taskCtx, cancel := context.WithCancel(ctx)
-	GoWithName(ctx, name, func() {
-		task(taskCtx)
-	})
-	return cancel
-}
-
 // ============================================================================
 // 批量任务辅助函数
 // ============================================================================
@@ -123,24 +155,12 @@ func GoWithCancel(ctx context.Context, name string, task func(ctx context.Contex
 // GoBatch 批量提交任务并等待全部完成。
 // 所有任务并发执行，单个任务 panic 不影响其他任务。
 func GoBatch(ctx context.Context, tasks []func()) {
-	if len(tasks) == 0 {
-		return
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(len(tasks))
-	for i := range tasks {
-		task := tasks[i] // 显式捕获循环变量（兼容 Go <1.22）
-		GoWithName(ctx, fmt.Sprintf("batch_%d", i), func() {
-			defer wg.Done()
-			task()
-		})
-	}
-	wg.Wait()
+	GoBatchWithName(ctx, "batch", tasks)
 }
 
 // GoBatchWithName 批量提交带统一名称前缀的任务并等待全部完成。
 // 任务名称格式：{name}_{index}，便于监控系统按前缀聚合。
+// 注意：ctx 已取消时，任务会被跳过，但函数会立即返回。
 func GoBatchWithName(ctx context.Context, name string, tasks []func()) {
 	if len(tasks) == 0 {
 		return
@@ -149,11 +169,10 @@ func GoBatchWithName(ctx context.Context, name string, tasks []func()) {
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for i := range tasks {
-		task := tasks[i] // 显式捕获循环变量（兼容 Go <1.22）
 		taskName := fmt.Sprintf("%s_%d", name, i)
 		GoWithName(ctx, taskName, func() {
 			defer wg.Done()
-			task()
+			tasks[i]()
 		})
 	}
 	wg.Wait()
@@ -161,7 +180,7 @@ func GoBatchWithName(ctx context.Context, name string, tasks []func()) {
 
 // GoBatchWithResult 批量提交任务并收集结果（泛型版本）。
 // 所有任务并发执行，返回按索引对应的结果切片。
-// 如果有任何任务失败，返回聚合后的第一个错误。
+// 如果有任何任务失败，返回所有错误的聚合结果。
 func GoBatchWithResult[T any](ctx context.Context, name string, tasks []func() (T, error)) ([]T, error) {
 	if len(tasks) == 0 {
 		return nil, nil
@@ -173,12 +192,9 @@ func GoBatchWithResult[T any](ctx context.Context, name string, tasks []func() (
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for i := range tasks {
-		task := tasks[i] // 显式捕获循环变量（兼容 Go <1.22）
-		idx := i
-		taskName := fmt.Sprintf("%s_%d", name, i)
-		GoWithName(ctx, taskName, func() {
+		GoWithName(ctx, fmt.Sprintf("%s_%d", name, i), func() {
 			defer wg.Done()
-			results[idx], errs[idx] = task()
+			results[i], errs[i] = tasks[i]()
 		})
 	}
 	wg.Wait()
@@ -193,7 +209,8 @@ func GoBatchWithResult[T any](ctx context.Context, name string, tasks []func() (
 // handleSubmitFallback 处理池满时的降级逻辑。
 // 记录降级指标和日志后，降级为原生 goroutine 执行任务。
 func handleSubmitFallback(ctx context.Context, name string, task func()) {
-	fallbackCount.Add(1)
+	// 记录降级次数
+	metricsMgr.fallbackCount.Add(1)
 	m := getMetrics()
 	if m != nil {
 		m.IncFallback(name)
@@ -202,8 +219,8 @@ func handleSubmitFallback(ctx context.Context, name string, task func()) {
 	p := initAndGetPool()
 	logger.WarnWithCtx(ctx, "gogroutine: pool full, fallback to raw goroutine",
 		logger.String("name", name),
-		logger.Int("running", p.Running()),
-		logger.Int("waiting", p.Waiting()),
+		logger.Int("running", p.GetRunningNum()),
+		logger.Int("waiting", p.GetWaitingNum()),
 	)
 
 	go func() {
@@ -211,28 +228,16 @@ func handleSubmitFallback(ctx context.Context, name string, task func()) {
 	}()
 }
 
-// collectBatchErrors 从错误切片中聚合错误。
-// 返回第一个非 nil 错误作为代表，附带总数信息。
+// collectBatchErrors 从错误切片中聚合所有错误。
+// 返回所有非 nil 错误的聚合结果。
 func collectBatchErrors(errs []error) error {
-	var (
-		firstErr   error
-		errorCount int
-	)
+	var collected []error
 	for _, err := range errs {
 		if err != nil {
-			errorCount++
-			if firstErr == nil {
-				firstErr = err
-			}
+			collected = append(collected, err)
 		}
 	}
-	if errorCount == 0 {
-		return nil
-	}
-	if errorCount == 1 {
-		return firstErr
-	}
-	return fmt.Errorf("batch: %d/%d tasks failed, first: %w", errorCount, len(errs), firstErr)
+	return errors.Join(collected...)
 }
 
 // ============================================================================
@@ -253,49 +258,37 @@ type StatsInfo struct {
 func PoolStats() StatsInfo {
 	p := initAndGetPool()
 	return StatsInfo{
-		Running:  p.Running(),
-		Waiting:  p.Waiting(),
-		Cap:      p.Cap(),
-		Success:  successCount.Load(),
-		Panic:    panicCount.Load(),
-		Fallback: fallbackCount.Load(),
+		Running:  p.GetRunningNum(),
+		Waiting:  p.GetWaitingNum(),
+		Cap:      p.GetCap(),
+		Success:  metricsMgr.successCount.Load(),
+		Panic:    metricsMgr.panicCount.Load(),
+		Fallback: metricsMgr.fallbackCount.Load(),
 	}
 }
 
-// Running 返回当前运行中的任务数量。
-func Running() int {
-	return initAndGetPool().Running()
-}
-
-// Waiting 返回等待中的任务数量。
-func Waiting() int {
-	return initAndGetPool().Waiting()
-}
-
-// Cap 返回协程池容量。
-func Cap() int {
-	return initAndGetPool().Cap()
-}
-
-// IsFull 检查协程池是否已满。
-func IsFull() bool {
-	return initAndGetPool().IsFull()
-}
-
 // Release 释放协程池资源（非阻塞）。
+// 注意：不会执行 shutdown hooks，不会等待运行中的任务完成。
+// 如需等待任务完成，请使用 ReleaseAndWait 或 ReleaseAndWaitWithTimeout。
 func Release() {
 	if defaultPool != nil {
 		defaultPool.Release()
 	}
 }
 
-// ReleaseAndWait 释放协程池并等待所有任务完成。
-// 设置最大等待时间，避免无限阻塞。
+// ReleaseAndWait 释放协程池并等待所有任务完成（默认超时 30 秒）。
+// 等价于 ReleaseAndWaitWithTimeout(30 * time.Second)。
 func ReleaseAndWait() {
 	ReleaseAndWaitWithTimeout(30 * time.Second)
 }
 
 // ReleaseAndWaitWithTimeout 释放协程池并在指定超时内等待所有任务完成。
+//
+// 触发条件：
+//   - 手动调用（程序主动退出时）
+//   - 信号监听自动调用（SIGINT/SIGTERM）
+//
+// 执行流程：Release 停止接收新任务 → 轮询等待运行中任务完成 → 超时则强制返回。
 func ReleaseAndWaitWithTimeout(timeout time.Duration) {
 	if defaultPool == nil {
 		return
@@ -303,10 +296,10 @@ func ReleaseAndWaitWithTimeout(timeout time.Duration) {
 	defaultPool.Release()
 
 	deadline := time.Now().Add(timeout)
-	for defaultPool.Running() > 0 {
+	for defaultPool.GetRunningNum() > 0 {
 		if time.Now().After(deadline) {
 			logger.WarnWithCtx(context.Background(), "gogroutine: ReleaseAndWait timeout",
-				logger.Int("remaining", defaultPool.Running()),
+				logger.Int("remaining", defaultPool.GetRunningNum()),
 				logger.String("timeout", timeout.String()),
 			)
 			return
@@ -316,57 +309,63 @@ func ReleaseAndWaitWithTimeout(timeout time.Duration) {
 }
 
 // ============================================================================
+// 退出回调管理
+// ============================================================================
+
+// RegisterGracefulShutdownHook 注册退出时执行的回调函数。
+// 回调按注册顺序执行，可多次注册。
+//
+// 触发时机（以下两种方式都会执行已注册的 hooks）：
+//   - 信号触发：收到 SIGINT/SIGTERM 时，由 startSignalWatcher 自动调用
+//   - 手动触发：在程序退出前手动调用 executeGracefulShutdownHooks()
+//
+// 注意：hooks 通过 sync.Once 保证只执行一次，重复调用不会重复执行。
+func RegisterGracefulShutdownHook(hook func()) {
+	gracefulShutdown.hooksMu.Lock()
+	defer gracefulShutdown.hooksMu.Unlock()
+	gracefulShutdown.hooks = append(gracefulShutdown.hooks, hook)
+}
+
+// IsGracefulShutdownEnabled 返回是否启用了优雅关闭。
+func IsGracefulShutdownEnabled() bool {
+	return gracefulShutdown.enabled
+}
+
+// executeGracefulShutdownHooks 执行所有注册的退出回调。
+// 使用 sync.Once 保证只执行一次。
+func executeGracefulShutdownHooks() {
+	gracefulShutdown.once.Do(func() {
+		gracefulShutdown.hooksMu.Lock()
+		defer gracefulShutdown.hooksMu.Unlock()
+
+		for i, hook := range gracefulShutdown.hooks {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.WarnWithCtx(context.Background(),
+							"gogroutine: shutdown hook panicked",
+							logger.Int("hook_index", i),
+							logger.Any("panic", r),
+						)
+					}
+				}()
+				hook()
+			}()
+		}
+	})
+}
+
+// ============================================================================
 // 内部辅助
 // ============================================================================
 
 // initAndGetPool 确保全局池已初始化并返回。
 // 首次调用时使用默认配置创建池。
 func initAndGetPool() Pool {
-	p := defaultPool
-	if p != nil {
-		return p
-	}
-	// 二次检查，防止并发重复创建
 	defaultPoolOnce.Do(func() {
-		_ = getOrCreatePool(defaultPoolConfig())
+		if _, err := getOrCreatePool(defaultPoolConfig()); err != nil {
+			panic(fmt.Sprintf("gogroutine: init pool failed: %v", err))
+		}
 	})
 	return defaultPool
-}
-
-// ============================================================================
-// 兼容性导出 - Config 和 DefaultConfig
-// ============================================================================
-
-// Config 协程池配置（导出给外部使用，兼容旧 API）。
-type Config struct {
-	PoolSize      int           // 协程池大小
-	NonBlocking   bool          // 是否非阻塞模式
-	PreAlloc      bool          // 是否预分配内存
-	DisablePurge  bool          // 是否禁用自动清理
-	PurgeInterval time.Duration // 清理间隔
-}
-
-// DefaultConfig 返回默认配置。
-func DefaultConfig() Config {
-	cfg := defaultPoolConfig()
-	return Config{
-		PoolSize:      cfg.PoolSize,
-		NonBlocking:   cfg.NonBlocking,
-		PreAlloc:      cfg.PreAlloc,
-		DisablePurge:  cfg.DisablePurge,
-		PurgeInterval: cfg.PurgeInterval,
-	}
-}
-
-// FormatStats 格式化统计信息为可读字符串（调试/日志用途）。
-func FormatStats(s StatsInfo) string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("pool[running=%d waiting=%d cap=%d]", s.Running, s.Waiting, s.Cap))
-	b.WriteString(fmt.Sprintf(" counters[success=%d panic=%d fallback=%d]", s.Success, s.Panic, s.Fallback))
-	return b.String()
-}
-
-// Stats 返回协程池统计信息（兼容旧 API，等价于 PoolStats）。
-func Stats() StatsInfo {
-	return PoolStats()
 }

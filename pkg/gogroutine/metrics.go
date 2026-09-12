@@ -24,38 +24,48 @@ type Metrics interface {
 	IncFallback(name string)
 }
 
-//
-// Stats 协程池统计信息由 PoolStats() 函数返回。
 // ============================================================================
-// 全局原子计数器 - 使用 atomic.Int64 类型（项目公约十二）
+// 指标管理器 - 内置计数器 + 外部采集器
 // ============================================================================
 
-var (
-	successCount  atomic.Int64
-	panicCount    atomic.Int64
-	fallbackCount atomic.Int64
-)
+// metricsManager 聚合所有指标相关状态。
+// 内置计数器始终工作（用于 PoolStats），外部采集器可选注入。
+type metricsManager struct {
+	successCount  atomic.Int64 // 累计成功任务数
+	panicCount    atomic.Int64 // 累计 panic 次数
+	fallbackCount atomic.Int64 // 累计降级次数
+
+	collector Metrics    // 外部指标采集器（可选）
+	mu        sync.RWMutex
+}
+
+// reset 重置所有状态（仅用于测试）。
+func (m *metricsManager) reset() {
+	m.successCount.Store(0)
+	m.panicCount.Store(0)
+	m.fallbackCount.Store(0)
+	m.mu.Lock()
+	m.collector = nil
+	m.mu.Unlock()
+}
 
 // ============================================================================
-// 全局 Metrics 管理 - 支持运行时替换（非 sync.Once）
+// 全局指标管理器
 // ============================================================================
 
-var (
-	globalMetrics   Metrics
-	globalMetricsMu sync.RWMutex
-)
+var metricsMgr metricsManager
 
 // SetMetrics 设置自定义指标采集器（可在运行时替换，用于测试或动态切换）。
 func SetMetrics(m Metrics) {
-	globalMetricsMu.Lock()
-	globalMetrics = m
-	globalMetricsMu.Unlock()
+	metricsMgr.mu.Lock()
+	metricsMgr.collector = m
+	metricsMgr.mu.Unlock()
 }
 
 // getMetrics 获取当前指标采集器（线程安全）。
 func getMetrics() Metrics {
-	globalMetricsMu.RLock()
-	m := globalMetrics
-	globalMetricsMu.RUnlock()
-	return m
+	metricsMgr.mu.RLock()
+	c := metricsMgr.collector
+	metricsMgr.mu.RUnlock()
+	return c
 }

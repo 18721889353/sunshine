@@ -35,25 +35,21 @@ func TestSetMetrics_GetMetrics(t *testing.T) {
 // ============================================================================
 
 func TestAtomicCounters_Initial(t *testing.T) {
-	successCount.Store(0)
-	panicCount.Store(0)
-	fallbackCount.Store(0)
+	metricsMgr.reset()
 
-	if v := successCount.Load(); v != 0 {
+	if v := metricsMgr.successCount.Load(); v != 0 {
 		t.Errorf("successCount = %d, want 0", v)
 	}
-	if v := panicCount.Load(); v != 0 {
+	if v := metricsMgr.panicCount.Load(); v != 0 {
 		t.Errorf("panicCount = %d, want 0", v)
 	}
-	if v := fallbackCount.Load(); v != 0 {
+	if v := metricsMgr.fallbackCount.Load(); v != 0 {
 		t.Errorf("fallbackCount = %d, want 0", v)
 	}
 }
 
 func TestAtomicCounters_IncrementSuccess(t *testing.T) {
-	successCount.Store(0)
-	panicCount.Store(0)
-	fallbackCount.Store(0)
+	metricsMgr.reset()
 
 	// 创建最小池并提交一个简单任务
 	p, err := newAntsPool(MinPoolSize)
@@ -64,26 +60,26 @@ func TestAtomicCounters_IncrementSuccess(t *testing.T) {
 
 	done := make(chan struct{})
 	if err := p.Submit(func() {
-		successCount.Add(1)
+		metricsMgr.successCount.Add(1)
 		close(done)
 	}); err != nil {
 		t.Fatalf("Submit failed: %v", err)
 	}
 
 	<-done
-	if v := successCount.Load(); v != 1 {
+	if v := metricsMgr.successCount.Load(); v != 1 {
 		t.Errorf("successCount = %d, want 1", v)
 	}
 }
 
 func TestAtomicCounters_IncrementMultiple(t *testing.T) {
-	successCount.Store(0)
+	metricsMgr.reset()
 
 	for i := 0; i < 10; i++ {
-		successCount.Add(1)
+		metricsMgr.successCount.Add(1)
 	}
 
-	if v := successCount.Load(); v != 10 {
+	if v := metricsMgr.successCount.Load(); v != 10 {
 		t.Errorf("successCount = %d, want 10", v)
 	}
 }

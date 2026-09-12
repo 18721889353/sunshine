@@ -42,11 +42,13 @@ func requestIDAttr(ctx context.Context) attribute.KeyValue {
 //   - 匿名任务统一标记为 "anonymous"
 func executeTask(ctx context.Context, name string, task func()) {
 	if name == "" {
+		// 匿名任务统一标记为 "anonymous"
 		name = "anonymous"
 	}
 
-	// 1. 创建链路追踪 Span
+	// 获取链路追踪器
 	tracer := otel.Tracer("gogroutine")
+	// 创建 Span
 	ctx, span := tracer.Start(ctx, fmt.Sprintf("gogroutine.task.%s", name),
 		trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
@@ -58,6 +60,7 @@ func executeTask(ctx context.Context, name string, task func()) {
 	)
 
 	start := time.Now()
+	// 1. 指标采集
 	m := getMetrics()
 	if m != nil {
 		m.IncRunning(name)
@@ -67,7 +70,9 @@ func executeTask(ctx context.Context, name string, task func()) {
 	defer func() {
 		duration := time.Since(start)
 		if m != nil {
+			// 任务结束，指标清理
 			m.DecRunning(name)
+			// 记录任务耗时
 			m.ObserveTaskDuration(name, duration)
 		}
 		// 记录任务耗时到 Span
@@ -79,7 +84,7 @@ func executeTask(ctx context.Context, name string, task func()) {
 	// 3. panic 恢复（最内层 defer，最先执行）
 	defer func() {
 		if r := recover(); r != nil {
-			panicCount.Add(1)
+			metricsMgr.panicCount.Add(1)
 			if m != nil {
 				m.IncPanic(name)
 			}
@@ -89,7 +94,7 @@ func executeTask(ctx context.Context, name string, task func()) {
 			span.SetAttributes(
 				attribute.String("gogroutine.task.panic_stack", string(debug.Stack())),
 			)
-			logger.ErrorWithCtx(ctx, "goroutine panic recovered",
+			logger.WarnWithCtx(ctx, "goroutine panic recovered",
 				logger.String("name", name),
 				logger.Any("panic", r),
 				logger.String("duration", time.Since(start).String()),
@@ -102,12 +107,12 @@ func executeTask(ctx context.Context, name string, task func()) {
 
 	// 4. 执行任务本体
 	task()
-	successCount.Add(1)
+	metricsMgr.successCount.Add(1)
 }
 
 // shouldSkipSubmit 检查任务提交前的前置条件。
-// 返回 true 表示应跳过提交（ctx 已取消或 task 为 nil）。
-func shouldSkipSubmit(ctx context.Context, name string, _ func()) bool {
+// 返回 true 表示应跳过提交（ctx 已取消）。
+func shouldSkipSubmit(ctx context.Context, name string) bool {
 	// context 已取消，任务无需入队
 	select {
 	case <-ctx.Done():

@@ -4,7 +4,52 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
+
+// ============================================================================
+// 测试 requestIDAttr - 链路追踪属性
+// ============================================================================
+
+func TestRequestIDAttr_WithRequestID(t *testing.T) {
+	// 创建带有 request_id 的 context
+	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, "test-request-123")
+	attr := requestIDAttr(ctx)
+
+	if attr.Value.AsString() != "test-request-123" {
+		t.Errorf("request_id = %q, want %q", attr.Value.AsString(), "test-request-123")
+	}
+}
+
+func TestRequestIDAttr_WithoutRequestID(t *testing.T) {
+	// 创建没有 request_id 的 context
+	ctx := context.Background()
+	attr := requestIDAttr(ctx)
+
+	if attr.Value.AsString() != "" {
+		t.Errorf("request_id = %q, want empty string", attr.Value.AsString())
+	}
+}
+
+func TestRequestIDAttr_NilCtx(t *testing.T) {
+	// 测试 nil context
+	attr := requestIDAttr(nil)
+
+	if attr.Value.AsString() != "" {
+		t.Errorf("request_id = %q, want empty string", attr.Value.AsString())
+	}
+}
+
+func TestRequestIDAttr_EmptyRequestID(t *testing.T) {
+	// 创建带有空 request_id 的 context
+	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, "")
+	attr := requestIDAttr(ctx)
+
+	if attr.Value.AsString() != "" {
+		t.Errorf("request_id = %q, want empty string", attr.Value.AsString())
+	}
+}
 
 // ============================================================================
 // 测试 shouldSkipSubmit - 提交前校验
@@ -14,7 +59,7 @@ func TestShouldSkipSubmit_NilCtx(t *testing.T) {
 	// 即使 ctx 为 nil，select 会 panic，但正常情况下不会传 nil
 	// 这里只测试正常 context
 	ctx := context.Background()
-	if shouldSkipSubmit(ctx, "test", nil) {
+	if shouldSkipSubmit(ctx, "test") {
 		t.Error("shouldSkipSubmit should return false for active context")
 	}
 }
@@ -23,7 +68,7 @@ func TestShouldSkipSubmit_CancelledCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 立即取消
 
-	if !shouldSkipSubmit(ctx, "test", nil) {
+	if !shouldSkipSubmit(ctx, "test") {
 		t.Error("shouldSkipSubmit should return true for cancelled context")
 	}
 }
@@ -32,7 +77,7 @@ func TestShouldSkipSubmit_DeadlineExceeded(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Second))
 	defer cancel()
 
-	if !shouldSkipSubmit(ctx, "test", nil) {
+	if !shouldSkipSubmit(ctx, "test") {
 		t.Error("shouldSkipSubmit should return true for expired deadline")
 	}
 }
@@ -42,8 +87,7 @@ func TestShouldSkipSubmit_DeadlineExceeded(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_Success(t *testing.T) {
-	successCount.Store(0)
-	panicCount.Store(0)
+	metricsMgr.reset()
 
 	done := make(chan struct{})
 	executeTask(context.Background(), "test-task", func() {
@@ -57,13 +101,13 @@ func TestExecuteTask_Success(t *testing.T) {
 		t.Fatal("executeTask did not complete within timeout")
 	}
 
-	if v := successCount.Load(); v != 1 {
+	if v := metricsMgr.successCount.Load(); v != 1 {
 		t.Errorf("successCount = %d, want 1", v)
 	}
 }
 
 func TestExecuteTask_WithoutName(t *testing.T) {
-	successCount.Store(0)
+	metricsMgr.reset()
 
 	done := make(chan struct{})
 	executeTask(context.Background(), "", func() {
@@ -73,7 +117,7 @@ func TestExecuteTask_WithoutName(t *testing.T) {
 	<-done
 
 	// 匿名任务也应计入成功计数
-	if v := successCount.Load(); v != 1 {
+	if v := metricsMgr.successCount.Load(); v != 1 {
 		t.Errorf("successCount = %d, want 1", v)
 	}
 }
@@ -83,7 +127,7 @@ func TestExecuteTask_WithoutName(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_PanicRecovery(t *testing.T) {
-	panicCount.Store(0)
+	metricsMgr.reset()
 
 	// executeTask 不应传播 panic
 	done := make(chan struct{})
@@ -94,12 +138,10 @@ func TestExecuteTask_PanicRecovery(t *testing.T) {
 
 	<-done
 
-	if v := panicCount.Load(); v != 1 {
+	if v := metricsMgr.panicCount.Load(); v != 1 {
 		t.Errorf("panicCount = %d, want 1", v)
 	}
-	// 注意：panic 任务不应计入成功计数，但由于 defer 的执行顺序
-	// （panic recover 在 successCount.Add 之后的 defer 中），
-	// successCount 在 panic 场景下不会被增加
+	// 注意：panic 任务不应计入成功计数
 }
 
 // ============================================================================
@@ -107,8 +149,7 @@ func TestExecuteTask_PanicRecovery(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_WithMetrics(t *testing.T) {
-	successCount.Store(0)
-	panicCount.Store(0)
+	metricsMgr.reset()
 
 	mm := &mockMetrics{}
 	SetMetrics(mm)
@@ -129,7 +170,7 @@ func TestExecuteTask_WithMetrics(t *testing.T) {
 }
 
 func TestExecuteTask_PanicWithMetrics(t *testing.T) {
-	panicCount.Store(0)
+	metricsMgr.reset()
 
 	mm := &mockMetrics{}
 	SetMetrics(mm)
@@ -157,7 +198,7 @@ func TestExecuteTask_PanicWithMetrics(t *testing.T) {
 // ============================================================================
 
 func TestExecuteTask_Concurrent(t *testing.T) {
-	successCount.Store(0)
+	metricsMgr.reset()
 
 	const goroutines = 50
 	done := make(chan struct{}, goroutines)
@@ -176,7 +217,7 @@ func TestExecuteTask_Concurrent(t *testing.T) {
 		}
 	}
 
-	if v := successCount.Load(); v != goroutines {
+	if v := metricsMgr.successCount.Load(); v != goroutines {
 		t.Errorf("successCount = %d, want %d", v, goroutines)
 	}
 }

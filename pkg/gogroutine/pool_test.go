@@ -20,8 +20,8 @@ func TestNewAntsPool_Success(t *testing.T) {
 	}
 	defer p.Release()
 
-	if p.Cap() != 100 {
-		t.Errorf("Cap() = %d, want 100", p.Cap())
+	if p.GetCap() != 100 {
+		t.Errorf("GetCap() = %d, want 100", p.GetCap())
 	}
 }
 
@@ -35,7 +35,7 @@ func TestNewAntsPool_WithOpts(t *testing.T) {
 }
 
 // ============================================================================
-// 测试 antsPool 方法 - Submit/Running/Waiting/Cap/Release/IsFull
+// 测试 antsPool 方法 - Submit/GetRunningNum/GetWaitingNum/Cap/Release/IsFull
 // ============================================================================
 
 func TestAntsPool_Submit(t *testing.T) {
@@ -81,8 +81,8 @@ func TestAntsPool_Running(t *testing.T) {
 	defer p.Release()
 
 	// 初始状态
-	if v := p.Running(); v != 0 {
-		t.Errorf("Running() = %d, want 0", v)
+	if v := p.GetRunningNum(); v != 0 {
+		t.Errorf("GetRunningNum() = %d, want 0", v)
 	}
 
 	// 提交阻塞任务
@@ -99,8 +99,8 @@ func TestAntsPool_Running(t *testing.T) {
 	<-startCh
 	time.Sleep(10 * time.Millisecond)
 
-	if v := p.Running(); v != 1 {
-		t.Errorf("Running() = %d, want 1", v)
+	if v := p.GetRunningNum(); v != 1 {
+		t.Errorf("GetRunningNum() = %d, want 1", v)
 	}
 
 	close(blockCh)
@@ -115,9 +115,9 @@ func TestAntsPool_RunningAfterRelease(t *testing.T) {
 
 	p.Release()
 
-	// Release 后 Running 应返回 0
-	if v := p.Running(); v != 0 {
-		t.Errorf("Running() after Release = %d, want 0", v)
+	// Release 后 GetRunningNum 应返回 0
+	if v := p.GetRunningNum(); v != 0 {
+		t.Errorf("GetRunningNum() after Release = %d, want 0", v)
 	}
 }
 
@@ -140,10 +140,10 @@ func TestAntsPool_Waiting(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	// 在非阻塞模式下，池满时 Submit 返回错误，无法直接测试 Waiting
+	// 在非阻塞模式下，池满时 Submit 返回错误，无法直接测试 GetWaitingNum
 	// 改为验证池状态
-	if v := p.Running(); v != 1 {
-		t.Errorf("Running() = %d, want 1", v)
+	if v := p.GetRunningNum(); v != 1 {
+		t.Errorf("GetRunningNum() = %d, want 1", v)
 	}
 
 	close(blockCh)
@@ -157,8 +157,8 @@ func TestAntsPool_WaitingAfterRelease(t *testing.T) {
 
 	p.Release()
 
-	if v := p.Waiting(); v != 0 {
-		t.Errorf("Waiting() after Release = %d, want 0", v)
+	if v := p.GetWaitingNum(); v != 0 {
+		t.Errorf("GetWaitingNum() after Release = %d, want 0", v)
 	}
 }
 
@@ -169,8 +169,8 @@ func TestAntsPool_Cap(t *testing.T) {
 	}
 	defer p.Release()
 
-	if v := p.Cap(); v != 200 {
-		t.Errorf("Cap() = %d, want 200", v)
+	if v := p.GetCap(); v != 200 {
+		t.Errorf("GetCap() = %d, want 200", v)
 	}
 }
 
@@ -182,8 +182,8 @@ func TestAntsPool_CapAfterRelease(t *testing.T) {
 
 	p.Release()
 
-	if v := p.Cap(); v != 0 {
-		t.Errorf("Cap() after Release = %d, want 0", v)
+	if v := p.GetCap(); v != 0 {
+		t.Errorf("GetCap() after Release = %d, want 0", v)
 	}
 }
 
@@ -218,6 +218,43 @@ func TestAntsPool_IsFull(t *testing.T) {
 	}
 
 	close(blockCh)
+}
+
+// TestAntsPool_IsFull_NilPool 测试 IsFull 当 pool 为 nil 时返回 false
+func TestAntsPool_IsFull_NilPool(t *testing.T) {
+	// 创建一个 antsPool 但手动将 pool 设置为 nil
+	p := &antsPool{pool: nil}
+
+	if p.IsFull() {
+		t.Error("IsFull() should return false when pool is nil")
+	}
+}
+
+// TestAntsPool_GetRunningNum_NilPool 测试 GetRunningNum 当 pool 为 nil 时返回 0
+func TestAntsPool_GetRunningNum_NilPool(t *testing.T) {
+	p := &antsPool{pool: nil}
+
+	if v := p.GetRunningNum(); v != 0 {
+		t.Errorf("GetRunningNum() = %d, want 0", v)
+	}
+}
+
+// TestAntsPool_GetWaitingNum_NilPool 测试 GetWaitingNum 当 pool 为 nil 时返回 0
+func TestAntsPool_GetWaitingNum_NilPool(t *testing.T) {
+	p := &antsPool{pool: nil}
+
+	if v := p.GetWaitingNum(); v != 0 {
+		t.Errorf("GetWaitingNum() = %d, want 0", v)
+	}
+}
+
+// TestAntsPool_GetCap_NilPool 测试 GetCap 当 pool 为 nil 时返回 0
+func TestAntsPool_GetCap_NilPool(t *testing.T) {
+	p := &antsPool{pool: nil}
+
+	if v := p.GetCap(); v != 0 {
+		t.Errorf("GetCap() = %d, want 0", v)
+	}
 }
 
 func TestAntsPool_Release(t *testing.T) {
