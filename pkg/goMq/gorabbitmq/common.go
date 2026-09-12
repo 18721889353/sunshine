@@ -811,8 +811,8 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 		nlq.Name,
 		opts.normalRoutingKey,
 		exchangeName,
-		opts.normalQueueDeclare.noWait,
-		opts.normalQueueDeclare.args,
+		opts.normalQueueBind.noWait,
+		opts.normalQueueBind.args,
 	)
 }
 
@@ -890,8 +890,8 @@ func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 		nlq.Name,
 		opts.normalRoutingKey,
 		exchangeName,
-		opts.normalQueueDeclare.noWait,
-		opts.normalQueueDeclare.args,
+		opts.normalQueueBind.noWait,
+		opts.normalQueueBind.args,
 	)
 }
 
@@ -933,8 +933,8 @@ func setupNormalLetterDeclare(channel *amqp.Channel, exchangeName, exchangeType 
 		nlq.Name,
 		opts.normalRoutingKey,
 		exchangeName,
-		opts.normalQueueDeclare.noWait,
-		opts.normalQueueDeclare.args,
+		opts.normalQueueBind.noWait,
+		opts.normalQueueBind.args,
 	)
 }
 
