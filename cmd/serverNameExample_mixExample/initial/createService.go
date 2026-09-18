@@ -7,15 +7,16 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
-
 	"github.com/18721889353/sunshine/pkg/utils"
 
 	// 导入定时任务包以执行init函数
 	_ "github.com/18721889353/sunshine/internal/cron/tasks"
-
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
+
 	// 导入RabbitMQ消费者包以执行init函数
 	_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
+
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/cron"
@@ -26,6 +27,9 @@ import (
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
 )
+
+// etcdClient 保存 etcd 客户端引用，用于优雅关闭时停止 token 刷新协程。
+var etcdClient *clientv3.Client
 
 // CreateServices create grpc or http service
 func CreateServices() []app.IServer {
@@ -101,6 +105,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 		if err != nil {
 			panic(err)
 		}
+		etcdClient = cli // 保存引用，用于优雅关闭
 		iRegistry = etcd.New(cli, cfg.EtcdInfo.EtcdRegistry.BuildRegistryOptions()...)
 		logField = logger.String("etcdAddress", cfg.EtcdInfo.AddrDisplay())
 

@@ -48,6 +48,15 @@ func (c *EtcdClient) BuildClientOptions() []etcdcli.Option {
 		}
 	}
 
+	// 配置 JWT token 主动刷新
+	if c.AuthTokenTTL != "" {
+		if d, err := time.ParseDuration(c.AuthTokenTTL); err == nil && d > 0 {
+			opts = append(opts, etcdcli.WithAuthConfig(etcdcli.AuthConfig{
+				TokenTTL: d,
+			}))
+		}
+	}
+
 	return opts
 }
 

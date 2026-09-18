@@ -156,6 +156,20 @@ type Logger struct {
 	Routes             []Routes      `yaml:"routes" json:"routes"`
 }
 
+type EtcdClient struct {
+	AuthTokenTTL         string `yaml:"authTokenTTL" json:"authTokenTTL"`
+	AutoSyncInterval     string `yaml:"autoSyncInterval" json:"autoSyncInterval"`
+	CaFile               string `yaml:"caFile" json:"caFile"`
+	CertFile             string `yaml:"certFile" json:"certFile"`
+	DialKeepAliveTime    string `yaml:"dialKeepAliveTime" json:"dialKeepAliveTime"`
+	DialKeepAliveTimeout string `yaml:"dialKeepAliveTimeout" json:"dialKeepAliveTimeout"`
+	DialTimeout          string `yaml:"dialTimeout" json:"dialTimeout"`
+	IsSecure             bool   `yaml:"isSecure" json:"isSecure"`
+	Password             string `yaml:"password" json:"password"`
+	ServerNameOverride   string `yaml:"serverNameOverride" json:"serverNameOverride"`
+	Username             string `yaml:"username" json:"username"`
+}
+
 type ErrQueueDeclareOption struct {
 	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
 	Durable    bool `yaml:"durable" json:"durable"`
@@ -168,19 +182,6 @@ type ExchangeDeclareOptions struct {
 	Durable    bool `yaml:"durable" json:"durable"`
 	Internal   bool `yaml:"internal" json:"internal"`
 	NoWait     bool `yaml:"noWait" json:"noWait"`
-}
-
-type EtcdClient struct {
-	AutoSyncInterval     string `yaml:"autoSyncInterval" json:"autoSyncInterval"`
-	CaFile               string `yaml:"caFile" json:"caFile"`
-	CertFile             string `yaml:"certFile" json:"certFile"`
-	DialKeepAliveTime    string `yaml:"dialKeepAliveTime" json:"dialKeepAliveTime"`
-	DialKeepAliveTimeout string `yaml:"dialKeepAliveTimeout" json:"dialKeepAliveTimeout"`
-	DialTimeout          string `yaml:"dialTimeout" json:"dialTimeout"`
-	IsSecure             bool   `yaml:"isSecure" json:"isSecure"`
-	Password             string `yaml:"password" json:"password"`
-	ServerNameOverride   string `yaml:"serverNameOverride" json:"serverNameOverride"`
-	Username             string `yaml:"username" json:"username"`
 }
 
 type EtcdRegistry struct {

@@ -4,28 +4,27 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/18721889353/sunshine/pkg/utils"
+	clientv3 "go.etcd.io/etcd/client/v3"
 
+	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/internal/cron"
 	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
-	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/nacos"
+	"github.com/18721889353/sunshine/pkg/utils"
 
-	"github.com/18721889353/sunshine/internal/cron"
-	// Import cron tasks for initialization
+	// 导入定时任务包以执行init函数
 	_ "github.com/18721889353/sunshine/internal/cron/tasks"
 	mq "github.com/18721889353/sunshine/internal/mq/rabbitmq"
-
-	// Import rabbitmq consumers for initialization
-	_ "github.com/18721889353/sunshine/internal/mq/rabbitmq/consumers"
 	"github.com/18721889353/sunshine/internal/server"
-
 	"github.com/18721889353/sunshine/pkg/app"
-
-	"github.com/18721889353/sunshine/internal/config"
+	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 )
+
+// etcdClient 保存 etcd 客户端引用，用于优雅关闭时停止 token 刷新协程。
+var etcdClient *clientv3.Client
 
 // CreateServices create grpc service
 func CreateServices() []app.IServer {
@@ -73,6 +72,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 		if err != nil {
 			panic(err)
 		}
+		etcdClient = cli // 保存引用，用于优雅关闭
 		iRegistry = etcd.New(cli, cfg.EtcdInfo.EtcdRegistry.BuildRegistryOptions()...)
 		logField = logger.String("etcdAddress", cfg.EtcdInfo.AddrDisplay())
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/app"
+	"github.com/18721889353/sunshine/pkg/etcdcli"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
 
@@ -32,6 +33,14 @@ func Close(servers []app.IServer) []app.Close {
 	if config.Get().App.CacheType == "redis" {
 		closes = append(closes, func() error {
 			return database.CloseRedis()
+		})
+	}
+
+	// close etcd client (stop token refresh goroutine)
+	if etcdClient != nil {
+		closes = append(closes, func() error {
+			etcdcli.StopTokenRefresh(etcdClient)
+			return etcdClient.Close()
 		})
 	}
 

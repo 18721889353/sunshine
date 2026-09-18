@@ -181,6 +181,7 @@ etcdInfo:
   etcdClient:
     username: ""                   # 认证用户名（etcd 启用 auth 时填写）
     password: ""                   # 认证密码
+    authTokenTTL: ""               # JWT token 有效期（如 "5m"），客户端将自动在过期前刷新 token
     dialTimeout: 5s                 # 连接超时（默认 5s）
     dialKeepAliveTime: 20s          # 保持连接的时间间隔（默认 20s）
     dialKeepAliveTimeout: 10s       # 保持连接的超时时间（默认 10s）

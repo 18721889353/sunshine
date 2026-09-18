@@ -657,7 +657,7 @@ func TestPoolInstance_Go_WithTimeout_ContextExpiry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
-	time.Sleep(20*time.Millisecond) // 等待 context 过期
+	time.Sleep(20 * time.Millisecond) // 等待 context 过期
 
 	var executed atomic.Bool
 	p.CtxGo(ctx, func() {

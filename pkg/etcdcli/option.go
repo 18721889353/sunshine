@@ -9,6 +9,20 @@ import (
 // Option 用于设置 etcd 客户端的选项。
 type Option func(*options)
 
+// AuthConfig 用于配置 etcd JWT 认证 token 的自动刷新策略。
+// 当 etcd 服务端使用 JWT 认证时，客户端需要在 token 过期前主动续期，
+// 避免服务端出现 "token is expired" 告警。
+type AuthConfig struct {
+	// TokenTTL 表示服务端签发的 JWT token 有效期（例如5分钟）。
+	// 客户端会在 token 过期前 RefreshInterval 时间主动刷新。
+	TokenTTL time.Duration
+
+	// RefreshInterval 表示客户端主动刷新 token 的时间间隔。
+	// 建议设置为 TokenTTL 的60%~80%，确保在 token 过期前完成刷新。
+	// 默认值为 TokenTTL * 0.6（即过期前40%时间刷新）。
+	RefreshInterval time.Duration
+}
+
 // options 包含了 etcd 客户端的各种配置选项。
 type options struct {
 	dialTimeout time.Duration // 连接超时时间
@@ -27,6 +41,9 @@ type options struct {
 
 	// 如果设置了此参数，上述所有字段均无效
 	config *clientv3.Config
+
+	// authConfig 用于 JWT token 主动刷新，为 nil 时不启用自动刷新
+	authConfig *AuthConfig
 }
 
 // defaultOptions 返回默认的 options 配置。
@@ -98,5 +115,14 @@ func WithDialKeepAliveTimeout(duration time.Duration) Option {
 func WithConfig(c *clientv3.Config) Option {
 	return func(o *options) {
 		o.config = c
+	}
+}
+
+// WithAuthConfig 设置 JWT token 自动刷新策略。
+// 启用后，客户端会在后台协程中定期主动刷新 token，
+// 避免服务端出现 "token is expired" 告警。
+func WithAuthConfig(cfg AuthConfig) Option {
+	return func(o *options) {
+		o.authConfig = &cfg
 	}
 }
