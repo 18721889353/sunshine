@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
@@ -40,24 +41,13 @@ func GetConfigFromNacos(configFile string) error {
 		Format:      nacosConf.Nacos.Format,
 	}
 
-	var cacheDir string
-	switch runtime.GOOS {
-	case "windows":
-		cacheDir = "NUL" // Windows 空设备
-	default:
-		cacheDir = "/dev/null" // Linux/macOS 空设备
-	}
 	// 2. 构建 ClientConfig（包含认证信息）
-	clientConfig := &constant.ClientConfig{
-		DisableUseSnapShot:  true, // 禁止读取本地缓存
-		NamespaceId:         nacosConf.Nacos.NamespaceID,
-		TimeoutMs:           5000,
-		NotLoadCacheAtStart: true,
-		CacheDir:            cacheDir, // 关键：设为空字符串，禁用缓存目录
-		LogDir:              cacheDir,
-		Username:            nacosConf.Nacos.Username,
-		Password:            nacosConf.Nacos.Password,
-	}
+	clientConfig, logDir := buildNacosClientConfig(
+		nacosConf.Nacos.NamespaceID,
+		nacosConf.Nacos.Username,
+		nacosConf.Nacos.Password,
+		5000,
+	)
 
 	// 3. 构建 ServerConfig（显式指定 HTTP 和 gRPC 端口）
 	grpcPort := nacosConf.Nacos.GrpcPort
@@ -83,6 +73,7 @@ func GetConfigFromNacos(configFile string) error {
 
 	// 5. 从 Nacos 获取配置
 	format, data, err := nacoscli.GetConfig(params, opts...)
+	_ = os.RemoveAll(logDir) //nolint SDK 已关闭，立即清理临时日志目录（best-effort）
 	if err != nil {
 		return fmt.Errorf("从 Nacos 获取配置失败: %w", err)
 	}
@@ -99,4 +90,33 @@ func GetConfigFromNacos(configFile string) error {
 	// 7. 设置全局配置
 	Set(appConfig)
 	return nil
+}
+
+// buildNacosClientConfig 构建 Nacos SDK ClientConfig。
+// 内部创建临时目录供 SDK 写日志（SDK 内部固定拼接 nacos-sdk.log，LogDir 必须是真实目录），
+// 调用方通过返回的 logDir 负责清理。CacheDir 指向空设备，禁止快照缓存落盘。
+func buildNacosClientConfig(namespaceID, username, password string, timeoutMs int) (*constant.ClientConfig, string) {
+	var cacheDir string
+	switch runtime.GOOS {
+	case "windows":
+		cacheDir = "NUL" // Windows 空设备
+	default:
+		cacheDir = "/dev/null" // Linux/macOS 空设备
+	}
+
+	logDir, err := os.MkdirTemp("", "nacos-sdk-log")
+	if err != nil {
+		logDir = cacheDir // 兜底：MkdirTemp 失败时使用空设备
+	}
+
+	return &constant.ClientConfig{
+		DisableUseSnapShot:  true, // 禁止读取本地缓存
+		NamespaceId:         namespaceID,
+		TimeoutMs:           uint64(timeoutMs),
+		NotLoadCacheAtStart: true,     // 启动时不加载本地缓存
+		CacheDir:            cacheDir, // 缓存目录指向空设备（快照缓存无敏感数据）
+		LogDir:              logDir,   // 日志目录指向临时目录
+		Username:            username,
+		Password:            password,
+	}, logDir
 }

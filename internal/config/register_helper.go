@@ -150,7 +150,14 @@ func (n *NacosInfo) BuildNamingClientOptions() []nacoscli.Option {
 	if n.NacosServer.ContextPath != "" {
 		opts = append(opts, nacoscli.WithContextPath(n.NacosServer.ContextPath))
 	}
-	opts = append(opts, n.NacosClient.BuildClientOptions()...)
+
+	clientConfig, _ := buildNacosClientConfig(
+		n.NacosClient.NamespaceID,
+		n.NacosClient.Username,
+		n.NacosClient.Password,
+		n.NacosClient.TimeoutMs,
+	)
+	opts = append(opts, nacoscli.WithClientConfig(clientConfig))
 
 	return opts
 }
