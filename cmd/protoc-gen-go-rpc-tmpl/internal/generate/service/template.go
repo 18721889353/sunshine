@@ -34,6 +34,7 @@ import (
 	"context"
 	"time"
 	"encoding/json"
+	"strconv"
 	"errors"
 	"runtime"
 	"strings"
@@ -104,9 +105,11 @@ func (s *{{.LowerName}}) trace(ctx context.Context, name string, fn func() error
 	err := fn()
 	duration := time.Since(startTime)
 
-	// 构建日志字段
+	// 使用栈上缓冲区避免堆分配，减少 allocs
+	var msBuf [16]byte
+	ms := strconv.AppendFloat(msBuf[:0], float64(duration.Nanoseconds())/1e6, 'f', 4, 64)
 	fields := []logger.Field{
-        logger.String("ms", fmt.Sprintf("%.4f", float64(duration.Nanoseconds())/1e6)), // 毫秒浮点数，便于SLS数值查询
+		logger.String("ms", string(ms)), // 毫秒浮点数，便于SLS数值查询
 	}
 
 	// 根据执行结果记录不同级别的日志
@@ -130,23 +133,18 @@ func (s *{{.LowerName}}) getErrorWithLine(err error, params ...map[string]any) e
 	if err == nil {
 		return nil
 	}
-
 	_, file, line, ok := runtime.Caller(1)
 	if !ok {
-		return err // 无法获取行号时，直接返回原始错误
+		return err
 	}
-
 	if len(params) > 0 {
-		// 只序列化第一个 map（通常只传一个）
 		paramBytes, marshalErr := json.Marshal(params[0])
 		if marshalErr != nil {
-			// 序列化失败时，附带序列化错误，但保留原错误链
 			return fmt.Errorf("%s:%d: marshal params error: %v, original error: %w",
 				file, line, marshalErr, err)
 		}
 		return fmt.Errorf("%s:%d: params:%s, error:%w", file, line, string(paramBytes), err)
 	}
-
 	return fmt.Errorf("%s:%d: error:%w", file, line, err)
 }
 
@@ -357,7 +355,7 @@ readLoop:
 	
 	//// ========== 步骤 1: 耗时监控（trace 装饰器） ==========
 	//// 标准实践：所有关键业务操作都应该有耗时监控
-	// err = s.trace(ctx, s.Name()+"{{.MethodName}}", func() error {
+	// err = s.trace(ctx, s.Name()+":{{.MethodName}}", func() error {
 		//// ========== 步骤 2: 参数验证 ==========
 		// logger.InfoWithCtx(ctx, "数据验证", logger.Any("body", req))
 		// {
