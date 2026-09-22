@@ -68,7 +68,6 @@ require (
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms v1.3.93
 	github.com/tencentyun/cos-go-sdk-v5 v0.7.73
 	github.com/tidwall/gjson v1.18.0
-	github.com/tidwall/sjson v1.2.5
 	github.com/tjfoc/gmsm v1.4.1
 	github.com/uptrace/opentelemetry-go-extra/otelgorm v0.3.2
 	github.com/vmihailenco/msgpack v4.0.4+incompatible

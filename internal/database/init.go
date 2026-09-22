@@ -32,12 +32,9 @@ func InitDB() {
 
 // GetDB get db
 func GetDB() *sgorm.DB {
-	if gdb == nil {
-		gdbOnce.Do(func() {
-			InitDB()
-		})
-	}
-
+	gdbOnce.Do(func() {
+		InitDB()
+	})
 	return gdb
 }
 

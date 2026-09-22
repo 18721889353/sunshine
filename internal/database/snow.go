@@ -28,11 +28,9 @@ var (
 // GetSnowNode 获取全局雪花算法节点实例，按需初始化。
 // 首次调用时会自动执行 InitSnowNode 完成初始化，后续调用直接返回缓存实例。
 func GetSnowNode() *snowflake.Node {
-	if snowNode == nil {
-		snowOnce.Do(func() {
-			InitSnowNode()
-		})
-	}
+	snowOnce.Do(func() {
+		InitSnowNode()
+	})
 	return snowNode
 }
 

@@ -42,11 +42,9 @@ func InitCache(cType string) {
 
 // GetCacheType 获取缓存类型
 func GetCacheType() *CacheType {
-	if cacheType == nil {
-		cacheTypeOnce.Do(func() {
-			InitCache(config.Get().App.CacheType)
-		})
-	}
+	cacheTypeOnce.Do(func() {
+		InitCache(config.Get().App.CacheType)
+	})
 
 	return cacheType
 }
@@ -77,11 +75,9 @@ func InitRedis() {
 
 // GetRedisCli 获取 Redis 客户端
 func GetRedisCli() *goredis.Client {
-	if redisCli == nil {
-		redisCliOnce.Do(func() {
-			InitRedis()
-		})
-	}
+	redisCliOnce.Do(func() {
+		InitRedis()
+	})
 
 	return redisCli
 }

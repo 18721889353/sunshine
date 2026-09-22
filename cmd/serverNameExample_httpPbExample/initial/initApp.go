@@ -11,6 +11,7 @@ import (
 	"time"
 
 	v5 "github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/18721889353/sunshine/configs"
 	"github.com/18721889353/sunshine/internal/config"
@@ -91,10 +92,20 @@ func InitApp() {
 		),
 		// 注册 SLS Hook（如果启用）
 		func() logger.Option {
-			if slsHookInstance != nil {
-				return logger.WithCustomHooksWithCtx(slsHookInstance.Hook)
+			if slsHookInstance == nil {
+				return nil
 			}
-			return nil
+			// 【SLS 上传策略】只上传 Warn 及以上，Info 只落本地文件。
+			// 若某条 Info 确实需要远端留痕，把它改成 Warn 即可。
+			//return logger.WithCustomHooksWithCtx(slsHookInstance.Hook)
+			return logger.WithCustomHooksWithCtx(func(ctx context.Context, entry zapcore.Entry, fields []logger.Field) error {
+				// WarnLevel=1, ErrorLevel=2, DPanicLevel=3, PanicLevel=4, FatalLevel=5
+				// 只放行 Warn 及以上级别到 SLS，Info/Debug 只落本地文件
+				if entry.Level < zapcore.WarnLevel {
+					return nil
+				}
+				return slsHookInstance.Hook(ctx, entry, fields)
+			})
 		}(),
 		// 日志路由配置 - 支持按模块/级别动态路由到不同文件
 		logger.WithRoutes(func() []*logger.RouteConfig {
