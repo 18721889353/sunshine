@@ -167,7 +167,32 @@ redis:
   poolTimeout: 10                 # 连接池超时时间(秒)
   idleTimeout: 30                 # 连接最大空闲时间(秒)
 
-# jaeger设置
+# OTLP链路追踪设置（推荐，替代jaeger）
+# endpoint 格式决定传输协议：
+#   - 以 http:// 或 https:// 开头 → 自动使用 HTTP 协议
+#   - host:port 格式 → 自动使用 gRPC 协议
+#
+# ==================== gRPC 方式（推荐，性能更好） ====================
+otlp:
+  endpoint: "tracing-analysis-dc-sh.aliyuncs.com:8090"  # gRPC端点，Go语言需删除 http:// 前缀
+  insecure: true                  # 是否禁用TLS（阿里云公网/内网通常为true）
+  headers:  # @type:map[string]string, gRPC鉴权头部（gRPC方式必须配置）
+    authentication: "j1hwr1hssi@6205c493199393c_j1r1hssi@5f7ad2afe8301"  # 阿里云链路追踪鉴权Token
+  timeout: 10                     # 导出超时（秒），默认10
+  maxQueueSize: 0                 # 最大队列容量，默认2048，0=使用默认值
+  maxExportBatchSize: 0           # 单批次最大导出数，默认512，0=使用默认值
+  batchTimeout: 0                 # 批次超时（秒），默认5，0=使用默认值
+  exportTimeout: 0                # 导出超时（秒），默认30，0=使用默认值
+#
+# ==================== HTTP 方式（备选） ====================
+# endpoint 为完整URL，鉴权Token嵌入路径中，无需配置 headers
+#otlp:
+#  endpoint: "http://tracing-analysis-dc-sh.aliyuncs.com/adapt_j1hwr1hssi@62053199393c_j1hwr1hssi@53df7ad2afe8301/api/otlp/traces"
+#  insecure: true
+#  headers: {}
+#  timeout: 10
+
+# jaeger设置（已废弃，请迁移到otlp）
 jaeger:
   agentHost: "127.0.0.1"          # Jaeger代理主机
   agentPort: 6831                 # Jaeger代理端口

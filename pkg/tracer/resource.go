@@ -3,7 +3,6 @@ package tracer
 import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 )
 
 // alias, for other structs, the following code does not need to change the names of the resourceOptions
@@ -74,8 +73,8 @@ func NewResource(opts ...ResourceOption) *resource.Resource {
 	apply(rc, opts...)
 
 	kvs := []attribute.KeyValue{
-		semconv.ServiceNameKey.String(rc.serviceName),
-		semconv.ServiceVersionKey.String(rc.serviceVersion),
+		attribute.String("service.name", rc.serviceName),
+		attribute.String("service.version", rc.serviceVersion),
 		attribute.String("env", rc.environment),
 	}
 	for k, v := range rc.attributes {
@@ -84,7 +83,7 @@ func NewResource(opts ...ResourceOption) *resource.Resource {
 
 	r, err := resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(semconv.SchemaURL, kvs...),
+		resource.NewWithAttributes("", kvs...),
 	)
 	if err != nil {
 		panic(err)

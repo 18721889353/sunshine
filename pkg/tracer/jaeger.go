@@ -39,6 +39,10 @@ func WithPassword(password string) JaegerOption {
 }
 
 // NewJaegerExporter use jaeger collector as exporter, e.g. default url=http://localhost:14268/api/traces
+//
+// Deprecated: Jaeger exporter uses Thrift protocol which causes excessive memory allocation.
+// Use NewOTLPExporter instead. Jaeger >= 1.35 natively supports OTLP ingestion,
+// so switching to OTLP exporter does not require changing the backend collector.
 func NewJaegerExporter(url string, opts ...JaegerOption) (sdkTrace.SpanExporter, error) {
 	ceps := []jaeger.CollectorEndpointOption{
 		jaeger.WithEndpoint(url),
@@ -59,6 +63,9 @@ func NewJaegerExporter(url string, opts ...JaegerOption) (sdkTrace.SpanExporter,
 }
 
 // NewJaegerAgentExporter use jaeger agent as exporter, e.g. host=localhost port=6831
+//
+// Deprecated: Jaeger agent exporter uses Thrift protocol which causes excessive memory allocation.
+// Use NewOTLPExporter instead.
 func NewJaegerAgentExporter(host string, port string) (sdkTrace.SpanExporter, error) {
 	return jaeger.New(
 		jaeger.WithAgentEndpoint(

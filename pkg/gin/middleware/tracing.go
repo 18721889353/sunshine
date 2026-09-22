@@ -12,7 +12,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -102,22 +101,22 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 		tOpts := []oteltrace.SpanStartOption{
 			oteltrace.WithAttributes(
 				// OpenTelemetry 标准 HTTP Server 属性
-				semconv.ServiceName(serviceName),
-				semconv.HTTPRequestMethodKey.String(c.Request.Method),
-				semconv.URLFull(c.Request.URL.String()),
-				semconv.URLPath(c.Request.URL.Path),
-				semconv.URLQuery(c.Request.URL.RawQuery),
-				semconv.ServerAddress(c.Request.Host),
-				semconv.ServerPort(cast.ToInt(c.Request.URL.Port())),
-				semconv.UserAgentOriginal(c.Request.UserAgent()),
-				semconv.HTTPRoute(route),
-				semconv.NetworkProtocolName(c.Request.Proto),
-				semconv.NetworkProtocolVersion(fmt.Sprintf("%d.%d", c.Request.ProtoMajor, c.Request.ProtoMinor)),
+				attribute.String("service.name", serviceName),
+				attribute.String("http.request.method", c.Request.Method),
+				attribute.String("url.full", c.Request.URL.String()),
+				attribute.String("url.path", c.Request.URL.Path),
+				attribute.String("url.query", c.Request.URL.RawQuery),
+				attribute.String("server.address", c.Request.Host),
+				attribute.Int("server.port", cast.ToInt(c.Request.URL.Port())),
+				attribute.String("user_agent.original", c.Request.UserAgent()),
+				attribute.String("http.route", route),
+				attribute.String("network.protocol.name", c.Request.Proto),
+				attribute.String("network.protocol.version", fmt.Sprintf("%d.%d", c.Request.ProtoMajor, c.Request.ProtoMinor)),
 				// 客户端信息
-				semconv.ClientAddress(clientIP),
-				semconv.NetworkPeerAddress(clientIP),
+				attribute.String("client.address", clientIP),
+				attribute.String("network.peer.address", clientIP),
 				// 请求大小
-				semconv.HTTPRequestBodySize(int(requestSize)),
+				attribute.Int("http.request.body.size", int(requestSize)),
 				// 核心：将 RequestID 作为 Span 属性，与 TraceID 关联
 				attribute.String(string(logger.ContextKeyRequestID), reqID),
 				attribute.String("trace.request_id", reqID), // 兼容性字段
@@ -158,8 +157,8 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 
 		// 设置完整的响应属性
 		span.SetAttributes(
-			semconv.HTTPResponseStatusCode(status),
-			semconv.HTTPResponseBodySize(responseSize),
+			attribute.Int("http.response.status_code", status),
+			attribute.Int("http.response.body.size", responseSize),
 			attribute.Float64("http.response.duration_ms", float64(duration.Milliseconds())),
 		)
 

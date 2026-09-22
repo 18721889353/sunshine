@@ -152,16 +152,52 @@ func InitApp() {
 
 	// initializing tracing
 	if cfg.App.EnableTrace {
-		tracer.InitWithConfig(
-			cfg.App.Name,
-			cfg.App.Env,
-			cfg.App.Version,
-			cfg.Jaeger.AgentHost,
-			strconv.Itoa(cfg.Jaeger.AgentPort),
-			cfg.App.TracingSamplingRate,
-			cfg.Jaeger.Endpoint, // 添加 endpoint 参数
-		)
-		logger.InfoWithCtx(initCtx, "[tracer] was initialized")
+		if cfg.Otlp.Endpoint != "" {
+			// Otlp 模式（推荐）- 使用 Protobuf 序列化，显著降低累积内存分配
+			if cfg.Otlp.MaxQueueSize > 0 || cfg.Otlp.MaxExportBatchSize > 0 ||
+				cfg.Otlp.BatchTimeout > 0 || cfg.Otlp.ExportTimeout > 0 {
+				// 自定义 BatchSpanProcessor 参数
+				tracer.InitWithOTLPBatch(
+					cfg.App.Name,
+					cfg.App.Env,
+					cfg.App.Version,
+					cfg.App.TracingSamplingRate,
+					cfg.Otlp.Endpoint,
+					cfg.Otlp.MaxQueueSize,
+					cfg.Otlp.MaxExportBatchSize,
+					time.Duration(cfg.Otlp.BatchTimeout)*time.Second,
+					time.Duration(cfg.Otlp.ExportTimeout)*time.Second,
+					tracer.WithInsecure(cfg.Otlp.Insecure),
+					tracer.WithHeaders(cfg.Otlp.Headers),
+					tracer.WithTimeout(time.Duration(cfg.Otlp.Timeout)*time.Second),
+				)
+			} else {
+				// 默认参数
+				tracer.InitWithOTLP(
+					cfg.App.Name,
+					cfg.App.Env,
+					cfg.App.Version,
+					cfg.App.TracingSamplingRate,
+					cfg.Otlp.Endpoint,
+					tracer.WithInsecure(cfg.Otlp.Insecure),
+					tracer.WithHeaders(cfg.Otlp.Headers),
+					tracer.WithTimeout(time.Duration(cfg.Otlp.Timeout)*time.Second),
+				)
+			}
+			logger.InfoWithCtx(initCtx, "[tracer] was initialized (Otlp)")
+		} else {
+			// Jaeger 模式（已废弃，请迁移到 Otlp）
+			tracer.InitWithConfig(
+				cfg.App.Name,
+				cfg.App.Env,
+				cfg.App.Version,
+				cfg.Jaeger.AgentHost,
+				strconv.Itoa(cfg.Jaeger.AgentPort),
+				cfg.App.TracingSamplingRate,
+				cfg.Jaeger.Endpoint,
+			)
+			logger.InfoWithCtx(initCtx, "[tracer] was initialized (Jaeger deprecated, recommend Otlp)")
+		}
 	}
 
 	// initializing database

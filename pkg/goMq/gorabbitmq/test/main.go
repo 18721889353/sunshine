@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"gorm.io/gorm"
@@ -109,8 +108,8 @@ func main() {
 
 	tracer := otel.Tracer(serviceName)
 	rootCtx, rootSpan := tracer.Start(ctx, "mock-http-request", trace.WithAttributes(
-		semconv.HTTPRequestMethodKey.String("GET"),
-		semconv.URLPath("/api/test"),
+		attribute.String("http.request.method", "GET"),
+		attribute.String("url.path", "/api/test"),
 	))
 	rootSpan.SetAttributes(attribute.String(string(requestIDKey), reqID))
 

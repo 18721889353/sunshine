@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,10 @@ import (
 
 // ForceFloats whether to force a change to float
 var ForceFloats bool
+
+// currentTypeOverrides 存储从 YAML 注释中提取的类型覆盖信息。
+// 格式: 字段名 -> 覆盖类型, 例如 "headers" -> "map[string]string"。
+var currentTypeOverrides map[string]string
 
 // commonInitialisms is a set of common initialisms.
 // Only add entries that are highly unlikely to be non-initialisms.
@@ -105,6 +110,24 @@ func readFile(input io.Reader) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// extractTypeOverrides 从 YAML 内容中提取 # @type:TYPE 注释。
+// 支持格式: "  fieldName: value  # @type:map[string]string"
+// 返回字段名到覆盖类型的映射表。
+func extractTypeOverrides(yamlContent []byte) map[string]string {
+	re := regexp.MustCompile(`^\s*(\w[\w-]*):\s*.*#\s*@type:([\w\[\]\{}]+)`)
+	overrides := make(map[string]string)
+	for _, line := range strings.Split(string(yamlContent), "\n") {
+		matches := re.FindStringSubmatch(line)
+		if len(matches) == 3 {
+			overrides[matches[1]] = matches[2]
+		}
+	}
+	if len(overrides) == 0 {
+		return nil
+	}
+	return overrides
+}
+
 // json or yaml parse
 func jyParse(input io.Reader, parser Parser, structName, pkgName string, tags []string, subStruct bool, convertFloats bool) ([]byte, error) {
 	_ = pkgName
@@ -126,7 +149,7 @@ func jyParse(input io.Reader, parser Parser, structName, pkgName string, tags []
 	case map[string]interface{}:
 		result = iresult
 	case []interface{}:
-		src := fmt.Sprintf("\ntype %s %s\n", structName, typeForValue(iresult, structName, tags, subStructMap, convertFloats))
+		src := fmt.Sprintf("\ntype %s %s\n", structName, typeForValue(iresult, "", structName, tags, subStructMap, convertFloats))
 		// supplementary sub-structures
 		for k, v := range subStructMap {
 			src += fmt.Sprintf("\n\ntype %s %s\n\n", v, k)
@@ -141,7 +164,10 @@ func jyParse(input io.Reader, parser Parser, structName, pkgName string, tags []
 		return nil, fmt.Errorf("unexpected type: %T", iresult)
 	}
 
-	src := fmt.Sprintf("\ntype %s %s}", structName, generateTypes(result, structName, tags, 0, subStructMap, convertFloats))
+	src := fmt.Sprintf("\ntype %s %s", structName, generateTypes(result, structName, tags, 0, subStructMap, convertFloats))
+	if !strings.HasSuffix(strings.TrimSpace(src), "}") {
+		src += "}"
+	}
 
 	keys := make([]string, 0, len(subStructMap))
 	for key := range subStructMap {
@@ -174,22 +200,41 @@ func convertKeysToStrings(obj map[interface{}]interface{}) map[string]interface{
 // handleNestedValue 处理嵌套值类型并返回适当的类型字符串
 // 返回值: (valueType, sub) - valueType是字段类型，sub是子结构定义（如果有）
 func handleNestedValue(value interface{}, key string, structName string, tags []string, depth int, subStructMap map[string]string, convertFloats bool) (valueType string, sub string) {
-	valueType = typeForValue(value, structName, tags, subStructMap, convertFloats)
+	valueType = typeForValue(value, key, structName, tags, subStructMap, convertFloats)
 	sub = ""
+
+	// 如果有类型覆盖，跳过子结构生成
+	if key != "" && currentTypeOverrides != nil {
+		if _, ok := currentTypeOverrides[key]; ok {
+			return valueType, ""
+		}
+	}
 
 	switch v := value.(type) {
 	case []interface{}:
 		if len(v) > 0 {
 			if firstElem, ok := v[0].(map[interface{}]interface{}); ok {
-				sub = generateTypes(convertKeysToStrings(firstElem), structName, tags, depth+1, subStructMap, convertFloats) + "}"
+				sub = generateTypes(convertKeysToStrings(firstElem), structName, tags, depth+1, subStructMap, convertFloats)
+				if !strings.HasSuffix(strings.TrimSpace(sub), "}") {
+					sub += "}"
+				}
 			} else if firstElem, ok := v[0].(map[string]interface{}); ok {
-				sub = generateTypes(firstElem, structName, tags, depth+1, subStructMap, convertFloats) + "}"
+				sub = generateTypes(firstElem, structName, tags, depth+1, subStructMap, convertFloats)
+				if !strings.HasSuffix(strings.TrimSpace(sub), "}") {
+					sub += "}"
+				}
 			}
 		}
 	case map[interface{}]interface{}:
-		sub = generateTypes(convertKeysToStrings(v), structName, tags, depth+1, subStructMap, convertFloats) + "}"
+		sub = generateTypes(convertKeysToStrings(v), structName, tags, depth+1, subStructMap, convertFloats)
+		if !strings.HasSuffix(strings.TrimSpace(sub), "}") {
+			sub += "}"
+		}
 	case map[string]interface{}:
-		sub = generateTypes(v, structName, tags, depth+1, subStructMap, convertFloats) + "}"
+		sub = generateTypes(v, structName, tags, depth+1, subStructMap, convertFloats)
+		if !strings.HasSuffix(strings.TrimSpace(sub), "}") {
+			sub += "}"
+		}
 	}
 
 	if sub == "" {
@@ -238,6 +283,10 @@ func buildFieldTag(key string, tags []string) string {
 
 // jyParse go struct entries for a map[string]interface{} structure
 func generateTypes(obj map[string]interface{}, structName string, tags []string, depth int, subStructMap map[string]string, convertFloats bool) string {
+	// 空 map 直接生成 map[string]interface{}，避免生成空 struct{}
+	if len(obj) == 0 {
+		return "map[string]interface{}"
+	}
 	structure := "struct {"
 
 	keys := make([]string, 0, len(obj))
@@ -381,7 +430,13 @@ func lintFieldName(name string) string {
 }
 
 // generate an appropriate struct type entry
-func typeForValue(value interface{}, structName string, tags []string, subStructMap map[string]string, convertFloats bool) string {
+func typeForValue(value interface{}, key string, structName string, tags []string, subStructMap map[string]string, convertFloats bool) string {
+	// 检查 YAML 注释中的类型覆盖
+	if key != "" && currentTypeOverrides != nil {
+		if override, ok := currentTypeOverrides[key]; ok {
+			return override
+		}
+	}
 	//Check if this is an array
 	if objects, ok := value.([]interface{}); ok {
 		types := make(map[reflect.Type]bool, 0)
@@ -390,12 +445,18 @@ func typeForValue(value interface{}, structName string, tags []string, subStruct
 		}
 		if len(types) == 1 {
 			merged := mergeElements(objects).([]interface{}) //nolint:errcheck
-			return "[]" + typeForValue(merged[0], structName, tags, subStructMap, convertFloats)
+			return "[]" + typeForValue(merged[0], "", structName, tags, subStructMap, convertFloats)
 		}
 		return "[]interface{}"
 	} else if object, ok := value.(map[interface{}]interface{}); ok {
+		if len(object) == 0 {
+			return "map[string]interface{}"
+		}
 		return generateTypes(convertKeysToStrings(object), structName, tags, 0, subStructMap, convertFloats) + "}"
 	} else if object, ok := value.(map[string]interface{}); ok {
+		if len(object) == 0 {
+			return "map[string]interface{}"
+		}
 		return generateTypes(object, structName, tags, 0, subStructMap, convertFloats) + "}"
 	} else if reflect.TypeOf(value) == nil {
 		return "interface{}"

@@ -94,6 +94,11 @@ func Convert(args *Args) (string, error) {
 		}
 	}
 
+	currentTypeOverrides = nil
+	if args.Format == "yaml" && data != nil {
+		currentTypeOverrides = extractTypeOverrides(data)
+	}
+
 	input := bytes.NewReader(data)
 
 	output, err := jyParse(input, args.parser, args.Name, "main", args.tags, args.SubStruct, args.convertFloats)

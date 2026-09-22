@@ -42,6 +42,7 @@ type Config struct {
 	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
 	Logger        Logger        `yaml:"logger" json:"logger"`
 	NacosInfo     NacosInfo     `yaml:"nacosInfo" json:"nacosInfo"`
+	Otlp          Otlp          `yaml:"otlp" json:"otlp"`
 	Rabbitmq      Rabbitmq      `yaml:"rabbitmq" json:"rabbitmq"`
 	Redis         Redis         `yaml:"redis" json:"redis"`
 	Sentinel      Sentinel      `yaml:"sentinel" json:"sentinel"`
@@ -203,6 +204,17 @@ type NacosRegistry struct {
 	Healthy         bool   `yaml:"healthy" json:"healthy"`
 	RegisterEnabled bool   `yaml:"registerEnabled" json:"registerEnabled"`
 	Weight          int    `yaml:"weight" json:"weight"`
+}
+
+type Otlp struct {
+	BatchTimeout       int               `yaml:"batchTimeout" json:"batchTimeout"`
+	Endpoint           string            `yaml:"endpoint" json:"endpoint"`
+	ExportTimeout      int               `yaml:"exportTimeout" json:"exportTimeout"`
+	Headers            map[string]string `yaml:"headers" json:"headers"`
+	Insecure           bool              `yaml:"insecure" json:"insecure"`
+	MaxExportBatchSize int               `yaml:"maxExportBatchSize" json:"maxExportBatchSize"`
+	MaxQueueSize       int               `yaml:"maxQueueSize" json:"maxQueueSize"`
+	Timeout            int               `yaml:"timeout" json:"timeout"`
 }
 
 type Sentinel struct {
