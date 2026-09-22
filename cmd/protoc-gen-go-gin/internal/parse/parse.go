@@ -105,7 +105,7 @@ func parsePbService(s *protogen.Service, protoFileDir string, moduleName string)
 
 	var methods []*ServiceMethod
 	for _, m := range s.Methods {
-		rpcMethod := &RPCMethod{} //nolint
+		rpcMethod := &RPCMethod{}
 		rule, ok := proto.GetExtension(m.Desc.Options(), annotations.E_Http).(*annotations.HttpRule)
 		if rule != nil && ok {
 			rpcMethod = buildHTTPRule(m, rule, protoPkgName)

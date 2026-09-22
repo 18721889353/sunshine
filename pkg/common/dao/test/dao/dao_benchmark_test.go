@@ -1198,7 +1198,6 @@ func TestLargeDataset(t *testing.T) {
 	t.Logf("分页获取所有ID完成，共 %d 个", len(allIDs))
 
 	// 随机取1000个ID进行批量查询
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(allIDs), func(i, j int) { allIDs[i], allIDs[j] = allIDs[j], allIDs[i] })
 	sampleIDs := allIDs[:1000]
 

@@ -121,16 +121,36 @@ func GetTemplateInfo(c *gin.Context) {
 
 // nolint
 func handleGenerateCode(c *gin.Context, outPath string, arg string) {
+	// 从 outPath 提取实际目录：去掉通配符部分（如 /*.proto）和末尾分隔符
+	uploadDir := outPath
+	if idx := strings.IndexAny(uploadDir, "*?"); idx != -1 {
+		uploadDir = strings.TrimRight(uploadDir[:idx], "/\\")
+	}
+	uploadDir = filepath.Clean(filepath.FromSlash(uploadDir))
+
+	// out 用于拼接输出目录名，只需要目录的最后一段（避免绝对路径拼接出非法路径）
 	out := "-" + time.Now().Format("150405")
-	if len(outPath) > 1 {
-		if outPath[0] == '/' {
-			out = outPath[1:] + out
-		} else {
-			out = outPath + out
-		}
+	if uploadDir != "" {
+		out = filepath.Base(uploadDir) + out
 	}
 
 	args := strings.Split(arg, " ")
+
+	// 解析 proto/yaml 文件的完整路径：将命令参数中的相对文件名替换为完整路径，
+	// 避免子进程因工作目录不匹配而找不到文件
+	if uploadDir != "" {
+		for i, a := range args {
+			if strings.HasPrefix(a, "--protobuf-file=") {
+				rel := strings.TrimPrefix(a, "--protobuf-file=")
+				args[i] = "--protobuf-file=" + filepath.Join(uploadDir, filepath.Base(rel))
+			}
+			if strings.HasPrefix(a, "--yaml-file=") {
+				rel := strings.TrimPrefix(a, "--yaml-file=")
+				args[i] = "--yaml-file=" + filepath.Join(uploadDir, filepath.Base(rel))
+			}
+		}
+	}
+
 	params := parseCommandArgs(args)
 	if params.ServerName != "" {
 		out = params.ServerName + "-" + out
@@ -143,7 +163,7 @@ func handleGenerateCode(c *gin.Context, outPath string, arg string) {
 		out += "-mono-repo"
 	}
 
-	out = os.TempDir() + gofile.GetPathDelimiter() + "sunshine-generate-code" + gofile.GetPathDelimiter() + out
+	out = filepath.Join(os.TempDir(), "sunshine-generate-code", out)
 	args = append(args, fmt.Sprintf("--out=%s", out))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*2)
@@ -427,7 +447,11 @@ func getMysqlTables(dsn string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer mysql.Close(db) //nolint
+	defer func() {
+		if closeErr := mysql.Close(db); closeErr != nil {
+			logger.WarnWithCtx(context.Background(), "close mysql failed", logger.Err(closeErr))
+		}
+	}()
 
 	var tables []string
 	err = db.Raw("show tables").Scan(&tables).Error

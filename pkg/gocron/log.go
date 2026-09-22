@@ -96,7 +96,10 @@ func parseKVs(kvs interface{}) []logger.Field {
 	}
 
 	for i := 0; i < l; i += 2 {
-		key := infos[i].(string) //nolint
+		key, ok := infos[i].(string)
+		if !ok {
+			continue
+		}
 		value := infos[i+1]
 
 		// replace id with task name

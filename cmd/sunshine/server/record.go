@@ -17,6 +17,8 @@ var (
 	dataFile = saveDir + "/data.json"
 	rcd      *record
 	initCtx  = context.Background() // 初始化阶段使用的 context
+
+	valTrue = "true"
 )
 
 type parameters struct {
@@ -111,7 +113,6 @@ func (r *record) get(ip string, commandType string) *parameters {
 	return r.HostRecord[key]
 }
 
-// nolint
 func parseCommandArgs(args []string) *parameters {
 	var params = &parameters{UpdateAt: time.Now().Format("20060102T150405")}
 	for _, v := range args {
@@ -136,17 +137,9 @@ func parseCommandArgs(args []string) *parameters {
 			case "--db-table":
 				params.TableName = val
 			case "--embed":
-				if val == "true" { //nolint
-					params.Embed = true
-				} else {
-					params.Embed = false
-				}
+				params.Embed = val == valTrue
 			case "--include-init-db":
-				if val == "true" { //nolint
-					params.IncludeInitDB = true
-				} else {
-					params.IncludeInitDB = false
-				}
+				params.IncludeInitDB = val == valTrue
 			case "--module-name":
 				params.ModuleName = val
 			case "--project-name":
@@ -167,11 +160,11 @@ func parseCommandArgs(args []string) *parameters {
 			case "--fields":
 				params.Fields = val
 			case "--only-print":
-				params.OnlyPrint = val == "true"
+				params.OnlyPrint = val == valTrue
 			case "--dep-proto-dir":
 				params.DepProtoDir = val
 			case "--suited-mono-repo":
-				params.SuitedMonoRepo = val == "true"
+				params.SuitedMonoRepo = val == valTrue
 			}
 		}
 	}

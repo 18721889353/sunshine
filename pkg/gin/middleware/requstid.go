@@ -147,12 +147,12 @@ func HeaderRequestIDField(c *gin.Context) zap.Field {
 // -------------------------------------------------------------------------------------------
 
 // RequestHeaderKey request header key
-var RequestHeaderKey = "request_header_key"
+var RequestHeaderKey = logger.ContextKey("request_header_key")
 
 // WrapCtx wrap context, put the Keys and Header of gin.Context into context
 func WrapCtx(c *gin.Context) context.Context {
-	ctx := context.WithValue(c.Request.Context(), logger.ContextKeyForRequestID(), c.GetString(string(logger.ContextKeyRequestID))) //nolint
-	return context.WithValue(ctx, RequestHeaderKey, c.Request.Header)                                                               //nolint
+	ctx := context.WithValue(c.Request.Context(), logger.ContextKeyForRequestID(), c.GetString(string(logger.ContextKeyRequestID)))
+	return context.WithValue(ctx, RequestHeaderKey, c.Request.Header)
 }
 
 // AdaptCtx adapt context, if ctx is gin.Context, return gin.Context and context of the transformation

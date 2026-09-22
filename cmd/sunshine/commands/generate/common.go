@@ -770,7 +770,7 @@ func convertYamlConfig(configFile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close() //nolint
+	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
 	modifiedLines := []string{}

@@ -267,7 +267,6 @@ func NewCenter(configFile string) (*Center, error) {
   tipMsg="${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then visit ${colorCyan}http://localhost:8080/apis/swagger/index.html${markEnd} in your browser."
 `
 
-	//nolint for grpc-http
 	protoShellServiceAndHandlerCode = `
   # generate the swagger document and merge all files into docs/apis.swagger.json
   protoc --proto_path=. --proto_path=./third_party \
@@ -303,7 +302,9 @@ func NewCenter(configFile string) (*Center, error) {
   sunshine merge http-pb
   checkResult $?
 
-  tipMsg="${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then\n      1. test http api in your browser ${colorCyan}http://localhost:8080/apis/swagger/index.html${markEnd}\n      2. test grpc api in the file ${colorCyan}internal/service/xxx_client_test.go${markEnd}"
+  echo "${highBright}Tip:${markEnd} execute the command ${colorCyan}make run${markEnd} and then"
+  echo "  1. test http api in your browser ${colorCyan}http://localhost:8080/apis/swagger/index.html${markEnd}"
+  echo "  2. test grpc api in the file ${colorCyan}internal/service/xxx_client_test.go${markEnd}"
 `
 
 	httpServerConfigCode = `# http server settings

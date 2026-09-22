@@ -73,7 +73,9 @@ func GetConfigFromNacos(configFile string) error {
 
 	// 5. 从 Nacos 获取配置
 	format, data, err := nacoscli.GetConfig(params, opts...)
-	_ = os.RemoveAll(logDir) //nolint SDK 已关闭，立即清理临时日志目录（best-effort）
+	if removeErr := os.RemoveAll(logDir); removeErr != nil {
+		fmt.Printf("warn: remove nacos log dir failed: %v\n", removeErr)
+	}
 	if err != nil {
 		return fmt.Errorf("从 Nacos 获取配置失败: %w", err)
 	}

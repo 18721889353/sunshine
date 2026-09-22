@@ -58,6 +58,15 @@ func handleExec(ctx context.Context, cmd *exec.Cmd, result *Result) {
 		return
 	}
 
+	// 用 goroutine 读取 stderr，避免管道缓冲区满导致子进程阻塞而死锁
+	var stderrData []byte
+	var stderrErr error
+	var stderrDone = make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		stderrData, stderrErr = io.ReadAll(stderr)
+	}()
+
 	reader := bufio.NewReader(stdout)
 	// reads each line in real time
 	line := ""
@@ -78,17 +87,18 @@ func handleExec(ctx context.Context, cmd *exec.Cmd, result *Result) {
 		}
 	}
 
-	// capture error logs
-	bytesErr, err := io.ReadAll(stderr)
-	if err != nil {
-		result.Err = err
+	// 等待 stderr 读取完成
+	<-stderrDone
+	if stderrErr != nil {
+		result.Err = stderrErr
 		return
 	}
 
-	err = cmd.Wait()
+	// 使用 cmd.Process.Wait() 替代 cmd.Wait()，避免继承的文件句柄导致无限阻塞
+	_, err = cmd.Process.Wait()
 	if err != nil {
-		if len(bytesErr) != 0 {
-			result.Err = errors.New(string(bytesErr))
+		if len(stderrData) != 0 {
+			result.Err = errors.New(string(stderrData))
 			return
 		}
 		result.Err = err
@@ -130,7 +140,8 @@ func getResult(cmd *exec.Cmd) ([]byte, error) {
 		return nil, err
 	}
 
-	err = cmd.Wait()
+	// 使用 cmd.Process.Wait() 替代 cmd.Wait()，避免继承的文件句柄导致无限阻塞
+	_, err = cmd.Process.Wait()
 	if err != nil {
 		if len(bytesErr) != 0 {
 			return nil, errors.New(string(bytesErr))

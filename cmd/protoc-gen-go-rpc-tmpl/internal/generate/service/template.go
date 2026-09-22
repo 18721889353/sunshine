@@ -1,9 +1,7 @@
 package service
 
 import (
-	"math/rand"
 	"text/template"
-	"time"
 )
 
 func init() {
@@ -20,8 +18,6 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-
-	rand.Seed(time.Now().UnixNano()) //nolint
 }
 
 var (

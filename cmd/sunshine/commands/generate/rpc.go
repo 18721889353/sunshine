@@ -34,7 +34,6 @@ func RPCCommand() *cobra.Command {
 		suitedMonoRepo bool // whether the generated code is suitable for mono-repo
 	)
 
-	//nolint
 	cmd := &cobra.Command{
 		Use:   "rpc",
 		Short: "基于 SQL 生成 gRPC 服务代码",
@@ -156,7 +155,9 @@ using help:
 `)
 			fmt.Printf("generate %s's grpc service code successfully, out = %s\n", serverName, outPath)
 
-			_ = generateConfigmap(serverName, outPath)
+			if err := generateConfigmap(serverName, outPath); err != nil {
+				fmt.Printf("warn: generate configmap failed: %v\n", err)
+			}
 			return nil
 		},
 	}
@@ -174,7 +175,7 @@ using help:
 		fmt.Printf("标记必填参数失败: %v\n", err)
 	}
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动类型，当前支持 mysql")
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database")
 	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
 		fmt.Printf("标记必填参数失败: %v\n", err)
 	}

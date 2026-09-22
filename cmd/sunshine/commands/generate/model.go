@@ -91,7 +91,7 @@ func ModelCommand(parentName string) *cobra.Command {
 	// --db-driver / -k: 数据库驱动类型
 	cmd.Flags().StringVarP(&sqlArgs.DBDriver, "db-driver", "k", "mysql", "数据库驱动类型，当前支持 mysql")
 	// --db-dsn / -d: 数据库连接地址
-	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database") //nolint
+	cmd.Flags().StringVarP(&sqlArgs.DBDsn, "db-dsn", "d", "", "数据库连接地址，格式: user:password@(host:port)/database")
 	if err := cmd.MarkFlagRequired("db-dsn"); err != nil {
 		fmt.Printf("标记必填参数失败: %v\n", err)
 	}

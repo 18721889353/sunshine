@@ -38,9 +38,10 @@ func newRPCServer(unaryServerInterceptors []grpc.UnaryServerInterceptor, streamS
 		panic(err)
 	}
 
-	options1 := grpc_middleware.WithUnaryServerChain(unaryServerInterceptors...)
-	options2 := grpc_middleware.WithStreamServerChain(streamServerInterceptors...)
-	server := grpc.NewServer(options1, options2)
+	server := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(unaryServerInterceptors...),
+		grpc.ChainStreamInterceptor(streamServerInterceptors...),
+	)
 
 	RegisterGreeterServer(server, &greeterServer{})
 
@@ -70,7 +71,7 @@ func newRPCClient(addr string, unaryClientInterceptors []grpc.UnaryClientInterce
 	options = append(options, option1, option2)
 
 	addr = "127.0.0.1" + addr
-	conn, err := grpc.Dial(addr, options...)
+	conn, err := grpc.NewClient(addr, options...)
 	if err != nil {
 		panic(err)
 	}

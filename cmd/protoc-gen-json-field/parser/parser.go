@@ -13,6 +13,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+const (
+	protoInt32 = "int32"
+	protoInt64 = "int64"
+)
+
 // PbService service fields
 type PbService struct {
 	Name      string           // Greeter
@@ -74,7 +79,7 @@ func (r Field) GoTypeZero() string {
 	switch r.FieldType {
 	case "bool":
 		return "false"
-	case "int32", "uint32", "sint32", "int64", "uint64", "sint64", "sfixed32", "fixed32", "sfixed64", "fixed64": //nolint
+	case protoInt32, "uint32", "sint32", protoInt64, "uint64", "sint64", "sfixed32", "fixed32", "sfixed64", "fixed64":
 		return "0"
 	case "float", "double":
 		return "0.0"
@@ -103,7 +108,7 @@ func parsePbService(s *protogen.Service, protoFileDir string) *PbService {
 
 	var methods []*ServiceMethod
 	for _, m := range s.Methods {
-		rpcMethod := &RPCMethod{} //nolint
+		rpcMethod := &RPCMethod{}
 		rule, ok := proto.GetExtension(m.Desc.Options(), annotations.E_Http).(*annotations.HttpRule)
 		if rule != nil && ok {
 			rpcMethod = buildHTTPRule(m, rule, protoPkgName)
@@ -216,48 +221,44 @@ func newFieldPkgInfo(ident protogen.GoIdent, importPkgMap map[string]string) *fi
 }
 
 // processMapField 处理 map 类型字段
-// 返回值: (fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg)
-//
-//nolint:revive // 需要返回5个值用于protobuf字段解析
-func processMapField(f *protogen.Field, fieldImportPkgMap map[string]string) (string, string, string, string, string) {
-	var fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg string
+func processMapField(f *protogen.Field, fieldImportPkgMap map[string]string) *fieldPkgInfo {
+	result := &fieldPkgInfo{}
 	// map value is message
 	if f.Desc.MapValue().Kind() == protoreflect.MessageKind {
 		for _, fSub := range f.Message.Fields {
 			if fSub.Message != nil {
 				fpi := newFieldPkgInfo(fSub.Message.GoIdent, fieldImportPkgMap)
-				fieldType = fpi.fieldType
-				importPkgPath = fpi.importPkgPath
-				importPkgName = fpi.importPkgName
-				goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goType
-				goTypeCrossPkg = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goTypeCrossPkg
+				result.fieldType = fpi.fieldType
+				result.importPkgPath = fpi.importPkgPath
+				result.importPkgName = fpi.importPkgName
+				result.goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goType
+				result.goTypeCrossPkg = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + fpi.goTypeCrossPkg
 			}
 		}
 	} else {
 		// map value is not message
-		goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + toGoType(f.Desc.MapValue().Kind())
-		goTypeCrossPkg = goType
+		result.goType = "map[" + toGoType(f.Desc.MapKey().Kind()) + "]" + toGoType(f.Desc.MapValue().Kind())
+		result.goTypeCrossPkg = result.goType
 	}
-	return fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg
+	return result
 }
 
 // processMessageField 处理 message 类型字段
-// 返回值: (fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg)
-//
-//nolint:revive // 需要返回5个值用于protobuf字段解析
-func processMessageField(fpi *fieldPkgInfo, isList bool) (string, string, string, string, string) {
-	fieldType := fpi.fieldType
-	importPkgPath := fpi.importPkgPath
-	importPkgName := fpi.importPkgName
-	goType := fpi.goType
-	goTypeCrossPkg := fpi.goTypeCrossPkg
+func processMessageField(fpi *fieldPkgInfo, isList bool) *fieldPkgInfo {
+	result := &fieldPkgInfo{
+		fieldType:      fpi.fieldType,
+		importPkgPath:  fpi.importPkgPath,
+		importPkgName:  fpi.importPkgName,
+		goType:         fpi.goType,
+		goTypeCrossPkg: fpi.goTypeCrossPkg,
+	}
 
 	if isList {
 		// field is list of message
-		goType = "[]" + fpi.goType
-		goTypeCrossPkg = "[]" + fpi.goTypeCrossPkg
+		result.goType = "[]" + fpi.goType
+		result.goTypeCrossPkg = "[]" + fpi.goTypeCrossPkg
 	}
-	return fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg
+	return result
 }
 
 // processNonMessageField 处理非 message 类型字段
@@ -296,13 +297,23 @@ func getFields(m *protogen.Message, fieldImportPkgMap map[string]string) []*Fiel
 		}
 
 		if f.Message != nil {
-			fpi := newFieldPkgInfo(f.Message.GoIdent, fieldImportPkgMap)
 			if isMap {
 				// 处理 map 类型
-				fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg = processMapField(f, fieldImportPkgMap)
+				fpi := processMapField(f, fieldImportPkgMap)
+				fieldType = fpi.fieldType
+				importPkgPath = fpi.importPkgPath
+				importPkgName = fpi.importPkgName
+				goType = fpi.goType
+				goTypeCrossPkg = fpi.goTypeCrossPkg
 			} else {
 				// 处理 message 类型
-				fieldType, importPkgPath, importPkgName, goType, goTypeCrossPkg = processMessageField(fpi, isList)
+				fpi := newFieldPkgInfo(f.Message.GoIdent, fieldImportPkgMap)
+				result := processMessageField(fpi, isList)
+				fieldType = result.fieldType
+				importPkgPath = result.importPkgPath
+				importPkgName = result.importPkgName
+				goType = result.goType
+				goTypeCrossPkg = result.goTypeCrossPkg
 			}
 		} else {
 			// 处理非 message 类型
@@ -331,27 +342,27 @@ func toGoType(protoKind protoreflect.Kind) string {
 	case protoreflect.BoolKind:
 		return "bool"
 	case protoreflect.EnumKind:
-		return "int32"
+		return protoInt32
 	case protoreflect.Int32Kind:
-		return "int32"
+		return protoInt32
 	case protoreflect.Sint32Kind:
-		return "int32"
+		return protoInt32
 	case protoreflect.Uint32Kind:
 		return "uint32"
 	case protoreflect.Int64Kind:
-		return "int64"
+		return protoInt64
 	case protoreflect.Sint64Kind:
-		return "int64"
+		return protoInt64
 	case protoreflect.Uint64Kind:
 		return "uint64"
 	case protoreflect.Sfixed32Kind:
-		return "int32"
+		return protoInt32
 	case protoreflect.Fixed32Kind:
 		return "uint32"
 	case protoreflect.FloatKind:
 		return "float32"
 	case protoreflect.Sfixed64Kind:
-		return "int64"
+		return protoInt64
 	case protoreflect.Fixed64Kind:
 		return "uint64"
 	case protoreflect.DoubleKind:

@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // DownloadAndUpload 从远程URL下载图片并上传到存储
@@ -32,8 +34,11 @@ func (u *UploaderHelper) DownloadAndUpload(ctx context.Context, imageURL string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to download image: %w", err)
 	}
-	//nolint:errcheck // 在defer中忽略Close错误是常见做法
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "close response body failed", logger.Err(closeErr))
+		}
+	}()
 
 	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
@@ -84,8 +89,11 @@ func (u *UploaderHelper) DownloadAndUploadWithSize(ctx context.Context, imageURL
 	if err != nil {
 		return nil, fmt.Errorf("failed to download image: %w", err)
 	}
-	//nolint:errcheck // 在defer中忽略Close错误是常见做法
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "close response body failed", logger.Err(closeErr))
+		}
+	}()
 
 	// 检查响应状态
 	if resp.StatusCode != http.StatusOK {
@@ -208,8 +216,11 @@ func ValidateImageURL(ctx context.Context, imageURL string) (string, int64, erro
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to validate URL: %w", err)
 	}
-	//nolint:errcheck // 在defer中忽略Close错误是常见做法
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.WarnWithCtx(ctx, "close response body failed", logger.Err(closeErr))
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", 0, fmt.Errorf("URL validation failed with status: %d", resp.StatusCode)
