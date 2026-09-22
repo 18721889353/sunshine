@@ -11,7 +11,7 @@ app:
     - 127.0.0.1
   enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭
   enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭
-  enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭, 如果为true必须设置jaeger配置
+  enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭, 如果为true必须设置otlp配置
   tracingSamplingRate: 1.0        # 链路追踪采样率, 介于0和1之间, 0表示不采样, 1表示采样所有链路
   registryDiscoveryType: ""       # 注册与发现类型: etcd / nacos, 如果为空, 不使用注册与发现
   cacheType: ""                   # 缓存类型, 如果为空, 不使用缓存, 支持"memory"和"redis", 如果设置为redis, 必须设置redis配置
@@ -167,7 +167,7 @@ redis:
   poolTimeout: 10                 # 连接池超时时间(秒)
   idleTimeout: 30                 # 连接最大空闲时间(秒)
 
-# OTLP链路追踪设置（推荐，替代jaeger）
+# OTLP链路追踪设置
 # endpoint 格式决定传输协议：
 #   - 以 http:// 或 https:// 开头 → 自动使用 HTTP 协议
 #   - host:port 格式 → 自动使用 gRPC 协议
@@ -191,12 +191,6 @@ otlp:
 #  insecure: true
 #  headers: {}
 #  timeout: 10
-
-# jaeger设置（已废弃，请迁移到otlp）
-jaeger:
-  agentHost: "127.0.0.1"          # Jaeger代理主机
-  agentPort: 6831                 # Jaeger代理端口
-  endpoint: ""                    # JaegerHTTP端点
 
 # etcd设置
 etcdInfo:

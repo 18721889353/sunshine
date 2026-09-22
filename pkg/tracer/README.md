@@ -2,13 +2,13 @@
 
 Tracer library wrapped in [go.opentelemetry.io/otel](https://github.com/open-telemetry/opentelemetry-go).
 
-支持 **OTLP gRPC**（推荐）和 **Jaeger**（已废弃）两种 exporter。
+支持 **OTLP gRPC** 分布式链路追踪。
 
 <br>
 
 ## Example of use
 
-### OTLP gRPC（推荐）
+### OTLP gRPC
 
 初始化 trace，使用 OTLP gRPC 协议上报：
 
@@ -45,19 +45,6 @@ func initTrace() {
         30*time.Second,         // ExportTimeout（0=默认值）
         tracer.WithInsecure(true),
     )
-```
-
-### Jaeger（已废弃）
-
-> **注意**：Jaeger exporter 使用 Thrift 协议，会导致大量累积内存分配（~1.2GB via bytes.growSlice）。
-> 推荐使用 OTLP exporter，Jaeger >= 1.35 原生支持 OTLP ingestion。
-
-```go
-    // HTTP collector 模式
-    exporter, err := tracer.NewJaegerExporter("http://localhost:14268/api/traces")
-
-    // Agent UDP 模式
-    exporter, err := tracer.NewJaegerAgentExporter("192.168.3.37", "6831")
 ```
 
 ### Console / File 输出
@@ -110,14 +97,11 @@ func initTrace() {
 
 | 函数 | 说明 |
 |------|------|
-| `InitWithOTLP(appName, env, version, samplingRate, endpoint, ...OTLPOption)` | OTLP gRPC 初始化（推荐） |
+| `InitWithOTLP(appName, env, version, samplingRate, endpoint, ...OTLPOption)` | OTLP gRPC 初始化 |
 | `InitWithOTLPBatch(appName, env, version, samplingRate, endpoint, maxQueueSize, maxExportBatchSize, batchTimeout, exportTimeout, ...OTLPOption)` | OTLP gRPC 初始化（自定义 Batch 参数） |
-| `InitWithConfig(...)` | **已废弃**，Jaeger 模式初始化 |
 | `Init(exporter, resource, fractions...)` | 通用初始化 |
 | `Close(ctx)` | 关闭 tracer，确保 Span 全部上报 |
 | `NewOTLPExporter(...OTLPOption)` | 创建 OTLP gRPC exporter |
-| `NewJaegerExporter(url, ...JaegerOption)` | **已废弃**，创建 Jaeger HTTP exporter |
-| `NewJaegerAgentExporter(host, port)` | **已废弃**，创建 Jaeger Agent UDP exporter |
 | `NewConsoleExporter()` | 创建 Console exporter |
 | `NewFileExporter(filename)` | 创建 File exporter |
 | `NewResource(...ResourceOption)` | 创建 Resource |

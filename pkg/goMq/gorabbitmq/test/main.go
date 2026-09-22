@@ -76,12 +76,10 @@ func main() {
 	logger.InfoWithCtx(ctx, "[snowflake] initialized")
 
 	// 3. 初始化 OpenTelemetry Tracer
-	pkgtracer.InitWithConfig(
+	pkgtracer.InitWithOTLP(
 		serviceName,
 		env,
 		version,
-		"",             // 不使用 Agent 模式
-		"",             // 不使用 Agent 模式
 		samplingRate,   // 全量采样
 		aliyunEndpoint, // 阿里云 OTLP endpoint
 	)

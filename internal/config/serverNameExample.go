@@ -38,7 +38,6 @@ type Config struct {
 	Grpc          Grpc          `yaml:"grpc" json:"grpc"`
 	GrpcClient    []GrpcClient  `yaml:"grpcClient" json:"grpcClient"`
 	HTTP          HTTP          `yaml:"http" json:"http"`
-	Jaeger        Jaeger        `yaml:"jaeger" json:"jaeger"`
 	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
 	Logger        Logger        `yaml:"logger" json:"logger"`
 	NacosInfo     NacosInfo     `yaml:"nacosInfo" json:"nacosInfo"`
@@ -114,12 +113,6 @@ type Elasticsearch struct {
 
 type EtcdServer struct {
 	Addrs []string `yaml:"addrs" json:"addrs"`
-}
-
-type Jaeger struct {
-	AgentHost string `yaml:"agentHost" json:"agentHost"`
-	AgentPort int    `yaml:"agentPort" json:"agentPort"`
-	Endpoint  string `yaml:"endpoint" json:"endpoint"`
 }
 
 type Upgrade struct {

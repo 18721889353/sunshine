@@ -777,7 +777,7 @@ if err != nil {
 - `bucket`: Bucket名称（COS/OSS）
 - `region`: 区域（COS/OSS）
 
-### 在 Jaeger 中查看
+### 在链路追踪系统中查看
 
 ```
 HTTP Request Handler
@@ -897,7 +897,7 @@ presignedURL, _ := uploader.GetPresignedURL(ctx, fileName, 3600)
 
 ### Q4: 如何监控上传性能？
 
-通过链路追踪系统（Jaeger）查看：
+通过链路追踪系统（OTLP）查看：
 - 每次上传的耗时
 - 成功率/失败率
 - 错误分布

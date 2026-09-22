@@ -198,18 +198,14 @@ func getDialOptions() []grpc.DialOption {
 ```go
 // initialize tracing
 func InitTrace(serviceName string) {
-	exporter, err := tracer.NewJaegerAgentExporter("192.168.3.37", "6831")
-	if err != nil {
-		panic(err)
-	}
-
-	resource := tracer.NewResource(
-		tracer.WithServiceName(serviceName),
-		tracer.WithEnvironment("dev"),
-		tracer.WithServiceVersion("demo"),
+	tracer.InitWithOTLP(
+		serviceName,
+		"dev",
+		"v1.0.0",
+		1.0,
+		"cn-shanghai.tracing-api.aliyuncs.com:80",
+		tracer.WithInsecure(true),
 	)
-
-	tracer.Init(exporter, resource) // collect all by default
 }
 
 // set up trace on the client side

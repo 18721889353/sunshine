@@ -38,10 +38,10 @@ func WithEndpoint(endpoint string) OTLPOption {
 }
 
 // WithInsecure 设置是否禁用 TLS
-// true 表示禁用 TLS，false 表示启用 TLS
-func WithInsecure(insecure bool) OTLPOption {
+// disableTLS 为 true 表示禁用 TLS，false 表示启用 TLS
+func WithInsecure(disableTLS bool) OTLPOption {
 	return func(o *otlpOptions) {
-		o.insecure = insecure
+		o.insecure = disableTLS
 	}
 }
 
@@ -64,7 +64,7 @@ func WithTimeout(timeout time.Duration) OTLPOption {
 //   - 以 http:// 或 https:// 开头 → 使用 HTTP 协议（otlptracehttp），支持完整 URL 含路径和认证 token
 //   - 其他格式（host:port）→ 使用 gRPC 协议（otlptracegrpc），兼容原有行为
 //
-// OTLP 使用 Protobuf 序列化，相比 Jaeger Thrift 协议可显著降低累积内存分配。
+// OTLP 使用 Protobuf 序列化，性能优越。
 func NewOTLPExporter(opts ...OTLPOption) (*otlptrace.Exporter, error) {
 	o := defaultOTLPOptions()
 	for _, opt := range opts {
@@ -117,7 +117,7 @@ func newOTLPHTTPExporter(o *otlpOptions) (*otlptrace.Exporter, error) {
 func newOTLPGRPCExporter(o *otlpOptions) (*otlptrace.Exporter, error) {
 	ctx := context.Background()
 
-	dialOpts := []grpc.DialOption{grpc.WithBlock()}
+	dialOpts := []grpc.DialOption{}
 	if o.insecure {
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
