@@ -26,12 +26,10 @@ func TestInit(t *testing.T) {
 	assert.NotEmpty(t, str)
 	t.Log(str)
 
-	// set nil
-	Set(nil)
-	defer func() {
-		recover()
-	}()
-	Get()
+	// Set(nil) 应触发 panic
+	assert.Panics(t, func() {
+		Set(nil)
+	})
 }
 
 func TestInitNacos(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 
@@ -24,11 +25,35 @@ import (
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 )
 
-// buildNacosOpts 封装 Nacos 连接参数，构建 nacoscli.Option 列表。
-// 消除 GetConfigFromNacos 和 WatchConfig 之间的重复构建逻辑。
-// 返回值 logDir 由调用方负责清理。
-func buildNacosOpts(nacosConf *Center) ([]nacoscli.Option, string) {
-	clientConfig, logDir := buildNacosClientConfig(
+// nacosSharedLogDir 进程级单例日志目录，避免 BuildNamingClientOptions 多次调用导致目录泄漏。
+var (
+	nacosSharedLogDirOnce sync.Once
+	nacosSharedLogDir     string
+)
+
+func getNacosSharedLogDir() string {
+	nacosSharedLogDirOnce.Do(func() {
+		var cacheDir string
+		switch runtime.GOOS {
+		case "windows":
+			cacheDir = "NUL"
+		default:
+			cacheDir = "/dev/null"
+		}
+		dir, err := os.MkdirTemp("", "nacos-sdk-log")
+		if err != nil {
+			nacosSharedLogDir = cacheDir
+			return
+		}
+		nacosSharedLogDir = dir
+	})
+	return nacosSharedLogDir
+}
+
+// buildNacosOpts 构建共享的 Nacos 连接选项。
+// 返回值 logDir 使用进程级单例目录，由进程退出时 OS 回收，无需调用方清理。
+func buildNacosOpts(nacosConf *Center) []nacoscli.Option {
+	clientConfig := buildNacosClientConfig(
 		nacosConf.Nacos.NamespaceID,
 		nacosConf.Nacos.Username,
 		nacosConf.Nacos.Password,
@@ -51,7 +76,7 @@ func buildNacosOpts(nacosConf *Center) ([]nacoscli.Option, string) {
 			ContextPath: nacosConf.Nacos.ContextPath,
 		}}),
 	}
-	return opts, logDir
+	return opts
 }
 
 // GetConfigFromNacos 从 Nacos 配置中心获取配置并设置到全局。
@@ -88,14 +113,8 @@ func GetConfigFromNacos(configFile string) (stop func(), err error) {
 		Format:      nacosConf.Nacos.Format,
 	}
 
-	// 2. 构建连接选项（复用公共函数消除重复逻辑）
-	opts, logDir := buildNacosOpts(nacosConf)
-	defer func() {
-		if removeErr := os.RemoveAll(logDir); removeErr != nil {
-			logger.WarnWithCtx(context.Background(), "[nacos] 删除日志目录失败",
-				logger.Err(removeErr))
-		}
-	}()
+	// 2. 构建连接选项（使用进程级单例日志目录，无需清理）
+	opts := buildNacosOpts(nacosConf)
 
 	// 3. 从 Nacos 获取配置
 	format, data, err := nacoscli.GetConfig(params, opts...)
@@ -117,7 +136,11 @@ func GetConfigFromNacos(configFile string) (stop func(), err error) {
 
 	// 6. 如果启用配置中心监听，启动后台监听并返回关闭函数
 	if nacosConf.Nacos.EnableWatch {
-		stop, watchErr := nacoscli.WatchConfig(context.Background(), params, onNacosConfigChange, opts...)
+		// 用闭包捕获 format，确保热更新时使用与首次拉取一致的格式
+		handler := func(_, group, dataID, data string) {
+			onNacosConfigChange(format, group, dataID, data)
+		}
+		stop, watchErr := nacoscli.WatchConfig(context.Background(), params, handler, opts...)
 		if watchErr != nil {
 			return nil, fmt.Errorf("启动 Nacos 配置监听失败: %w", watchErr)
 		}
@@ -128,8 +151,8 @@ func GetConfigFromNacos(configFile string) (stop func(), err error) {
 }
 
 // onNacosConfigChange Nacos 配置变更回调。
-// 解析新的 YAML 配置，校验关键字段，触发 reload 回调链。
-func onNacosConfigChange(_ string, group, dataID, data string) {
+// 解析新配置，校验关键字段，触发 reload 回调链。
+func onNacosConfigChange(format, group, dataID, data string) {
 	ctx := context.Background()
 	logger.InfoWithCtx(ctx, "[nacos watch] 收到配置变更",
 		logger.String("group", group),
@@ -138,7 +161,7 @@ func onNacosConfigChange(_ string, group, dataID, data string) {
 
 	// 1. 解析新配置
 	newCfg := &Config{}
-	if err := conf.ParseConfigData([]byte(data), "yaml", newCfg); err != nil {
+	if err := conf.ParseConfigData([]byte(data), format, newCfg); err != nil {
 		logger.WarnWithCtx(ctx, "[nacos watch] 解析新配置失败",
 			logger.Err(err),
 		)
@@ -160,30 +183,25 @@ func onNacosConfigChange(_ string, group, dataID, data string) {
 }
 
 // buildNacosClientConfig 构建 Nacos SDK ClientConfig。
-// 内部创建临时目录供 SDK 写日志（SDK 内部固定拼接 nacos-sdk.log，LogDir 必须是真实目录），
-// 调用方通过返回的 logDir 负责清理。CacheDir 指向空设备，禁止快照缓存落盘。
-func buildNacosClientConfig(namespaceID, username, password string, timeoutMs int) (*constant.ClientConfig, string) {
+// 使用进程级单例日志目录（getNacosSharedLogDir），避免多次调用导致目录泄漏。
+// CacheDir 指向空设备，禁止快照缓存落盘。
+func buildNacosClientConfig(namespaceID, username, password string, timeoutMs int) *constant.ClientConfig {
 	var cacheDir string
 	switch runtime.GOOS {
 	case "windows":
-		cacheDir = "NUL" // Windows 空设备
+		cacheDir = "NUL"
 	default:
-		cacheDir = "/dev/null" // Linux/macOS 空设备
-	}
-
-	logDir, err := os.MkdirTemp("", "nacos-sdk-log")
-	if err != nil {
-		logDir = cacheDir // 兜底：MkdirTemp 失败时使用空设备
+		cacheDir = "/dev/null"
 	}
 
 	return &constant.ClientConfig{
 		DisableUseSnapShot:  true, // 禁止读取本地缓存
 		NamespaceId:         namespaceID,
 		TimeoutMs:           uint64(timeoutMs),
-		NotLoadCacheAtStart: true,     // 启动时不加载本地缓存
-		CacheDir:            cacheDir, // 缓存目录指向空设备（快照缓存无敏感数据）
-		LogDir:              logDir,   // 日志目录指向临时目录
+		NotLoadCacheAtStart: true,                   // 启动时不加载本地缓存
+		CacheDir:            cacheDir,               // 缓存目录指向空设备（快照缓存无敏感数据）
+		LogDir:              getNacosSharedLogDir(), // 日志目录使用进程级单例
 		Username:            username,
 		Password:            password,
-	}, logDir
+	}
 }

@@ -141,29 +141,39 @@ docker build -f ${DOCKERFILE} -t ${IMAGE_NAME}:latest ${DOCKERFILE_PATH}`
 package config
 
 import (
+	"sync/atomic"
+
 	"github.com/18721889353/sunshine/pkg/conf"
 )
 
-var config *Config
+var config atomic.Pointer[Config]
 
 func Init(configFile string, fs ...func()) error {
-	config = &Config{}
-	return conf.Parse(configFile, config, fs...)
+	c := &Config{}
+	if err := conf.Parse(configFile, c, fs...); err != nil {
+		return err
+	}
+	config.Store(c)
+	return nil
 }
 
 func Show(hiddenFields ...string) string {
-	return conf.Show(config, hiddenFields...)
+	return conf.Show(config.Load(), hiddenFields...)
 }
 
 func Get() *Config {
-	if config == nil {
+	c := config.Load()
+	if c == nil {
 		panic("config is nil, please call config.Init() first")
 	}
-	return config
+	return c
 }
 
 func Set(conf *Config) {
-	config = conf
+	if conf == nil {
+		panic("config.Set(nil) 是未定义行为")
+	}
+	config.Store(conf)
 }
 `
 

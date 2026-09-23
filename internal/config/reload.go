@@ -33,11 +33,14 @@ func (r *reloadManagerImpl) Register(fn ReloadFunc) {
 
 // Reload 执行所有已注册的热更新回调。
 // 按注册顺序依次执行，单个回调 panic 不影响后续回调。
+// 先拷贝回调列表再释放锁执行，避免回调中调用 Register/Reset 导致死锁。
 func (r *reloadManagerImpl) Reload(oldCfg, newCfg *Config) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	callbacks := make([]ReloadFunc, len(r.callbacks))
+	copy(callbacks, r.callbacks)
+	r.mu.RUnlock()
 
-	for i, cb := range r.callbacks {
+	for i, cb := range callbacks {
 		func() {
 			defer func() {
 				if rec := recover(); rec != nil {
@@ -74,9 +77,7 @@ func RegisterReload(fn ReloadFunc) {
 // Reload 执行配置热更新，先执行回调链，再更新全局配置。
 func Reload(newCfg *Config) {
 	oldCfg := Get()
-	if oldCfg != nil {
-		reloadManager.Reload(oldCfg, newCfg)
-	}
+	reloadManager.Reload(oldCfg, newCfg)
 	Set(newCfg)
 }
 
