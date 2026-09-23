@@ -414,11 +414,26 @@ func reloadHTTPTimeout(oldCfg, newCfg *Config) {
 	oldHTTP := oldCfg.HTTP
 	newHTTP := newCfg.HTTP
 
+	// 调试日志：打印新旧配置值
+	logger.InfoWithCtx(ctx, "[config reload] http timeout check",
+		logger.Int("old.Timeout", oldHTTP.Timeout),
+		logger.Int("new.Timeout", newHTTP.Timeout),
+		logger.Int("old.ReadTimeout", oldHTTP.ReadTimeout),
+		logger.Int("new.ReadTimeout", newHTTP.ReadTimeout),
+		logger.Int("old.WriteTimeout", oldHTTP.WriteTimeout),
+		logger.Int("new.WriteTimeout", newHTTP.WriteTimeout),
+		logger.Int("old.ReadHeaderTimeout", oldHTTP.ReadHeaderTimeout),
+		logger.Int("new.ReadHeaderTimeout", newHTTP.ReadHeaderTimeout),
+		logger.Int("old.IdleTimeout", oldHTTP.IdleTimeout),
+		logger.Int("new.IdleTimeout", newHTTP.IdleTimeout),
+	)
+
 	if oldHTTP.Timeout == newHTTP.Timeout &&
 		oldHTTP.ReadTimeout == newHTTP.ReadTimeout &&
 		oldHTTP.WriteTimeout == newHTTP.WriteTimeout &&
 		oldHTTP.ReadHeaderTimeout == newHTTP.ReadHeaderTimeout &&
 		oldHTTP.IdleTimeout == newHTTP.IdleTimeout {
+		logger.InfoWithCtx(ctx, "[config reload] http timeout unchanged, skip")
 		return
 	}
 

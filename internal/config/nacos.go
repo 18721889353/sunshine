@@ -9,8 +9,11 @@ import (
 
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 
+	"time"
+
 	"github.com/18721889353/sunshine/pkg/conf"
 	"github.com/18721889353/sunshine/pkg/logger"
+
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 )
 
@@ -141,7 +144,7 @@ func buildNacosClientConfig(namespaceID, username, password string, timeoutMs in
 //   - params: Nacos 配置查询参数（Group/DataID/Format）。
 func startNacosWatch(ctx context.Context, nacosConf *Center, params *nacoscli.Params) {
 	// 构建监听客户端的连接选项（复用已解析的配置）
-	clientConfig, logDir := buildNacosClientConfig(
+	clientConfig, _ := buildNacosClientConfig(
 		nacosConf.Nacos.NamespaceID,
 		nacosConf.Nacos.Username,
 		nacosConf.Nacos.Password,
@@ -163,27 +166,41 @@ func startNacosWatch(ctx context.Context, nacosConf *Center, params *nacoscli.Pa
 		}}),
 	}
 
-	// 创建监听客户端
-	listener, err := nacoscli.NewListenClient(params, onNacosConfigChange, opts...)
-	if err != nil {
-		if removeErr := os.RemoveAll(logDir); removeErr != nil {
-			logger.WarnWithCtx(ctx, "[nacos watch] remove log dir failed", logger.Err(removeErr))
-		}
-		logger.WarnWithCtx(ctx, "[nacos watch] create listener failed", logger.Err(err))
-		return
-	}
-
-	// 在后台 goroutine 运行监听
+	// 在后台 goroutine 运行监听（带自动重连）
 	go func() {
-		defer func() {
-			if closeErr := listener.Close(); closeErr != nil {
-				logger.WarnWithCtx(ctx, "[nacos watch] close listener failed", logger.Err(closeErr))
+		for {
+			listener, err := nacoscli.NewListenClient(params, onNacosConfigChange, opts...)
+			if err != nil {
+				logger.WarnWithCtx(ctx, "[nacos watch] create listener failed, retrying in 5s", logger.Err(err))
+				select {
+				case <-ctx.Done():
+					logger.InfoWithCtx(ctx, "[nacos watch] stopped by context")
+					return
+				case <-time.After(5 * time.Second):
+					continue
+				}
 			}
-			if removeErr := os.RemoveAll(logDir); removeErr != nil {
-				logger.WarnWithCtx(ctx, "[nacos watch] remove log dir failed", logger.Err(removeErr))
+
+			logger.InfoWithCtx(ctx, "[nacos watch] listener connected", logger.String("dataID", params.DataID))
+			listener.Start(ctx) // 阻塞直到连接断开或 context 取消
+			listener.Close()
+
+			// 检查是否是主动取消
+			if ctx.Err() != nil {
+				logger.InfoWithCtx(ctx, "[nacos watch] stopped by context")
+				return
 			}
-		}()
-		listener.Start(ctx)
+
+			// 连接断开，等待后重连
+			logger.WarnWithCtx(ctx, "[nacos watch] connection lost, retrying in 3s")
+			select {
+			case <-ctx.Done():
+				logger.InfoWithCtx(ctx, "[nacos watch] stopped by context")
+				return
+			case <-time.After(3 * time.Second):
+				continue
+			}
+		}
 	}()
 
 	logger.InfoWithCtx(ctx, "[nacos watch] started",
