@@ -16,12 +16,15 @@ import (
 type ChangeHandler func(namespace, group, dataID, data string)
 
 // ListenClient Nacos 配置监听客户端，封装长生命周期的配置变更订阅。
-// 通过 ListenConfig 实现 Nacos 长轮询，配置变更时触发回调。
+// 通过 ListenConfig 注册监听，SDK 内部后台 goroutine 执行长轮询，
+// Start 通过 <-ctx.Done() 阻塞等待停止信号，Stop 调用 CancelListenConfig 取消注册。
+// 注意：ListenClient 非并发安全，不要在多个 goroutine 中同时调用 Start/Stop/Close。
 type ListenClient struct {
 	configClient config_client.IConfigClient
 	group        string
 	dataID       string
 	handler      ChangeHandler
+	param        vo.ConfigParam // 用于 CancelListenConfig 清理
 }
 
 // NewListenClient 创建配置监听客户端。
@@ -41,7 +44,7 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 	if params == nil {
 		return nil, errors.New("监听参数不能为空")
 	}
-	if err := params.valid(); err != nil {
+	if _, err := params.valid(); err != nil {
 		return nil, fmt.Errorf("监听参数校验失败: %w", err)
 	}
 
@@ -54,7 +57,7 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 	}
 	mergedOpts := append(baseOpts, opts...)
 
-	client, err := newConfigClient(mergedOpts...)
+	client, err := NewConfigClient(mergedOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Nacos 配置监听客户端失败: %w", err)
 	}
@@ -64,58 +67,71 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 		group:        params.Group,
 		dataID:       params.DataID,
 		handler:      handler,
+		param: vo.ConfigParam{
+			DataId: params.DataID,
+			Group:  params.Group,
+		},
 	}, nil
 }
 
-// Start 启动配置监听（阻塞直到 ctx 取消）。
+// Start 启动配置监听，阻塞直到 ctx 取消或 ListenConfig 注册失败。
 //
-// 内部调用 Nacos SDK 的 ListenConfig，通过长轮询机制接收配置变更推送。
-// 监听期间的错误会记录日志但不中断监听（Nacos SDK 内部自动重试）。
+// 返回值:
+//   - nil: ctx 被取消，正常退出。
+//   - error: ListenConfig 注册失败（如 SDK 内部状态异常）。
 //
-// 参数:
-//   - ctx: 控制监听生命周期的上下文，取消时停止监听并返回。
-func (c *ListenClient) Start(ctx context.Context) {
-	// 构造 Nacos 监听参数
-	param := vo.ConfigParam{
-		DataId: c.dataID,
-		Group:  c.group,
-		OnChange: func(namespace, group, dataId, data string) {
-			// context 已取消时丢弃变更
-			if ctx.Err() != nil {
-				logger.WarnWithCtx(ctx, "[nacos listener] 上下文已取消，跳过配置变更",
-					logger.String("group", group),
-					logger.String("dataId", dataId),
-				)
-				return
-			}
-
-			logger.InfoWithCtx(ctx, "[nacos listener] 配置已变更",
-				logger.String("group", group),
-				logger.String("dataId", dataId),
-				logger.Int("dataLength", len(data)),
-			)
-
-			// 执行用户回调，recover 保护防止 panic 导致监听协程退出
-			c.safeCallHandler(ctx, namespace, group, dataId, data)
-		},
-	}
-
+// 无论返回 nil 还是 error，调用方都应调用 Stop() 与 Close() 释放资源。
+// CancelListenConfig 对未注册成功的 (dataId, group) 是无害操作。
+func (c *ListenClient) Start(ctx context.Context) error {
 	logger.InfoWithCtx(ctx, "[nacos listener] 启动中",
 		logger.String("group", c.group),
 		logger.String("dataId", c.dataID),
 	)
 
-	// ListenConfig 是阻塞调用，直到 client 被关闭或 context 取消
-	if err := c.configClient.ListenConfig(param); err != nil {
-		// 只有主动关闭或 context 取消才会走到这里
-		if ctx.Err() != nil {
-			logger.InfoWithCtx(ctx, "[nacos listener] 上下文取消，停止监听")
-			return
-		}
-		logger.WarnWithCtx(ctx, "[nacos listener] 监听出错",
+	// ListenConfig 是非阻塞调用：仅注册回调到 SDK 内部 cacheMap，
+	// 真正的长轮询由 SDK 的 startInternal() 后台 goroutine 执行。
+	c.param.OnChange = c.buildOnChange(ctx)
+	if err := c.configClient.ListenConfig(c.param); err != nil {
+		logger.WarnWithCtx(ctx, "[nacos listener] 注册监听失败",
 			logger.String("dataId", c.dataID),
 			logger.Err(err),
 		)
+		return err
+	}
+
+	// 阻塞等待 ctx 取消，保持监听存活
+	<-ctx.Done()
+
+	logger.InfoWithCtx(context.Background(), "[nacos listener] 上下文取消，停止监听")
+	return nil
+}
+
+// Stop 取消配置监听注册，释放 SDK 内部的 cacheData 资源。
+// 通常由 WatchConfig 在 Start 返回后调用。
+func (c *ListenClient) Stop() error {
+	return c.configClient.CancelListenConfig(c.param)
+}
+
+// buildOnChange 构造配置变更回调闭包。
+func (c *ListenClient) buildOnChange(ctx context.Context) vo.Listener {
+	return func(namespace, group, dataId, data string) {
+		// context 已取消时丢弃变更
+		if ctx.Err() != nil {
+			logger.WarnWithCtx(ctx, "[nacos listener] 上下文已取消，跳过配置变更",
+				logger.String("group", group),
+				logger.String("dataId", dataId),
+			)
+			return
+		}
+
+		logger.InfoWithCtx(ctx, "[nacos listener] 配置已变更",
+			logger.String("group", group),
+			logger.String("dataId", dataId),
+			logger.Int("dataLength", len(data)),
+		)
+
+		// 执行用户回调，recover 保护防止 panic 导致监听协程退出
+		c.safeCallHandler(ctx, namespace, group, dataId, data)
 	}
 }
 
@@ -133,12 +149,12 @@ func (c *ListenClient) safeCallHandler(ctx context.Context, namespace, group, da
 	c.handler(namespace, group, dataID, data)
 }
 
-// Close 关闭监听客户端，释放底层连接资源。
-// 注意：Nacos SDK 的 CloseClient() 不返回错误，此处直接调用。
-func (c *ListenClient) Close() error {
+// Close 关闭底层 Nacos 配置客户端，释放所有连接资源。
+// 关闭前应先调用 Stop() 取消监听注册（对未注册成功的 (dataId, group) 也是安全的）。
+// Nacos SDK 的 CloseClient() 不返回错误，此处直接调用。
+func (c *ListenClient) Close() {
 	if c.configClient == nil {
-		return nil
+		return
 	}
 	c.configClient.CloseClient()
-	return nil
 }

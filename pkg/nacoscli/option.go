@@ -8,14 +8,15 @@ import (
 
 // options 包含 Nacos 客户端的全部配置选项。
 type options struct {
-	ipAddr      string // 服务器地址
-	port        int    // 端口
-	scheme      string // 协议，http 或 grpc
-	contextPath string // 路径
-	namespaceID string // 命名空间 ID
-	timeoutMs   int    // 请求超时时间（毫秒）
-	username    string // 认证用户名
-	password    string // 认证密码
+	ipAddr      string        // 服务器地址
+	port        int           // 端口
+	scheme      string        // 协议，http 或 grpc
+	contextPath string        // 路径
+	namespaceID string        // 命名空间 ID
+	timeoutMs   int           // 请求超时时间（毫秒）
+	getTimeout  time.Duration // GetConfig 拉取超时，默认 30 秒
+	username    string        // 认证用户名
+	password    string        // 认证密码
 
 	// 如果设置了 clientConfig，上述 namespaceID/timeoutMs/username/password 等字段将无效
 	clientConfig *constant.ClientConfig
@@ -23,17 +24,16 @@ type options struct {
 	serverConfigs []constant.ServerConfig
 
 	// WatchConfig 专用配置
-	maxRetries     int           // 最大重试次数，0 表示无限重试
-	createDelay    time.Duration // 创建失败后等待时间，默认 5 秒
-	reconnectDelay time.Duration // 连接断开后等待时间，默认 3 秒
+	maxRetries  int           // 最大重试次数，0 表示无限重试
+	createDelay time.Duration // 创建或注册失败后的重试等待时间，默认 5 秒
 }
 
 // defaultOptions 返回默认的 options 结构体实例。
 func defaultOptions() *options {
 	return &options{
-		timeoutMs:      5000,
-		createDelay:    5 * time.Second,
-		reconnectDelay: 3 * time.Second,
+		timeoutMs:   5000,
+		getTimeout:  30 * time.Second,
+		createDelay: 5 * time.Second,
 	}
 }
 
@@ -120,16 +120,16 @@ func WithMaxRetries(n int) Option {
 	}
 }
 
-// WithCreateDelay 设置 WatchConfig 创建监听器失败后的重试等待时间，默认 5 秒。
+// WithCreateDelay 设置 WatchConfig 创建或注册失败后的重试等待时间，默认 5 秒。
 func WithCreateDelay(d time.Duration) Option {
 	return func(o *options) {
 		o.createDelay = d
 	}
 }
 
-// WithReconnectDelay 设置 WatchConfig 连接断开后的重连等待时间，默认 3 秒。
-func WithReconnectDelay(d time.Duration) Option {
+// WithGetTimeout 设置 GetConfig 拉取配置的超时时间，默认 30 秒。
+func WithGetTimeout(d time.Duration) Option {
 	return func(o *options) {
-		o.reconnectDelay = d
+		o.getTimeout = d
 	}
 }

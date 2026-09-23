@@ -26,11 +26,11 @@ func skipIfNoNacos(t *testing.T) {
 	}
 }
 
-// TestNewClient 验证命名客户端的创建。
-func TestNewClient(t *testing.T) {
+// TestNewNamingClient 验证命名客户端的创建。
+func TestNewNamingClient(t *testing.T) {
 	skipIfNoNacos(t)
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		cli, err := NewClient(ipAddr, port, namespaceID)
+		cli, err := NewNamingClient(ipAddr, port, namespaceID)
 		t.Log(err, cli)
 	})
 }
@@ -39,7 +39,7 @@ func TestNewClient(t *testing.T) {
 func TestNewConfigClient(t *testing.T) {
 	skipIfNoNacos(t)
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		client, err := newConfigClient(
+		client, err := NewConfigClient(
 			WithIPAddr(ipAddr),
 			WithPort(port),
 			WithNamespaceID(namespaceID),
@@ -48,16 +48,14 @@ func TestNewConfigClient(t *testing.T) {
 			t.Skipf("Nacos 服务不可用: %v", err)
 			return
 		}
-		if closeErr := client.Close(); closeErr != nil {
-			t.Errorf("Close() 产生意外错误: %v", closeErr)
-		}
+		client.Close()
 	})
 }
 
-// TestClient_GetConfig 验证 Client.getConfig 方法。
+// TestClient_GetConfig 验证 Client.GetConfig 方法。
 func TestClient_GetConfig(t *testing.T) {
 	skipIfNoNacos(t)
-	client, err := newConfigClient(
+	client, err := NewConfigClient(
 		WithIPAddr(ipAddr),
 		WithPort(port),
 		WithNamespaceID(namespaceID),
@@ -74,7 +72,7 @@ func TestClient_GetConfig(t *testing.T) {
 	}
 
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
-		format, data, err := client.getConfig(context.Background(), params)
+		format, data, err := client.GetConfig(context.Background(), params)
 		t.Logf("Client.GetConfig: err=%v, format=%s, len(data)=%d", err, format, len(data))
 		_ = cancel
 	})
@@ -134,6 +132,7 @@ func TestGetConfigWithOptions(t *testing.T) {
 func TestGetConfigNilParams(t *testing.T) {
 	_, _, err := GetConfig(nil)
 	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrNilParams)
 }
 
 // TestValid 验证 Params.valid() 的参数校验逻辑。
@@ -141,35 +140,36 @@ func TestValid(t *testing.T) {
 	// Group 为空
 	p := &Params{}
 	p.Group = ""
-	err := p.valid()
+	_, err := p.valid()
 	assert.Error(t, err)
 
 	// DataID 为空
 	p.Group = "group"
 	p.DataID = ""
-	err = p.valid()
+	_, err = p.valid()
 	assert.Error(t, err)
 
 	// Format 为空
 	p.Group = "group"
 	p.DataID = "id"
 	p.Format = ""
-	err = p.valid()
+	_, err = p.valid()
 	assert.Error(t, err)
 
-	// yml 归一化为 yaml
+	// yml 归一化为 yaml（不修改原始 Params）
 	p.Group = "group"
 	p.DataID = "id"
 	p.Format = "yml"
-	err = p.valid()
+	format, err := p.valid()
 	assert.NoError(t, err)
-	assert.Equal(t, "yaml", p.Format)
+	assert.Equal(t, "yaml", format)
+	assert.Equal(t, "yml", p.Format) // 原始值不变
 
 	// 不支持的 Format
 	p.Group = "group"
 	p.DataID = "id"
 	p.Format = "unknown"
-	err = p.valid()
+	_, err = p.valid()
 	assert.Error(t, err)
 
 	// GetConfig 必填项缺失
@@ -181,8 +181,38 @@ func TestValid(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestNewClientMissingAddress 验证 NewClient 缺少服务器地址时返回错误。
-func TestNewClientMissingAddress(t *testing.T) {
-	_, err := NewClient("", 0, "")
+// TestNewNamingClientMissingAddress 验证 NewNamingClient 缺少服务器地址时返回错误。
+func TestNewNamingClientMissingAddress(t *testing.T) {
+	_, err := NewNamingClient("", 0, "")
 	assert.Error(t, err)
+}
+
+// TestNewConfigClientMissingAddress 验证 NewConfigClient 缺少服务器地址时返回错误。
+func TestNewConfigClientMissingAddress(t *testing.T) {
+	_, err := NewConfigClient()
+	assert.Error(t, err)
+}
+
+// TestWatchConfigNilParams 验证 WatchConfig 对 nil params 的处理。
+func TestWatchConfigNilParams(t *testing.T) {
+	_, err := WatchConfig(context.Background(), nil,
+		func(_, _, _, _ string) {})
+	assert.ErrorIs(t, err, ErrNilParams)
+}
+
+// TestWatchConfigNilHandler 验证 WatchConfig 对 nil handler 的处理。
+func TestWatchConfigNilHandler(t *testing.T) {
+	_, err := WatchConfig(context.Background(),
+		&Params{Group: "g", DataID: "d", Format: "yaml"}, nil)
+	assert.Error(t, err)
+}
+
+// TestWatchConfigCancelledCtx 验证 WatchConfig 对已取消 ctx 的前置短路。
+func TestWatchConfigCancelledCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := WatchConfig(ctx, &Params{Group: "g", DataID: "d", Format: "yaml"},
+		func(_, _, _, _ string) {})
+	assert.ErrorIs(t, err, context.Canceled)
 }

@@ -117,8 +117,11 @@ func GetConfigFromNacos(configFile string) (stop func(), err error) {
 
 	// 6. 如果启用配置中心监听，启动后台监听并返回关闭函数
 	if nacosConf.Nacos.EnableWatch {
-		cancel := nacoscli.WatchConfig(context.Background(), params, onNacosConfigChange, opts...)
-		return cancel, nil
+		stop, watchErr := nacoscli.WatchConfig(context.Background(), params, onNacosConfigChange, opts...)
+		if watchErr != nil {
+			return nil, fmt.Errorf("启动 Nacos 配置监听失败: %w", watchErr)
+		}
+		return stop, nil
 	}
 
 	return nil, nil

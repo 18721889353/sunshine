@@ -6,11 +6,12 @@ Nacos 配置中心客户端封装，提供配置拉取、实时监听与服务�
 
 ```
 nacoscli/
-├── nacoscli.go     # 核心：Params 校验、Client 生命周期、GetConfig/NewClient 公共 API
-├── listener.go     # ListenClient：长轮询监听、panic 保护、优雅关闭
-├── watch.go        # WatchConfig：自动重连包装、重试计数、延迟可配置
-├── option.go       # Option 函数：defaultOptions + apply 模式、优先级传播
-└── nacoscli_test.go
+├── nacoscli.go       # 核心：Params 校验、Client 生命周期、GetConfig/NewConfigClient/NewNamingClient
+├── listener.go       # ListenClient：长轮询注册、<-ctx.Done() 阻塞、CancelListenConfig 清理、panic 保护
+├── watch.go          # WatchConfig：注册失败重试、重试计数持续累积、提前校验、goroutine 等待退出
+├── option.go         # Option 函数：defaultOptions + apply 模式、优先级传播
+├── nacoscli_test.go  # 单元测试 + 集成测试（需 NACOS_ADDR 环境变量）
+└── README.md
 ```
 
 **核心设计原则：**
@@ -19,12 +20,13 @@ nacoscli/
 - **Params 与 Option 的关系**：`Params` 定义"查什么"（Group/DataID/Format），`Option` 定义"怎么连"（地址/认证/超时），两者互补
 - **OpenTelemetry 内置**：所有配置获取自动创建 Span，记录 `nacos.data_id`、`nacos.group`、`request_id` 等属性
 - **panic 安全**：监听回调内置 recover，单次 panic 不会导致监听协程退出
+- **valid() 无副作用**：返回归一化后的 Format，不修改原始 Params 结构体
 
 ---
 
 ## 使用场景选择
 
-### 场景一：一次性拉取配置（GetConfig）
+### 场景一：一次性拉取配置（GetConfig 便捷函数）
 
 **适用场景**：应用启动时从 Nacos 读取配置，读完即关闭连接。无需监听变更。
 
@@ -43,7 +45,7 @@ if err != nil {
 fmt.Printf("format: %s, data length: %d\n", format, len(data))
 ```
 
-**内部行为**：创建客户端 -> 拉取配置 -> 关闭客户端，固定 30 秒超时。
+**内部行为**：创建客户端 -> 拉取配置 -> 关闭客户端，默认 30 秒超时（可通过 `WithGetTimeout` 调整）。
 
 **不适用**：需要持续监听配置变更的场景（应使用 `WatchConfig`）。
 
@@ -71,56 +73,66 @@ handler := func(namespace, group, dataID, data string) {
     applyConfig(&newCfg)
 }
 
-// 返回 cancel 函数，进程退出时调用以优雅停止
-cancel := nacoscli.WatchConfig(context.Background(), params, handler,
+// 返回 stop 函数和错误，stop() 会等待 goroutine 完全退出
+stop, err := nacoscli.WatchConfig(context.Background(), params, handler,
     nacoscli.WithIPAddr("192.168.3.37"),
     nacoscli.WithPort(8848),
     nacoscli.WithAuth("admin", "password"),
 )
-
-defer cancel()
+if err != nil {
+    log.Fatal(err)
+}
+defer stop()
 ```
 
 **内部行为**：
 
-1. 创建 `ListenClient` 并启动长轮询（Nacos SDK 的 `ListenConfig`）
-2. 配置变更时调用 `handler`，内置 recover 保护
-3. 连接断开后自动重连（默认等待 3 秒）
-4. 创建失败后自动重试（默认等待 5 秒）
-5. 调用 `cancel()` 或 ctx 取消时，优雅停止并清理资源
+1. 提前校验 params 和 handler，非法参数立即返回 error（不进入后台循环）
+2. 创建 `ListenClient` 并注册长轮询（Nacos SDK 的 `ListenConfig`，非阻塞）
+3. `Start()` 返回 nil 表示 ctx 正常取消，返回 error 表示 ListenConfig 注册失败
+4. 配置变更时调用 `handler`，内置 recover 保护
+5. 注册失败时自动重试，retries 持续累积直到达到 maxRetries
+6. 注册成功后，连接维护由 SDK 内部长轮询负责，WatchConfig 不再介入
+7. 调用 `stop()` 时，cancel ctx -> CancelListenConfig -> CloseClient -> WaitGroup 等待退出
+
+**重试语义**：WatchConfig 只在两个时机重试：
+- `NewListenClient` 创建失败（Nacos 地址不可达、认证失败等）
+- `ListenConfig` 注册失败（SDK 内部状态异常、缓存目录不可写等）
+
+一旦注册成功，连接的健康维护由 Nacos SDK 内部长轮询负责，WatchConfig 不再介入。
 
 **重试行为配置**：
 
 ```go
-cancel := nacoscli.WatchConfig(ctx, params, handler,
+stop, err := nacoscli.WatchConfig(ctx, params, handler,
     nacoscli.WithIPAddr("192.168.3.37"),
     nacoscli.WithPort(8848),
     // 最多重试 10 次后放弃（默认 0 = 无限重试）
     nacoscli.WithMaxRetries(10),
-    // 创建失败后等待 5 秒再重试（默认 5s）
-    nacoscli.WithCreateDelay(5 * time.Second),
-    // 连接断开后等待 3 秒再重连（默认 3s）
-    nacoscli.WithReconnectDelay(3 * time.Second),
+    // 注册失败后等待 5 秒再重试（默认 5s）
+    nacoscli.WithCreateDelay(5*time.Second),
 )
 ```
 
 **重试计数规则**：
 
-- 每次创建监听器失败：`retries++`
-- 每次连接断开：`retries++`
+- `retries` 仅在 `NewListenClient` 创建失败或 `ListenConfig` 注册失败时递增
+- 由于 `Start` 一旦成功返回（ctx 取消）就退出，不存在“运行一段时间后重试计数重置”的场景
 - `retries >= maxRetries` 时记录 Error 日志并退出 goroutine
 - `maxRetries = 0`（默认）时无限重试
 
 ---
 
-### 场景三：复用客户端多次获取配置
+### 场景三：复用配置客户端多次获取配置（NewConfigClient）
 
 **适用场景**：同一服务需要频繁读取多个 Nacos 配置文件，复用底层连接避免反复创建/销毁。
 
 ```go
-// 创建客户端
-client, err := nacoscli.NewClient(
-    "192.168.3.37", 8848, "de7b176e-91cd-49a3-ac83-beb725979775",
+// 创建可复用的配置客户端
+client, err := nacoscli.NewConfigClient(
+    nacoscli.WithIPAddr("192.168.3.37"),
+    nacoscli.WithPort(8848),
+    nacoscli.WithNamespaceID("de7b176e-91cd-49a3-ac83-beb725979775"),
     nacoscli.WithAuth("admin", "password"),
     nacoscli.WithTimeoutMs(3000),
 )
@@ -135,18 +147,25 @@ params2 := &nacoscli.Params{Group: "dev", DataID: "db.yml", Format: "yaml"}
 
 format1, data1, err := client.GetConfig(context.Background(), params1)
 format2, data2, err := client.GetConfig(context.Background(), params2)
+_ = format1
+_ = format2
+_ = data1
+_ = data2
 ```
 
-**注意**：`GetConfig`（便捷函数）每次调用都会创建/销毁客户端，高频场景应使用 `NewClient` + `client.GetConfig`。
+**注意**：
+- `NewConfigClient` 返回 `*Client`（配置客户端），提供 `GetConfig(ctx, params)` 和 `Close()` 方法
+- 便捷函数 `GetConfig` 每次调用都会创建/销毁客户端，高频场景应使用 `NewConfigClient`
+- `client.GetConfig` 支持通过 `context.Context` 精确控制超时与取消
 
 ---
 
-### 场景四：服务注册与发现
+### 场景四：服务注册与发现（NewNamingClient）
 
 **适用场景**：微服务注册到 Nacos 或从 Nacos 发现其他服务实例。
 
 ```go
-namingClient, err := nacoscli.NewClient(
+namingClient, err := nacoscli.NewNamingClient(
     "192.168.3.37",
     8848,
     "de7b176e-91cd-49a3-ac83-beb725979775",
@@ -166,6 +185,7 @@ success, err := namingClient.RegisterInstance(vo.RegisterInstanceParam{
     Healthy:     true,
     Ephemeral:   true,
 })
+_ = success
 
 // 发现服务
 instances, err := namingClient.SelectInstances(vo.SelectInstancesParam{
@@ -175,6 +195,8 @@ instances, err := namingClient.SelectInstances(vo.SelectInstancesParam{
     Healthy:     true,
 })
 ```
+
+**注意**：`NewNamingClient` 返回 Nacos SDK 的 `INamingClient` 接口，**没有** `GetConfig`/`Close` 方法。它与 `NewConfigClient` 返回的 `*Client` 是完全不同的类型。
 
 ---
 
@@ -227,7 +249,7 @@ format, data, err := nacoscli.GetConfig(params,
 
 > *`IPAddr`/`Port` 在 `Params` 中为可选，可通过 `WithIPAddr`/`WithPort` 或 `WithServerConfigs` 提供。
 
-**参数校验规则**：`Group`、`DataID`、`Format` 为空时返回错误；`Format` 不在支持列表时返回错误。
+**参数校验规则**：`Group`、`DataID`、`Format` 为空时返回错误；`Format` 不在支持列表时返回错误。`valid()` 返回归一化后的 Format，**不修改**原始 Params 结构体。
 
 ---
 
@@ -240,48 +262,69 @@ format, data, err := nacoscli.GetConfig(params,
 | `WithScheme(scheme)` | 协议（http/grpc） | `""` | 全部 |
 | `WithContextPath(path)` | 上下文路径 | `""` | 全部 |
 | `WithNamespaceID(id)` | 命名空间 ID | `""` | 全部 |
-| `WithTimeoutMs(ms)` | 请求超时（毫秒） | `5000` | 全部 |
+| `WithTimeoutMs(ms)` | SDK 请求超时（毫秒） | `5000` | 全部 |
+| `WithGetTimeout(d)` | GetConfig 拉取超时 | `30s` | `GetConfig` |
 | `WithAuth(user, pass)` | 认证用户名/密码 | `""` | 全部 |
 | `WithClientConfig(cfg)` | 完整 SDK ClientConfig | `nil` | 全部 |
 | `WithServerConfigs(cfgs)` | 完整 SDK ServerConfig 列表 | `nil` | 全部 |
 | `WithMaxRetries(n)` | 最大重试次数，0=无限 | `0` | `WatchConfig` |
-| `WithCreateDelay(d)` | 创建失败重试等待时间 | `5s` | `WatchConfig` |
-| `WithReconnectDelay(d)` | 连接断开重连等待时间 | `3s` | `WatchConfig` |
+| `WithCreateDelay(d)` | 创建或注册失败重试等待时间 | `5s` | `WatchConfig` |
 
 ---
 
 ## API 速查
 
-### GetConfig — 一次性拉取
+### GetConfig 便捷函数 — 一次性拉取
 
 ```go
 func GetConfig(params *Params, opts ...Option) (format string, content []byte, err error)
 ```
 
-- 内部创建客户端 -> 拉取 -> 关闭，固定 30 秒超时
-- `params` 不能为 `nil`
+- 内部创建客户端 -> 拉取 -> 关闭，超时时间通过 `WithGetTimeout` 配置（默认 30 秒）
+- `params` 不能为 `nil`，`Group`/`DataID`/`Format` 必须有效
 - 返回的 `format` 是归一化后的格式（`yml` -> `yaml`）
-- 返回的 `content` 是原始配置文本的 `[]byte`
+- 每次调用都创建/销毁客户端，高频场景建议使用 `NewConfigClient`
 
-### NewClient — 创建命名客户端
+### Client.GetConfig — 复用客户端拉取
 
 ```go
-func NewClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string, opts ...Option) (naming_client.INamingClient, error)
+func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, content []byte, err error)
+```
+
+- 通过 `ctx` 控制超时与取消，调用方可精确控制每次请求的生命周期
+- 不自动关闭客户端，需调用方负责 `Client.Close()`
+
+### NewConfigClient — 创建可复用的配置客户端
+
+```go
+func NewConfigClient(opts ...Option) (*Client, error)
+```
+
+- 返回 `*Client`，提供 `GetConfig(ctx, params)` 和 `Close()` 方法
+- 用于需要多次读取不同配置文件的场景
+
+### NewNamingClient — 创建命名客户端
+
+```go
+func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string, opts ...Option) (naming_client.INamingClient, error)
 ```
 
 - 返回 Nacos SDK 的 `INamingClient` 接口，用于服务注册/注销/发现
-- 前三个参数为快捷参数，被 `WithServerConfigs`/`WithClientConfig` 覆盖
+- **注意**：`INamingClient` 没有 `GetConfig`/`Close` 方法，与 `*Client` 完全不同
 
 ### WatchConfig — 监听配置变更
 
 ```go
-func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opts ...Option) context.CancelFunc
+func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opts ...Option) (context.CancelFunc, error)
 ```
 
-- 启动后台 goroutine 监听，返回 `CancelFunc` 用于优雅停止
-- `handler` 签名：`func(namespace, group, dataID, data string)`
-- `data` 参数为 Nacos 推送的最新完整配置内容
-- 内置 recover 保护，handler panic 不会导致监听退出
+- 启动后台 goroutine 监听，返回 `stop` 函数和 `error`
+- `stop()` 调用后 cancel ctx 并等待 goroutine 完全退出（`sync.WaitGroup`）
+- `error` 在 ctx 已取消、params 校验失败或 handler 为空时立即返回（不启动后台循环）
+- `handler` 签名：`func(namespace, group, dataID, data string)`，不能为空
+- 内部使用 `ListenConfig` 注册回调（SDK 内部后台长轮询），`<-ctx.Done()` 阻塞等待
+- 无论 `Start` 成功与否，都会调用 `CancelListenConfig` + `CloseClient` 清理资源
+- 停止时调用 `CancelListenConfig` 取消注册 + `CloseClient` 释放连接
 
 ### NewListenClient — 底层监听客户端
 
@@ -290,7 +333,18 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 ```
 
 - `WatchConfig` 内部使用，一般不直接调用
-- `handler` 不能为空，`params` 不能为空
+- `Start(ctx)` 返回 `error`：nil 表示 ctx 正常取消，error 表示 ListenConfig 注册失败
+- `Stop()` 调用 `CancelListenConfig` 取消注册
+- **注意：ListenClient 非并发安全**，不要在多个 goroutine 中同时调用 Start/Stop/Close
+
+### ErrNilParams — 导出错误变量
+
+```go
+var ErrNilParams = errors.New("Params 不能为空")
+```
+
+- 可用于 `errors.Is(err, nacoscli.ErrNilParams)` 断言
+- `GetConfig(nil)` 和 `Client.GetConfig(ctx, nil)` 均返回此错误
 
 ---
 
@@ -298,12 +352,14 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 
 | 场景 | 行为 |
 |------|------|
-| `GetConfig(nil)` | 返回 `errors.New("Params 不能为空")` |
+| `GetConfig(nil)` / `Client.GetConfig(ctx, nil)` | 返回 `ErrNilParams` 错误 |
 | `Params.Group/DataID/Format` 为空 | 返回对应校验错误 |
 | `Format` 不支持 | 返回 `fmt.Errorf("配置文件类型 'Format=%s' 不支持")` |
 | Nacos 服务器不可达 | 返回 SDK 错误（`从 Nacos 获取配置失败: ...`） |
-| `WatchConfig` 创建失败 | 自动重试（受 `WithMaxRetries` 控制），记录 Warn 日志 |
-| `WatchConfig` 连接断开 | 自动重连（受 `WithReconnectDelay` 控制），记录 Warn 日志 |
+| `WatchConfig` ctx 已取消 | 立即返回 `ctx.Err()`，不启动后台循环 |
+| `WatchConfig` handler 为空 | 返回 `errors.New("配置变更回调函数不能为空")` |
+| `WatchConfig` params 非法 | 立即返回 error，不启动后台循环 |
+| `WatchConfig` 创建失败/注册失败 | 自动重试（受 `WithMaxRetries` 控制），retries 持续累积 |
 | `WatchConfig` 超过最大重试 | 记录 Error 日志，goroutine 退出 |
 | `handler` 回调 panic | recover 捕获，记录 Warn 日志，监听继续 |
 
@@ -311,7 +367,7 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 
 ## OpenTelemetry 集成
 
-所有通过 `Client.getConfig` 的配置获取会自动创建 Span：
+所有通过 `Client.GetConfig` 的配置获取会自动创建 Span：
 
 - **Span 名称**：`nacos.get_config`
 - **Span 属性**：

@@ -80,9 +80,9 @@ func NewServerNameExampleRPCConn() {
 		if grpcClientCfg.RegistryDiscoveryType == "nacos" {
 			discoveryEndpoint = "discovery:///" + grpcClientCfg.Name
 			ipAddr, port, namespaceID := cfg.NacosInfo.ServerEndpoint()
-			cli, err := nacoscli.NewClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
+			cli, err := nacoscli.NewNamingClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
 			if err != nil {
-				panic(fmt.Sprintf("nacoscli.NewClient error: %v, addr: %s:%d", err, cfg.NacosInfo.NacosServer.IPAddr, cfg.NacosInfo.NacosServer.Port))
+				panic(fmt.Sprintf("nacoscli.NewNamingClient error: %v, addr: %s:%d", err, cfg.NacosInfo.NacosServer.IPAddr, cfg.NacosInfo.NacosServer.Port))
 			}
 			iDiscovery := nacosRegistry.New(cli, cfg.NacosInfo.NacosRegistry.BuildRegistryOptions()...)
 			discoverOption = grpccli.WithDiscovery(iDiscovery)

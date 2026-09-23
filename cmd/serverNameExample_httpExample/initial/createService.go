@@ -102,7 +102,7 @@ func registerService(scheme string, host string, port int) (registry.Registry, *
 
 	case "nacos":
 		ipAddr, port, namespaceID := cfg.NacosInfo.ServerEndpoint()
-		cli, err := nacoscli.NewClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
+		cli, err := nacoscli.NewNamingClient(ipAddr, port, namespaceID, cfg.NacosInfo.BuildNamingClientOptions()...)
 		if err != nil {
 			panic(err)
 		}
