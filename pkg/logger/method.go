@@ -2,13 +2,47 @@ package logger
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap/zapcore"
 )
+
+// ==================== 运行时指标 ====================
+
+// Metrics 日志系统运行时指标快照
+// 可对接 Prometheus / 自定义监控采集
+type Metrics struct {
+	// DroppedEntries 异步缓冲区满时丢弃的日志条数
+	DroppedEntries int64
+	// RouterLoggerCount 路由器中活跃的 logger 数量
+	RouterLoggerCount int
+}
+
+var droppedEntries int64 // 原子计数器：缓冲区满导致的丢弃
+
+// RecordDrop 记录一次日志丢弃（由自定义 WriteSyncer wrapper 调用）
+// 用法: 实现自定义 zapcore.WriteSyncer，在 Write 返回 error 时调用 logger.RecordDrop()
+func RecordDrop() {
+	atomic.AddInt64(&droppedEntries, 1)
+}
+
+// GetMetrics 获取日志系统运行时指标快照
+// 用于 Prometheus exporter 或 /metrics 端点暴露
+func GetMetrics() Metrics {
+	m := Metrics{
+		DroppedEntries: atomic.LoadInt64(&droppedEntries),
+	}
+	if globalRouter != nil {
+		globalRouter.mu.RLock()
+		m.RouterLoggerCount = len(globalRouter.loggers)
+		globalRouter.mu.RUnlock()
+	}
+	return m
+}
 
 // WithCallerFunc 将调用者方法名注入到 context 中
 // 使用示例：
@@ -22,123 +56,120 @@ func WithCallerFunc(ctx context.Context, callerFunc string) context.Context {
 	return context.WithValue(ctx, ContextKeyCallerFunc, callerFunc)
 }
 
-// Sync flushing any buffered log entries, applications should take care to call Sync before exiting.
+// Sync 刷新所有缓冲的日志条目，应用退出前应调用此方法确保日志完整写入
 func Sync() error {
-	// 如果默认 logger 是输出到终端 (stdout)，则跳过 Sync，避免在关闭时产生文件 I/O
-	// defaultLogger != nil check is intentional
-
-	if syncErr := getSugaredLogger().Sync(); syncErr != nil {
-		fmt.Printf("sync sugared logger error: %v\n", syncErr)
+	// sugaredLogger 与 defaultLogger 共享底层 writer，只需 Sync 一次
+	if defaultLogger == nil {
+		return nil
 	}
-	err := getDefaultLogger().Sync()
-	if err != nil && !strings.Contains(err.Error(), "/dev/stdout") && !strings.Contains(err.Error(), "stdout") {
-		return err
+	if syncErr := defaultLogger.Sync(); syncErr != nil && !strings.Contains(syncErr.Error(), "stdout") {
+		return syncErr
 	}
 	return nil
+}
+
+// Closer 可关闭资源的接口，用于 Shutdown 时统一清理
+type Closer interface {
+	Close() error
+}
+
+var (
+	closerMu sync.Mutex
+	closers  []Closer
+)
+
+// RegisterCloser 注册一个需要在 Shutdown 时关闭的资源
+// 典型用法: logger.RegisterCloser(slsHook)
+func RegisterCloser(c Closer) {
+	closerMu.Lock()
+	closers = append(closers, c)
+	closerMu.Unlock()
+}
+
+// Shutdown 优雅关闭日志系统，确保所有缓冲数据写入完成
+// 关闭顺序: 已注册的 Closer → 路由器 → 默认 logger
+// 推荐在应用 main 函数的 defer 中调用:
+//
+//	defer logger.Shutdown(context.Background())
+func Shutdown(_ context.Context) error {
+	var firstErr error
+
+	// 1. 关闭所有已注册的资源（如 SLS Hook）
+	closerMu.Lock()
+	registeredClosers := make([]Closer, len(closers))
+	copy(registeredClosers, closers)
+	closers = nil
+	closerMu.Unlock()
+
+	for _, c := range registeredClosers {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	// 2. 同步路由器中的所有 logger
+	if err := RouterSync(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	// 3. 同步默认 logger
+	if err := Sync(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
+}
+
+// logWithCtx 提取 context 字段并执行自定义 Hook，返回最终字段列表
+func logWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...Field) []Field {
+	ctxFields := extractContextFields(ctx)
+	allFields := append(ctxFields, fields...)
+	if len(customHooksWithCtx) > 0 {
+		// Hook 错误静默丢弃：日志系统的错误不应阻塞或拖慢业务逻辑
+		executeHooksIgnoreError(ctx, level, msg, allFields)
+	}
+	return allFields
+}
+
+// executeHooksIgnoreError 执行自定义 Hook，忽略错误
+// 日志系统的内部错误不应影响主日志写入流程
+func executeHooksIgnoreError(ctx context.Context, level zapcore.Level, msg string, fields []Field) {
+	if err := ExecuteCustomHooksWithCtx(ctx, level, msg, fields...); err != nil {
+		return // Hook 错误不阻塞业务，静默丢弃
+	}
 }
 
 // ==================== 强制使用 Context 的日志方法 ====================
 
 // DebugWithCtx 调试级别日志（必须提供 context）
 // 自动从 context 中提取 request_id、trace_id 等链路追踪信息
-// 自动执行 customHooksWithCtx（如 SLS 日志上报）
 func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	// 执行自定义 Hook（如 SLS 上报）
-	if len(customHooksWithCtx) > 0 {
-		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...); err != nil {
-			fmt.Printf("execute custom hooks error: %v\n", err)
-		}
-	}
-
-	getDefaultLogger().Debug(msg, allFields...)
+	getDefaultLogger().Debug(msg, logWithCtx(ctx, zapcore.DebugLevel, msg, fields...)...)
 }
 
 // InfoWithCtx 信息级别日志（必须提供 context）
-// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
-// 自动执行 customHooksWithCtx（如 SLS 日志上报）
 func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	// 执行自定义 Hook（如 SLS 上报）
-	if len(customHooksWithCtx) > 0 {
-		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...); err != nil {
-			fmt.Printf("execute custom hooks error: %v\n", err)
-		}
-	}
-
-	getDefaultLogger().Info(msg, allFields...)
+	getDefaultLogger().Info(msg, logWithCtx(ctx, zapcore.InfoLevel, msg, fields...)...)
 }
 
 // WarnWithCtx 警告级别日志（必须提供 context）
-// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
-// 自动执行 customHooksWithCtx（如 SLS 日志上报）
 func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	// 执行自定义 Hook（如 SLS 上报）
-	if len(customHooksWithCtx) > 0 {
-		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...); err != nil {
-			fmt.Printf("execute custom hooks error: %v\n", err)
-		}
-	}
-
-	getDefaultLogger().Warn(msg, allFields...)
+	getDefaultLogger().Warn(msg, logWithCtx(ctx, zapcore.WarnLevel, msg, fields...)...)
 }
 
 // ErrorWithCtx 错误级别日志（必须提供 context）
-// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
-// 自动执行 customHooksWithCtx（如 SLS 日志上报）
 func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	// 执行自定义 Hook（如 SLS 上报）
-	if len(customHooksWithCtx) > 0 {
-		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...); err != nil {
-			fmt.Printf("execute custom hooks error: %v\n", err)
-		}
-	}
-
-	getDefaultLogger().Error(msg, allFields...)
+	getDefaultLogger().Error(msg, logWithCtx(ctx, zapcore.ErrorLevel, msg, fields...)...)
 }
 
 // PanicWithCtx panic 级别日志（必须提供 context）
-// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
-// 自动执行 customHooksWithCtx（如 SLS 日志上报）
 func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	// 执行自定义 Hook（如 SLS 上报）
-	if len(customHooksWithCtx) > 0 {
-		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...); err != nil {
-			fmt.Printf("execute custom hooks error: %v\n", err)
-		}
-	}
-
-	getDefaultLogger().Panic(msg, allFields...)
+	getDefaultLogger().Panic(msg, logWithCtx(ctx, zapcore.PanicLevel, msg, fields...)...)
 }
 
 // FatalWithCtx fatal 级别日志（必须提供 context）
-// 自动从 context 中提取 request_id、trace_id 等链路追踪信息
-// 自动执行 customHooksWithCtx（如 SLS 日志上报）
 func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
-	ctxFields := extractContextFields(ctx)
-	allFields := append(ctxFields, fields...)
-
-	// 执行自定义 Hook（如 SLS 上报）
-	if len(customHooksWithCtx) > 0 {
-		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...); err != nil {
-			fmt.Printf("execute custom hooks error: %v\n", err)
-		}
-	}
-
-	getDefaultLogger().Fatal(msg, allFields...)
+	getDefaultLogger().Fatal(msg, logWithCtx(ctx, zapcore.FatalLevel, msg, fields...)...)
 }
 
 // IsDebugEnabled 检查是否启用了 DEBUG 级别日志

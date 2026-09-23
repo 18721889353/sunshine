@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"go.uber.org/zap/zapcore"
 )
 
 // TestInfoWithCtx 测试 InfoWithCtx 方法
@@ -364,6 +366,142 @@ func TestMixedLogging(t *testing.T) {
 	)
 
 	t.Logf("Mixed logging test completed (local file: test-mixed.log, SLS: %v)", hasSLS)
+}
+
+// ==================== Table-driven 测试 ====================
+
+// TestLogWithCtxByLevel table-driven: 不同日志级别测试
+func TestLogWithCtxByLevel(t *testing.T) {
+	Init(WithLevel("debug"))
+
+	tests := []struct {
+		name  string
+		logFn func(ctx context.Context, msg string, fields ...Field)
+		msg   string
+	}{
+		{"Debug", DebugWithCtx, "debug level test"},
+		{"Info", InfoWithCtx, "info level test"},
+		{"Warn", WarnWithCtx, "warn level test"},
+		{"Error", ErrorWithCtx, "error level test"},
+	}
+
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "table-req-001")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.logFn(ctx, tt.msg,
+				String("user_id", "user-table"),
+				Int("count", 1),
+			)
+		})
+	}
+}
+
+// TestModuleLogByLevel table-driven: 不同模块 + 级别测试
+func TestModuleLogByLevel(t *testing.T) {
+	Init(WithLevel("debug"))
+
+	tests := []struct {
+		name   string
+		logFn  func(ctx context.Context, module, msg string, fields ...Field)
+		module string
+		msg    string
+	}{
+		{"ModuleInfo", ModuleInfoWithCtx, "order", "order created"},
+		{"ModuleError", ModuleErrorWithCtx, "payment", "payment failed"},
+		{"ModuleWarn", ModuleWarnWithCtx, "inventory", "stock low"},
+		{"ModuleDebug", ModuleDebugWithCtx, "notification", "send email"},
+	}
+
+	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "table-module-001")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.logFn(ctx, tt.module, tt.msg,
+				String("module", tt.module),
+			)
+		})
+	}
+}
+
+// TestContextExtractionTable table-driven: Context 字段提取测试
+func TestContextExtractionTable(t *testing.T) {
+	Init(WithLevel("debug"))
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		wantReqID bool
+	}{
+		{"nil context", nil, false},
+		{"empty context", context.Background(), false},
+		{"with request_id", context.WithValue(context.Background(), ContextKeyForRequestID(), "req-123"), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 验证不 panic
+			InfoWithCtx(tt.ctx, "context extraction test")
+		})
+	}
+}
+
+// TestMetrics 测试运行时指标暴露
+func TestMetrics(t *testing.T) {
+	Init(WithLevel("debug"))
+
+	m := GetMetrics()
+	if m.DroppedEntries < 0 {
+		t.Errorf("DroppedEntries should be >= 0, got %d", m.DroppedEntries)
+	}
+
+	// 验证不 panic
+	t.Logf("Metrics: dropped=%d, router_loggers=%d", m.DroppedEntries, m.RouterLoggerCount)
+}
+
+// TestErrField 测试 Err() 函数处理 nil 和非 nil
+func TestErrField(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		wantNil bool
+	}{
+		{"nil error", nil, true},
+		{"non-nil error", fmt.Errorf("test error"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := Err(tt.err)
+			if tt.wantNil && f.Type != zapcore.SkipType {
+				t.Errorf("expected SkipType for nil error, got %v", f.Type)
+			}
+			if !tt.wantNil && f.Type == zapcore.SkipType {
+				t.Errorf("expected non-SkipType for non-nil error")
+			}
+		})
+	}
+}
+
+// TestLevelFilter 测试日志级别过滤
+func TestLevelFilter(t *testing.T) {
+	Init(WithLevel("warn"))
+
+	if IsDebugEnabled() {
+		t.Error("DEBUG should be disabled when level is WARN")
+	}
+	if IsInfoEnabled() {
+		t.Error("INFO should be disabled when level is WARN")
+	}
+
+	Init(WithLevel("debug"))
+
+	if !IsDebugEnabled() {
+		t.Error("DEBUG should be enabled when level is DEBUG")
+	}
+	if !IsInfoEnabled() {
+		t.Error("INFO should be enabled when level is DEBUG")
+	}
 }
 
 // getEnv 获取环境变量，如果不存在则返回默认值

@@ -53,16 +53,9 @@ func Close(servers []app.IServer) []app.Close {
 		})
 	}
 
-	// close SLS hook (gracefully shutdown SLS producer)
-	if slsHookInstance != nil {
-		closes = append(closes, func() error {
-			return slsHookInstance.Close()
-		})
-	}
-
-	// close logger
+	// close logger + SLS hook (unified shutdown)
 	closes = append(closes, func() error {
-		return logger.RouterSync()
+		return logger.Shutdown(context.Background())
 	})
 
 	return closes

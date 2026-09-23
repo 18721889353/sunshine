@@ -69,6 +69,8 @@ func InitApp() {
 			// SLS 启动失败，直接终止服务（此时不能用 logger，用 fmt）
 			panic(fmt.Sprintf("failed to init SLS hook: %v", err))
 		}
+		// 注册到 logger，Shutdown 时自动关闭
+		logger.RegisterCloser(slsHookInstance)
 		// 注意：这里不能记录日志，因为 Logger 还没初始化
 		// logger.InfoWithCtx(initCtx, "[SLS hook] was initialized", ...)
 	}

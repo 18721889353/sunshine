@@ -8,10 +8,10 @@ package logger
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
@@ -31,19 +31,18 @@ const (
 	levelError = "ERROR"
 )
 
-var defaultLogger *zap.Logger
-var defaultSugaredLogger *zap.SugaredLogger
-var customHooks []CustomHook
-var customHooksWithCtx []CustomHookWithCtx
+var (
+	defaultLogger       *zap.Logger
+	defaultCallerLogger *zap.Logger // 预创建 skip=1 的 logger，避免每次调用分配
+	customHooks         []CustomHook
+	customHooksWithCtx  []CustomHookWithCtx
+	initOnce            sync.Once // 保护 Init/checkNil 不被并发调用
+)
 
+// getDefaultLogger 返回预缓存的 skip=1 logger，避免每次日志调用都创建新实例
 func getDefaultLogger() *zap.Logger {
 	checkNil()
-	return defaultLogger.WithOptions(zap.AddCallerSkip(1))
-}
-
-func getSugaredLogger() *zap.SugaredLogger {
-	checkNil()
-	return defaultSugaredLogger.WithOptions(zap.AddCallerSkip(1))
+	return defaultCallerLogger
 }
 
 type nopWriteSyncer struct{}
@@ -108,7 +107,7 @@ func Init(opts ...Option) (*zap.Logger, error) {
 	}
 
 	defaultLogger = zapLog
-	defaultSugaredLogger = defaultLogger.Sugar()
+	defaultCallerLogger = defaultLogger.WithOptions(zap.AddCallerSkip(1))
 
 	// 使用 context.Background() 因为此时还没有请求上下文
 	initCtx := context.Background()
@@ -151,133 +150,88 @@ func Init(opts ...Option) (*zap.Logger, error) {
 	return defaultLogger, err
 }
 
-func log2Terminal(levelName string, encoding string, isAsync bool, asyncBufferSize int, asyncFlushInterval time.Duration) (*zap.Logger, error) {
-	js := fmt.Sprintf(`{
-      		"level": "%s",
-            "encoding": "%s",
-      		"outputPaths": ["stdout"],
-            "errorOutputPaths": ["stdout"]
-		}`, levelName, encoding)
-
-	var config zap.Config
-	err := json.Unmarshal([]byte(js), &config)
-	if err != nil {
-		return nil, err
-	}
-
-	config.EncoderConfig = zap.NewProductionEncoderConfig()
+// buildEncoder 根据 encoding 类型构建 zapcore.Encoder
+func buildEncoder(encoding string, encoderConfig zapcore.EncoderConfig) zapcore.Encoder {
 	if encoding == formatConsole {
-		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder // 日志颜色
-	} else {
-		config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // 日志级别在日志文件中使用大写字母
+		return zapcore.NewConsoleEncoder(encoderConfig)
 	}
-	config.EncoderConfig.EncodeTime = timeFormatter // 默认时间格式
-
-	// 根据格式创建编码器
-	encoder := zapcore.NewConsoleEncoder(config.EncoderConfig)
-	if encoding == formatJSON {
-		encoder = zapcore.NewJSONEncoder(config.EncoderConfig)
-	}
-
-	// 为标准输出创建写同步器
-	writeSyncer := zapcore.Lock(zapcore.AddSync(os.Stdout))
-
-	// 如果启用异步，则用缓冲写同步器包装写同步器
-	if isAsync {
-		bufferedSyncer := &zapcore.BufferedWriteSyncer{
-			WS:            writeSyncer,
-			Size:          asyncBufferSize,    // 使用配置的缓冲区大小
-			FlushInterval: asyncFlushInterval, // 使用配置的刷新间隔
-		}
-		// 使用缓冲同步器创建核心
-		core := zapcore.NewCore(encoder, bufferedSyncer, getLevelSize(levelName))
-
-		// 如果有自定义钩子，则包装核心
-		if len(customHooks) > 0 {
-			core = &customHookCore{
-				Core: core,
-			}
-		}
-
-		return zap.New(core, zap.AddCaller()), nil
-	}
-
-	// 使用原始写同步器创建核心
-	core := zapcore.NewCore(encoder, writeSyncer, getLevelSize(levelName))
-
-	// 如果有自定义钩子，则包装核心
-	if len(customHooks) > 0 {
-		core = &customHookCore{
-			Core: core,
-		}
-	}
-
-	return zap.New(core, zap.AddCaller()), nil
+	return zapcore.NewJSONEncoder(encoderConfig)
 }
 
-func log2File(encoding string, levelName string, fo *fileOptions, isAsync bool, asyncBufferSize int, asyncFlushInterval time.Duration) *zap.Logger {
-	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = timeFormatter                // 修改时间编码器
-	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // 日志级别在日志文件中使用大写字母
-	var encoder zapcore.Encoder
-	if encoding == formatConsole { // 控制台格式
-		encoder = zapcore.NewConsoleEncoder(encoderConfig)
-	} else { // JSON 格式
-		encoder = zapcore.NewJSONEncoder(encoderConfig)
-	}
+// buildWriteSyncer 根据文件配置构建 WriteSyncer
+func buildWriteSyncer(fo *fileOptions) zapcore.WriteSyncer {
 	var ws zapcore.WriteSyncer
 	if fo.isSaveDay {
 		logWriter, err := rotatelogs.New(
-			fo.filename+".%Y%m%d",                                        // 带日期格式的日志文件名
-			rotatelogs.WithLinkName(fo.filename),                         // 符号链接名
-			rotatelogs.WithMaxAge(time.Duration(fo.maxAge)*24*time.Hour), // 日志文件最大保留时间
-			rotatelogs.WithRotationTime(24*time.Hour),                    // 每天轮转
+			fo.filename+".%Y%m%d",
+			rotatelogs.WithLinkName(fo.filename),
+			rotatelogs.WithMaxAge(time.Duration(fo.maxAge)*24*time.Hour),
+			rotatelogs.WithRotationTime(24*time.Hour),
 		)
 		if err != nil {
 			panic(err)
 		}
 		ws = zapcore.AddSync(logWriter)
 	} else {
-		// lumberjack配置
 		lumberjackLogger := &lumberjack.Logger{
-			Filename:   fo.filename,      // 文件名
-			MaxSize:    fo.maxSize,       // 最大文件大小（MB）
-			MaxBackups: fo.maxBackups,    // 旧文件最大数量
-			MaxAge:     fo.maxAge,        // 旧文档最大天数
-			Compress:   fo.isCompression, // 是否压缩和归档旧文件
+			Filename:   fo.filename,
+			MaxSize:    fo.maxSize,
+			MaxBackups: fo.maxBackups,
+			MaxAge:     fo.maxAge,
+			Compress:   fo.isCompression,
 		}
-
-		// 如果设置了使用本地时间，则设置lumberjack的LocalTime选项
 		if fo.isLocalTime {
 			lumberjackLogger.LocalTime = true
 		}
 		ws = zapcore.AddSync(lumberjackLogger)
 	}
 	if fo.noPrint {
-		// 使用自定义的 NopWriteSyncer（禁止终端/文件输出）
 		ws = nopWriteSyncer{}
 	}
+	return ws
+}
 
-	// 如果启用异步，则用缓冲写同步器包装写同步器
+// buildCore 组装最终的 zapcore.Core（含 async 包装 + 自定义 Hook）
+func buildCore(encoder zapcore.Encoder, ws zapcore.WriteSyncer, level zapcore.Level, isAsync bool, asyncBufferSize int, asyncFlushInterval time.Duration) zapcore.Core {
 	if isAsync {
-		// 为异步操作创建缓冲写同步器
 		ws = &zapcore.BufferedWriteSyncer{
 			WS:            ws,
-			Size:          asyncBufferSize,    // 使用配置的缓冲区大小
-			FlushInterval: asyncFlushInterval, // 使用配置的刷新间隔
+			Size:          asyncBufferSize,
+			FlushInterval: asyncFlushInterval,
 		}
 	}
-
-	core := zapcore.NewCore(encoder, ws, getLevelSize(levelName))
-
-	// 如果有自定义钩子，则包装核心
+	core := zapcore.NewCore(encoder, ws, level)
 	if len(customHooks) > 0 {
-		core = &customHookCore{
-			Core: core,
-		}
+		core = &customHookCore{Core: core}
 	}
+	return core
+}
 
-	// 添加函数调用信息日志到日志中
+// log2Terminal 创建终端输出 logger
+func log2Terminal(levelName string, encoding string, isAsync bool, asyncBufferSize int, asyncFlushInterval time.Duration) (*zap.Logger, error) {
+	encoderConfig := zap.NewProductionEncoderConfig()
+	if encoding == formatConsole {
+		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	} else {
+		encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	}
+	encoderConfig.EncodeTime = timeFormatter
+
+	encoder := buildEncoder(encoding, encoderConfig)
+	ws := zapcore.Lock(zapcore.AddSync(os.Stdout))
+	core := buildCore(encoder, ws, getLevelSize(levelName), isAsync, asyncBufferSize, asyncFlushInterval)
+	return zap.New(core, zap.AddCaller()), nil
+}
+
+// log2File 创建文件输出 logger
+func log2File(encoding string, levelName string, fo *fileOptions, isAsync bool, asyncBufferSize int, asyncFlushInterval time.Duration) *zap.Logger {
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.EncodeTime = timeFormatter
+	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+
+	encoder := buildEncoder(encoding, encoderConfig)
+	ws := buildWriteSyncer(fo)
+	core := buildCore(encoder, ws, getLevelSize(levelName), isAsync, asyncBufferSize, asyncFlushInterval)
 	return zap.New(core, zap.AddCaller())
 }
 
@@ -293,7 +247,7 @@ func (c *customHookCore) With(fields []Field) zapcore.Core {
 	}
 }
 
-// Check 确定是否应该记录提供的条目
+// Check 检查是否应该记录该日志条目
 func (c *customHookCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	if c.Enabled(ent.Level) {
 		return ce.AddCore(ent, c)
@@ -301,7 +255,7 @@ func (c *customHookCore) Check(ent zapcore.Entry, ce *zapcore.CheckedEntry) *zap
 	return ce
 }
 
-// Write 将条目和字段写入底层写入器
+// Write 将日志条目和字段写入底层输出
 func (c *customHookCore) Write(ent zapcore.Entry, fields []Field) error {
 	// 首先执行自定义钩子
 	for _, hook := range customHooks {
@@ -347,12 +301,14 @@ func Get() *zap.Logger {
 }
 
 func checkNil() {
-	if defaultLogger == nil {
-		// 如果 Logger 未初始化，自动初始化为终端输出（不写文件，使用 console 格式便于阅读）
-		// 注意：这是兜底逻辑，正式的 Init() 调用会覆盖此配置
-		_, err := Init(WithSave(false), WithFormat(formatConsole))
-		if err != nil {
-			panic(err)
+	initOnce.Do(func() {
+		if defaultLogger == nil {
+			// 如果 Logger 未初始化，自动初始化为终端输出（不写文件，使用 console 格式便于阅读）
+			// 注意：这是兜底逻辑，正式的 Init() 调用会覆盖此配置
+			_, err := Init(WithSave(false), WithFormat(formatConsole))
+			if err != nil {
+				panic(err)
+			}
 		}
-	}
+	})
 }

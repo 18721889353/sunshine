@@ -8,18 +8,18 @@ import (
 )
 
 var (
-	defaultLevel    = "info"     // output log levels debug, info, warn, error, default is info (production recommended)
-	defaultEncoding = formatJSON // default is json for structured parsing
-	defaultIsSave   = true       // false:output to terminal, true:output to file, default is true (production required)
+	defaultLevel    = "info"     // 日志级别：debug、info、warn、error，默认 info（生产环境推荐）
+	defaultEncoding = formatJSON // 默认 json 格式，便于结构化解析
+	defaultIsSave   = true       // false: 输出到终端，true: 输出到文件，默认 true（生产环境必须）
 
-	defaultFilename      = "logs/app.log" // file name (support relative path)
-	defaultMaxSize       = 100            // maximum file size (MB), avoid frequent rotation
-	defaultMaxBackups    = 30             // maximum number of old files (~3GB space)
-	defaultMaxAge        = 7              // maximum number of days for old documents (balance storage & traceability)
-	defaultIsCompression = true           // whether to compress and archive old files (save 90% storage)
-	defaultIsLocalTime   = true           // whether to use local time
-	defaultSaveDay       = true           // save by day for better log management
-	defaultNoPrint       = false          //禁止终端/文件输出（default false for dev environment visibility）
+	defaultFilename      = "logs/app.log" // 日志文件名（支持相对路径）
+	defaultMaxSize       = 100            // 最大文件大小（MB），避免频繁切割
+	defaultMaxBackups    = 30             // 旧文件最大保留数量（约 3GB 空间）
+	defaultMaxAge        = 7              // 旧文件最大保留天数（平衡存储与可追溯性）
+	defaultIsCompression = true           // 是否压缩归档旧文件（节省 90% 存储）
+	defaultIsLocalTime   = true           // 是否使用本地时间
+	defaultSaveDay       = true           // 按天保存日志文件，便于日志管理
+	defaultNoPrint       = false          // 禁止终端/文件输出（默认 false，开发环境可见）
 )
 
 type options struct {
@@ -36,10 +36,10 @@ type options struct {
 
 	hooks []func(zapcore.Entry) error
 
-	// Custom hooks that can access fields data
+	// 可访问字段数据的自定义钩子
 	customHooks []CustomHook
 
-	// Custom hooks with context support
+	// 带 Context 支持的自定义钩子
 	customHooksWithCtx []CustomHookWithCtx
 
 	// 日志路由配置
@@ -65,10 +65,10 @@ func (o *options) apply(opts ...Option) {
 	}
 }
 
-// Option set the logger options.
+// Option 日志配置选项函数类型
 type Option func(*options)
 
-// WithLevel setting the log level
+// WithLevel 设置日志级别
 func WithLevel(levelName string) Option {
 	return func(o *options) {
 		levelName = strings.ToUpper(levelName)
@@ -81,7 +81,7 @@ func WithLevel(levelName string) Option {
 	}
 }
 
-// WithFormat set the output log format, console or json
+// WithFormat 设置输出日志格式，console 或 json
 func WithFormat(format string) Option {
 	return func(o *options) {
 		o.encoding = strings.ToLower(format)
@@ -91,10 +91,10 @@ func WithFormat(format string) Option {
 	}
 }
 
-// WithSave save log to file
+// WithSave 设置是否保存日志到文件
 func WithSave(isSave bool, opts ...FileOption) Option {
 	return func(o *options) {
-		o.isSave = isSave // Explicitly set the value, whether true or false
+		o.isSave = isSave // 显式设置值，无论 true 或 false
 		if isSave {
 			fo := defaultFileOptions()
 			fo.apply(opts...)
@@ -103,43 +103,43 @@ func WithSave(isSave bool, opts ...FileOption) Option {
 	}
 }
 
-// WithHooks set the log hooks
+// WithHooks 设置日志钩子
 func WithHooks(hooks ...func(zapcore.Entry) error) Option {
 	return func(o *options) {
 		o.hooks = hooks
 	}
 }
 
-// WithCustomHooks sets custom hooks that can access fields data
+// WithCustomHooks 设置可访问字段数据的自定义钩子
 func WithCustomHooks(hooks ...CustomHook) Option {
 	return func(o *options) {
 		o.customHooks = hooks
 	}
 }
 
-// WithCustomHooksWithCtx sets custom hooks that can access context and fields data
-// This allows hooks to extract request_id, trace_id from context
+// WithCustomHooksWithCtx 设置可访问 Context 和字段数据的自定义钩子
+// 钩子可从 context 中提取 request_id、trace_id 等链路追踪信息
 func WithCustomHooksWithCtx(hooks ...CustomHookWithCtx) Option {
 	return func(o *options) {
 		o.customHooksWithCtx = hooks
 	}
 }
 
-// WithAsync enables asynchronous logging
+// WithAsync 启用异步日志
 func WithAsync(enabled bool) Option {
 	return func(o *options) {
 		o.isAsync = enabled
 	}
 }
 
-// WithAsyncBufferSize sets the buffer size for asynchronous logging (in bytes)
+// WithAsyncBufferSize 设置异步日志缓冲区大小（字节）
 func WithAsyncBufferSize(size int) Option {
 	return func(o *options) {
 		o.asyncBufferSize = size
 	}
 }
 
-// WithAsyncFlushInterval sets the flush interval for asynchronous logging
+// WithAsyncFlushInterval 设置异步日志刷新间隔
 func WithAsyncFlushInterval(interval time.Duration) Option {
 	return func(o *options) {
 		o.asyncFlushInterval = interval
@@ -187,10 +187,10 @@ func (o *fileOptions) apply(opts ...FileOption) {
 	}
 }
 
-// FileOption set the file options.
+// FileOption 文件配置选项函数类型
 type FileOption func(*fileOptions)
 
-// WithFileName set log filename
+// WithFileName 设置日志文件名
 func WithFileName(filename string) FileOption {
 	return func(f *fileOptions) {
 		if filename != "" {
@@ -199,7 +199,7 @@ func WithFileName(filename string) FileOption {
 	}
 }
 
-// WithFileMaxSize set maximum file size (MB)
+// WithFileMaxSize 设置日志文件最大大小（MB）
 func WithFileMaxSize(maxSize int) FileOption {
 	return func(f *fileOptions) {
 		if maxSize > 0 {
@@ -208,7 +208,7 @@ func WithFileMaxSize(maxSize int) FileOption {
 	}
 }
 
-// WithFileMaxBackups set maximum number of old files
+// WithFileMaxBackups 设置旧文件最大保留数量
 func WithFileMaxBackups(maxBackups int) FileOption {
 	return func(f *fileOptions) {
 		if maxBackups > 0 {
@@ -217,7 +217,7 @@ func WithFileMaxBackups(maxBackups int) FileOption {
 	}
 }
 
-// WithFileMaxAge set maximum number of days for old documents
+// WithFileMaxAge 设置旧文件最大保留天数
 func WithFileMaxAge(maxAge int) FileOption {
 	return func(f *fileOptions) {
 		if maxAge > 0 {
@@ -226,14 +226,14 @@ func WithFileMaxAge(maxAge int) FileOption {
 	}
 }
 
-// WithFileIsCompression set whether to compress log files
+// WithFileIsCompression 设置是否压缩日志文件
 func WithFileIsCompression(isCompression bool) FileOption {
 	return func(f *fileOptions) {
 		f.isCompression = isCompression
 	}
 }
 
-// WithLocalTime set whether to use local time
+// WithLocalTime 设置是否使用本地时间
 func WithLocalTime(isLocalTime bool) FileOption {
 	return func(f *fileOptions) {
 		f.isLocalTime = isLocalTime

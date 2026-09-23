@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -39,15 +40,26 @@ type SLSConfig struct {
 	EnableHealthCheck   bool // 是否启用健康检查，默认 false（关闭），true 表示开启
 	HealthCheckInterval int  // 健康检查间隔(秒)，默认 30 秒
 	SendTimeout         int  // 发送超时时间(秒)，默认 5 秒
+	SkipVerify          bool // 是否跳过启动时的测试日志验证，默认 false（建议单元测试时设为 true，避免污染 LogStore）
 }
+
+// SLS Hook 预定义静态 key，避免每次调用分配字符串
+var (
+	slsKeyTimestamp   = "timestamp"
+	slsKeyLevel       = "level"
+	slsKeyMessage     = "message"
+	slsKeyCaller      = "caller"
+	slsKeyServiceName = "service_name"
+)
 
 // SLSHook 阿里云 SLS 日志钩子
 type SLSHook struct {
-	config   *SLSConfig
-	producer *producer.Producer
+	config      *SLSConfig
+	producer    *producer.Producer
+	serviceName string // 缓存的服务名称，避免每次计算
 
 	// 状态管理（原子操作，线程安全）
-	state int32 // 0:created, 1:starting, 2:running, 3:stopping, 4:stopped, 5:failed
+	state int32 // 0:已创建, 1:启动中, 2:运行中, 3:停止中, 4:已停止, 5:失败
 
 	// 监控指标
 	sendSuccessCount int64        // 发送成功计数
@@ -79,11 +91,11 @@ type SLSHook struct {
 //	logger.Init(logger.WithCustomHooksWithCtx(hook.Hook))
 func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	if config.Endpoint == "" || config.AccessKeyID == "" || config.AccessKeySecret == "" {
-		return nil, fmt.Errorf("SLS config is incomplete: endpoint, accessKeyId, and accessKeySecret are required")
+		return nil, fmt.Errorf("SLS 配置不完整: endpoint、accessKeyId 和 accessKeySecret 为必填项")
 	}
 
 	if config.ProjectName == "" || config.LogStoreName == "" {
-		return nil, fmt.Errorf("SLS config is incomplete: projectName and logStoreName are required")
+		return nil, fmt.Errorf("SLS 配置不完整: projectName 和 logStoreName 为必填项")
 	}
 
 	// 设置默认值
@@ -123,7 +135,7 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 
 	// 边界检查：验证配置的合理性
 	if err := validateSLSConfig(config); err != nil {
-		return nil, fmt.Errorf("invalid SLS config: %w", err)
+		return nil, fmt.Errorf("SLS 配置无效: %w", err)
 	}
 
 	// 创建生产者配置
@@ -147,13 +159,21 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 创建生产者
 	p, err := producer.NewProducer(producerConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SLS producer: %w", err)
+		return nil, fmt.Errorf("SLS 生产者创建失败: %w", err)
 	}
 
 	// 初始化 Hook 实例
+	sn := config.Source
+	if sn == "" {
+		sn = config.ProjectName
+	}
+	if sn == "" {
+		sn = "unknown"
+	}
 	hook := &SLSHook{
 		config:          config,
 		producer:        p,
+		serviceName:     sn,
 		healthCheckStop: make(chan struct{}),
 	}
 
@@ -172,87 +192,62 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 等待短暂时间让 Producer 完成初始化
 	time.Sleep(100 * time.Millisecond)
 
-	// 验证 Producer 状态
-	if err := hook.verifyProducerState(); err != nil {
-		// 启动失败，返回错误由调用方决定如何处理
-		if closeErr := hook.Close(); closeErr != nil { // 清理资源
-			fmt.Printf("close SLS hook error: %v\n", closeErr)
+	// 验证 Producer 状态（SkipVerify=true 时跳过，避免测试时污染 LogStore）
+	if !config.SkipVerify {
+		if err := hook.verifyProducerState(); err != nil {
+			// 启动失败，返回错误由调用方决定如何处理
+			if closeErr := hook.Close(); closeErr != nil { // 清理资源
+				fmt.Printf("close SLS hook error: %v\n", closeErr)
+			}
+			return nil, fmt.Errorf("SLS 生产者验证失败: %w", err)
 		}
-		return nil, fmt.Errorf("SLS producer verification failed: %w", err)
 	}
 
 	hook.setState(StateRunning)
 	return hook, nil
 }
 
-// Hook 实现 CustomHookWithCtx 接口
+// Hook 实现 CustomHookWithCtx 接口，将日志发送到阿里云 SLS
 func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) error {
-	// 预分配 Contents 容量（基础字段 + 自定义字段）
-	contents := make([]*sls.LogContent, 0, len(fields)+10)
+	// 预分配 Contents 容量（5 个基础字段 + 自定义字段）
+	contents := make([]*sls.LogContent, 0, 5+len(fields))
 
-	// 基础字段：直接作为 SLS Log 的 key-value
 	unixTime := uint32(entry.Time.Unix())
 
-	// 添加 timestamp
-	contents = append(contents, &sls.LogContent{
-		Key:   ptrString("timestamp"),
-		Value: ptrString(entry.Time.Format("2006-01-02 15:04:05.000000000")),
-	})
+	// 基础字段（静态 key，零分配）
+	contents = append(contents,
+		&sls.LogContent{Key: &slsKeyTimestamp, Value: ptrString(entry.Time.Format("2006-01-02 15:04:05.000000000"))},
+		&sls.LogContent{Key: &slsKeyLevel, Value: ptrString(entry.Level.String())},
+		&sls.LogContent{Key: &slsKeyMessage, Value: ptrString(entry.Message)},
+		&sls.LogContent{Key: &slsKeyCaller, Value: ptrString(entry.Caller.TrimmedPath())},
+		&sls.LogContent{Key: &slsKeyServiceName, Value: ptrString(h.serviceName)},
+	)
 
-	// 添加 level
-	contents = append(contents, &sls.LogContent{
-		Key:   ptrString("level"),
-		Value: ptrString(entry.Level.String()),
-	})
-
-	// 添加 message
-	contents = append(contents, &sls.LogContent{
-		Key:   ptrString("message"),
-		Value: ptrString(entry.Message),
-	})
-
-	// 添加 caller
-	contents = append(contents, &sls.LogContent{
-		Key:   ptrString("caller"),
-		Value: ptrString(entry.Caller.TrimmedPath()),
-	})
-
-	// 添加 service_name
-	serviceName := h.config.Source
-	if serviceName == "" {
-		serviceName = h.config.ProjectName // Fallback to ProjectName
-	}
-	if serviceName == "" {
-		serviceName = "unknown"
-	}
-	contents = append(contents, &sls.LogContent{
-		Key:   ptrString("service_name"),
-		Value: ptrString(serviceName),
-	})
-
-	// 注意：request_id 和 trace_id 已经由 extractContextFields 提取并包含在 fields 中
-	// 不需要再次从 context 中提取，避免重复
-
-	// 添加自定义字段 - 直接作为 SLS Log 的 key-value
+	// 自定义字段（使用 strconv 替代 fmt.Sprintf 避免反射）
 	for _, field := range fields {
 		var valueStr string
 		switch field.Type {
 		case zapcore.StringType:
 			valueStr = field.String
-		case zapcore.Int64Type, zapcore.Int32Type:
-			valueStr = fmt.Sprintf("%d", field.Integer)
-		case zapcore.Uint64Type, zapcore.Uint32Type:
-			valueStr = fmt.Sprintf("%d", uint64(field.Integer))
+		case zapcore.Int64Type:
+			valueStr = strconv.FormatInt(field.Integer, 10)
+		case zapcore.Int32Type:
+			valueStr = strconv.FormatInt(field.Integer, 10)
+		case zapcore.Uint64Type:
+			valueStr = strconv.FormatUint(uint64(field.Integer), 10)
+		case zapcore.Uint32Type:
+			valueStr = strconv.FormatUint(uint64(field.Integer), 10)
 		case zapcore.BoolType:
-			valueStr = fmt.Sprintf("%t", field.Integer == 1)
-		case zapcore.Float64Type, zapcore.Float32Type:
-			valueStr = fmt.Sprintf("%f", float64(field.Integer))
+			valueStr = strconv.FormatBool(field.Integer == 1)
+		case zapcore.Float64Type:
+			valueStr = strconv.FormatFloat(float64(field.Integer), 'f', -1, 64)
+		case zapcore.Float32Type:
+			valueStr = strconv.FormatFloat(float64(field.Integer), 'f', -1, 32)
 		default:
-			// 其他类型尝试序列化为 JSON
 			if field.Interface != nil {
 				jsonBytes, marshalErr := json.Marshal(field.Interface)
 				if marshalErr != nil {
-					valueStr = fmt.Sprintf("marshal error: %v", marshalErr)
+					valueStr = fmt.Sprintf("序列化错误: %v", marshalErr)
 				} else {
 					valueStr = string(jsonBytes)
 				}
@@ -266,21 +261,17 @@ func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) e
 		})
 	}
 
-	// 创建 SLS Log（扁平化 key-value 格式）
 	log := &sls.Log{
 		Time:     &unixTime,
 		Contents: contents,
 	}
 
-	// 异步发送日志到 SLS
 	err := h.producer.SendLog(h.config.ProjectName, h.config.LogStoreName, h.config.Topic, h.config.Source, log)
 	if err != nil {
-		// 记录失败
 		h.RecordFailure(err)
-		return fmt.Errorf("failed to send log to SLS: %w", err)
+		return fmt.Errorf("发送日志到 SLS 失败: %w", err)
 	}
 
-	// 记录成功
 	h.RecordSuccess()
 	return nil
 }
@@ -361,18 +352,18 @@ func (h *SLSHook) GetMetrics() map[string]interface{} {
 	}
 }
 
-// IsHealthy 检查 SLS Hook 是否健康
+// IsHealthy 检查 SLS Hook 是否健康（生产者处于运行状态）
 func (h *SLSHook) IsHealthy() bool {
 	state := h.getCurrentState()
 	return state == StateRunning
 }
 
-// RecordSuccess 记录发送成功（供内部使用）
+// RecordSuccess 记录一次发送成功
 func (h *SLSHook) RecordSuccess() {
 	atomic.AddInt64(&h.sendSuccessCount, 1)
 }
 
-// RecordFailure 记录发送失败（供内部使用）
+// RecordFailure 记录一次发送失败并保存错误信息
 func (h *SLSHook) RecordFailure(err error) {
 	atomic.AddInt64(&h.sendFailedCount, 1)
 	h.errorMu.Lock()
@@ -386,7 +377,7 @@ func ptrString(s string) *string {
 	return &s
 }
 
-// ==================== 状态管理方法 ====================
+// ==================== 状态管理 ====================
 
 // ProducerState 生产者状态常量
 const (
@@ -419,40 +410,40 @@ func (h *SLSHook) compareAndSwapState(oldState, newState int32) bool {
 func validateSLSConfig(config *SLSConfig) error {
 	// 必填字段检查
 	if config.Endpoint == "" {
-		return fmt.Errorf("endpoint is required")
+		return fmt.Errorf("endpoint 为必填项")
 	}
 	if config.AccessKeyID == "" {
-		return fmt.Errorf("accessKeyId is required")
+		return fmt.Errorf("accessKeyId 为必填项")
 	}
 	if config.AccessKeySecret == "" {
-		return fmt.Errorf("accessKeySecret is required")
+		return fmt.Errorf("accessKeySecret 为必填项")
 	}
 	if config.ProjectName == "" {
-		return fmt.Errorf("projectName is required")
+		return fmt.Errorf("projectName 为必填项")
 	}
 	if config.LogStoreName == "" {
-		return fmt.Errorf("logStoreName is required")
+		return fmt.Errorf("logStoreName 为必填项")
 	}
 
 	// Endpoint 格式检查（基本验证）
 	if !isValidEndpoint(config.Endpoint) {
-		return fmt.Errorf("invalid endpoint format: %s (expected format: region.log.aliyuncs.com)", config.Endpoint)
+		return fmt.Errorf("endpoint 格式无效: %s（期望格式: region.log.aliyuncs.com）", config.Endpoint)
 	}
 
 	// 数值范围检查
 	if config.MaxRetries < 0 || config.MaxRetries > 100 {
-		return fmt.Errorf("maxRetries must be between 0 and 100, got: %d", config.MaxRetries)
+		return fmt.Errorf("maxRetries 取值范围为 0~100，当前值: %d", config.MaxRetries)
 	}
 	if config.Timeout < 1 || config.Timeout > 300 {
-		return fmt.Errorf("timeout must be between 1 and 300 seconds, got: %d", config.Timeout)
+		return fmt.Errorf("timeout 取值范围为 1~300 秒，当前值: %d", config.Timeout)
 	}
 
 	// 高级配置检查
 	if config.HealthCheckInterval < 5 {
-		return fmt.Errorf("healthCheckInterval must be at least 5 seconds, got: %d", config.HealthCheckInterval)
+		return fmt.Errorf("healthCheckInterval 最小值为 5 秒，当前值: %d", config.HealthCheckInterval)
 	}
 	if config.SendTimeout < 1 {
-		return fmt.Errorf("sendTimeout must be at least 1 second, got: %d", config.SendTimeout)
+		return fmt.Errorf("sendTimeout 最小值为 1 秒，当前值: %d", config.SendTimeout)
 	}
 
 	return nil
@@ -566,7 +557,7 @@ func (h *SLSHook) verifyProducerState() error {
 	// SendLog 是异步的，这里只能验证调用是否成功
 	err := h.producer.SendLog(h.config.ProjectName, h.config.LogStoreName, "health-check", h.config.Source, testLog)
 	if err != nil {
-		return fmt.Errorf("failed to send test log: %w", err)
+		return fmt.Errorf("发送测试日志失败: %w", err)
 	}
 
 	// 如果能成功调用 SendLog，说明 Producer 已启动

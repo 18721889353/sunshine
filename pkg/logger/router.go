@@ -7,10 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/natefinch/lumberjack"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -58,7 +55,7 @@ func InitRouter(defaultLog *zap.Logger, routes []*RouteConfig, defaultConfig *Ro
 			// 合并默认配置
 			mergedConfig := mergeRouteConfig(route, defaultConfig)
 			if err := router.RegisterRoute(mergedConfig); err != nil {
-				initErr = fmt.Errorf("failed to register route for module %s: %w", route.Module, err)
+				initErr = fmt.Errorf("注册模块 %s 的路由失败: %w", route.Module, err)
 				return
 			}
 		}
@@ -219,44 +216,23 @@ func (r *LogRouter) createLogger(config *RouteConfig) (*zap.Logger, error) {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = timeFormatter
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	encoder := buildEncoder(config.Format, encoderConfig)
 
-	var encoder zapcore.Encoder
-	if strings.ToLower(config.Format) == formatConsole {
-		encoder = zapcore.NewConsoleEncoder(encoderConfig)
-	} else {
-		encoder = zapcore.NewJSONEncoder(encoderConfig)
+	// 将 RouteConfig 转换为 fileOptions 以复用 buildWriteSyncer
+	fo := &fileOptions{
+		filename:      logFilePath,
+		maxSize:       config.MaxSize,
+		maxBackups:    config.MaxBackups,
+		maxAge:        config.MaxAge,
+		isCompression: config.IsCompression,
+		isSaveDay:     config.IsSaveDay,
 	}
-
-	var ws zapcore.WriteSyncer
-	if config.IsSaveDay {
-		logWriter, err := rotatelogs.New(
-			logFilePath+".%Y%m%d",
-			rotatelogs.WithLinkName(logFilePath),
-			rotatelogs.WithMaxAge(time.Duration(config.MaxAge)*24*time.Hour),
-			rotatelogs.WithRotationTime(24*time.Hour),
-		)
-		if err != nil {
-			return nil, err
-		}
-		ws = zapcore.AddSync(logWriter)
-	} else {
-		lumberjackLogger := &lumberjack.Logger{
-			Filename:   logFilePath,
-			MaxSize:    config.MaxSize,
-			MaxBackups: config.MaxBackups,
-			MaxAge:     config.MaxAge,
-			Compress:   config.IsCompression,
-		}
-		ws = zapcore.AddSync(lumberjackLogger)
-	}
-
-	level := getLevelSize(config.Level)
-	core := zapcore.NewCore(encoder, ws, level)
-
+	ws := buildWriteSyncer(fo)
+	core := buildCore(encoder, ws, getLevelSize(config.Level), config.IsAsync, 0, 0)
 	return zap.New(core, zap.AddCaller()), nil
 }
 
-// Close 关闭所有 logger
+// Close 关闭所有日志记录器并同步缓冲
 func (r *LogRouter) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -264,7 +240,7 @@ func (r *LogRouter) Close() error {
 	var lastErr error
 	for key, logger := range r.loggers {
 		if err := logger.Sync(); err != nil {
-			lastErr = fmt.Errorf("failed to sync logger %s: %w", key, err)
+			lastErr = fmt.Errorf("同步日志记录器 %s 失败: %w", key, err)
 		}
 	}
 
@@ -350,22 +326,18 @@ func extractContextFields(ctx context.Context) []Field {
 		fields = append(fields, String("caller_func", callerFunc))
 	}
 
-	// 提取 trace_id (OpenTelemetry)
+	// 提取 trace_id + span_id (OpenTelemetry)
 	spanCtx := trace.SpanContextFromContext(ctx)
 	if spanCtx.IsValid() {
 		// TraceID: 全局唯一的追踪标识
 		if traceID := spanCtx.TraceID().String(); traceID != "00000000000000000000000000000000" {
 			fields = append(fields, String("trace_id", traceID))
 		}
+		// SpanID: 当前 span 的唯一标识，用于构建调用链
+		if spanID := spanCtx.SpanID().String(); spanID != "0000000000000000" {
+			fields = append(fields, String("span_id", spanID))
+		}
 	}
-
-	// DEBUG: 检查是否有重复的 request_id
-	// if len(fields) > 0 {
-	// 	fmt.Printf("[DEBUG] extractContextFields returning %d fields\n", len(fields))
-	// 	for i, f := range fields {
-	// 		fmt.Printf("[DEBUG]   field[%d]: key=%s, type=%v\n", i, f.Key, f.Type)
-	// 	}
-	// }
 
 	return fields
 }
