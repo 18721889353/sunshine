@@ -7,12 +7,14 @@ import (
 	"os"
 )
 
+const unknownIP = "unknown"
+
 // GetLocalIP 获取本机非回环IPv4地址，用于服务注册时确保实例ID唯一。
 // 如果获取失败，返回 "unknown"。
 func GetLocalIP() string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return "unknown"
+		return unknownIP
 	}
 	for _, addr := range addrs {
 		if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
@@ -21,14 +23,34 @@ func GetLocalIP() string {
 			}
 		}
 	}
-	return "unknown"
+	return unknownIP
+}
+
+// ResolveHost 按优先级解析服务注册地址，用于替代配置文件中的硬编码 host。
+// 优先级: 环境变量 POD_IP > 环境变量 HOST_IP > 自动检测本机网卡 IP > 兜底 127.0.0.1。
+// 适用于 K8s (Downward API 注入 POD_IP)、Docker、物理机、本地开发等场景。
+func ResolveHost() string {
+	// 1. K8s Pod IP（Downward API 注入）
+	if ip := os.Getenv("POD_IP"); ip != "" {
+		return ip
+	}
+	// 2. 物理机 / VM IP（Docker 或自定义注入）
+	if ip := os.Getenv("HOST_IP"); ip != "" {
+		return ip
+	}
+	// 3. 自动检测本机非回环网卡 IP
+	if ip := GetLocalIP(); ip != unknownIP {
+		return ip
+	}
+	// 4. 兜底（仅本地开发）
+	return "127.0.0.1"
 }
 
 // GetHostname get hostname
 func GetHostname() string {
 	name, err := os.Hostname()
 	if err != nil {
-		name = "unknown"
+		name = unknownIP
 	}
 	return name
 }

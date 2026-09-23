@@ -5,7 +5,7 @@ app:
   version: "v1.0.0"               # 版本号
   cacheType: "redis"              # 缓存类型, 如果为空, 不使用缓存, 支持"memory"和"redis", 如果设置为redis, 必须设置redis配置
   registryDiscoveryType: ""       # 注册与发现类型: etcd / nacos, 如果为空, 不使用注册与发现
-  host: "127.0.0.1"               # 域名或IP, 用于服务注册
+  host: ""                        # 服务注册IP, 为空则自动解析(POD_IP > HOST_IP > 本机网卡IP > 127.0.0.1)
   enableMetrics: false            # 是否开启指标收集, true:开启, false:关闭 [热更新]
   enableHTTPProfile: true         # 是否开启性能分析, true:开启, false:关闭 [热更新]
   pprofIPWhiteList:               # pprof IP 白名单（空=仅 prod 环境用默认内网段） [热更新]

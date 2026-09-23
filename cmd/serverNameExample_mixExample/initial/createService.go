@@ -89,6 +89,10 @@ func CreateServices() []app.IServer {
 
 // register service with etcd or nacos
 func registerService(scheme string, host string, port int) (registry.Registry, *registry.ServiceInstance) {
+	// host 为空时自动解析: POD_IP > HOST_IP > 本机网卡IP > 127.0.0.1
+	if host == "" {
+		host = utils.ResolveHost()
+	}
 	instanceEndpoint := fmt.Sprintf("%s://%s:%d", scheme, host, port)
 	cfg := config.Get()
 
