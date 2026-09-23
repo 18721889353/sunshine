@@ -29,6 +29,7 @@ var (
 	enableConfigCenter bool
 	initCtx            = context.Background() // 初始化阶段使用的 context
 	slsHookInstance    *logger.SLSHook        // SLS Hook 实例，用于优雅关闭
+	nacosStopFunc      func()                 // Nacos watch 停止函数，优雅关闭时调用
 )
 
 // InitApp initial app configuration
@@ -249,7 +250,9 @@ func initConfig() {
 		if configFile == "" {
 			configFile = configs.Path("serverNameExample_cc.yml")
 		}
-		if err := config.GetConfigFromNacos(configFile); err != nil {
+		var err error
+		nacosStopFunc, err = config.GetConfigFromNacos(configFile)
+		if err != nil {
 			panic("init nacos config error: " + err.Error())
 		}
 	} else { // 从本地文件获取配置

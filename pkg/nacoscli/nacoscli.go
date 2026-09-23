@@ -1,4 +1,17 @@
-// Package nacoscli 提供 Nacos 配置中心客户端。
+// Package nacoscli 封装 Nacos 配置中心的客户端操作，提供配置获取、实时监听和服务注册能力。
+//
+// 核心功能：
+//   - 配置获取：GetConfig / Client.getConfig 从 Nacos 拉取配置，支持 context 超时控制。
+//   - 实时监听：ListenClient 基于 Nacos 长轮询监听配置变更；WatchConfig 在此基础上封装自动重连，
+//     创建失败 5 秒重试、连接断开 3 秒重连、context 取消时优雅停止。
+//   - 服务注册与发现：NewClient 创建命名客户端（NamingClient），用于服务注册/注销/发现。
+//   - 选项模式：通过 Option 函数（WithIPAddr、WithAuth、WithClientConfig 等）灵活配置，
+//     支持单字段设置与完整 SDK 配置两种方式，优先级：完整配置 > 单字段选项 > 默认值。
+//
+// 使用方式：
+//   - 读取配置：nacoscli.GetConfig(params, nacoscli.WithAuth(user, pass))
+//   - 监听变更：nacoscli.WatchConfig(ctx, params, handler, opts...)
+//   - 服务注册：nacoscli.NewClient(ip, port, namespaceID, opts...)
 package nacoscli
 
 import (
@@ -158,7 +171,7 @@ func (c *Client) getConfig(ctx context.Context, params *Params) (format string, 
 	}
 
 	span.SetAttributes(attribute.Int("nacos.config_length", len(data)))
-	span.SetStatus(codes.Ok, "config fetched")
+	span.SetStatus(codes.Ok, "配置获取成功")
 	return params.Format, []byte(data), nil
 }
 

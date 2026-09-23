@@ -44,6 +44,14 @@ func Close(servers []app.IServer) []app.Close {
 		})
 	}
 
+	// close nacos watch goroutine
+	if nacosStopFunc != nil {
+		closes = append(closes, func() error {
+			nacosStopFunc()
+			return nil
+		})
+	}
+
 	// close tracing
 	if config.Get().App.EnableTrace {
 		closes = append(closes, func() error {

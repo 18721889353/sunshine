@@ -1,4 +1,3 @@
-// Package nacoscli 提供 Nacos 配置中心客户端。
 package nacoscli
 
 import (
@@ -84,14 +83,14 @@ func (c *ListenClient) Start(ctx context.Context) {
 		OnChange: func(namespace, group, dataId, data string) {
 			// context 已取消时丢弃变更
 			if ctx.Err() != nil {
-				logger.WarnWithCtx(ctx, "[nacos listener] context done, skip config change",
+				logger.WarnWithCtx(ctx, "[nacos listener] 上下文已取消，跳过配置变更",
 					logger.String("group", group),
 					logger.String("dataId", dataId),
 				)
 				return
 			}
 
-			logger.InfoWithCtx(ctx, "[nacos listener] config changed",
+			logger.InfoWithCtx(ctx, "[nacos listener] 配置已变更",
 				logger.String("group", group),
 				logger.String("dataId", dataId),
 				logger.Int("dataLength", len(data)),
@@ -102,7 +101,7 @@ func (c *ListenClient) Start(ctx context.Context) {
 		},
 	}
 
-	logger.InfoWithCtx(ctx, "[nacos listener] starting",
+	logger.InfoWithCtx(ctx, "[nacos listener] 启动中",
 		logger.String("group", c.group),
 		logger.String("dataId", c.dataID),
 	)
@@ -111,10 +110,10 @@ func (c *ListenClient) Start(ctx context.Context) {
 	if err := c.configClient.ListenConfig(param); err != nil {
 		// 只有主动关闭或 context 取消才会走到这里
 		if ctx.Err() != nil {
-			logger.InfoWithCtx(ctx, "[nacos listener] stopped by context")
+			logger.InfoWithCtx(ctx, "[nacos listener] 上下文取消，停止监听")
 			return
 		}
-		logger.WarnWithCtx(ctx, "[nacos listener] listen error",
+		logger.WarnWithCtx(ctx, "[nacos listener] 监听出错",
 			logger.String("dataId", c.dataID),
 			logger.Err(err),
 		)
@@ -125,7 +124,7 @@ func (c *ListenClient) Start(ctx context.Context) {
 func (c *ListenClient) safeCallHandler(ctx context.Context, namespace, group, dataID, data string) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.WarnWithCtx(ctx, "[nacos listener] config change handler panic",
+			logger.WarnWithCtx(ctx, "[nacos listener] 配置变更回调 panic",
 				logger.String("dataId", dataID),
 				logger.Any("panic", r),
 			)

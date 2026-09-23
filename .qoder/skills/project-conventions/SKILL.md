@@ -1,6 +1,6 @@
 ---
 name: project-conventions
-description: Documents Sunshine framework's shared lint compliance rules, Go development conventions, error handling patterns, and lessons learned from real project fixes. Use when modifying any Go file, fixing lint errors, or reviewing code changes — this is the canonical reference for all project-wide coding standards.
+description: Documents Sunshine framework's shared lint compliance rules, Go development conventions, error handling patterns, Chinese comment/log standards, and lessons learned from real project fixes. Use when modifying any Go file, fixing lint errors, or reviewing code changes — this is the canonical reference for all project-wide coding standards.
 ---
 
 # Sunshine 框架开发公约
@@ -32,6 +32,7 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 十五 | Option 配置传播模式 | defaultXxx+apply + 冲突处理 |
 | 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 + 端到端测试策略 |
 | 十七 | goroutine panic recover 策略 | 终止型退出清理 + 循环型继续执行 |
+| 十八 | 中文注释与日志规范 | 包注释内容要求 / 日志中文 / 错误中文 / 详细注释风格 |
 
 ## 一、errcheck — 错误必须显式处理
 
@@ -236,6 +237,37 @@ package gows
 // Package gows 提供...
 package gows
 ```
+
+### 包注释内容要求
+
+包注释必须使用中文，描述包的**实际功能和职责**，不能只是泛泛的"提供 XXX 功能"。每个包只在**主文件**中写一份详细的包级注释，其余文件不重复。
+
+```go
+// ❌ 错误：过于笼统，看不出包的具体能力
+// Package nacoscli 提供 Nacos 配置中心客户端。
+package nacoscli
+
+// ❌ 错误：多个文件重复写包注释
+// nacoscli.go — // Package nacoscli 提供...
+// listener.go — // Package nacoscli 提供...  ← 重复
+
+// ✅ 正确：详细描述实际功能，只在主文件写一次
+// Package nacoscli 封装 Nacos 配置中心的客户端操作，提供配置获取、实时监听和服务注册能力。
+//
+// 核心功能：
+//   - 配置获取：GetConfig / Client.getConfig 从 Nacos 拉取配置，支持 context 超时控制。
+//   - 实时监听：ListenClient 基于长轮询监听配置变更；WatchConfig 封装自动重连。
+//   - 服务注册与发现：NewClient 创建命名客户端，用于服务注册/注销/发现。
+//   - 选项模式：通过 Option 函数灵活配置，优先级：完整配置 > 单字段选项 > 默认值。
+package nacoscli
+```
+
+| 规则 | 说明 |
+|------|------|
+| **中文描述** | 包注释必须使用中文 |
+| **描述实际功能** | 列出核心 API 和职责，不能只是"提供 XXX 客户端" |
+| **单文件声明** | 每个包只在主文件写包级注释，其他文件不重复 |
+| **主文件选择** | 选包的核心入口文件（如 `xxx.go`），不选辅助文件 |
 
 ## 七、goimports — 本地包必须单独分组
 
@@ -1009,11 +1041,43 @@ func (dd *DistributedDispatcher) receiveOnce(ctx context.Context, msgCh <-chan *
 | 消息消费循环 | `receiveLoop`、worker 池、订阅协程 | 循环型：recover → 继续循环 |
 | 一次性任务 | `go func()` 执行单个异步操作 | 终止型：recover → 记录日志 |
 
-## 十八、详细中文注释规范
+## 十八、中文注释与日志规范
 
-对于需要清晰表达业务逻辑的方法，采用以下**详细中文注释**风格，让阅读者一眼看懂每个步骤的目的和注意事项。
+项目所有可读文本（注释、日志、错误消息）统一使用中文，确保团队协作和运维排障时无障碍阅读。
 
-### 参考示例：`setGroupPath`
+### 18.1 日志消息必须使用中文
+
+所有 `logger.*WithCtx`、`logger.Get().Warn/Info/Error` 调用中的日志消息字符串必须使用中文。标签前缀（如 `[config reload]`、`[nacos watch]`）保留英文。
+
+```go
+// ❌ 错误：英文日志消息
+logger.WarnWithCtx(ctx, "[nacos watch] connection lost, retrying in 3s")
+logger.InfoWithCtx(ctx, "[config reload] database pool config updated",
+    logger.Int("maxIdleConns", newMysql.MaxIdleConns))
+
+// ✅ 正确：中文日志消息，标签前缀保留英文
+logger.WarnWithCtx(ctx, "[nacos watch] 连接断开，3秒后重试")
+logger.InfoWithCtx(ctx, "[config reload] 数据库连接池配置已更新",
+    logger.Int("maxIdleConns", newMysql.MaxIdleConns))
+```
+
+### 18.2 错误消息必须使用中文
+
+`fmt.Errorf`、`errors.New` 返回的错误消息字符串必须使用中文，方便排障定位。
+
+```go
+// ❌ 错误：英文错误消息
+return nil, errors.New("field 'Group' cannot be empty")
+return nil, fmt.Errorf("failed to get config from Nacos: %w", err)
+
+// ✅ 正确：中文错误消息
+return nil, errors.New("字段 'Group' 不能为空")
+return nil, fmt.Errorf("从 Nacos 获取配置失败: %w", err)
+```
+
+### 18.3 详细中文注释风格
+
+对于需要清晰表达业务逻辑的方法，采用详细中文注释风格，让阅读者一眼看懂每个步骤的目的和注意事项。
 
 ```go
 // setGroupPath 为指定的路由分组添加一组中间件处理函数。
@@ -1028,22 +1092,7 @@ func (c *middlewareConfig) setGroupPath(groupPath string, handlers ...gin.Handle
     //    - 使用 path.Clean 去除多余的斜杠和相对路径（如 /api/../v1 -> /v1）
     //    - 确保以 / 开头，否则补全
     cleaned := path.Clean(groupPath)
-    if !strings.HasPrefix(cleaned, "/") {
-        cleaned = "/" + cleaned
-    }
-    // 3. 去除尾部斜杠（与 Gin 的路由分组行为保持一致，通常分组路径不带尾部斜杠）
-    cleaned = strings.TrimSuffix(cleaned, "/")
-    if cleaned == "" {
-        cleaned = "/"
-    }
-    // 4. 存储或追加中间件
-    existing, exists := c.groupPathMiddlewares[cleaned]
-    if !exists {
-        c.groupPathMiddlewares[cleaned] = handlers
-    } else {
-        // 追加新的处理程序（如需覆盖，可在此修改逻辑）
-        c.groupPathMiddlewares[cleaned] = append(existing, handlers...)
-    }
+    // ...
 }
 ```
 
@@ -1051,53 +1100,14 @@ func (c *middlewareConfig) setGroupPath(groupPath string, handlers ...gin.Handle
 |------|------|
 | **函数级注释** | 方法名开头 + 一句话功能 + 业务场景 + 注意事项（`注意：`） |
 | **步骤编号** | 方法体内用 `// 1.` `// 2.` 等编号，清晰表达执行流程 |
-| **why 注释** | 不仅写"做什么"，还写"为什么这么做" |
+| **why 注释** | 不仅写“做什么”，还写“为什么这么做” |
 | **边界说明** | 各分支、异常情况、设计意图都在注释中说明 |
-
-### 附录：`setSinglePath`（同风格对照）
-
-```go
-// setSinglePath 为指定的单个路由（HTTP 方法 + 路径）添加一组中间件处理函数。
-// 多次调用同一 (method, singlePath) 时，中间件以追加方式累积。
-// 注意：本函数不处理中间件去重或顺序冲突，调用方需自行保证逻辑正确性。
-func (c *middlewareConfig) setSinglePath(method string, singlePath string, handlers ...gin.HandlerFunc) {
-    // 1. 校验必要参数：方法、路径、处理程序均不能为空
-    if method == "" || singlePath == "" || len(handlers) == 0 {
-        return
-    }
-
-    // 2. 规范化路径：
-    //    - 使用 path.Clean 去除多余的斜杠和相对路径（如 /api/../v1 -> /v1）
-    //    - 确保以 / 开头
-    //    - 去除尾部斜杠（与 Gin 路由注册行为一致，例如 "/user/" 与 "/user" 视为同一路由）
-    cleanedPath := path.Clean(singlePath)
-    if !strings.HasPrefix(cleanedPath, "/") {
-        cleanedPath = "/" + cleanedPath
-    }
-    cleanedPath = strings.TrimSuffix(cleanedPath, "/")
-    if cleanedPath == "" {
-        cleanedPath = "/"
-    }
-
-    // 3. 构造唯一键：方法大写 + "->" + 规范化路径
-    key := strings.ToUpper(method) + "->" + cleanedPath
-
-    // 4. 存储或追加中间件
-    existing, exists := c.singlePathMiddlewares[key]
-    if !exists {
-        c.singlePathMiddlewares[key] = handlers
-    } else {
-        // 追加新的处理程序（如需覆盖行为，可在此调整）
-        c.singlePathMiddlewares[key] = append(existing, handlers...)
-    }
-}
-```
 
 ### 适用场景
 
 | 方法类型 | 推荐注释风格 | 示例 |
 |----------|-------------|------|
-| 业务逻辑类 | 详细中文注释 + 步骤编号 + why 说明 | `setGroupPath`、`setSinglePath` |
-| 简单工具方法 | 一行函数级注释即可 | `newMiddlewareConfig` |
-| 接口/构造函数 | 函数级注释 + 返回值说明 | `NewRouter_pbExample` |
+| 业务逻辑类 | 详细中文注释 + 步骤编号 + why 说明 | `setGroupPath`、`reloadDatabasePool` |
+| 简单工具方法 | 一行函数级注释即可 | `FormatDataID` |
+| 接口/构造函数 | 函数级注释 + 参数/返回值说明 | `NewClient`、`WatchConfig` |
 ```

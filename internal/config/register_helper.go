@@ -1,4 +1,3 @@
-// Package config 提供配置初始化辅助方法。
 package config
 
 import (
