@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -51,12 +50,10 @@ func TestWithEnableRequestID(t *testing.T) {
 }
 
 func TestWithEnableLog(t *testing.T) {
-	opt := WithEnableLog(nil)
-	testData := zap.NewNop()
-	opt = WithEnableLog(testData)
+	opt := WithEnableLog()
 	o := new(options)
 	o.apply(opt)
-	assert.Equal(t, testData, o.log)
+	assert.Equal(t, true, o.enableLog)
 }
 
 func TestWithEnableMetrics(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"github.com/bwmarrin/snowflake"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	"github.com/18721889353/sunshine/pkg/krand"
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -130,8 +129,8 @@ func GCtxRequestID(c *gin.Context) string {
 }
 
 // GCtxRequestIDField get request id field from gin.Context
-func GCtxRequestIDField(c *gin.Context) zap.Field {
-	return zap.String(string(logger.ContextKeyRequestID), GCtxRequestID(c))
+func GCtxRequestIDField(c *gin.Context) logger.Field {
+	return logger.String(string(logger.ContextKeyRequestID), GCtxRequestID(c))
 }
 
 // HeaderRequestID get request id from the header
@@ -140,8 +139,8 @@ func HeaderRequestID(c *gin.Context) string {
 }
 
 // HeaderRequestIDField get request id field from header
-func HeaderRequestIDField(c *gin.Context) zap.Field {
-	return zap.String(HeaderXRequestIDKey, HeaderRequestID(c))
+func HeaderRequestIDField(c *gin.Context) logger.Field {
+	return logger.String(HeaderXRequestIDKey, HeaderRequestID(c))
 }
 
 // -------------------------------------------------------------------------------------------
@@ -179,8 +178,8 @@ func CtxRequestID(ctx context.Context) string {
 }
 
 // CtxRequestIDField get request id field from context.Context
-func CtxRequestIDField(ctx context.Context) zap.Field {
-	return zap.String(string(logger.ContextKeyRequestID), CtxRequestID(ctx))
+func CtxRequestIDField(ctx context.Context) logger.Field {
+	return logger.String(string(logger.ContextKeyRequestID), CtxRequestID(ctx))
 }
 
 // GetFromHeader get value from header

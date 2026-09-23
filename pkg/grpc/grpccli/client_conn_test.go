@@ -6,7 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"go.uber.org/zap"
 
 	"github.com/18721889353/sunshine/pkg/grpc/gtls/certfile"
 	"github.com/18721889353/sunshine/pkg/servicerd/registry/etcd"
@@ -19,7 +18,7 @@ func TestNewClient(t *testing.T) {
 
 func TestNewClient2(t *testing.T) {
 	_, err := NewClient("localhost:8282",
-		WithEnableLog(zap.NewNop()),
+		WithEnableLog(),
 		WithEnableMetrics(),
 		WithToken(true, "grpc", "123456"),
 		WithEnableLoadBalance(),

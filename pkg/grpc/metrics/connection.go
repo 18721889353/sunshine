@@ -1,20 +1,20 @@
 package metrics
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"net"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"go.uber.org/zap"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // ConnectionOption set connection option
 type ConnectionOption func(*connectionOptions)
 
 type connectionOptions struct {
-	zapLogger       *zap.Logger
 	connectionGauge prometheus.Gauge
 }
 
@@ -25,15 +25,6 @@ func defaultConnectionOptions() *connectionOptions {
 func (o *connectionOptions) apply(opts ...ConnectionOption) {
 	for _, opt := range opts {
 		opt(o)
-	}
-}
-
-// WithConnectionsLogger set logger for connection
-func WithConnectionsLogger(l *zap.Logger) ConnectionOption {
-	return func(o *connectionOptions) {
-		if l != nil {
-			o.zapLogger = l
-		}
 	}
 }
 
@@ -58,7 +49,6 @@ type CustomListener struct {
 	net.Listener
 	activeConnections int
 	mu                sync.Mutex
-	zapLogger         *zap.Logger
 	connectionGauge   prometheus.Gauge
 }
 
@@ -74,10 +64,6 @@ func (l *CustomListener) Accept() (net.Conn, error) {
 	l.activeConnections++
 	count = l.activeConnections
 	l.mu.Unlock()
-
-	if l.zapLogger != nil {
-		l.zapLogger.Info("new grpc client connected", zap.String("client", conn.RemoteAddr().String()), zap.Int("active connections", count))
-	}
 
 	if l.connectionGauge != nil {
 		l.connectionGauge.Set(float64(count))
@@ -104,9 +90,10 @@ func (l *CustomListener) closeConnection(clientAddr string) {
 	count = l.activeConnections
 	l.mu.Unlock()
 
-	if l.zapLogger != nil {
-		l.zapLogger.Info("grpc client disconnected", zap.String("client", clientAddr), zap.Int("active connections", count))
-	}
+	logger.InfoWithCtx(context.Background(), "grpc client disconnected",
+		logger.String("client", clientAddr),
+		logger.Int("active_connections", count),
+	)
 
 	if l.connectionGauge != nil {
 		l.connectionGauge.Set(float64(count))
@@ -122,14 +109,10 @@ func (c *CustomConn) Close() error {
 		clientAddr := c.Conn.RemoteAddr().String()
 		err := c.Conn.Close()
 		if err != nil && !errors.Is(err, net.ErrClosed) {
-			if c.listener.zapLogger != nil {
-				c.listener.zapLogger.Warn("failed to close connection",
-					zap.String("client", clientAddr),
-					zap.Error(err),
-				)
-			} else {
-				fmt.Printf("close connection error (client %s): %v\n", clientAddr, err)
-			}
+			logger.WarnWithCtx(context.Background(), "failed to close connection",
+				logger.String("client", clientAddr),
+				logger.Err(err),
+			)
 		}
 		c.listener.closeConnection(clientAddr)
 	})
@@ -143,7 +126,6 @@ func NewCustomListener(listener net.Listener, opts ...ConnectionOption) *CustomL
 
 	return &CustomListener{
 		Listener:        listener,
-		zapLogger:       o.zapLogger,
 		connectionGauge: o.connectionGauge,
 	}
 }

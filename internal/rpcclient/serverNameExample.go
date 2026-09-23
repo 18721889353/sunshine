@@ -54,7 +54,7 @@ func NewServerNameExampleRPCConn() {
 			interceptor.UnaryClientRequestID(),
 		),
 		grpccli.WithEnableRequestID(),
-		grpccli.WithEnableLog(logger.Get()),
+		grpccli.WithEnableLog(),
 	}
 
 	// if service discovery is not used, connect directly to the rpc service using the ip and port

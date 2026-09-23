@@ -102,7 +102,7 @@ func (s *grpcServer) Start() error {
 		}()
 	}
 
-	listen := metrics.NewCustomListener(s.listen, metrics.WithConnectionsLogger(logger.Get()), metrics.WithConnectionsGauge())
+	listen := metrics.NewCustomListener(s.listen, metrics.WithConnectionsGauge())
 	return s.server.Serve(listen)
 }
 

@@ -10,10 +10,8 @@
 package grpccli
 
 import (
-	"fmt"
 	"time"
 
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
@@ -47,7 +45,6 @@ type options struct {
 
 	// 拦截器功能开关
 	enableLog            bool               // 是否启用 RPC 日志
-	log                  *zap.Logger        // 日志记录器实例
 	enableRequestID      bool               // 是否启用请求 ID 自动注入
 	enableTrace          bool               // 是否启用链路追踪
 	enableMetrics        bool               // 是否启用 Prometheus 监控指标
@@ -94,19 +91,10 @@ func WithEnableRequestID() Option {
 }
 
 // WithEnableLog 启用 RPC 请求日志记录。
-// 参数 log 为 zap.Logger 实例；传 nil 时会自动创建 Production 级别的日志器。
-func WithEnableLog(log *zap.Logger) Option {
+// 日志通过框架统一的 logger 包输出，自动包含 request_id、trace_id 等上下文信息。
+func WithEnableLog() Option {
 	return func(o *options) {
 		o.enableLog = true
-		if log != nil {
-			o.log = log
-			return
-		}
-		var err error
-		o.log, err = zap.NewProduction()
-		if err != nil {
-			fmt.Printf("创建 Production 日志器失败: %v\n", err)
-		}
 	}
 }
 

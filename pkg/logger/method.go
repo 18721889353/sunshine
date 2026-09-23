@@ -48,7 +48,9 @@ func DebugWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...) //nolint:errcheck
+		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.DebugLevel, msg, allFields...); err != nil {
+			fmt.Printf("execute custom hooks error: %v\n", err)
+		}
 	}
 
 	getDefaultLogger().Debug(msg, allFields...)
@@ -63,7 +65,9 @@ func InfoWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...) //nolint:errcheck
+		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, msg, allFields...); err != nil {
+			fmt.Printf("execute custom hooks error: %v\n", err)
+		}
 	}
 
 	getDefaultLogger().Info(msg, allFields...)
@@ -78,7 +82,9 @@ func WarnWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...) //nolint:errcheck
+		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.WarnLevel, msg, allFields...); err != nil {
+			fmt.Printf("execute custom hooks error: %v\n", err)
+		}
 	}
 
 	getDefaultLogger().Warn(msg, allFields...)
@@ -93,7 +99,9 @@ func ErrorWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...) //nolint:errcheck
+		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.ErrorLevel, msg, allFields...); err != nil {
+			fmt.Printf("execute custom hooks error: %v\n", err)
+		}
 	}
 
 	getDefaultLogger().Error(msg, allFields...)
@@ -108,7 +116,9 @@ func PanicWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...) //nolint:errcheck
+		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.PanicLevel, msg, allFields...); err != nil {
+			fmt.Printf("execute custom hooks error: %v\n", err)
+		}
 	}
 
 	getDefaultLogger().Panic(msg, allFields...)
@@ -123,7 +133,9 @@ func FatalWithCtx(ctx context.Context, msg string, fields ...Field) {
 
 	// 执行自定义 Hook（如 SLS 上报）
 	if len(customHooksWithCtx) > 0 {
-		_ = ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...) //nolint:errcheck
+		if err := ExecuteCustomHooksWithCtx(ctx, zapcore.FatalLevel, msg, allFields...); err != nil {
+			fmt.Printf("execute custom hooks error: %v\n", err)
+		}
 	}
 
 	getDefaultLogger().Fatal(msg, allFields...)
