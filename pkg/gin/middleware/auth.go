@@ -3,6 +3,7 @@
 package middleware
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,9 @@ type jwtOptions struct {
 	uidFields        []string            // 用户 ID 字段名优先级列表，用于从 Claims.Fields 中提取 UID
 	ignoreAll        bool                // 是否全局忽略所有请求的 JWT 验证（优先级最高）
 }
+
+// globalJwtIgnoreMethods 全局 JWT 忽略方法列表，支持热更新
+var globalJwtIgnoreMethods atomic.Pointer[map[string]struct{}]
 
 // JwtOption 定义 JWT 中间件配置的函数选项类型
 type JwtOption func(*jwtOptions)
@@ -93,6 +97,16 @@ func WithAuthIgnoreAll() JwtOption {
 	return func(o *jwtOptions) {
 		o.ignoreAll = true
 	}
+}
+
+// SetJwtIgnoreMethods 设置全局 JWT 忽略方法列表（支持热更新）
+// 调用后，后续所有请求将使用新的忽略列表
+func SetJwtIgnoreMethods(methods []string) {
+	m := make(map[string]struct{})
+	for _, method := range methods {
+		m[method] = struct{}{}
+	}
+	globalJwtIgnoreMethods.Store(&m)
 }
 
 // responseUnauthorized 统一处理未授权响应
@@ -169,6 +183,8 @@ func handleAuthVerification(o *jwtOptions, claims *jwt.Claims, token string, c *
 //  3. 否则从 Authorization 头提取 Bearer Token，解析 JWT
 //  4. 执行自定义验证（若有），或提取用户信息存入 Context
 //  5. 验证通过则继续，否则返回未授权错误
+//
+// 支持热更新：ignoreMethods 每次请求时从全局配置读取
 func Auth(opts ...JwtOption) gin.HandlerFunc {
 	o := defaultJwtOptions()
 	o.apply(opts...)
@@ -179,8 +195,14 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 			return
 		}
 
+		// 从全局配置读取 ignoreMethods（支持热更新）
+		ignoreMethods := o.ignoreMethods
+		if globalMethods := globalJwtIgnoreMethods.Load(); globalMethods != nil {
+			ignoreMethods = *globalMethods
+		}
+
 		// 其次判断是否在忽略 URL 列表中
-		if _, ok := o.ignoreMethods[c.Request.URL.Path]; ok {
+		if _, ok := ignoreMethods[c.Request.URL.Path]; ok {
 			c.Next()
 			return
 		}

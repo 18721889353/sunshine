@@ -11,7 +11,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
-var tp *trace.TracerProvider
+var (
+	tp      *trace.TracerProvider
+	sampler *dynamicSampler
+)
 
 // Init Initialize tracer, parameter fraction is fraction, default is 1.0, value >= 1.0 means all links are sampled,
 // value <= 0 means all are not sampled, 0 < value < 1 only samples percentage
@@ -25,15 +28,36 @@ func Init(exporter trace.SpanExporter, res *resource.Resource, fractions ...floa
 		}
 	}
 
+	// 创建动态 sampler，支持运行时修改采样率
+	sampler = newDynamicSampler(fraction)
+	sampler.SetSamplingRate(fraction)
+
 	tp = trace.NewTracerProvider(
 		trace.WithBatcher(exporter),
 		trace.WithResource(res),
-		trace.WithSampler(trace.ParentBased(trace.TraceIDRatioBased(fraction))), // sampling rate
+		trace.WithSampler(sampler), // 动态采样率
 	)
 	// register the TracerProvider as global so that any future imports of package go.opentelemetry.io/otel/trace will use it by default.
 	otel.SetTracerProvider(tp)
 	// propagation of context across processes
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
+}
+
+// SetSamplingRate 动态修改链路追踪采样率（0~1）。
+// 0 = 不采样（等效关闭追踪），1 = 全量采样。
+// 修改后立即对所有新创建的 Span 生效，无需重启服务。
+func SetSamplingRate(rate float64) {
+	if sampler != nil {
+		sampler.SetSamplingRate(rate)
+	}
+}
+
+// GetSamplingRate 获取当前采样率。
+func GetSamplingRate() float64 {
+	if sampler != nil {
+		return sampler.GetSamplingRate()
+	}
+	return 1.0
 }
 
 // Close tracer
@@ -118,10 +142,14 @@ func InitWithOTLPBatch(appName string, appEnv string, appVersion string,
 		batchOpts = append(batchOpts, trace.WithExportTimeout(exportTimeout))
 	}
 
+	// 创建动态 sampler，支持运行时修改采样率
+	sampler = newDynamicSampler(fraction)
+	sampler.SetSamplingRate(fraction)
+
 	tp = trace.NewTracerProvider(
 		trace.WithBatcher(exporter, batchOpts...),
 		trace.WithResource(res),
-		trace.WithSampler(trace.ParentBased(trace.TraceIDRatioBased(fraction))),
+		trace.WithSampler(sampler), // 动态采样率
 	)
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))

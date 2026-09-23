@@ -5,12 +5,16 @@ package metrics
 import (
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// metricsEnabled 控制 metrics 中间件是否生效，支持热更新
+var metricsEnabled atomic.Bool
 
 var (
 	namespace = "gin"
@@ -106,6 +110,11 @@ func metricsHandler() gin.HandlerFunc {
 	}
 }
 
+// SetMetricsEnabled 动态设置 metrics 中间件是否生效，支持 Nacos 热更新
+func SetMetricsEnabled(enabled bool) {
+	metricsEnabled.Store(enabled)
+}
+
 // Metrics returns a gin.HandlerFunc for exporting some Web metrics
 func Metrics(r *gin.Engine, opts ...Option) gin.HandlerFunc {
 	o := defaultOptions()
@@ -116,7 +125,16 @@ func Metrics(r *gin.Engine, opts ...Option) gin.HandlerFunc {
 
 	r.GET(o.metricsPath, metricsHandler())
 
+	// 设置初始开关状态
+	metricsEnabled.Store(true)
+
 	return func(c *gin.Context) {
+		// 热更新开关检查
+		if !metricsEnabled.Load() {
+			c.Next()
+			return
+		}
+
 		start := time.Now()
 		c.Next()
 

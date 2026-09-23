@@ -12,6 +12,7 @@ nacos:
   group: "dev"                  # 分组: dev, prod, test
   dataID: "serverNameExample.yml"  # 配置文件 ID（需先在 Nacos 控制台创建）
   format: "yaml"                # 配置文件类型: json, yaml, toml
+  enableWatch: false             # 是否启用配置中心监听（true:启动监听，配置变更自动热更新；false:仅启动时拉取一次）
   username: "ENC(4baa17fca9af16cfd9a563b686fc6323)"             # Docker Nacos 默认用户名（NACOS_AUTH_ENABLE=true 时需要）
   password: "ENC(375e0e53a2773d65e0feb01b0db729dc)"             # Docker Nacos 默认密码
 

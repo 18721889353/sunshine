@@ -313,3 +313,35 @@ func CircuitBreaker(opts ...CircuitBreakerOption) gin.HandlerFunc {
 		entry.Exit()
 	}
 }
+
+// ReloadFlowRules 动态重载限流规则（无需重启）。
+// Sentinel 的 flow.LoadRules 支持全量替换，新规则立即生效。
+//
+// 参数:
+//   - rules: 新的限流规则列表，为空则跳过。
+//
+// 返回值:
+//   - error: 重载过程中的错误。
+func ReloadFlowRules(rules []*flow.Rule) error {
+	if len(rules) == 0 {
+		return nil
+	}
+	_, err := flow.LoadRules(rules)
+	return err
+}
+
+// ReloadBreakerRules 动态重载熔断规则（无需重启）。
+// Sentinel 的 circuitbreaker.LoadRules 支持全量替换，新规则立即生效。
+//
+// 参数:
+//   - rules: 新的熔断规则列表，为空则跳过。
+//
+// 返回值:
+//   - error: 重载过程中的错误。
+func ReloadBreakerRules(rules []*circuitbreaker.Rule) error {
+	if len(rules) == 0 {
+		return nil
+	}
+	_, err := circuitbreaker.LoadRules(rules)
+	return err
+}

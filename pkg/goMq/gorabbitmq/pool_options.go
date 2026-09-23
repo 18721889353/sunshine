@@ -15,6 +15,7 @@ type poolOptions struct {
 	connOpts          []ConnectionOption // 连接选项
 	healthCheckPeriod time.Duration      // 健康检查周期
 	enableTrace       bool               // 是否启用 Trace
+	statsLogOpen      bool               // 是否开启统计日志打印
 }
 
 // apply 应用连接池配置选项
@@ -90,5 +91,12 @@ func WithHealthCheckPeriod(d time.Duration) PoolOption {
 func WithTraceEnabled(enabled bool) PoolOption {
 	return func(o *poolOptions) {
 		o.enableTrace = enabled
+	}
+}
+
+// WithStatsLogOpen 启用或禁用连接池统计日志打印
+func WithStatsLogOpen(enabled bool) PoolOption {
+	return func(o *poolOptions) {
+		o.statsLogOpen = enabled
 	}
 }

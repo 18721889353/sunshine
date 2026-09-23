@@ -5,6 +5,7 @@ package initial
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"time"
@@ -132,6 +133,9 @@ func InitApp() {
 
 	logger.InfoWithCtx(initCtx, "[logger] was initialized")
 
+	// 注册配置热更新回调（必须在 logger.Init 之后）
+	config.RegisterBuiltinReloads()
+
 	if cfg.App.OpenJwt {
 		var sm *v5.SigningMethodHMAC
 		if config.Get().Jwt.SigningMethod == "HS256" {
@@ -193,6 +197,15 @@ func InitApp() {
 	if cfg.Database.Driver == "mysql" {
 		database.InitDB()
 		logger.InfoWithCtx(initCtx, fmt.Sprintf("[%s] was initialized", cfg.Database.Driver))
+
+		// 设置数据库连接池热更新 getter（必须在 InitDB 之后）
+		config.SetSQLDBGetter(func() (*sql.DB, error) {
+			db := database.GetDB()
+			if db == nil {
+				return nil, nil
+			}
+			return db.DB()
+		})
 	}
 	if cfg.App.CacheType == "redis" {
 		database.InitCache(cfg.App.CacheType)

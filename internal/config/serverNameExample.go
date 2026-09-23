@@ -130,6 +130,15 @@ type ClientToken struct {
 	Enable bool   `yaml:"enable" json:"enable"`
 }
 
+type Grpc struct {
+	AppID        string       `yaml:"appID" json:"appID"`
+	AppKey       string       `yaml:"appKey" json:"appKey"`
+	EnableToken  bool         `yaml:"enableToken" json:"enableToken"`
+	HTTPPort     int          `yaml:"httpPort" json:"httpPort"`
+	Port         int          `yaml:"port" json:"port"`
+	ServerSecure ServerSecure `yaml:"serverSecure" json:"serverSecure"`
+}
+
 type DeadQueueDeclareOption struct {
 	Args       Args `yaml:"args" json:"args"`
 	AutoDelete bool `yaml:"autoDelete" json:"autoDelete"`
@@ -241,7 +250,6 @@ type App struct {
 	Host                  string   `yaml:"host" json:"host"`
 	Name                  string   `yaml:"name" json:"name"`
 	OpenCron              bool     `yaml:"openCron" json:"openCron"`
-	OpenHTTP              bool     `yaml:"openHttp" json:"openHttp"`
 	OpenJwt               bool     `yaml:"openJwt" json:"openJwt"`
 	OpenSign              bool     `yaml:"openSign" json:"openSign"`
 	OpenXSS               bool     `yaml:"openXSS" json:"openXSS"`
@@ -401,13 +409,6 @@ type Limit struct {
 
 type Sso struct {
 	EnableSSO bool `yaml:"enableSSO" json:"enableSSO"`
-}
-
-type Grpc struct {
-	EnableToken  bool         `yaml:"enableToken" json:"enableToken"`
-	HTTPPort     int          `yaml:"httpPort" json:"httpPort"`
-	Port         int          `yaml:"port" json:"port"`
-	ServerSecure ServerSecure `yaml:"serverSecure" json:"serverSecure"`
 }
 
 type EtcdInfo struct {

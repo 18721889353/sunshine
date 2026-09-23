@@ -41,7 +41,7 @@ import (
 
 var _ app.IServer = (*grpcServer)(nil)
 
-var (
+const (
 	defaultTokenAppID  = "grpc"
 	defaultTokenAppKey = "mko09ijn"
 )
@@ -216,8 +216,17 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 
 	// token interceptor
 	if config.Get().Grpc.EnableToken {
-		checkToken := func(appID string, appKey string) error {
-			if appID != defaultTokenAppID || appKey != defaultTokenAppKey {
+		grpcCfg := config.Get().Grpc
+		appID := grpcCfg.AppID
+		if appID == "" {
+			appID = defaultTokenAppID
+		}
+		appKey := grpcCfg.AppKey
+		if appKey == "" {
+			appKey = defaultTokenAppKey
+		}
+		checkToken := func(reqAppID string, reqAppKey string) error {
+			if reqAppID != appID || reqAppKey != appKey {
 				return status.Errorf(codes.Unauthenticated, "app id or app key checksum failure")
 			}
 			return nil
@@ -307,8 +316,17 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 
 	// token interceptor
 	if config.Get().Grpc.EnableToken {
-		checkToken := func(appID string, appKey string) error {
-			if appID != defaultTokenAppID || appKey != defaultTokenAppKey {
+		grpcCfg := config.Get().Grpc
+		appID := grpcCfg.AppID
+		if appID == "" {
+			appID = defaultTokenAppID
+		}
+		appKey := grpcCfg.AppKey
+		if appKey == "" {
+			appKey = defaultTokenAppKey
+		}
+		checkToken := func(reqAppID string, reqAppKey string) error {
+			if reqAppID != appID || reqAppKey != appKey {
 				return status.Errorf(codes.Unauthenticated, "app id or app key checksum failure")
 			}
 			return nil
@@ -401,6 +419,7 @@ func (s *grpcServer) registerMetricsMuxAndMethod() func() error {
 
 // registerProfMux 注册 pprof 性能分析 HTTP 路由。
 //
+// 始终注册路由（支持热更新），通过开关控制是否允许访问。
 // 生产环境自动启用 IP 白名单鉴权，防止敏感信息泄露；
 // dev/test 环境免鉴权方便调试。
 func (s *grpcServer) registerProfMux() {
@@ -413,6 +432,8 @@ func (s *grpcServer) registerProfMux() {
 		pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(config.Get().App.PprofIPWhiteList)))
 	}
 	prof.Register(s.mux, pprofOpts...)
+	// 根据配置设置初始开关状态
+	prof.SetPprofEnabled(config.Get().App.EnableHTTPProfile)
 }
 
 // addHTTPRouter 注册辅助 HTTP 路由（错误码列表和配置展示）。
@@ -455,9 +476,8 @@ func NewGRPCServer(addr string, opts ...GrpcOption) app.IServer {
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, os.Stderr, os.Stderr))
 
 	s.addHTTPRouter()
-	if config.Get().App.EnableHTTPProfile {
-		s.registerProfMux()
-	}
+	// 始终注册 pprof 路由（支持热更新），通过开关控制是否允许访问
+	s.registerProfMux()
 
 	s.listen, err = net.Listen("tcp", addr)
 	if err != nil {

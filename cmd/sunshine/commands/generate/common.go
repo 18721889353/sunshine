@@ -1038,7 +1038,8 @@ func changeOutPath(outPath string, serverName string) string {
 }
 
 // getSubFiles 收集需要生成的所有文件路径列表。
-// 自动确保 internal/config 目录包含 nacos.go 和 register_helper.go，支持通过 replaceFiles 替换选定文件。
+// 自动确保 internal/config 目录包含 nacos.go、nacos_encrypt.go、register_helper.go、
+// nacos_reload.go（热更新回调）和 reload.go（热更新框架），支持通过 replaceFiles 替换选定文件。
 // 参数:
 //   - selectFiles: 按目录分组的待生成文件映射，key 为目录路径，value 为文件名列表。
 //   - replaceFiles: 可选的文件替换映射，会覆盖 selectFiles 中同目录的文件列表。
@@ -1047,30 +1048,22 @@ func changeOutPath(outPath string, serverName string) string {
 //   - 拼接后的完整文件路径列表（格式: 目录/文件名）。
 func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]string) []string {
 	files := []string{}
-	// 所有生成器自动包含 nacos.go（配置中心拉取功能）、nacos_encrypt.go（Nacos凭据加解密）和 register_helper.go（配置构建辅助方法）
-	if v, ok := selectFiles["internal/config"]; ok {
-		hasNacos := false
-		hasNacosEncrypt := false
-		hasRegisterHelper := false
-		for _, f := range v {
-			if f == "nacos.go" {
-				hasNacos = true
-			}
-			if f == "nacos_encrypt.go" {
-				hasNacosEncrypt = true
-			}
-			if f == "register_helper.go" {
-				hasRegisterHelper = true
-			}
+	// 所有生成器自动包含以下 internal/config 文件：
+	// - nacos.go（配置中心拉取功能）
+	// - nacos_encrypt.go（Nacos凭据加解密）
+	// - register_helper.go（配置构建辅助方法）
+	// - nacos_reload.go（配置热更新回调）
+	// - reload.go（配置热更新框架）
+	configAutoFiles := []string{"nacos.go", "nacos_encrypt.go", "register_helper.go", "nacos_reload.go", "reload.go"}
+	if _, ok := selectFiles["internal/config"]; ok {
+		existing := make(map[string]bool)
+		for _, f := range selectFiles["internal/config"] {
+			existing[f] = true
 		}
-		if !hasNacos {
-			selectFiles["internal/config"] = append(v, "nacos.go")
-		}
-		if !hasNacosEncrypt {
-			selectFiles["internal/config"] = append(selectFiles["internal/config"], "nacos_encrypt.go")
-		}
-		if !hasRegisterHelper {
-			selectFiles["internal/config"] = append(selectFiles["internal/config"], "register_helper.go")
+		for _, autoFile := range configAutoFiles {
+			if !existing[autoFile] {
+				selectFiles["internal/config"] = append(selectFiles["internal/config"], autoFile)
+			}
 		}
 	}
 

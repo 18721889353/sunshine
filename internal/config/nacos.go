@@ -2,6 +2,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -9,11 +10,13 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 
 	"github.com/18721889353/sunshine/pkg/conf"
+	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/nacoscli"
 )
 
 // GetConfigFromNacos 从 Nacos 配置中心获取配置并设置到全局。
 // 先读取 configFile（Nacos 连接配置 YAML），再从 Nacos 拉取业务配置，解析后设置到 config.Get()。
+// 如果配置中 enableWatch=true，还会自动启动配置变更监听（后台 goroutine）。
 func GetConfigFromNacos(configFile string) error {
 	nacosConf, err := NewCenter(configFile)
 	if err != nil {
@@ -91,6 +94,12 @@ func GetConfigFromNacos(configFile string) error {
 
 	// 7. 设置全局配置
 	Set(appConfig)
+
+	// 8. 如果启用配置中心监听，启动后台监听
+	if nacosConf.Nacos.EnableWatch {
+		startNacosWatch(context.Background(), nacosConf, params)
+	}
+
 	return nil
 }
 
@@ -121,4 +130,96 @@ func buildNacosClientConfig(namespaceID, username, password string, timeoutMs in
 		Username:            username,
 		Password:            password,
 	}, logDir
+}
+
+// startNacosWatch 启动 Nacos 配置变更监听（后台 goroutine）。
+// 由 GetConfigFromNacos 在 enableWatch=true 时自动调用。
+//
+// 参数:
+//   - ctx: 控制监听生命周期的上下文，取消时停止监听。
+//   - nacosConf: 已解析并解密的 Nacos 连接配置。
+//   - params: Nacos 配置查询参数（Group/DataID/Format）。
+func startNacosWatch(ctx context.Context, nacosConf *Center, params *nacoscli.Params) {
+	// 构建监听客户端的连接选项（复用已解析的配置）
+	clientConfig, logDir := buildNacosClientConfig(
+		nacosConf.Nacos.NamespaceID,
+		nacosConf.Nacos.Username,
+		nacosConf.Nacos.Password,
+		5000,
+	)
+
+	grpcPort := nacosConf.Nacos.GrpcPort
+	if grpcPort == 0 {
+		grpcPort = nacosConf.Nacos.Port + 1000
+	}
+	opts := []nacoscli.Option{
+		nacoscli.WithClientConfig(clientConfig),
+		nacoscli.WithServerConfigs([]constant.ServerConfig{{
+			IpAddr:      nacosConf.Nacos.IPAddr,
+			Port:        uint64(nacosConf.Nacos.Port),
+			GrpcPort:    uint64(grpcPort),
+			Scheme:      nacosConf.Nacos.Scheme,
+			ContextPath: nacosConf.Nacos.ContextPath,
+		}}),
+	}
+
+	// 创建监听客户端
+	listener, err := nacoscli.NewListenClient(params, onNacosConfigChange, opts...)
+	if err != nil {
+		if removeErr := os.RemoveAll(logDir); removeErr != nil {
+			logger.WarnWithCtx(ctx, "[nacos watch] remove log dir failed", logger.Err(removeErr))
+		}
+		logger.WarnWithCtx(ctx, "[nacos watch] create listener failed", logger.Err(err))
+		return
+	}
+
+	// 在后台 goroutine 运行监听
+	go func() {
+		defer func() {
+			if closeErr := listener.Close(); closeErr != nil {
+				logger.WarnWithCtx(ctx, "[nacos watch] close listener failed", logger.Err(closeErr))
+			}
+			if removeErr := os.RemoveAll(logDir); removeErr != nil {
+				logger.WarnWithCtx(ctx, "[nacos watch] remove log dir failed", logger.Err(removeErr))
+			}
+		}()
+		listener.Start(ctx)
+	}()
+
+	logger.InfoWithCtx(ctx, "[nacos watch] started",
+		logger.String("dataID", nacosConf.Nacos.DataID),
+		logger.String("group", nacosConf.Nacos.Group),
+	)
+}
+
+// onNacosConfigChange Nacos 配置变更回调。
+// 解析新的 YAML 配置，校验关键字段，触发 reload 回调链。
+func onNacosConfigChange(_ string, group, dataID, data string) {
+	ctx := context.Background()
+	logger.InfoWithCtx(ctx, "[nacos watch] received config change",
+		logger.String("group", group),
+		logger.String("dataId", dataID),
+	)
+
+	// 1. 解析新配置
+	newCfg := &Config{}
+	if err := conf.ParseConfigData([]byte(data), "yaml", newCfg); err != nil {
+		logger.WarnWithCtx(ctx, "[nacos watch] parse new config failed",
+			logger.Err(err),
+		)
+		return
+	}
+
+	// 2. 校验关键字段
+	if newCfg.App.Name == "" {
+		logger.WarnWithCtx(ctx, "[nacos watch] invalid config: App.Name is empty")
+		return
+	}
+
+	// 3. 触发 reload 回调链
+	Reload(newCfg)
+
+	logger.InfoWithCtx(ctx, "[nacos watch] config reloaded",
+		logger.String("version", newCfg.App.Version),
+	)
 }

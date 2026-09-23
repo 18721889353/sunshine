@@ -55,19 +55,22 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	if cfg.TracerProvider == nil {
-		cfg.TracerProvider = otel.GetTracerProvider()
-	}
-	tracer := cfg.TracerProvider.Tracer(
-		tracerName,
-		oteltrace.WithInstrumentationVersion(otelcontrib.Version()),
-	)
 	if cfg.Propagators == nil {
 		cfg.Propagators = otel.GetTextMapPropagator()
 	}
 
 	return func(c *gin.Context) {
 		startTime := time.Now()
+
+		// 每次请求从全局 Provider 获取 tracer，确保热更新采样率立即生效
+		currentProvider := cfg.TracerProvider
+		if currentProvider == nil {
+			currentProvider = otel.GetTracerProvider()
+		}
+		tracer := currentProvider.Tracer(
+			tracerName,
+			oteltrace.WithInstrumentationVersion(otelcontrib.Version()),
+		)
 
 		// 1. 获取 RequestID（优先使用 RequestID 作为链路标识）
 		reqID := c.Request.Header.Get(HeaderXRequestIDKey)

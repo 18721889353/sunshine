@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,9 @@ import (
 )
 
 var defaultIgnoreURL = map[string]struct{}{}
+
+// globalSignConfig 全局签名配置，支持热更新
+var globalSignConfig atomic.Pointer[signOptions]
 
 // SignOption 签名验证配置选项函数类型
 type SignOption func(*signOptions)
@@ -82,30 +86,57 @@ func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	}
 }
 
+// SetSignConfig 设置全局签名配置（支持热更新）
+// 调用后，后续所有请求将使用新的配置
+func SetSignConfig(ignoreUrls []string, ignoreAll bool, signKey string, signExpiredTime time.Duration) {
+	o := &signOptions{
+		ignoreUrls:      make(map[string]struct{}),
+		ignoreAll:       ignoreAll,
+		signKey:         signKey,
+		signExpiredTime: signExpiredTime,
+	}
+	for _, url := range ignoreUrls {
+		o.ignoreUrls[url] = struct{}{}
+	}
+	globalSignConfig.Store(o)
+}
+
 // VerifySignatureMiddleware 创建 Gin 签名验证中间件。
 // 验证流程：
 //  1. 若开启 ignoreAll，直接放行
 //  2. 若当前 URL 在 ignoreUrls 中，直接放行
 //  3. 否则执行完整签名校验（参数完整性、时间戳、签名值）
+//
+// 支持热更新：每次请求时从全局配置读取最新配置
 func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 	o := defaultSignOptions()
 	o.apply(opts...)
+	// 初始化全局配置
+	if globalSignConfig.Load() == nil {
+		globalSignConfig.Store(o)
+	}
 
 	return func(ctx *gin.Context) {
+		// 从全局配置读取（支持热更新）
+		cfg := globalSignConfig.Load()
+		if cfg == nil {
+			cfg = o
+		}
+
 		// 优先判断是否全局忽略
-		if o.ignoreAll {
+		if cfg.ignoreAll {
 			ctx.Next()
 			return
 		}
 
 		// 其次判断是否在忽略 URL 列表中（精确匹配）
-		if _, ok := o.ignoreUrls[ctx.Request.URL.Path]; ok {
+		if _, ok := cfg.ignoreUrls[ctx.Request.URL.Path]; ok {
 			ctx.Next()
 			return
 		}
 
 		// 执行签名验证
-		err := verifySign(ctx, o)
+		err := verifySign(ctx, cfg)
 		if err != nil {
 			response.Out(ctx, errcode.InvalidParams.WithDetails(err.Error()))
 			ctx.Abort()

@@ -107,6 +107,7 @@ func InitRabbitmq(name string, mqCfg any) error {
 				gorabbitmq.WithHeartbeat(time.Second*time.Duration(poolCfg.Heartbeat)),
 			),
 			gorabbitmq.WithTraceEnabled(true),
+			gorabbitmq.WithStatsLogOpen(poolCfg.StatsLogOpen),
 		}
 
 		pool, err := gorabbitmq.NewPool(ctx, poolCfg.URL, poolOpts...)

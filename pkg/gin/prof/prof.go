@@ -3,6 +3,7 @@ package prof
 
 import (
 	"net/http/pprof"
+	"sync/atomic"
 
 	"github.com/felixge/fgprof"
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,9 @@ type options struct {
 	enableIOWaitTime bool
 	authMw           gin.HandlerFunc // 鉴权中间件，nil 表示不启用
 }
+
+// pprofEnabled 控制 pprof 路由是否生效，支持热更新
+var pprofEnabled atomic.Bool
 
 func (o *options) apply(opts ...Option) {
 	for _, opt := range opts {
@@ -64,6 +68,12 @@ func WithAuth(mw gin.HandlerFunc) Option {
 	}
 }
 
+// SetPprofEnabled 动态设置 pprof 路由是否生效，支持 Nacos 热更新。
+// enabled=true 时允许访问，enabled=false 时拒绝访问。
+func SetPprofEnabled(enabled bool) {
+	pprofEnabled.Store(enabled)
+}
+
 // Register 将 pprof 路由注册到 Gin 引擎路由组中。
 //
 // 注册的路由（以默认前缀 /debug/pprof 为例）：
@@ -85,7 +95,19 @@ func Register(r *gin.Engine, opts ...Option) {
 	o := &options{prefix: DefaultPrefix}
 	o.apply(opts...)
 
+	// 设置初始开关状态
+	pprofEnabled.Store(true)
+
 	group := r.Group(o.prefix)
+
+	// 动态开关中间件：根据 pprofEnabled 原子变量控制是否放行
+	group.Use(func(c *gin.Context) {
+		if !pprofEnabled.Load() {
+			c.AbortWithStatus(403)
+			return
+		}
+		c.Next()
+	})
 
 	// 可选鉴权中间件
 	if o.authMw != nil {

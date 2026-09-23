@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -14,6 +15,13 @@ import (
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 
 	"github.com/18721889353/sunshine/internal/routers"
+)
+
+var (
+	// globalHTTPServer 全局 HTTP 服务器实例，供更新超时参数时使用
+	globalHTTPServer *http.Server
+	// globalHTTPServerOnce 全局 HTTP 服务器实例初始化 Once
+	globalHTTPServerOnce sync.Once
 )
 
 var _ app.IServer = (*httpServer)(nil)
@@ -98,6 +106,11 @@ func (s *httpServer) String() string {
 	return "http service address " + s.addr
 }
 
+// GetHTTPServer 获取全局 HTTP Server 实例（供热更新超时参数使用）。
+func GetHTTPServer() *http.Server {
+	return globalHTTPServer
+}
+
 // NewHTTPServer 创建并返回一个 HTTP 服务实例，整合了路由引擎、超时配置和服务注册。
 // 内部创建 Gin 路由引擎并与 http.Server 绑定，同时携带服务注册所需的实例信息。
 // 注意：
@@ -139,10 +152,17 @@ func NewHTTPServer(addr string, opts ...HTTPOption) app.IServer {
 	}
 
 	// 5. 包装为 httpServer 并返回（含服务注册信息，供 Start 时使用）
-	return &httpServer{
+	httpSvr := &httpServer{
 		addr:      addr,
 		server:    server,
 		iRegistry: o.iRegistry,
 		instance:  o.instance,
 	}
+
+	// 6. 保存全局引用，供热更新超时参数使用（首次创建时保存）
+	globalHTTPServerOnce.Do(func() {
+		globalHTTPServer = server
+	})
+
+	return httpSvr
 }

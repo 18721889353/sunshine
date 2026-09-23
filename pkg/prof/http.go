@@ -3,6 +3,7 @@ package prof
 import (
 	"net/http"
 	"net/http/pprof"
+	"sync/atomic"
 
 	"github.com/felixge/fgprof"
 )
@@ -20,6 +21,9 @@ type httpOptions struct {
 	enableIOWaitTime bool
 	authFn           func(http.Handler) http.Handler // 鉴权中间件，nil 表示不启用
 }
+
+// httpPprofEnabled 控制 HTTP pprof 路由是否生效，支持热更新
+var httpPprofEnabled atomic.Bool
 
 func (o *httpOptions) apply(opts ...HTTPOption) {
 	for _, opt := range opts {
@@ -69,6 +73,12 @@ func WithAuth(authFn func(http.Handler) http.Handler) HTTPOption {
 	}
 }
 
+// SetPprofEnabled 动态设置 pprof 路由是否生效，支持 Nacos 热更新。
+// enabled=true 时允许访问，enabled=false 时拒绝访问。
+func SetPprofEnabled(enabled bool) {
+	httpPprofEnabled.Store(enabled)
+}
+
 // Register 将 pprof 路由注册到标准 http.ServeMux 中。
 //
 // 注册的路由（以默认前缀 /debug/pprof 为例）：
@@ -90,31 +100,51 @@ func Register(mux *http.ServeMux, opts ...HTTPOption) {
 	o := &httpOptions{prefix: DefaultPrefix}
 	o.apply(opts...)
 
+	// 设置初始开关状态
+	httpPprofEnabled.Store(true)
+
+	// 动态开关中间件：根据 httpPprofEnabled 原子变量控制是否放行
+	enabledCheck := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !httpPprofEnabled.Load() {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+
 	// 标准 pprof 路由
-	mux.Handle(o.prefix+"/", wrapHandler(o.authFn, http.HandlerFunc(pprof.Index)))
-	mux.Handle(o.prefix+"/profile", wrapHandler(o.authFn, http.HandlerFunc(pprof.Profile)))
-	mux.Handle(o.prefix+"/symbol", wrapHandler(o.authFn, http.HandlerFunc(pprof.Symbol)))
-	mux.Handle(o.prefix+"/cmdline", wrapHandler(o.authFn, http.HandlerFunc(pprof.Cmdline)))
-	mux.Handle(o.prefix+"/trace", wrapHandler(o.authFn, http.HandlerFunc(pprof.Trace)))
+	mux.Handle(o.prefix+"/", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Index)))
+	mux.Handle(o.prefix+"/profile", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Profile)))
+	mux.Handle(o.prefix+"/symbol", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Symbol)))
+	mux.Handle(o.prefix+"/cmdline", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Cmdline)))
+	mux.Handle(o.prefix+"/trace", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Trace)))
 
 	// 按名称查询的 profile 类型
-	mux.Handle(o.prefix+"/allocs", wrapHandler(o.authFn, pprof.Handler("allocs")))
-	mux.Handle(o.prefix+"/heap", wrapHandler(o.authFn, pprof.Handler("heap")))
-	mux.Handle(o.prefix+"/goroutine", wrapHandler(o.authFn, pprof.Handler("goroutine")))
-	mux.Handle(o.prefix+"/threadcreate", wrapHandler(o.authFn, pprof.Handler("threadcreate")))
-	mux.Handle(o.prefix+"/block", wrapHandler(o.authFn, pprof.Handler("block")))
-	mux.Handle(o.prefix+"/mutex", wrapHandler(o.authFn, pprof.Handler("mutex")))
+	mux.Handle(o.prefix+"/allocs", wrapHandler(o.authFn, enabledCheck, pprof.Handler("allocs")))
+	mux.Handle(o.prefix+"/heap", wrapHandler(o.authFn, enabledCheck, pprof.Handler("heap")))
+	mux.Handle(o.prefix+"/goroutine", wrapHandler(o.authFn, enabledCheck, pprof.Handler("goroutine")))
+	mux.Handle(o.prefix+"/threadcreate", wrapHandler(o.authFn, enabledCheck, pprof.Handler("threadcreate")))
+	mux.Handle(o.prefix+"/block", wrapHandler(o.authFn, enabledCheck, pprof.Handler("block")))
+	mux.Handle(o.prefix+"/mutex", wrapHandler(o.authFn, enabledCheck, pprof.Handler("mutex")))
 
 	// IO 等待时间 profile（类似 /profile，额外包含 IO 等待时间）
 	if o.enableIOWaitTime {
-		mux.Handle(o.prefix+"/profile-io", wrapHandler(o.authFn, fgprof.Handler()))
+		mux.Handle(o.prefix+"/profile-io", wrapHandler(o.authFn, enabledCheck, fgprof.Handler()))
 	}
 }
 
-// wrapHandler 如果 authFn 不为 nil，则用鉴权中间件包装 handler
-func wrapHandler(authFn func(http.Handler) http.Handler, handler http.Handler) http.Handler {
+// wrapHandler 用鉴权和开关中间件包装最终的 handler
+// authFn: 鉴权中间件，nil 表示不启用
+// enabledCheck: 开关检查中间件
+// handler: 最终的 pprof handler
+func wrapHandler(authFn func(http.Handler) http.Handler, enabledCheck func(http.Handler) http.Handler, handler http.Handler) http.Handler {
+	// 先包装开关检查
+	handler = enabledCheck(handler)
+	// 再包装鉴权
 	if authFn != nil {
-		return authFn(handler)
+		handler = authFn(handler)
 	}
 	return handler
 }

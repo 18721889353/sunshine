@@ -1,25 +1,23 @@
-
 # 应用设置
 app:
   name: "serverNameExample"       # 服务名称
   env: "dev"                      # 运行环境, dev: 开发环境, prod: 生产环境, test: 测试环境
   version: "v1.0.0"               # 版本号
-  host: "127.0.0.1"               # 域名或IP, 用于服务注册
-  enableMetrics: false            # 是否开启指标收集, true:开启, false:关闭
-  enableHTTPProfile: true         # 是否开启性能分析, true:开启, false:关闭
-  pprofIPWhiteList:               # pprof IP 白名单（空=仅 prod 环境用默认内网段）
-    - 127.0.0.1
-  enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭
-  enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭
-  enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭, 如果为true必须设置otlp配置
-  tracingSamplingRate: 1.0        # 链路追踪采样率, 介于0和1之间, 0表示不采样, 1表示采样所有链路
+  cacheType: "redis"              # 缓存类型, 如果为空, 不使用缓存, 支持"memory"和"redis", 如果设置为redis, 必须设置redis配置
   registryDiscoveryType: ""       # 注册与发现类型: etcd / nacos, 如果为空, 不使用注册与发现
-  cacheType: ""                   # 缓存类型, 如果为空, 不使用缓存, 支持"memory"和"redis", 如果设置为redis, 必须设置redis配置
-  openHttp: true                  # 是否开启http服务, true:开启, false:关闭
-  openXSS: true                   # 是否开启xss过滤, true:开启, false:关闭
-  openJwt: true                   # 是否开启jwt认证, true:开启, false:关闭
-  openSign: true                  # 是否开启签名认证, true:开启, false:关闭
-  openCron: false                 # 是否开启定时任务, true:开启, false:关闭
+  host: "127.0.0.1"               # 域名或IP, 用于服务注册
+  enableMetrics: false            # 是否开启指标收集, true:开启, false:关闭 [热更新]
+  enableHTTPProfile: true         # 是否开启性能分析, true:开启, false:关闭 [热更新]
+  pprofIPWhiteList:               # pprof IP 白名单（空=仅 prod 环境用默认内网段） [热更新]
+    - 127.0.0.1
+  enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭 [热更新]
+  enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭 [热更新]
+  enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭 [热更新: 设为false等效采样率=0]
+  tracingSamplingRate: 1.0        # 链路追踪采样率, 介于0和1之间, 0表示不采样, 1表示采样所有链路 [热更新]
+  openXSS: true                   # 是否开启xss过滤, true:开启, false:关闭 [热更新]
+  openJwt: true                   # 是否开启jwt认证, true:开启, false:关闭 [热更新]
+  openSign: true                  # 是否开启签名认证, true:开启, false:关闭 [热更新]
+  openCron: false                 # 是否开启定时任务, true:开启, false:关闭 [热更新: 仅支持运行时暂停/恢复, 启动时false无法热开启]
 
 # goroutine 协程池设置
 goroutine:
@@ -32,17 +30,19 @@ goroutine:
 # http服务设置
 http:
   port: 8001                      # 监听端口
-  timeout: 0                      # Gin 中间件请求超时(秒), 0=不限制, 如果enableHTTPProfile为true需设为0或大于60
-  readTimeout: 10                  # http.Server 读取超时(秒), 0=不限制, 建议 >= timeout
-  writeTimeout: 10                 # http.Server 写入超时(秒), 0=不限制, 建议 > timeout 避免与中间件超时竞态
-  readHeaderTimeout: 5            # http.Server 请求头读取超时(秒), 0=不限制, 建议 5-10s 防范慢攻击
-  idleTimeout: 60                  # http.Server keep-alive 空闲超时(秒), 0=不限制, 建议 60-120s 防连接泄漏
+  timeout: 0                      # Gin 中间件请求超时(秒), 0=不限制, 如果enableHTTPProfile为true需设为0或大于60 [热更新]
+  readTimeout: 10                 # http.Server 读取超时(秒), 0=不限制, 建议 >= timeout [热更新]
+  writeTimeout: 10                # http.Server 写入超时(秒), 0=不限制, 建议 > timeout 避免与中间件超时竞态 [热更新]
+  readHeaderTimeout: 5            # http.Server 请求头读取超时(秒), 0=不限制, 建议 5-10s 防范慢攻击 [热更新]
+  idleTimeout: 60                 # http.Server keep-alive 空闲超时(秒), 0=不限制, 建议 60-120s 防连接泄漏 [热更新]
 
 # grpc服务设置
 grpc:
   port: 7001                      # 监听端口
   httpPort: 6001                  # 性能分析和指标端口
-  enableToken: false              # 是否开启服务端token认证, 默认appID=grpc, appKey=123456
+  enableToken: false              # 是否开启服务端token认证 [热更新: 仅支持关闭, 开启需重启]
+  appID: "grpc"                   # Token 认证的应用ID, 为空则使用默认值(grpc)
+  appKey: "mko09ijn"              # Token 认证的密钥, 为空则使用默认值(mko09ijn)
   # serverSecure 参数设置
   # 如果type="", 表示无安全连接, 无需填写任何参数
   # 如果type="one-way", 表示服务端认证, 只需填写'certFile'和'keyFile'字段
@@ -80,12 +80,12 @@ grpcClient:
 # 日志设置
 logger:
   level: "info"                   # 输出日志级别 debug, info, warn, error, 默认为info（生产环境推荐）
-  format: "console"               # 输出格式, console或json, 默认为json（便于结构化解析）
-  isSave: false                   # false:输出到终端, true:输出到文件, 默认为true（生产环境必须）
+  format: "console"               # 输出格式, console或json, 默认为json (便于结构化解析)
+  isSave: false                   # false:输出到终端, true:输出到文件, 默认为true (生产环境必须)
   maxLen: 102400                  # 单条日志最大大小
-  isAsync: true                   # 是否异步输出日志（强烈建议启用，性能提升155%）
-  asyncBufferSize: 8              # 异步缓冲区大小单位(M)，默认8M（平衡内存与性能）
-  asyncFlushInterval: 5           # 异步刷新间隔(秒)，默认5秒（降低延迟）
+  isAsync: true                   # 是否异步输出日志 (强烈建议启用, 性能提升155%)
+  asyncBufferSize: 8              # 异步缓冲区大小单位(M), 默认8M (平衡内存与性能)
+  asyncFlushInterval: 5           # 异步刷新间隔(秒), 默认5秒 (降低延迟)
   # 当isSave=true时有效
   logFileConfig:
     filename: "logs/app.log"      # 文件名(支持相对路径，默认为logs/app.log)
@@ -122,17 +122,17 @@ sls:
   source: ""                      # 日志来源 (留空自动获取主机IP)
   # Producer 基础配置（基于压测结果优化）
   retries: 10                     # 重试次数, 默认10次
-  timeout: 60                     # 超时时间(秒)，默认 60 秒
+  timeout: 60                     # 超时时间(秒), 默认60秒
   # Producer 性能配置
-  totalSizeLnBytes: 536870912     # 缓存总大小(字节)，默认 512MB (512 * 1024 * 1024)
-  maxBatchCount: 4096             # 单个 Batch 最大日志条数，默认 4096
-  maxBatchSize: 3145728           # 单个 Batch 最大大小(字节)，默认 3MB (3 * 1024 * 1024)
-  lingerMs: 2000                  # Batch 刷新间隔(毫秒)，默认 2000ms (平衡实时性与吞吐量)
-  disableRuntimeMetrics: true     # 禁用运行时指标日志，避免每分钟打印 report status
+  totalSizeLnBytes: 536870912     # 缓存总大小(字节), 默认512MB (512 * 1024 * 1024)
+  maxBatchCount: 4096             # 单个Batch最大日志条数, 默认4096
+  maxBatchSize: 3145728           # 单个Batch最大大小(字节), 默认3MB (3 * 1024 * 1024)
+  lingerMs: 2000                  # Batch刷新间隔(毫秒), 默认2000ms (平衡实时性与吞吐量)
+  disableRuntimeMetrics: true     # 禁用运行时指标日志, 避免每分钟打印report status
   # 高级配置
-  enableHealthCheck: false         # 是否启用健康检查，默认 false
-  healthCheckInterval: 30         # 健康检查间隔(秒)，默认 30 秒 最少5秒
-  sendTimeout: 5                  # 发送超时时间(秒)，默认 5 秒
+  enableHealthCheck: false         # 是否启用健康检查, 默认false
+  healthCheckInterval: 30         # 健康检查间隔(秒), 默认30秒, 最少5秒
+  sendTimeout: 5                  # 发送超时时间(秒), 默认5秒
 # 数据库设置
 database:
   driver: "mysql"                 # 数据库驱动
@@ -140,12 +140,12 @@ database:
   mysql:
     # dsn格式,  <用户名>:<密码>@(<主机名>:<端口>)/<数据库>?[k=v& ......]
     dsn: "root:jianguo123@(127.0.0.1:3306)/hello?parseTime=true&loc=Asia%2FShanghai&charset=utf8mb4"
-    enableLog: false               # 是否开启打印所有日志
-    slowQueryThresholdMs: 300     # 慢查询阈值，单位毫秒
-    maxIdleConns: 10              # 设置空闲连接池中最大连接数 通常设置为小于 maxOpenConns
-    maxOpenConns: 20              # 设置数据库最大打开连接数
-    connMaxLifetime: 30           # 设置连接的最大存活时间(分)  建议小于数据库的 wait_timeout
-    maxIdleTime: 5                # 设置连接的最大空闲时间(分) 必须远小于数据库的 wait_timeout
+    enableLog: false               # 是否开启打印所有日志 [热更新]
+    slowQueryThresholdMs: 300     # 慢查询阈值，单位毫秒 [热更新]
+    maxIdleConns: 10              # 设置空闲连接池中最大连接数 通常设置为小于 maxOpenConns [热更新]
+    maxOpenConns: 20              # 设置数据库最大打开连接数 [热更新]
+    connMaxLifetime: 30           # 设置连接的最大存活时间(分)  建议小于数据库的 wait_timeout [热更新]
+    maxIdleTime: 5                # 设置连接的最大空闲时间(分) 必须远小于数据库的 wait_timeout [热更新]
     # 设置从库mysql dsn, 数组类型
     slavesDsn:
       - "root:jianguo123@(127.0.0.1:3306)/hello?parseTime=true&loc=Asia%2FShanghai&charset=utf8mb4"
@@ -201,69 +201,69 @@ etcdInfo:
     username: ""                   # 认证用户名（etcd 启用 auth 时填写）
     password: ""                   # 认证密码
     authTokenTTL: ""               # JWT token 有效期（如 "5m"），客户端将自动在过期前刷新 token
-    dialTimeout: 5s                 # 连接超时（默认 5s）
-    dialKeepAliveTime: 20s          # 保持连接的时间间隔（默认 20s）
-    dialKeepAliveTimeout: 10s       # 保持连接的超时时间（默认 10s）
-    autoSyncInterval: 0s            # 成员列表自动同步间隔（0=不启用）
+    dialTimeout: 5s                # 连接超时（默认 5s）
+    dialKeepAliveTime: 20s         # 保持连接的时间间隔（默认 20s）
+    dialKeepAliveTimeout: 10s      # 保持连接的超时时间（默认 10s）
+    autoSyncInterval: 0s           # 成员列表自动同步间隔（0=不启用）
     # TLS 安全连接
-    isSecure: false                 # 是否启用 TLS 安全连接
-    serverNameOverride: ""          # TLS 服务器域名覆盖
-    certFile: ""                    # TLS 证书文件路径
-    caFile: ""                      # CA 证书文件路径（双向 mTLS 时填写）
+    isSecure: false                # 是否启用 TLS 安全连接
+    serverNameOverride: ""         # TLS 服务器域名覆盖
+    certFile: ""                   # TLS 证书文件路径
+    caFile: ""                     # CA 证书文件路径（双向 mTLS 时填写）
   etcdRegistry:
     namespace: "/microservices"    # etcd 键前缀命名空间
-    ttl: 30s                        # 注册租约 TTL（租约到期后自动摘除）
-    maxRetry: 5                     # 重注册最大重试次数
-    checkInterval: 1                # key 存在性校验间隔（心跳响应次数，1=每1次心跳校验1次）
+    ttl: 30s                       # 注册租约 TTL（租约到期后自动摘除）
+    maxRetry: 5                    # 重注册最大重试次数
+    checkInterval: 1               # key 存在性校验间隔（心跳响应次数，1=每1次心跳校验1次）
     # 重试退避
-    backoffInit: 1s                 # 重注册指数退避初始间隔
-    backoffMax: 30s                 # 重注册指数退避最大间隔
+    backoffInit: 1s                # 重注册指数退避初始间隔
+    backoffMax: 30s                # 重注册指数退避最大间隔
 
 # nacos服务注册与发现设置
 nacosInfo:
   nacosServer:
-    ipAddr: ""                      # Nacos 服务器地址
-    port: 8848                       # Nacos 服务器端口（8848=HTTP, 9848=gRPC）
-    scheme: ""                       # 协议，http 或 grpc（空=使用 SDK 默认） "https" 即启用 TLS
-    contextPath: "/nacos"           # Nacos 上下文路径
+    ipAddr: ""                     # Nacos 服务器地址
+    port: 8848                     # Nacos 服务器端口（8848=HTTP, 9848=gRPC）
+    scheme: ""                     # 协议，http 或 grpc（空=使用 SDK 默认） "https" 即启用 TLS
+    contextPath: "/nacos"          # Nacos 上下文路径
   nacosClient:
-    namespaceID: ""                  # 命名空间 ID（空=public 命名空间）
-    timeoutMs: 5000                  # 请求超时（毫秒，默认 5000）
+    namespaceID: ""                # 命名空间 ID（空=public 命名空间）
+    timeoutMs: 5000                # 请求超时（毫秒，默认 5000）
     # 连接认证
-    username: ""                     # 认证用户名（Nacos 开启 auth 时填写）
-    password: ""                     # 认证密码
+    username: ""                   # 认证用户名（Nacos 开启 auth 时填写）
+    password: ""                   # 认证密码
   nacosRegistry:
-    groupName: "DEFAULT_GROUP"      # 服务注册分组
-    clusterName: "DEFAULT"          # 集群名称
+    groupName: "DEFAULT_GROUP"     # 服务注册分组
+    clusterName: "DEFAULT"         # 集群名称
     # 实例属性
-    weight: 1                        # 注册实例权重（范围 0~10000）
-    ephemeral: true                  # 是否临时实例（true=心跳保活，断开自动移除；false=持久实例）
-    registerEnabled: true            # 注册后是否启用（false=不下发流量）
-    healthy: true                    # 注册时实例健康状态（仅对持久实例有效）
+    weight: 1                      # 注册实例权重（范围 0~10000）
+    ephemeral: true                # 是否临时实例（true=心跳保活，断开自动移除；false=持久实例）
+    registerEnabled: true          # 注册后是否启用（false=不下发流量）
+    healthy: true                  # 注册时实例健康状态（仅对持久实例有效）
     # 自愈校验
-    checkInterval: 30s               # 实例存在性校验间隔（0=不启用）
+    checkInterval: 30s             # 实例存在性校验间隔（0=不启用）
     # 重试退避
-    backoffInit: 1s                  # 重注册指数退避初始间隔
-    backoffMax: 30s                  # 重注册指数退避最大间隔
+    backoffInit: 1s                # 重注册指数退避初始间隔
+    backoffMax: 30s                # 重注册指数退避最大间隔
 
-# 签名设置
+# 签名设置 [热更新: signExpiredTime/signKey/ignoreUrls 均支持]
 sign:
-  signExpiredTime: 10             # 签名过期时间(秒)
-  signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"  # 签名密钥
-  ignoreUrls: # 忽略签名验证的URL
+  signExpiredTime: 10             # 签名过期时间(秒) [热更新]
+  signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"  # 签名密钥 [热更新]
+  ignoreUrls: # 忽略签名验证的URL [热更新]
     http:
       - "/api/fd_v1/test"
     grpc:
       - "/api.feedovService.v1.feedovService/test"
       - "/grpc.health.v1.Health/Check"
 
-# JWT设置
+# JWT设置 [热更新: expire/signingKey/signingMethod/issuer/ignoreMethods 均支持]
 jwt:
-  expire: 120                     # 过期时间(分钟)
-  signingKey: "sunshine"          # 签名密钥
-  signingMethod: "HS256"          # 签名方法
-  issuer: "sunshine"              # 签发者
-  ignoreMethods: # 忽略JWT验证的方法
+  expire: 120                     # 过期时间(分钟) [热更新]
+  signingKey: "sunshine"          # 签名密钥 [热更新]
+  signingMethod: "HS256"          # 签名方法 [热更新]
+  issuer: "sunshine"              # 签发者 [热更新]
+  ignoreMethods: # 忽略JWT验证的方法 [热更新]
     http:
       - "/api/v1/auth/captcha"
       - "/api/v1/auth/login"
@@ -272,7 +272,7 @@ jwt:
       - "/api.adminService.v1.adminLoginService/Login"
       - "/grpc.health.v1.Health/Check"
 
-# Sentinel 流量防护配置（限流 + 熔断）
+# Sentinel 流量防护配置（限流 + 熔断）[热更新: 规则变更后自动重载]
 sentinel:
   # 限流规则
   limitRules:
@@ -299,10 +299,10 @@ rabbitmq:
     maxCap: 25                    # 最大连接数
     healthCheckPeriod: 60         # 健康检查间隔(秒)
     maxIdle: 300                  # 最大空闲时间(秒)
-    reconnectTime: 5              # 设置重连时间间隔选项(秒)
-    dialTimeout: 5                # 设置连接超时时间选项(秒)
-    heartbeat: 30                 # 设置心跳间隔选项(秒)
-    statsLogOpen: false            # 统计日志打印 true开false关
+    reconnectTime: 5              # 重连时间间隔(秒)
+    dialTimeout: 5                # 连接超时时间(秒)
+    heartbeat: 30                 # 心跳间隔(秒)
+    statsLogOpen: false           # 统计日志打印, true开 false关
   DoingOrder: # 订单处理配置
     enable: false                  # 是否启用
     queueType: "dead"             # 队列类型 普通死信队列选项dead 自定义死信队列 customerDead 正常队列 normal 延时队列 delay
@@ -393,26 +393,26 @@ elasticsearch:
   enablePingCheck: true           # 是否启用ping检查
   enableHealthCheck: true         # 是否启用健康检查
 
-# 邮件服务配置（支持腾讯云SES/阿里云DM/SMTP）
+# 邮件服务配置（支持腾讯云SES/阿里云DM/SMTP）[热更新: 工厂模式，每次发送时读取最新配置]
 email:
-  providerType: "tencent_ses"     # tencent_ses | aliyun_dm | smtp
-  region: "ap-guangzhou"          # 区域
-  accessKeyID: "YOUR_AK"          # AK/SK（建议从环境变量读取）
-  secretKey: "YOUR_SK"
-  # SMTP专用（providerType=smtp时使用）
+  providerType: "tencent_ses"     # tencent_ses | aliyun_dm | smtp [热更新]
+  region: "ap-guangzhou"          # 区域 [热更新]
+  accessKeyID: "YOUR_AK"          # AK/SK (建议从环境变量读取) [热更新]
+  secretKey: "YOUR_SK"            # SecretKey [热更新]
+  # SMTP专用 (providerType=smtp时使用) [热更新]
   smtp:
-    host: "smtp.qq.com"
-    port: 465
-    username: "your_email@qq.com"
-    password: "your_auth_code"
+    host: "smtp.qq.com"            # SMTP服务器地址 [热更新]
+    port: 465                       # SMTP端口 [热更新]
+    username: "your_email@qq.com"  # SMTP用户名 [热更新]
+    password: "your_auth_code"     # SMTP密码 [热更新]
 
-# 短信服务配置（支持腾讯云SMS/阿里云SMS）
+# 短信服务配置（支持腾讯云SMS/阿里云SMS）[热更新: 工厂模式，每次发送时读取最新配置]
 sms:
-  providerType: "tencent_sms"        # tencent_sms | aliyun_sms
-  region: "ap-guangzhou"              # 区域（短信发送接口仅支持广州/新加坡等地域）
-  accessKeyID: ""   # SecretId
-  secretKey: ""        # SecretKey
-  appID: ""                # 短信应用ID（SmsSdkAppId）
+  providerType: "tencent_sms"        # tencent_sms | aliyun_sms [热更新]
+  region: "ap-guangzhou"              # 区域（短信发送接口仅支持广州/新加坡等地域） [热更新]
+  accessKeyID: ""                 # SecretId [热更新]
+  secretKey: ""                   # SecretKey [热更新]
+  appID: ""                       # 短信应用ID (SmsSdkAppId) [热更新]
 
 websocket:
   sso:
@@ -431,13 +431,13 @@ websocket:
 
   queue:
     # ==================== 客户端队列 & 超时 & 消息限制（影响背压行为） ====================
-    writeQueueSize: 1024       # 写入队列容量，0=默认 1024
-    readQueueSize: 1024        # 读取队列容量，0=默认 1024
-    readTimeout: 60          # 读取超时（秒），0=不限制，建议 60
-    writeTimeout: 10         # 写入超时（秒），0=默认 10
-    readLimit: 0             # 单条消息读取大小限制（字节），0=不限制
-    writeLimit: 0            # 单条消息写入大小限制（字节），0=不限制
-    writeMsgType: 1          # 消息帧类型：1=Text 2=Binary（二进制协议如 protobuf 请设为 2）
+    writeQueueSize: 1024          # 写入队列容量, 0=默认1024
+    readQueueSize: 1024           # 读取队列容量, 0=默认1024
+    readTimeout: 60               # 读取超时(秒), 0=不限制, 建议60
+    writeTimeout: 10              # 写入超时(秒), 0=默认10
+    readLimit: 0                  # 单条消息读取大小限制(字节), 0=不限制
+    writeLimit: 0                 # 单条消息写入大小限制(字节), 0=不限制
+    writeMsgType: 1               # 消息帧类型: 1=Text 2=Binary (二进制协议如protobuf请设为2)
 
   heartbeat:
     # ==================== 心跳保活 ====================

@@ -1,10 +1,10 @@
 ## gocron
 
-Scheduled task library encapsulated on [cron v3](github.com/robfig/cron).
+定时任务调度库，封装 [cron v3](https://github.com/robfig/cron)。
 
 <br>
 
-### Example of use
+### 使用示例
 
 ```go
 package main
@@ -17,19 +17,18 @@ import (
 )
 
 var task1 = func() {
-	fmt.Println("this is task1")
-	fmt.Println("running task list:", gocron.GetRunningTasks())
+	fmt.Println("这是 task1")
+	fmt.Println("运行中的任务列表:", gocron.GetRunningTasks())
 }
 
 var taskOnce = func() {
-	fmt.Println("this is task2, only run once")
-	fmt.Println("running task list:", gocron.GetRunningTasks())
+	fmt.Println("这是 task2, 只执行一次")
+	fmt.Println("运行中的任务列表:", gocron.GetRunningTasks())
 }
 
 func main() {
 	err := gocron.Init(
-		gocron.WithLogger(logger.Get()),
-		// gocron.WithLogger(logger.Get(), true), // only print error logs, ignore info logs
+		gocron.WithOnlyPrintError(true), // 仅打印错误日志
 	)
 	if err != nil {
 		panic(err)
@@ -45,16 +44,35 @@ func main() {
 			Name:      "taskOnce",
 			TimeSpec:  "@every 3s",
 			Fn:        taskOnce,
-			IsRunOnce: true, // run only once
+			IsRunOnce: true, // 仅执行一次
 		},
 	}...)
 
 	time.Sleep(time.Second * 10)
 
-	// stop task1
+	// 停止 task1
 	gocron.DeleteTask("task1")
 
-	// view running tasks
-	fmt.Println("running task list:", gocron.GetRunningTasks())
+	// 查看运行中的任务
+	fmt.Println("运行中的任务列表:", gocron.GetRunningTasks())
 }
 ```
+
+### 暂停与恢复
+
+支持运行时暂停和恢复所有定时任务（用于 `openCron` 热更新）：
+
+```go
+// 暂停所有任务
+gocron.Pause()
+
+// 恢复所有任务（重建调度器，重新注册已注册的任务）
+gocron.Resume()
+
+// 查询是否暂停
+if gocron.IsPaused() {
+    fmt.Println("调度器已暂停")
+}
+```
+
+> 注意：`Pause` 会停止调度器，`Resume` 会重建调度器并重新注册所有任务。

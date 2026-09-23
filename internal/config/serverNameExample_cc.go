@@ -19,6 +19,7 @@ type Center struct {
 type Nacos struct {
 	ContextPath string `yaml:"contextPath" json:"contextPath"`
 	DataID      string `yaml:"dataID" json:"dataID"`
+	EnableWatch bool   `yaml:"enableWatch" json:"enableWatch"`
 	Format      string `yaml:"format" json:"format"`
 	Group       string `yaml:"group" json:"group"`
 	GrpcPort    int    `yaml:"grpcPort" json:"grpcPort"`

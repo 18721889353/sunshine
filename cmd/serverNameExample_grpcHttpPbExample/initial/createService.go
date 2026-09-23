@@ -59,6 +59,7 @@ func CreateServices() []app.IServer {
 		httpOpts = append(httpOpts, server.WithHTTPIdleTimeout(time.Duration(cfg.HTTP.IdleTimeout)*time.Second))
 	}
 	httpServer := server.NewHTTPServer(httpAddr, httpOpts...)
+	config.SetHTTPServerGetter(server.GetHTTPServer)
 	servers = append(servers, httpServer)
 
 	// create a grpc service

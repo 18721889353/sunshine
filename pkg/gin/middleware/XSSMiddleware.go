@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/microcosm-cc/bluemonday"
@@ -20,6 +21,15 @@ import (
 // pprof 显示每次 UGCPolicy() 调用累积分配 ~45MB 内存（regexp/syntax.appendRange 等）。
 // bluemonday.Policy 创建后为只读对象，Sanitize() 方法线程安全，可安全并发使用。
 var cachedUGCPolicy = bluemonday.UGCPolicy()
+
+// xssEnabled 控制 XSS 中间件是否生效，支持热更新
+var xssEnabled atomic.Bool
+
+// SetXSSEnabled 动态设置 XSS 中间件是否生效，支持 Nacos 热更新。
+// enabled=true 时启用 XSS 过滤，enabled=false 时跳过所有过滤。
+func SetXSSEnabled(enabled bool) {
+	xssEnabled.Store(enabled)
+}
 
 // XSSOptions XSS 防护配置选项
 type XSSOptions func(*xssOptions)
@@ -58,7 +68,17 @@ func WithIgnoreXSSURL(urls ...string) XSSOptions {
 func XSSCrossMiddleware(opts ...XSSOptions) gin.HandlerFunc {
 	o := defaultXSSOptions()
 	o.apply(opts...)
+
+	// 设置初始开关状态
+	xssEnabled.Store(true)
+
 	return func(ctx *gin.Context) {
+		// 热更新开关检查
+		if !xssEnabled.Load() {
+			ctx.Next()
+			return
+		}
+
 		if _, ok := o.ignoreUrls[ctx.Request.URL.Path]; ok {
 			ctx.Next()
 			return

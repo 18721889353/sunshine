@@ -81,6 +81,11 @@ func NewPool(ctx context.Context, url string, opts ...PoolOption) (*Pool, error)
 	// 启动空闲连接清理协程（使用 WithoutCancel 隔离调用方 ctx 的取消信号）
 	go p.idleCleanup(context.WithoutCancel(ctx))
 
+	// 启动统计日志打印协程（使用 WithoutCancel 隔离调用方 ctx 的取消信号）
+	if o.statsLogOpen {
+		go p.statsLogger(context.WithoutCancel(ctx))
+	}
+
 	return p, nil
 }
 
@@ -426,6 +431,38 @@ func (p *Pool) idleCleanup(ctx context.Context) {
 			p.cleanup(ctx)
 		}()
 	}
+}
+
+// statsLogger 定期打印连接池统计信息
+func (p *Pool) statsLogger(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		if p.isClosed.Load() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			stats := p.Stats(ctx)
+			logPoolStats(ctx, stats)
+		}
+	}
+}
+
+// logPoolStats 记录连接池统计日志
+func logPoolStats(ctx context.Context, stats map[string]interface{}) {
+	totalConns := fmt.Sprintf("%v", stats["totalConns"])
+	available := fmt.Sprintf("%v", stats["available"])
+	poolSize := fmt.Sprintf("%v", stats["poolSize"])
+	maxCap := fmt.Sprintf("%v", stats["maxCap"])
+	logger.InfoWithCtx(ctx, "[rabbitmq pool] stats",
+		logger.String("totalConns", totalConns),
+		logger.String("available", available),
+		logger.String("poolSize", poolSize),
+		logger.String("maxCap", maxCap),
+	)
 }
 
 // cleanup 清理空闲和无效连接（一次加锁完成两件事）

@@ -122,11 +122,12 @@ func NewRouter() *gin.Engine {
 	r.GET("/codes", handlerfunc.ListCodes)
 
 	// pprof 性能分析路由
-	// 自动启用 IP 白名单鉴权，防止敏感信息泄露；列表为空时默认仅允许内网访问
-	if cfg.App.EnableHTTPProfile {
-		pprofOpts := []prof.Option{prof.WithIOWaitTime(), prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList))}
-		prof.Register(r, pprofOpts...)
-	}
+	// 始终注册路由（支持热更新），通过开关控制是否允许访问
+	// 自动启用 IP 白名单鉴权，防止敏感信息泄露
+	pprofOpts := []prof.Option{prof.WithIOWaitTime(), prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList))}
+	prof.Register(r, pprofOpts...)
+	// 根据配置设置初始开关状态
+	prof.SetPprofEnabled(cfg.App.EnableHTTPProfile)
 
 	if cfg.App.Env != "prod" {
 		r.GET("/config", gin.WrapF(errcode.ShowConfig([]byte(config.Show()))))
@@ -166,10 +167,10 @@ func NewRouter() *gin.Engine {
 			),
 		)
 	}
-	// 将XSSMiddleware添加为全局中间件
-	if cfg.App.OpenXSS {
-		r.Use(middleware.XSSCrossMiddleware())
-	}
+	// 将XSSMiddleware添加为全局中间件（支持热更新）
+	r.Use(middleware.XSSCrossMiddleware())
+	// 根据配置设置初始开关状态
+	middleware.SetXSSEnabled(cfg.App.OpenXSS)
 	// metrics middleware
 	if cfg.App.EnableMetrics {
 		r.Use(metrics.Metrics(r,
