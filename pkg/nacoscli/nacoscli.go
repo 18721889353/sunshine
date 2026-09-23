@@ -176,6 +176,7 @@ func (c *Client) getConfig(ctx context.Context, params *Params) (format string, 
 }
 
 // Close 关闭 Nacos 配置客户端，释放底层连接资源。
+// 注意：Nacos SDK 的 CloseClient() 不返回错误，此处直接调用。
 func (c *Client) Close() error {
 	c.configClient.CloseClient()
 	return nil
@@ -187,6 +188,9 @@ func (c *Client) Close() error {
 
 // GetConfig 从 Nacos 配置中心获取配置并返回配置内容与格式。
 func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
+	if params == nil {
+		return "", nil, errors.New("Params 不能为空")
+	}
 	if err := params.valid(); err != nil {
 		return "", nil, err
 	}

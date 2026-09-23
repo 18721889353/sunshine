@@ -1,6 +1,8 @@
 package nacoscli
 
 import (
+	"time"
+
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 )
 
@@ -19,12 +21,19 @@ type options struct {
 	clientConfig *constant.ClientConfig
 	// 如果设置了 serverConfigs，上述 ipAddr/port/scheme/contextPath 等字段将无效
 	serverConfigs []constant.ServerConfig
+
+	// WatchConfig 专用配置
+	maxRetries     int           // 最大重试次数，0 表示无限重试
+	createDelay    time.Duration // 创建失败后等待时间，默认 5 秒
+	reconnectDelay time.Duration // 连接断开后等待时间，默认 3 秒
 }
 
 // defaultOptions 返回默认的 options 结构体实例。
 func defaultOptions() *options {
 	return &options{
-		timeoutMs: 5000,
+		timeoutMs:      5000,
+		createDelay:    5 * time.Second,
+		reconnectDelay: 3 * time.Second,
 	}
 }
 
@@ -101,5 +110,26 @@ func WithClientConfig(clientConfig *constant.ClientConfig) Option {
 func WithServerConfigs(serverConfigs []constant.ServerConfig) Option {
 	return func(o *options) {
 		o.serverConfigs = serverConfigs
+	}
+}
+
+// WithMaxRetries 设置 WatchConfig 最大重试次数，0 表示无限重试（默认）。
+func WithMaxRetries(n int) Option {
+	return func(o *options) {
+		o.maxRetries = n
+	}
+}
+
+// WithCreateDelay 设置 WatchConfig 创建监听器失败后的重试等待时间，默认 5 秒。
+func WithCreateDelay(d time.Duration) Option {
+	return func(o *options) {
+		o.createDelay = d
+	}
+}
+
+// WithReconnectDelay 设置 WatchConfig 连接断开后的重连等待时间，默认 3 秒。
+func WithReconnectDelay(d time.Duration) Option {
+	return func(o *options) {
+		o.reconnectDelay = d
 	}
 }

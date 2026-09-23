@@ -2,11 +2,11 @@ package nacoscli
 
 import (
 	"context"
-	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/18721889353/sunshine/pkg/utils"
@@ -18,15 +18,26 @@ var (
 	namespaceID = "3454d2b5-2455-4d0e-bf6d-e033b086bb4c"
 )
 
+// skipIfNoNacos 集成测试前置条件：NACOS_ADDR 环境变量未设置时跳过。
+func skipIfNoNacos(t *testing.T) {
+	t.Helper()
+	if os.Getenv("NACOS_ADDR") == "" {
+		t.Skip("NACOS_ADDR 未设置，跳过集成测试")
+	}
+}
+
 // TestNewClient 验证命名客户端的创建。
 func TestNewClient(t *testing.T) {
+	skipIfNoNacos(t)
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
 		cli, err := NewClient(ipAddr, port, namespaceID)
 		t.Log(err, cli)
 	})
 }
 
+// TestNewConfigClient 验证配置客户端的创建与关闭。
 func TestNewConfigClient(t *testing.T) {
+	skipIfNoNacos(t)
 	utils.SafeRunWithTimeout(time.Second*2, func(cancel context.CancelFunc) {
 		client, err := newConfigClient(
 			WithIPAddr(ipAddr),
@@ -37,12 +48,15 @@ func TestNewConfigClient(t *testing.T) {
 			t.Skipf("Nacos 服务不可用: %v", err)
 			return
 		}
-		_ = client.Close()
+		if closeErr := client.Close(); closeErr != nil {
+			t.Errorf("Close() 产生意外错误: %v", closeErr)
+		}
 	})
 }
 
-// TestClient_GetConfig 验证 Client.GetConfig 方法。
+// TestClient_GetConfig 验证 Client.getConfig 方法。
 func TestClient_GetConfig(t *testing.T) {
+	skipIfNoNacos(t)
 	client, err := newConfigClient(
 		WithIPAddr(ipAddr),
 		WithPort(port),
@@ -50,7 +64,6 @@ func TestClient_GetConfig(t *testing.T) {
 	)
 	if err != nil {
 		t.Skipf("Nacos 服务不可用: %v", err)
-		return
 	}
 	defer client.Close()
 
@@ -67,8 +80,9 @@ func TestClient_GetConfig(t *testing.T) {
 	})
 }
 
-// TestParse 验证向后兼容的 GetConfig 函数（方式一：通过 Params 字段）。
-func TestParse(t *testing.T) {
+// TestGetConfig 验证 GetConfig 便捷函数（方式一：通过 Params 字段）。
+func TestGetConfig(t *testing.T) {
+	skipIfNoNacos(t)
 	params := &Params{
 		IPAddr:      ipAddr,
 		Port:        port,
@@ -84,8 +98,9 @@ func TestParse(t *testing.T) {
 	})
 }
 
-// TestParseWithOptions 验证向后兼容的 GetConfig 函数（方式二：通过 Option）。
-func TestParseWithOptions(t *testing.T) {
+// TestGetConfigWithOptions 验证 GetConfig 便捷函数（方式二：通过 Option）。
+func TestGetConfigWithOptions(t *testing.T) {
+	skipIfNoNacos(t)
 	params := &Params{
 		Group:  "dev",
 		DataID: "serverNameExample.yml",
@@ -115,24 +130,34 @@ func TestParseWithOptions(t *testing.T) {
 	})
 }
 
-func TestError(t *testing.T) {
-	// valid() 参数校验
+// TestGetConfigNilParams 验证 GetConfig 对 nil params 的处理。
+func TestGetConfigNilParams(t *testing.T) {
+	_, _, err := GetConfig(nil)
+	assert.Error(t, err)
+}
+
+// TestValid 验证 Params.valid() 的参数校验逻辑。
+func TestValid(t *testing.T) {
+	// Group 为空
 	p := &Params{}
 	p.Group = ""
 	err := p.valid()
 	assert.Error(t, err)
 
+	// DataID 为空
 	p.Group = "group"
 	p.DataID = ""
 	err = p.valid()
 	assert.Error(t, err)
 
+	// Format 为空
 	p.Group = "group"
 	p.DataID = "id"
 	p.Format = ""
 	err = p.valid()
 	assert.Error(t, err)
 
+	// yml 归一化为 yaml
 	p.Group = "group"
 	p.DataID = "id"
 	p.Format = "yml"
@@ -140,6 +165,7 @@ func TestError(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "yaml", p.Format)
 
+	// 不支持的 Format
 	p.Group = "group"
 	p.DataID = "id"
 	p.Format = "unknown"
@@ -150,7 +176,13 @@ func TestError(t *testing.T) {
 	_, _, err = GetConfig(&Params{})
 	assert.Error(t, err)
 
-	// NewClient 缺少服务器地址
-	_, err = NewClient(ipAddr, port, namespaceID)
-	_ = err
+	// GetConfig nil params
+	_, _, err = GetConfig(nil)
+	assert.Error(t, err)
+}
+
+// TestNewClientMissingAddress 验证 NewClient 缺少服务器地址时返回错误。
+func TestNewClientMissingAddress(t *testing.T) {
+	_, err := NewClient("", 0, "")
+	assert.Error(t, err)
 }

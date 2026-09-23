@@ -33,6 +33,7 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 + 端到端测试策略 |
 | 十七 | goroutine panic recover 策略 | 终止型退出清理 + 循环型继续执行 |
 | 十八 | 中文注释与日志规范 | 包注释内容要求 / 日志中文 / 错误中文 / 详细注释风格 |
+| 十九 | README 文档编写规范 | 场景驱动 / API 速查 / 错误处理 / 可读性 |
 
 ## 一、errcheck — 错误必须显式处理
 
@@ -1110,4 +1111,111 @@ func (c *middlewareConfig) setGroupPath(groupPath string, handlers ...gin.Handle
 | 业务逻辑类 | 详细中文注释 + 步骤编号 + why 说明 | `setGroupPath`、`reloadDatabasePool` |
 | 简单工具方法 | 一行函数级注释即可 | `FormatDataID` |
 | 接口/构造函数 | 函数级注释 + 参数/返回值说明 | `NewClient`、`WatchConfig` |
+
+## 十九、README 文档编写规范
+
+README 是包的门面文档，必须让使用者在 30 秒内找到自己需要的用法。所有 `pkg/` 下的包必须有 README.md。
+
+### 核心原则：场景驱动
+
+README 以**使用场景**组织，不以 API 列表组织。每个场景包含：适用/不适用说明 + 完整代码示例 + 内部行为描述。
+
+```markdown
+# ❌ 错误：纯 API 列表式文档
+## GetConfig
+func GetConfig(params *Params, opts ...Option) (string, []byte, error)
+## WatchConfig
+func WatchConfig(...) context.CancelFunc
+
+# ✅ 正确：场景驱动
+## 使用场景选择
+### 场景一：一次性拉取配置（GetConfig）
+**适用场景**：应用启动时读取配置，读完即关。
+**内部行为**：创建客户端 -> 拉取 -> 关闭，30s 超时。
+[完整代码示例]
+### 场景二：监听配置变更（WatchConfig）
+**适用场景**：运行时实时感知配置变更。
+[完整代码示例]
+```
+
+### README 标准结构
+
+```markdown
+# 包名
+一句话功能描述。
+
+## 架构概览（可选，复杂包必写）
+文件结构 + 核心设计原则。
+
+## 使用场景选择
+按场景组织，每个场景包含：
+- 适用/不适用场景
+- 完整可运行的代码示例
+- 内部行为描述（创建/销毁/超时等）
+- 关键注意事项
+
+## 核心结构体/类型说明
+表格列出字段、类型、是否必填、说明。
+
+## Option 列表
+表格列出所有 Option、说明、默认值、适用 API。
+
+## API 速查
+每个导出函数的签名 + 一句话行为描述。
+
+## 错误处理
+表格列出所有可能的错误场景及行为。
+
+## OpenTelemetry 集成（如有）
+Span 名称、属性、错误处理。
+
+## 集成测试
+环境变量要求 + 运行命令。
+```
+
+### 规则
+
+| 规则 | 说明 |
+|------|------|
+| **场景优先** | 按使用场景组织，不按函数名列表 |
+| **代码示例完整** | 每个示例必须是可直接复制运行的完整代码（含 package/main/import） |
+| **行为描述** | 每个 API 必须说明内部行为（创建/销毁/超时/重连等），不能只列签名 |
+| **表格化** | Option 列表、Params 字段、错误场景用表格呈现，一目了然 |
+| **中文撰写** | 所有说明文字使用中文，代码标识符保留英文 |
+| **不重复代码注释** | README 不复制源码注释内容，而是补充使用视角的说明 |
+| **集成测试说明** | 依赖外部服务的包必须说明如何运行集成测试（环境变量/命令） |
+
+### 反模式
+
+```markdown
+# ❌ 只列函数签名，没有使用说明
+## API
+GetConfig(params *Params, opts ...Option) (string, []byte, error)
+WatchConfig(ctx context.Context, ...) context.CancelFunc
+
+# ❌ 代码示例不完整（缺少 package/import）
+format, data, err := nacoscli.GetConfig(params)
+
+# ❌ 没有说明适用场景，读者不知道该用哪个
+## GetConfig
+拉取配置。
+## WatchConfig
+监听配置。
+
+# ✅ 正确：场景 + 完整示例 + 行为说明
+### 场景一：一次性拉取配置（GetConfig）
+**适用场景**：应用启动时从 Nacos 读取配置，读完即关闭连接。
+**内部行为**：创建客户端 -> 拉取配置 -> 关闭客户端，固定 30 秒超时。
+**不适用**：需要持续监听配置变更的场景（应使用 WatchConfig）。
+```go
+package main
+import (
+    "fmt"
+    "github.com/18721889353/sunshine/pkg/nacoscli"
+)
+func main() {
+    format, data, err := nacoscli.GetConfig(&nacoscli.Params{...})
+    // ...
+}
+```
 ```

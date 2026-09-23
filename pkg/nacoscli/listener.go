@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
@@ -135,15 +134,11 @@ func (c *ListenClient) safeCallHandler(ctx context.Context, namespace, group, da
 }
 
 // Close 关闭监听客户端，释放底层连接资源。
+// 注意：Nacos SDK 的 CloseClient() 不返回错误，此处直接调用。
 func (c *ListenClient) Close() error {
 	if c.configClient == nil {
 		return nil
 	}
 	c.configClient.CloseClient()
 	return nil
-}
-
-// FormatDataID 规范化 DataID 格式，去除前后空格。
-func FormatDataID(dataID string) string {
-	return strings.TrimSpace(dataID)
 }
