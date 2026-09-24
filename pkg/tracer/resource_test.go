@@ -13,48 +13,35 @@ func TestNewResource(t *testing.T) {
 
 func TestWithAttributes(t *testing.T) {
 	testData := map[string]string{}
-	o := new(resourceOptions)
-	opt := WithAttributes(testData)
-	apply(o, opt)
+	o := new(resourceConfig)
+	applyResourceOptions(o, WithAttributes(testData))
 	assert.Equal(t, testData, o.attributes)
 }
 
 func TestWithEnvironment(t *testing.T) {
 	testData := "env"
-	o := new(resourceOptions)
-	opt := WithEnvironment(testData)
-	apply(o, opt)
+	o := new(resourceConfig)
+	applyResourceOptions(o, WithEnvironment(testData))
 	assert.Equal(t, testData, o.environment)
 }
 
 func TestWithServiceName(t *testing.T) {
 	testData := "foo"
-	o := new(resourceOptions)
-	opt := WithServiceName(testData)
-	apply(o, opt)
+	o := new(resourceConfig)
+	applyResourceOptions(o, WithServiceName(testData))
 	assert.Equal(t, testData, o.serviceName)
 }
 
 func TestWithServiceVersion(t *testing.T) {
 	testData := "v1.0"
-	o := new(resourceOptions)
-	opt := WithServiceVersion(testData)
-	apply(o, opt)
+	o := new(resourceConfig)
+	applyResourceOptions(o, WithServiceVersion(testData))
 	assert.Equal(t, testData, o.serviceVersion)
 }
 
-func Test_apply(t *testing.T) {
+func TestApplyResourceOptions(t *testing.T) {
 	testData := "v1.0"
-	o := new(resourceOptions)
-	opt := WithServiceVersion(testData)
-	apply(o, opt)
-	assert.Equal(t, testData, o.serviceVersion)
-}
-
-func Test_resourceOptionFunc_apply(t *testing.T) {
-	testData := "v1.0"
-	o := new(resourceOptions)
-	opt := WithServiceVersion(testData)
-	apply(o, opt)
+	o := new(resourceConfig)
+	applyResourceOptions(o, WithServiceVersion(testData))
 	assert.Equal(t, testData, o.serviceVersion)
 }

@@ -30,13 +30,9 @@ func TestNewFileExporter(t *testing.T) {
 	_ = file.Close()
 	_ = os.RemoveAll("traces.json")
 
-	defer func() {
-		recover()
-	}()
+	// 无效路径应返回 error（不再 panic）
 	_, _, err = NewFileExporter("\\\\")
-	if err != nil {
-		t.Fatal(err)
-	}
+	assert.Error(t, err)
 }
 
 func Test_newExporter(t *testing.T) {

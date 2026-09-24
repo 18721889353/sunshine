@@ -5,53 +5,34 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
-// alias, for other structs, the following code does not need to change the names of the resourceOptions
-type resourceOptions = resourceConfig
+// ResourceOption 函数选项，用于修改 resourceConfig 字段值。
+type ResourceOption func(*resourceConfig)
 
-// ResourceOption modifying struct field values by means of an interface
-type ResourceOption interface {
-	apply(*resourceOptions)
-}
-
-type resourceOptionFunc func(*resourceOptions)
-
-func (o resourceOptionFunc) apply(cfg *resourceOptions) {
-	o(cfg)
-}
-
-// set obj fields value
-func apply(obj *resourceOptions, opts ...ResourceOption) {
+// applyResourceOptions 依次应用所有 ResourceOption 到目标配置。
+func applyResourceOptions(cfg *resourceConfig, opts ...ResourceOption) {
 	for _, opt := range opts {
-		opt.apply(obj)
+		opt(cfg)
 	}
 }
 
-// WithServiceName set service name
+// WithServiceName 设置服务名称。
 func WithServiceName(name string) ResourceOption {
-	return resourceOptionFunc(func(o *resourceOptions) {
-		o.serviceName = name
-	})
+	return func(o *resourceConfig) { o.serviceName = name }
 }
 
-// WithServiceVersion set service version
+// WithServiceVersion 设置服务版本。
 func WithServiceVersion(version string) ResourceOption {
-	return resourceOptionFunc(func(o *resourceOptions) {
-		o.serviceVersion = version
-	})
+	return func(o *resourceConfig) { o.serviceVersion = version }
 }
 
-// WithEnvironment set service environment
+// WithEnvironment 设置服务环境（如 dev/staging/prod）。
 func WithEnvironment(environment string) ResourceOption {
-	return resourceOptionFunc(func(o *resourceOptions) {
-		o.environment = environment
-	})
+	return func(o *resourceConfig) { o.environment = environment }
 }
 
-// WithAttributes set service attributes
+// WithAttributes 设置自定义服务属性（键值对）。
 func WithAttributes(attributes map[string]string) ResourceOption {
-	return resourceOptionFunc(func(o *resourceOptions) {
-		o.attributes = attributes
-	})
+	return func(o *resourceConfig) { o.attributes = attributes }
 }
 
 type resourceConfig struct {
@@ -62,15 +43,16 @@ type resourceConfig struct {
 	attributes map[string]string
 }
 
-// NewResource returns a resource describing this application.
+// NewResource 创建描述当前应用的资源对象。
+// 未设置的字段使用默认值：serviceName="demo-service", serviceVersion="v0.0.0", environment="dev"。
+// Merge 失败时降级为仅使用自定义属性，不中断调用方。
 func NewResource(opts ...ResourceOption) *resource.Resource {
-	// default values
 	rc := &resourceConfig{
 		serviceName:    "demo-service",
 		serviceVersion: "v0.0.0",
 		environment:    "dev",
 	}
-	apply(rc, opts...)
+	applyResourceOptions(rc, opts...)
 
 	kvs := []attribute.KeyValue{
 		attribute.String("service.name", rc.serviceName),
@@ -86,8 +68,8 @@ func NewResource(opts ...ResourceOption) *resource.Resource {
 		resource.NewWithAttributes("", kvs...),
 	)
 	if err != nil {
-		panic(err)
+		// Merge 冲突时降级为仅使用自定义属性，避免中断业务
+		return resource.NewWithAttributes("", kvs...)
 	}
-
 	return r
 }

@@ -2,30 +2,30 @@ package tracer
 
 import (
 	"context"
-	"strings"
+	"net/url"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // OTLPOption 配置 OTLP exporter 的选项
 type OTLPOption func(*otlpOptions)
 
 type otlpOptions struct {
-	endpoint string            // OTLP collector 端点，格式为 host:port
-	insecure bool              // 是否禁用 TLS
-	headers  map[string]string // 额外的 gRPC 头部（如认证 token）
-	timeout  time.Duration     // 导出超时时间
+	endpoint     string            // OTLP collector 端点，格式为 host:port
+	insecure     bool              // 是否禁用 TLS
+	headers      map[string]string // 额外的 gRPC 头部（如认证 token）
+	timeout      time.Duration     // 导出超时时间
+	errorHandler otel.ErrorHandler // 自定义 OTel 错误处理器，nil 表示使用默认
 }
 
 func defaultOTLPOptions() *otlpOptions {
 	return &otlpOptions{
 		endpoint: "localhost:4317",
-		insecure: true,             // 是否禁用 TLS true 表示禁用 TLS，false 表示启用 TLS
+		insecure: true,             // 是否禁用 TLS，true 表示禁用，false 表示启用
 		timeout:  10 * time.Second, // 导出超时时间
 	}
 }
@@ -37,15 +37,15 @@ func WithEndpoint(endpoint string) OTLPOption {
 	}
 }
 
-// WithInsecure 设置是否禁用 TLS
-// disableTLS 为 true 表示禁用 TLS，false 表示启用 TLS
-func WithInsecure(disableTLS bool) OTLPOption {
+// WithInsecure 设置是否禁用 TLS。
+// insecure=true 表示禁用 TLS，insecure=false 表示启用 TLS。
+func WithInsecure(insecure bool) OTLPOption {
 	return func(o *otlpOptions) {
-		o.insecure = disableTLS
+		o.insecure = insecure
 	}
 }
 
-// WithHeaders 设置额外的 gRPC 头部（如认证 token）
+// WithHeaders 设置额外的请求头部（gRPC metadata / HTTP headers），如认证 token。
 func WithHeaders(headers map[string]string) OTLPOption {
 	return func(o *otlpOptions) {
 		o.headers = headers
@@ -56,6 +56,15 @@ func WithHeaders(headers map[string]string) OTLPOption {
 func WithTimeout(timeout time.Duration) OTLPOption {
 	return func(o *otlpOptions) {
 		o.timeout = timeout
+	}
+}
+
+// WithErrorHandler 设置自定义的 OTel 错误处理器。
+// 若不设置，Init/InitWithOTLP* 会注册默认的 stderr 输出处理器。
+// 注意：Init/InitWithOTLP* 调用时会覆盖全局 otel.ErrorHandler。
+func WithErrorHandler(h otel.ErrorHandler) OTLPOption {
+	return func(o *otlpOptions) {
+		o.errorHandler = h
 	}
 }
 
@@ -79,18 +88,13 @@ func NewOTLPExporter(opts ...OTLPOption) (*otlptrace.Exporter, error) {
 }
 
 // isHTTPEndpoint 判断 endpoint 是否为 HTTP URL 格式。
-// 判断规则：以 http:// 或 https:// 开头且包含路径（如 /api/otlp/traces）。
-// 纯 http://host:port 格式（无路径）视为 gRPC 端点带了多余前缀，不走 HTTP。
+// 判断规则：scheme 为 http/https 且 host 和 path 均非空。
 func isHTTPEndpoint(endpoint string) bool {
-	if len(endpoint) > 7 && endpoint[:7] == "http://" {
-		rest := endpoint[7:]
-		return strings.Contains(rest, "/") && rest != "/"
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
 	}
-	if len(endpoint) > 8 && endpoint[:8] == "https://" {
-		rest := endpoint[8:]
-		return strings.Contains(rest, "/") && rest != "/"
-	}
-	return false
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.Path != "" && u.Path != "/"
 }
 
 // newOTLPHTTPExporter 使用 OTLP HTTP 协议创建 exporter。
@@ -117,14 +121,8 @@ func newOTLPHTTPExporter(o *otlpOptions) (*otlptrace.Exporter, error) {
 func newOTLPGRPCExporter(o *otlpOptions) (*otlptrace.Exporter, error) {
 	ctx := context.Background()
 
-	dialOpts := []grpc.DialOption{}
-	if o.insecure {
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-
 	exporterOpts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(o.endpoint),
-		otlptracegrpc.WithDialOption(dialOpts...),
 		otlptracegrpc.WithTimeout(o.timeout),
 	}
 	if o.insecure {

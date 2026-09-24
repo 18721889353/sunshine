@@ -76,13 +76,15 @@ func main() {
 	logger.InfoWithCtx(ctx, "[snowflake] initialized")
 
 	// 3. 初始化 OpenTelemetry Tracer
-	pkgtracer.InitWithOTLP(
+	if err := pkgtracer.InitWithOTLP(
 		serviceName,
 		env,
 		version,
 		samplingRate,   // 全量采样
 		aliyunEndpoint, // 阿里云 OTLP endpoint
-	)
+	); err != nil {
+		log.Fatalf("init trace error: %v", err)
+	}
 	logger.InfoWithCtx(ctx, "[tracer] was initialized")
 
 	// 4. 初始化 MySQL（此时无业务 Span，初始化 Span 会独立上报）

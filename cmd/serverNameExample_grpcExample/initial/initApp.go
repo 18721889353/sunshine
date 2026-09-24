@@ -166,7 +166,7 @@ func InitApp() {
 		if cfg.Otlp.MaxQueueSize > 0 || cfg.Otlp.MaxExportBatchSize > 0 ||
 			cfg.Otlp.BatchTimeout > 0 || cfg.Otlp.ExportTimeout > 0 {
 			// 自定义 BatchSpanProcessor 参数
-			tracer.InitWithOTLPBatch(
+			if err := tracer.InitWithOTLPBatch(
 				cfg.App.Name,
 				cfg.App.Env,
 				cfg.App.Version,
@@ -179,10 +179,12 @@ func InitApp() {
 				tracer.WithInsecure(cfg.Otlp.Insecure),
 				tracer.WithHeaders(cfg.Otlp.Headers),
 				tracer.WithTimeout(time.Duration(cfg.Otlp.Timeout)*time.Second),
-			)
+			); err != nil {
+				panic("init trace error (OTLP batch): " + err.Error())
+			}
 		} else {
 			// 默认参数
-			tracer.InitWithOTLP(
+			if err := tracer.InitWithOTLP(
 				cfg.App.Name,
 				cfg.App.Env,
 				cfg.App.Version,
@@ -191,7 +193,9 @@ func InitApp() {
 				tracer.WithInsecure(cfg.Otlp.Insecure),
 				tracer.WithHeaders(cfg.Otlp.Headers),
 				tracer.WithTimeout(time.Duration(cfg.Otlp.Timeout)*time.Second),
-			)
+			); err != nil {
+				panic("init trace error (OTLP): " + err.Error())
+			}
 		}
 		logger.InfoWithCtx(initCtx, "[tracer] was initialized (Otlp)")
 	}

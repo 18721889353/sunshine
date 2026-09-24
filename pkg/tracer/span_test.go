@@ -8,6 +8,7 @@ import (
 )
 
 func TestNewSpan(t *testing.T) {
+	t.Cleanup(func() { SetTraceName("unknown") })
 	SetTraceName("foo")
 
 	tags := map[string]interface{}{
