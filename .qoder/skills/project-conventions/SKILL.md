@@ -30,7 +30,7 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 十三 | sync.Map 操作规范 — 计数漂移保护 | Range 内联 I/O 去中间切片 |
 | 十四 | Ctx 变体设计规范 | Ctx 变体 + 构造函数接收 Context |
 | 十五 | Option 配置传播模式 | defaultXxx+apply + 冲突处理 |
-| 十六 | 测试文件组织 | 标准结构 + 规则 + 反模式 + 端到端测试策略 |
+| 十六 | 测试文件组织 | 一对一映射 + mock 共享 + 单元/集成分离 + 集成测试规范 |
 | 十七 | goroutine panic recover 策略 | 终止型退出清理 + 循环型继续执行 |
 | 十八 | 中文注释与日志规范 | 包注释内容要求 / 日志中文 / 错误中文 / 详细注释风格 |
 | 十九 | README 文档编写规范 | 场景驱动 / 架构概览 / 结构体表格 / Option 适用 API / API 速查独立小节 / 分隔线 / 反模式 |
@@ -882,30 +882,205 @@ func WithReadLimit(limit int64) UpgradeOption {
 
 ## 十六、测试文件组织
 
+### 核心原则：一对一映射
+
+每个源文件 `xxx.go` 必须有且仅有一个对应的测试文件 `xxx_test.go`。一个包有多个源文件时，测试文件必须拆分到各自对应的文件中，禁止所有测试堆在一个文件里。
+
+| 源文件 | 测试文件 | 说明 |
+|--------|----------|------|
+| `nacoscli.go` | `nacoscli_test.go` | 包主入口函数测试 |
+| `option.go` | `option_test.go` | 所有 Option 函数测试 |
+| `listener.go` | `listener_test.go` | ListenClient 及相关方法测试 |
+| `watch.go` | `watch_test.go` | WatchConfig 及重试逻辑测试 |
+| `integration_test.go` | `integration_test.go` | 集成测试（`//go:build integration`） |
+
+```go
+// ❌ 错误：所有测试堆在一个文件
+// nacoscli_test.go（800+ 行）
+func TestGetConfig(...) {}
+func TestListenClientStart(...) {}
+func TestOptionPriority(...) {}
+func TestWatchConfigRetry(...) {}
+
+// ✅ 正确：每个源文件对应独立测试文件
+// nacoscli_test.go    — GetConfig、NewConfigClient、buildConfigs
+// listener_test.go    — Start、Stop、buildOnChange、safeCallHandler
+// option_test.go      — WithXxx 函数、负数边界、优先级覆盖
+// watch_test.go       — exceededMaxRetries、WatchConfig 错误路径、stop 行为
+```
+
+### mock 共享规则
+
+同一包内多个测试文件共享的 mock 结构体（如 `mockConfigClient`），统一放在包主测试文件（`xxx_test.go`）中定义。其他测试文件通过同包访问直接使用，不需要重复定义。
+
+```go
+// nacoscli_test.go — 定义 mock（所有测试文件共享）
+type mockConfigClient struct {
+    getConfigFn    func(param vo.ConfigParam) (string, error)
+    listenConfigFn func(params vo.ConfigParam) error
+    closeCalled    bool
+}
+
+// listener_test.go — 直接使用同包的 mockConfigClient
+func TestListenClientStart(t *testing.T) {
+    mock := &mockConfigClient{}
+    listener := &ListenClient{configClient: mock, ...}
+    // ...
+}
+```
+
+| 规则 | 说明 |
+|------|------|
+| **mock 定义位置** | 包主测试文件（`xxx_test.go`）中定义，其他文件直接引用 |
+| **禁止重复定义** | 同包内不同测试文件不定义相同名称的 mock 结构体 |
+| **mock 字段追踪** | mock 需记录调用次数（`called bool`）、传入参数（`lastParam`）、返回值函数 |
+
 ### 标准结构
 
 ```
 xxx.go               # 源文件
-xxx_test.go           # 对应测试
+xxx_test.go           # 对应测试 + 共享 mock 定义
 
 xxx_options.go        # Options 源文件
 xxx_options_test.go   # 对应测试
 
-test_helpers.go       # 共享测试工具（newXxxPair、mockXxx、skipXxx）
-integration_test.go   # 总测：组合多个模块的集成场景
-xxx_integration_test.go # 需外部依赖的集成测试
+listener.go           # 功能模块源文件
+listener_test.go      # 对应测试
+
+watch.go              # 功能模块源文件
+watch_test.go         # 对应测试
+
+test_helpers.go       # 共享测试工具（newXxxPair、skipXxx）
+integration_test.go   # 集成测试（//go:build integration）
 ```
 
-### 规则
+### 单元测试规范
 
 | 规则 | 说明 |
 |------|------|
 | **一对一映射** | 每个源文件 `xxx.go` 有且仅有一个测试文件 `xxx_test.go` |
-| **命名对称** | Options 文件对应 `xxx_options_test.go`，集成测试后缀 `_integration_test.go` |
-| **共享工具集中** | `test_helpers.go` 存放跨文件共享的工具函数、mock 实现、跳过条件 |
-| **单元/集成分离** | 依赖外部服务的测试放 `_integration_test.go`，默认跳过（环境变量控制） |
-| **总测覆盖链路** | `integration_test.go` 覆盖完整业务流程的多个模块组合场景 |
+| **覆盖全部导出函数** | 每个导出函数至少一个正向测试 + 一个错误/边界测试 |
+| **未导出函数通过导出函数覆盖** | `buildOnChange`、`safeCallHandler` 等通过 `Start` 间接测试，或直接测试（同包可访问） |
+| **mock 隔离外部依赖** | 依赖外部服务的调用通过 mock 替代，不发起真实网络请求 |
 | **辅助方法首字母小写** | 测试辅助函数（`newTestPair`、`mockXxx`）首字母小写，限于包内使用 |
+| **并发安全** | 涉及 goroutine 的测试用 `go func()` + channel 或 `sync.WaitGroup` 等待结果 |
+
+### 集成测试规范
+
+集成测试依赖真实外部服务（Nacos、RabbitMQ、Redis 等），必须通过 build tag 隔离，不影响普通 `go test`。
+
+#### 文件与 build tag
+
+```go
+// integration_test.go 第一行
+//go:build integration
+
+package mypackage
+```
+
+运行方式：
+```bash
+# 普通单元测试（不包含集成测试）
+go test -v ./pkg/xxx/
+
+# 包含集成测试
+go test -tags=integration -v ./pkg/xxx/
+```
+
+#### 环境变量与跳过机制
+
+集成测试必须通过环境变量控制，未设置时自动 `t.Skip`：
+
+```go
+// requireNacos 从环境变量读取 Nacos 配置，未设置时跳过。
+func requireNacos(t *testing.T) (host string, port int, ...) {
+    t.Helper()
+    host = os.Getenv("NACOS_IP_ADDR")
+    portStr := os.Getenv("NACOS_PORT")
+    if host == "" || portStr == "" {
+        t.Skip("NACOS_IP_ADDR 或 NACOS_PORT 未设置，跳过集成测试")
+    }
+    // ...
+}
+
+func TestIntegration_GetConfig(t *testing.T) {
+    host, port, ... := requireNacos(t)  // 未设置环境变量则自动 skip
+    // ...
+}
+```
+
+#### TestMain 超时保护
+
+依赖外部服务的集成测试包必须实现 `TestMain`，设置总时长上限，防止 SDK goroutine 泄漏导致 `go test` 永远挂起：
+
+```go
+func TestMain(m *testing.M) {
+    ch := make(chan int, 1)
+    go func() {
+        ch <- m.Run()
+    }()
+    select {
+    case code := <-ch:
+        os.Exit(code)
+    case <-time.After(120 * time.Second):
+        fmt.Fprintln(os.Stderr, "FATAL: 集成测试超过 120 秒超时")
+        os.Exit(1)
+    }
+}
+```
+
+#### 命名规范
+
+| 测试函数名 | 说明 |
+|------------|------|
+| `TestIntegration_GetConfig` | 集成测试统一前缀 `TestIntegration_` |
+| `TestIntegration_PublishAndGetConfig` | CRUD 闭环场景 |
+| `TestIntegration_ListenConfigPublishChange` | 监听+发布联动 |
+| `TestIntegration_NamingClientRegisterAndDiscover` | 服务注册发现 |
+
+#### 跳过策略
+
+| 场景 | 策略 | 示例 |
+|------|------|------|
+| 环境变量未设置 | `t.Skip("xxx 未设置")` | `requireNacos` |
+| 外部服务不可达 | `t.Skipf("gRPC 不可达: %v", err)` | TCP 检测失败 |
+| SDK 操作返回 false | `t.Skipf("RegisterInstance 返回 false，gRPC 未就绪")` | gRPC STARTING 状态 |
+| 加密配置无密钥 | `t.Logf(...)` 记录但不 Fatal | Nacos ENC(...) 配置 |
+
+```go
+// ✅ 正确：RegisterInstance 失败时优雅跳过
+success, err := namingClient.RegisterInstance(...)
+if err != nil {
+    t.Skipf("RegisterInstance 失败: %v", err)
+}
+if !success {
+    t.Skipf("RegisterInstance 返回 false，gRPC 服务可能未就绪")
+}
+```
+
+#### 辅助函数规范
+
+| 辅助函数 | 说明 |
+|----------|------|
+| `requireNacos(t)` | 读取 Nacos 连接环境变量，返回 host/port/group/dataID |
+| `requireAuth(t)` | 读取认证环境变量，未设置时 skip |
+| `requireGRPCPort(t)` | 读取 gRPC 端口环境变量 |
+| `isGRPCReachable(host, port)` | TCP 检测 gRPC 端口可达性（3 秒超时） |
+| `testConfigKey()` | 生成唯一临时配置 ID（纳秒时间戳） |
+| `publishConfig(...)` | 直接通过 SDK 发布配置（测试辅助，返回 cleanup 函数） |
+
+#### 集成测试覆盖目标
+
+每个集成测试包至少覆盖以下场景：
+
+| 场景类型 | 示例 |
+|----------|------|
+| **基本 CRUD** | GetConfig、PublishConfig + GetConfig 闭环 |
+| **参数变体** | 不同超时、不同认证方式、不同 ServerConfigs |
+| **监听与变更** | ListenConfig 启动 + PublishConfig 触发回调 |
+| **重试与失败** | WatchConfig maxRetries、不可达地址重试 |
+| **服务注册发现** | NamingClient 注册 + SelectInstances 发现 |
+| **context 控制** | ctx 取消中断 GetConfig、优雅关闭 |
 
 ### 反模式
 
@@ -920,48 +1095,55 @@ func newMockBackend(bufSize int) *mockBackend
 ```
 
 ```go
+// ❌ 所有测试堆在一个文件（listener、watch、option 测试混在 nacoscli_test.go）
+
+// ✅ 每个源文件对应独立测试文件
+// nacoscli_test.go    — 包主入口函数测试 + 共享 mock
+// listener_test.go    — ListenClient 测试
+// option_test.go      — Option 函数测试
+// watch_test.go       — WatchConfig 测试
+// integration_test.go — 集成测试（//go:build integration）
+```
+
+```go
 // ❌ 单元测试和集成测试混在一起
 // rabbitmq_backend_test.go 既有构造函数测试又有真实 RabbitMQ 集成测试
 
 // ✅ 分离
 // rabbitmq_backend_test.go              — 单元测试（mock 模拟）
 // rabbitmq_backend_integration_test.go   — 集成测试（需真实服务，默认跳过）
+```
 
-### 测试策略：仅保留端到端测试
+```go
+// ❌ 集成测试没有超时保护，SDK goroutine 泄漏导致 go test 永远挂起
+
+// ✅ TestMain 设置 120 秒超时
+func TestMain(m *testing.M) { ... }
+```
+
+```go
+// ❌ RegisterInstance 返回 false 时直接 require.True 导致测试失败
+success, _ := namingClient.RegisterInstance(...)
+require.True(t, success)  // gRPC STARTING 时永远 false → 测试失败
+
+// ✅ 返回 false 时优雅跳过
+if !success {
+    t.Skipf("RegisterInstance 返回 false，gRPC 服务可能未就绪")
+}
+```
+
+### 端到端测试（代码生成类）
 
 代码生成类命令（如 `generate/` 下各子命令）的测试策略：
 
 | 原则 | 说明 |
 |------|------|
-| **只写端到端测试** | 测试必须执行完整的代码生成流程（`generateCode()` / `convertToGoFile()`），生成真实文件到 `testdata/` 目录供查看，不写单方法测试 |
-| **不写 mock 测试** | 不对 `addFields`、`getYAMLFile`、`saveFile` 等内部方法单独写单元测试或 mock 测试 |
-| **真实数据用例** | 使用贴近生产环境的真实配置数据（多层 YAML 结构、真实表名字段等），不造假数据 |
-| **输出到 testdata** | 生成的文件复制到 `testdata/<test-name>/` 目录下，与 `cache_test.go` 的 `testdata/cache-gen/` 模式一致 |
-| **预清理** | 每次运行前清理旧的临时目录和 testdata 目录，避免残留干扰 |
-| **验证内容** | 验证生成文件包含预期结构体和字段名，验证占位符已被替换，验证标记代码已被清理 |
-
-```go
-// ✅ 正确：端到端测试，生成文件到 testdata
-func TestXxx_GenerateToTestdata(t *testing.T) {
-    tmpOut := filepath.Join(os.TempDir(), "sunshine-test", "xxx-gen")
-    os.RemoveAll(tmpOut)
-    testDataDir := filepath.Join("testdata", "xxx-gen")
-    os.RemoveAll(testDataDir)
-
-    // 执行完整生成流程
-    outPath, err := gen.generateCode()
-
-    // 复制到 testdata 供查看
-    targetFile := filepath.Join(testDataDir, relPath)
-    copyFile(t, generatedFile, targetFile)
-
-    // 验证内容
-    content := string(data)
-    if !strings.Contains(content, "expectedType") { t.Error(...) }
-}
-```
-
-**判断标准**：测试需要生成可查看的实物文件（`.go`/`.proto` 等）到 `testdata/` 目录并做内容验证，才是端到端测试。仅调内部方法断言返回值不是端到端测试。
+| **只写端到端测试** | 测试必须执行完整的代码生成流程，生成真实文件到 `testdata/` 目录供查看 |
+| **不写 mock 测试** | 不对内部方法单独写单元测试 |
+| **真实数据用例** | 使用贴近生产环境的真实配置数据 |
+| **输出到 testdata** | 生成的文件复制到 `testdata/<test-name>/` 目录 |
+| **预清理** | 每次运行前清理旧的临时目录和 testdata 目录 |
+| **验证内容** | 验证生成文件包含预期结构体和字段名 |
 
 ## 十七、goroutine 必须添加 panic recover（两种策略）
 
@@ -1194,12 +1376,102 @@ README 以**使用场景**组织，不以 API 列表组织。每个场景包含�
 | `GetConfig(nil)` | 返回 `ErrNilParams` 错误 |
 | Nacos 服务器不可达 | 返回 SDK 错误 |
 
+### 代码示例规范
+
+代码示例必须干净、可运行，禁止出现空白赋值或 `_ = xxx`：
+
+```go
+// ❌ 错误：代码示例中出现空白赋值
+format1, data1, err := client.GetConfig(context.Background(), params1)
+format2, data2, err := client.GetConfig(context.Background(), params2)
+_ = format1
+_ = format2
+_ = data1
+_ = data2
+
+// ✅ 正确：示例只展示核心用法，忽略返回值用 err 变量
+format1, data1, err := client.GetConfig(context.Background(), params1)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("format: %s, data length: %d\n", format1, len(data1))
+```
+
+### 易混淆 API 区分
+
+当包内存在功能相近但类型/用途不同的 API 时，必须在 README 中用 `**注意**` 块明确区分：
+
+```go
+// ❌ 错误：读者不知道 NewConfigClient 和 GetConfig 的区别
+
+// ✅ 正确：在 API 速查中明确说明
+// ### NewConfigClient — 创建可复用的配置客户端
+//
+// - 返回 `*Client`，提供 `GetConfig(ctx, params)` 和 `Close()` 方法
+// - 用于需要多次读取不同配置文件的场景
+// - **注意**：`WithGetTimeout` 仅对便捷函数 `GetConfig` 生效，`NewConfigClient` 创建的
+//   `Client.GetConfig(ctx, params)` 完全忽略 `getTimeout`，超时由调用方传入的 `ctx` 控制
+```
+
+| 场景 | 处理方式 |
+|------|----------|
+| 两个 API 返回不同类型 | 用 `**注意**` 说明类型差异和使用场景 |
+| 一个 API 有隐含限制 | 用 `**注意**` 标注限制条件 |
+| Option 对不同 API 效果不同 | 用 `**注意**` 说明各 API 的生效范围 |
+
+### 超时说明独立小节
+
+当包涉及多种超时机制（SDK 超时、整体超时、context 超时）时，必须在 API 速查中单独列出超时说明：
+
+```markdown
+**超时说明**：
+- `WithGetTimeout`：控制便捷函数 `GetConfig` 整体执行时间（创建+拉取+关闭），通过 `context.WithTimeout` 实现
+- `WithTimeoutMs`：控制 Nacos SDK 单次 HTTP 请求超时（毫秒），默认 5000ms
+- `Client.GetConfig(ctx, params)` 中的 `ctx`：仅用于调用前取消检查，无法中断 SDK 内部正在进行的网络请求
+```
+
+### 引用块用于提示和警告
+
+生产环境注意事项、重要限制、安全提示用 Markdown `>` 引用块：
+
+```markdown
+> **生产环境提示**：默认无限重试 + 固定 5 秒延迟意味着 Nacos 长期不可达时会持续刷 Warn 日志。
+> 建议在生产环境显式设置 `WithMaxRetries`（如 10~20 次），避免日志膨胀。
+```
+
+### 参数校验说明
+
+涉及 `valid()` 校验或格式归一化的包，必须在结构体说明后单独列出校验规则：
+
+```markdown
+**参数校验规则**：`Group`、`DataID`、`Format` 为空时返回错误；`Format` 不在支持列表时返回错误。
+`valid()` 返回归一化后的 Format，**不修改**原始 Params 结构体。
+```
+
+### 重试语义说明
+
+涉及重试机制的 API，必须在场景说明中明确重试时机、计数规则和停止条件：
+
+```markdown
+**重试语义**：WatchConfig 只在两个时机重试：
+- `NewListenClient` 创建失败（Nacos 地址不可达、认证失败等）
+- `ListenConfig` 注册失败（SDK 内部状态异常、缓存目录不可写等）
+
+一旦注册成功，连接的健康维护由 Nacos SDK 内部长轮询负责，WatchConfig 不再介入。
+
+**重试计数规则**：
+- `retries` 仅在创建失败或注册失败时递增
+- `retries >= maxRetries` 时记录 Error 日志并退出 goroutine
+- `maxRetries = 0`（默认）时无限重试
+```
+
 ### 规则
 
 | 规则 | 说明 |
 |------|------|
 | **场景优先** | 按使用场景组织，不按函数名列表 |
 | **代码示例完整** | 每个示例必须是可直接复制运行的完整代码（含 package/main/import） |
+| **代码示例干净** | 禁止 `_ = xxx` 空白赋值，示例展示正确用法 |
 | **内部行为** | 每个场景必须说明内部行为（编号步骤），不能只列签名 |
 | **表格化** | Option 列表、结构体字段、错误场景用表格呈现 |
 | **中文撰写** | 所有说明文字使用中文，代码标识符保留英文 |
@@ -1209,12 +1481,21 @@ README 以**使用场景**组织，不以 API 列表组织。每个场景包含�
 | **Option 适用 API** | Option 表格必须有 `适用 API` 列 |
 | **不重复代码注释** | README 不复制源码注释内容，补充使用视角说明 |
 | **集成测试说明** | 依赖外部服务的包必须说明环境变量和运行命令 |
+| **易混淆 API 区分** | 功能相近但类型/用途不同的 API 用 `**注意**` 块明确区分 |
+| **超时说明** | 涉及多种超时机制时单独列出超时说明小节 |
+| **引用块提示** | 生产环境提示、重要限制用 `>` 引用块 |
+| **参数校验** | 涉及 valid() 校验的包单独列出校验规则 |
+| **重试语义** | 涉及重试的 API 明确重试时机、计数规则和停止条件 |
 
 ### 反模式
 
 - 只列函数签名，没有使用说明
 - 代码示例不完整（缺少 package/import）
+- 代码示例中出现 `_ = xxx` 空白赋值
 - 没有场景分隔线，所有场景粘在一起难以区分
 - Option 表格缺少 `适用 API` 列
 - API 速查合并为一个大表格，无法放详细说明
 - 没有说明适用场景，读者不知道该用哪个
+- 两个功能相近的 API 没有区分说明，读者不知道选哪个
+- 涉及多种超时但没有统一说明，读者容易混淆
+- 有重试机制但没有说明重试时机和停止条件
