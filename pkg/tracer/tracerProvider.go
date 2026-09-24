@@ -5,7 +5,6 @@ package tracer
 import (
 	"context"
 	"errors"
-	"log"
 	"sync"
 	"time"
 
@@ -13,6 +12,8 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 const defaultShutdownTimeout = 5 * time.Second
@@ -71,7 +72,9 @@ func Close(ctx context.Context) error {
 	}
 	err := oldTp.Shutdown(ctx)
 	if oldExp != nil {
-		_ = shutdownWithTimeout(oldExp, defaultShutdownTimeout)
+		if shutdownErr := shutdownWithTimeout(oldExp, defaultShutdownTimeout); shutdownErr != nil {
+			logger.WarnWithCtx(ctx, "[tracer] 关闭旧 exporter 失败", logger.Err(shutdownErr))
+		}
 	}
 	// 重置 traceName，确保 Close 后重新 Init 时不会残留旧服务名
 	traceName.Store("unknown")
@@ -103,7 +106,9 @@ func InitWithOTLP(appName string, appEnv string, appVersion string,
 	}
 
 	if err = initInternal(exporter, res, handler, samplingRate); err != nil {
-		_ = shutdownWithTimeout(exporter, defaultShutdownTimeout)
+		if shutdownErr := shutdownWithTimeout(exporter, defaultShutdownTimeout); shutdownErr != nil {
+			logger.WarnWithCtx(context.Background(), "[tracer] 初始化失败后关闭 exporter 失败", logger.Err(shutdownErr))
+		}
 		return err
 	}
 
@@ -140,7 +145,9 @@ func InitWithOTLPBatch(appName string, appEnv string, appVersion string,
 
 	batchOpts := buildBatchOpts(maxQueueSize, maxExportBatchSize, batchTimeout, exportTimeout)
 	if err = initInternalWithBatch(exporter, res, handler, fraction, batchOpts...); err != nil {
-		_ = shutdownWithTimeout(exporter, defaultShutdownTimeout)
+		if shutdownErr := shutdownWithTimeout(exporter, defaultShutdownTimeout); shutdownErr != nil {
+			logger.WarnWithCtx(context.Background(), "[tracer] 初始化失败后关闭 exporter 失败", logger.Err(shutdownErr))
+		}
 		return err
 	}
 
@@ -243,7 +250,7 @@ func registerGlobal(p *trace.TracerProvider, handler otel.ErrorHandler) {
 // defaultErrorHandler 返回默认的 OTel 错误处理器，将错误输出到 stderr。
 func defaultErrorHandler() otel.ErrorHandler {
 	return otel.ErrorHandlerFunc(func(err error) {
-		log.Printf("[tracer] otel error: %v", err)
+		logger.WarnWithCtx(context.Background(), "[tracer] otel error", logger.Err(err))
 	})
 }
 
@@ -252,10 +259,14 @@ func defaultErrorHandler() otel.ErrorHandler {
 // 避免复用同一 exporter 时被误关。
 func shutdownOld(oldTp *trace.TracerProvider, oldExp trace.SpanExporter, currentExp trace.SpanExporter) {
 	if oldTp != nil {
-		_ = shutdownWithTimeout(oldTp, defaultShutdownTimeout)
+		if err := shutdownWithTimeout(oldTp, defaultShutdownTimeout); err != nil {
+			logger.WarnWithCtx(context.Background(), "[tracer] 关闭旧 TracerProvider 失败", logger.Err(err))
+		}
 	}
 	if oldExp != nil && oldExp != currentExp {
-		_ = shutdownWithTimeout(oldExp, defaultShutdownTimeout)
+		if err := shutdownWithTimeout(oldExp, defaultShutdownTimeout); err != nil {
+			logger.WarnWithCtx(context.Background(), "[tracer] 关闭旧 exporter 失败", logger.Err(err))
+		}
 	}
 }
 

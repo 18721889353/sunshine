@@ -1,6 +1,5 @@
-// Package initial is the package that starts the service to initialize the service, including
-// the initialization configuration, service configuration, connecting to the database, and
-// resource release needed when shutting down the service.
+// Package initial 服务启动时的初始化包，负责配置加载、数据库连接、
+// 日志系统、链路追踪及优雅关闭等资源管理。
 package initial
 
 import (
@@ -139,21 +138,7 @@ func InitApp() {
 	config.RegisterBuiltinReloads()
 
 	if cfg.App.OpenJwt {
-		var sm *v5.SigningMethodHMAC
-		if config.Get().Jwt.SigningMethod == "HS256" {
-			sm = jwt.HS256
-		} else if config.Get().Jwt.SigningMethod == "HS384" {
-			sm = jwt.HS384
-		} else {
-			sm = jwt.HS512
-		}
-		jwt.Init(
-			jwt.WithExpire(time.Minute*time.Duration(config.Get().Jwt.Expire)),
-			jwt.WithSigningKey(config.Get().Jwt.SigningKey),
-			jwt.WithSigningMethod(sm),
-			jwt.WithIssuer(config.Get().Jwt.Issuer),
-		)
-		logger.InfoWithCtx(initCtx, "init jwt succeeded")
+		initJWT()
 	}
 
 	// initializing tracing
@@ -270,4 +255,24 @@ func initConfig() {
 	if version != "" {
 		config.Get().App.Version = version
 	}
+}
+
+// initJWT 根据配置初始化 JWT 签名方法和参数。
+func initJWT() {
+	var sm *v5.SigningMethodHMAC
+	switch config.Get().Jwt.SigningMethod {
+	case "HS256":
+		sm = jwt.HS256
+	case "HS384":
+		sm = jwt.HS384
+	default:
+		sm = jwt.HS512
+	}
+	jwt.Init(
+		jwt.WithExpire(time.Minute*time.Duration(config.Get().Jwt.Expire)),
+		jwt.WithSigningKey(config.Get().Jwt.SigningKey),
+		jwt.WithSigningMethod(sm),
+		jwt.WithIssuer(config.Get().Jwt.Issuer),
+	)
+	logger.InfoWithCtx(initCtx, "init jwt succeeded")
 }

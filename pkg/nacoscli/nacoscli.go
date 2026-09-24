@@ -27,6 +27,7 @@
 // 这一认知是理解本包 API 设计的关键：
 //   - 为何没有「断线重连」相关配置——SDK 内部自行处理
 //   - 为何 retries 只在注册失败时递增——不存在「运行期断连」事件
+//
 // 详见 README.md 中的「重试语义」章节。
 package nacoscli
 
@@ -182,7 +183,7 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, 
 	// 先检查 ctx 再校验参数，避免已取消时做无意义校验
 	select {
 	case <-ctx.Done():
-		err := ctx.Err()
+		err = ctx.Err()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return "", nil, err
