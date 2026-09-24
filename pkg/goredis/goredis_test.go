@@ -1,27 +1,26 @@
 package goredis
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestInit 测试 Init 函数连接 Redis 的各种情况
 func TestInit(t *testing.T) {
-	// 启动一个模拟的 Redis 服务器用于测试
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
 
-	// 定义测试用例参数结构
 	type args struct {
 		redisURL string
 	}
 
-	// 定义测试用例
 	tests := []struct {
 		name    string
 		args    args
@@ -33,138 +32,188 @@ func TestInit(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "有密码无数据库",
-			args:    args{"root:123456@" + addr},
-			wantErr: false,
-		},
-		{
 			name:    "无密码有数据库",
 			args:    args{addr + "/5"},
 			wantErr: false,
 		},
 		{
-			name:    "有密码有数据库",
-			args:    args{fmt.Sprintf("root:123456@%s/5", addr)},
-			wantErr: false,
+			name:    "空 DSN",
+			args:    args{""},
+			wantErr: true,
 		},
 		{
-			name:    "带 Redis 前缀",
-			args:    args{fmt.Sprintf("redis://root:123456@%s/5", addr)},
-			wantErr: false,
+			name:    "无效 DSN 格式",
+			args:    args{"redis://"},
+			wantErr: true,
 		},
 	}
 
-	// 遍历执行测试用例
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 使用各种配置选项初始化 Redis 客户端
 			rdb, err := Init(tt.args.redisURL,
-				WithDialTimeout(time.Second),  // 设置连接超时时间
-				WithReadTimeout(time.Second),  // 设置读取超时时间
-				WithWriteTimeout(time.Second), // 设置写入超时时间
-				WithPoolSize(20),              // 设置连接池大小
-				WithMinIdleConns(5),           // 设置最小空闲连接数
-				WithMaxConnAge(time.Hour),     // 设置连接最大存活时间
-				WithPoolTimeout(time.Second),  // 设置连接池超时时间
-				WithIdleTimeout(time.Hour),    // 设置连接最大空闲时间
-				WithEnableTrace(),             // 启用追踪
-				WithTracing(nil),              // 设置追踪提供者（nil 表示不设置）
-				WithTLSConfig(nil),            // 设置 TLS 配置（nil 表示不设置）
+				WithDialTimeout(time.Second),
+				WithReadTimeout(time.Second),
+				WithWriteTimeout(time.Second),
+				WithPoolSize(20),
+				WithMinIdleConns(5),
+				WithMaxConnAge(time.Hour),
+				WithPoolTimeout(time.Second),
+				WithIdleTimeout(time.Hour),
+				WithTLSConfig(nil),
 			)
 
-			// 检查错误是否符合预期
-			if (err != nil) != tt.wantErr {
-				t.Logf("error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err)
 				return
 			}
-
-			// 测试结束后关闭连接
+			require.NoError(t, err)
+			require.NotNil(t, rdb)
 			defer Close(rdb)
-			// 断言客户端不为空
-			assert.NotNil(t, rdb)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			assert.NoError(t, rdb.Ping(ctx).Err())
+		})
+	}
+}
+
+// TestInitWithPassword 验证带密码的 DSN 连接
+func TestInitWithPassword(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+	addr := redisServer.Addr()
+	redisServer.RequireAuth("123456")
+
+	passwordTests := []struct {
+		name    string
+		dsn     string
+		wantErr bool
+	}{
+		{"有密码无数据库", ":123456@" + addr, false},
+		{"有密码有数据库", fmt.Sprintf(":123456@%s/5", addr), false},
+		{"带 Redis 前缀", fmt.Sprintf("redis://:123456@%s/5", addr), false},
+		{"密码错误", ":wrong@" + addr, true},
+	}
+
+	for _, tt := range passwordTests {
+		t.Run(tt.name, func(t *testing.T) {
+			rdb, err := Init(tt.dsn, WithPoolSize(5))
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, rdb)
+			defer Close(rdb)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			assert.NoError(t, rdb.Ping(ctx).Err())
 		})
 	}
 }
 
 // TestInitSingle 测试 InitSingle 函数连接单机 Redis
 func TestInitSingle(t *testing.T) {
-	// 启动一个模拟的 Redis 服务器用于测试
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
 
-	// 使用各种配置选项初始化单机 Redis 客户端
 	rdb, err := InitSingle(addr, "", 0,
-		WithDialTimeout(time.Second),  // 设置连接超时时间
-		WithReadTimeout(time.Second),  // 设置读取超时时间
-		WithWriteTimeout(time.Second), // 设置写入超时时间
-		WithPoolSize(20),              // 设置连接池大小
-		WithMinIdleConns(5),           // 设置最小空闲连接数
-		WithMaxConnAge(time.Hour),     // 设置连接最大存活时间
-		WithPoolTimeout(time.Second),  // 设置连接池超时时间
-		WithIdleTimeout(time.Hour),    // 设置连接最大空闲时间
-		WithTracing(nil),              // 设置追踪提供者（nil 表示不设置）
-		WithTLSConfig(nil),            // 设置 TLS 配置（nil 表示不设置）
-		WithSingleOptions(nil),        // 设置单机选项（nil 表示不设置）
+		WithDialTimeout(time.Second),
+		WithReadTimeout(time.Second),
+		WithWriteTimeout(time.Second),
+		WithPoolSize(20),
+		WithMinIdleConns(5),
+		WithMaxConnAge(time.Hour),
+		WithPoolTimeout(time.Second),
+		WithIdleTimeout(time.Hour),
+		WithTLSConfig(nil),
+		WithSingleOptions(nil),
 	)
 
-	// 断言没有错误且客户端不为空
-	assert.Nil(t, err)
-	assert.NotNil(t, rdb)
+	require.NoError(t, err)
+	require.NotNil(t, rdb)
+	defer Close(rdb)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	assert.NoError(t, rdb.Ping(ctx).Err())
 }
 
-// TestInitSentinel 测试 InitSentinel 函数连接哨兵模式 Redis
+// TestInitSentinel 验证 Sentinel 模式在 miniredis 下的错误处理
 func TestInitSentinel(t *testing.T) {
-	// 启动一个模拟的 Redis 服务器用于测试
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
 
-	// 使用各种配置选项初始化哨兵模式 Redis 客户端
 	rdb, err := InitSentinel("mymaster", []string{addr}, "", "",
-		WithDialTimeout(time.Second),  // 设置连接超时时间
-		WithReadTimeout(time.Second),  // 设置读取超时时间
-		WithWriteTimeout(time.Second), // 设置写入超时时间
-		WithPoolSize(20),              // 设置连接池大小
-		WithMinIdleConns(5),           // 设置最小空闲连接数
-		WithMaxConnAge(time.Hour),     // 设置连接最大存活时间
-		WithPoolTimeout(time.Second),  // 设置连接池超时时间
-		WithIdleTimeout(time.Hour),    // 设置连接最大空闲时间
-		WithTracing(nil),              // 设置追踪提供者（nil 表示不设置）
-		WithTLSConfig(nil),            // 设置 TLS 配置（nil 表示不设置）
-		WithSentinelOptions(nil),      // 设置哨兵选项（nil 表示不设置）
+		WithDialTimeout(time.Second),
+		WithReadTimeout(time.Second),
+		WithPoolSize(20),
+		WithSentinelOptions(nil),
 	)
 
-	// 记录错误日志并断言客户端不为空
-	t.Log(err)
-	assert.NotNil(t, rdb)
+	// miniredis 不支持 Sentinel 协议，预期连接失败
+	assert.Error(t, err, "miniredis 不支持 Sentinel 协议，预期连接失败")
+	if rdb != nil {
+		_ = rdb.Close()
+	}
 }
 
-// TestInitCluster 测试 InitCluster 函数连接集群模式 Redis
+// TestInitCluster 测试 InitCluster 函数
 func TestInitCluster(t *testing.T) {
-	// 启动一个模拟的 Redis 服务器用于测试
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
 
-	// 使用各种配置选项初始化集群模式 Redis 客户端
 	clusterRdb, err := InitCluster([]string{addr}, "", "",
-		WithDialTimeout(time.Second*15), // 设置连接超时时间
-		WithReadTimeout(time.Second),    // 设置读取超时时间
-		WithWriteTimeout(time.Second),   // 设置写入超时时间
-		WithPoolSize(20),                // 设置连接池大小
-		WithMinIdleConns(5),             // 设置最小空闲连接数
-		WithMaxConnAge(time.Hour),       // 设置连接最大存活时间
-		WithPoolTimeout(time.Second),    // 设置连接池超时时间
-		WithIdleTimeout(time.Hour),      // 设置连接最大空闲时间
-		WithTracing(nil),                // 设置追踪提供者（nil 表示不设置）
-		WithTLSConfig(nil),              // 设置 TLS 配置（nil 表示不设置）
-		WithClusterOptions(nil),         // 设置集群选项（nil 表示不设置）
+		WithDialTimeout(time.Second*15),
+		WithReadTimeout(time.Second),
+		WithPoolSize(20),
+		WithClusterOptions(nil),
 	)
 
-	// 测试结束后关闭集群连接
+	if err != nil {
+		t.Skipf("miniredis 集群模式不完全支持，跳过: %v", err)
+		return
+	}
+
 	defer CloseCluster(clusterRdb)
-	// 断言没有错误且客户端不为空
-	assert.Nil(t, err)
-	assert.NotNil(t, clusterRdb)
+	require.NotNil(t, clusterRdb)
+}
+
+// TestCloseIdempotent 验证 Close 幂等性
+func TestCloseIdempotent(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+	addr := redisServer.Addr()
+
+	rdb, err := Init(addr, WithPoolSize(5))
+	require.NoError(t, err)
+	require.NotNil(t, rdb)
+
+	assert.NoError(t, Close(rdb))
+	assert.NoError(t, Close(rdb))
+	assert.NoError(t, Close(nil))
+}
+
+// TestCloseClusterIdempotent 验证 CloseCluster 幂等性
+func TestCloseClusterIdempotent(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+	addr := redisServer.Addr()
+
+	clusterRdb, err := InitCluster([]string{addr}, "", "",
+		WithDialTimeout(time.Second*5),
+		WithClusterOptions(nil),
+	)
+	if err != nil {
+		t.Skipf("miniredis 集群模式不完全支持，跳过: %v", err)
+		return
+	}
+
+	assert.NoError(t, CloseCluster(clusterRdb))
+	assert.NoError(t, CloseCluster(clusterRdb))
+	assert.NoError(t, CloseCluster(nil))
 }
