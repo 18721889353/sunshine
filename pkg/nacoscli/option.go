@@ -54,10 +54,12 @@ func WithIPAddr(ipAddr string) Option {
 	}
 }
 
-// WithPort 设置 Nacos 服务器端口。
+// WithPort 设置 Nacos 服务器端口，port 必须非负。
 func WithPort(port int) Option {
 	return func(o *options) {
-		o.port = port
+		if port >= 0 {
+			o.port = port
+		}
 	}
 }
 
@@ -83,9 +85,12 @@ func WithNamespaceID(namespaceID string) Option {
 }
 
 // WithTimeoutMs 设置 Nacos 客户端请求超时时间（毫秒），默认 5000。
+// timeoutMs 必须非负，负值会被忽略。
 func WithTimeoutMs(timeoutMs int) Option {
 	return func(o *options) {
-		o.timeoutMs = timeoutMs
+		if timeoutMs >= 0 {
+			o.timeoutMs = timeoutMs
+		}
 	}
 }
 
@@ -114,16 +119,22 @@ func WithServerConfigs(serverConfigs []constant.ServerConfig) Option {
 }
 
 // WithMaxRetries 设置 WatchConfig 最大重试次数，0 表示无限重试（默认）。
+// 负值会被忽略，保留先前设置的值。
 func WithMaxRetries(n int) Option {
 	return func(o *options) {
-		o.maxRetries = n
+		if n >= 0 {
+			o.maxRetries = n
+		}
 	}
 }
 
 // WithCreateDelay 设置 WatchConfig 创建或注册失败后的重试等待时间，默认 5 秒。
+// 负值会被忽略，保留默认值。
 func WithCreateDelay(d time.Duration) Option {
 	return func(o *options) {
-		o.createDelay = d
+		if d >= 0 {
+			o.createDelay = d
+		}
 	}
 }
 

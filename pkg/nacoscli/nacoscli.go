@@ -24,8 +24,10 @@
 //   - 注册成功后，连接健康维护完全由 SDK 内部处理，本包不再介入
 //   - 不存在「连接断开后重连」这条路径——SDK 内部自行处理
 //
-// 这一认知是理解本包 API 设计（为何 WithReconnectDelay 不存在、为何 retries 只在
-// 注册失败时递增）的关键。详见 README.md 中的「重试语义」章节。
+// 这一认知是理解本包 API 设计的关键：
+//   - 为何没有「断线重连」相关配置——SDK 内部自行处理
+//   - 为何 retries 只在注册失败时递增——不存在「运行期断连」事件
+// 详见 README.md 中的「重试语义」章节。
 package nacoscli
 
 import (
@@ -54,7 +56,7 @@ var ErrNilParams = errors.New("Params 不能为空")
 // Params 包含 Nacos 配置的查询参数。
 type Params struct {
 	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`           // 服务器地址
-	Port        int    `yaml:"port" json:"port"`               // 端口
+	Port        int    `yaml:"port" json:"port"`               // 端口，未提供 WithServerConfigs 时必填
 	Scheme      string `yaml:"scheme" json:"scheme"`           // 协议，http 或 grpc
 	ContextPath string `yaml:"contextPath" json:"contextPath"` // 路径
 	NamespaceID string `yaml:"namespaceID" json:"namespaceID"` // 命名空间 ID
@@ -79,7 +81,7 @@ func buildConfigs(o *options) (*constant.ClientConfig, []constant.ServerConfig) 
 	}
 
 	serverConfigs := o.serverConfigs
-	if serverConfigs == nil {
+	if len(serverConfigs) == 0 {
 		serverConfigs = []constant.ServerConfig{
 			{
 				IpAddr:      o.ipAddr,
@@ -136,8 +138,11 @@ func NewConfigClient(opts ...Option) (*Client, error) {
 	o := defaultOptions()
 	o.apply(opts...)
 
-	if o.ipAddr == "" && o.serverConfigs == nil {
+	if o.ipAddr == "" && len(o.serverConfigs) == 0 {
 		return nil, errors.New("Nacos 服务器地址 (IPAddr/IP 或 WithIPAddr) 不能为空")
+	}
+	if o.port == 0 && len(o.serverConfigs) == 0 {
+		return nil, errors.New("Nacos 服务器端口 (Port 或 WithPort) 不能为空")
 	}
 
 	clientConfig, serverConfigs := buildConfigs(o)
@@ -169,17 +174,26 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, 
 	span.SetAttributes(
 		attribute.String("nacos.data_id", params.DataID),
 		attribute.String("nacos.group", params.Group),
-		requestIDAttr(ctx),
 	)
-	normalizedFormat, err := params.valid()
-	if err != nil {
-		return "", nil, err
+	if reqID := requestIDAttr(ctx); reqID != nil {
+		span.SetAttributes(*reqID)
 	}
 
+	// 先检查 ctx 再校验参数，避免已取消时做无意义校验
 	select {
 	case <-ctx.Done():
-		return "", nil, ctx.Err()
+		err := ctx.Err()
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", nil, err
 	default:
+	}
+
+	normalizedFormat, err := params.valid()
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", nil, err
 	}
 
 	data, err := c.configClient.GetConfig(vo.ConfigParam{
@@ -232,18 +246,19 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 		WithContextPath(params.ContextPath),
 		WithNamespaceID(params.NamespaceID),
 	}
-	mergedOpts := append(baseOpts, opts...)
+	mergedOpts := append([]Option{}, baseOpts...)
+	mergedOpts = append(mergedOpts, opts...)
 
 	client, err := NewConfigClient(mergedOpts...)
 	if err != nil {
 		return "", nil, err
 	}
+	defer client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), o.getTimeout)
 	defer cancel()
 
 	format, data, err := client.GetConfig(ctx, params)
-	client.Close()
 	return format, data, err
 }
 
@@ -264,10 +279,19 @@ func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string,
 		WithPort(nacosPort),
 		WithNamespaceID(nacosNamespaceID),
 	}
-	mergedOpts := append(baseOpts, opts...)
+	mergedOpts := append([]Option{}, baseOpts...)
+	mergedOpts = append(mergedOpts, opts...)
 
 	o := defaultOptions()
 	o.apply(mergedOpts...)
+
+	// 显式校验地址配置，与 NewConfigClient 保持一致
+	if o.ipAddr == "" && len(o.serverConfigs) == 0 {
+		return nil, errors.New("Nacos 服务器地址 (IPAddr/IP 或 WithIPAddr/WithServerConfigs) 不能为空")
+	}
+	if o.port == 0 && len(o.serverConfigs) == 0 {
+		return nil, errors.New("Nacos 服务器端口 (Port 或 WithPort/WithServerConfigs) 不能为空")
+	}
 
 	clientConfig, serverConfigs := buildConfigs(o)
 
@@ -280,9 +304,11 @@ func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string,
 }
 
 // requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
-func requestIDAttr(ctx context.Context) attribute.KeyValue {
+// 若 context 中不存在 request_id，返回 nil（不设置空字符串属性）。
+func requestIDAttr(ctx context.Context) *attribute.KeyValue {
 	if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
-		return attribute.String("nacoscli.request_id", reqID)
+		v := attribute.String("nacoscli.request_id", reqID)
+		return &v
 	}
-	return attribute.String("nacoscli.request_id", "")
+	return nil
 }

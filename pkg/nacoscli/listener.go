@@ -55,7 +55,8 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 		WithContextPath(params.ContextPath),
 		WithNamespaceID(params.NamespaceID),
 	}
-	mergedOpts := append(baseOpts, opts...)
+	mergedOpts := append([]Option{}, baseOpts...)
+	mergedOpts = append(mergedOpts, opts...)
 
 	client, err := NewConfigClient(mergedOpts...)
 	if err != nil {

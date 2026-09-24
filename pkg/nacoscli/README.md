@@ -121,6 +121,8 @@ stop, err := nacoscli.WatchConfig(ctx, params, handler,
 - `retries >= maxRetries` 时记录 Error 日志并退出 goroutine
 - `maxRetries = 0`（默认）时无限重试
 
+> **生产环境提示**：默认无限重试 + 固定 5 秒延迟意味着 Nacos 长期不可达时会持续刷 Warn 日志。建议在生产环境显式设置 `WithMaxRetries`（如 10~20 次），避免日志膨胀。
+
 ---
 
 ### 场景三：复用配置客户端多次获取配置（NewConfigClient）
@@ -247,7 +249,7 @@ format, data, err := nacoscli.GetConfig(params,
 | `DataID` | `string` | **是** | 配置文件 ID，如 `user-srv.yml` |
 | `Format` | `string` | **是** | 配置类型：`json`、`yaml`（`yml` 会自动归一化）、`toml` |
 
-> *`IPAddr`/`Port` 在 `Params` 中为可选，可通过 `WithIPAddr`/`WithPort` 或 `WithServerConfigs` 提供。
+> *`IPAddr`/`Port` 可通过 `WithIPAddr`/`WithPort` 或 `WithServerConfigs` 提供；若未提供 `WithServerConfigs`，二者均为必填（`Port == 0` 会报错）。
 
 **参数校验规则**：`Group`、`DataID`、`Format` 为空时返回错误；`Format` 不在支持列表时返回错误。`valid()` 返回归一化后的 Format，**不修改**原始 Params 结构体。
 
@@ -258,17 +260,17 @@ format, data, err := nacoscli.GetConfig(params,
 | Option | 说明 | 默认值 | 适用 API |
 |--------|------|--------|----------|
 | `WithIPAddr(ip)` | Nacos 服务器地址 | `""` | 全部 |
-| `WithPort(port)` | Nacos 服务器端口 | `0` | 全部 |
+| `WithPort(port)` | Nacos 服务器端口，负值被忽略，0 在未提供 `WithServerConfigs` 时报错 | `0` | 全部 |
 | `WithScheme(scheme)` | 协议（http/grpc） | `""` | 全部 |
 | `WithContextPath(path)` | 上下文路径 | `""` | 全部 |
 | `WithNamespaceID(id)` | 命名空间 ID | `""` | 全部 |
-| `WithTimeoutMs(ms)` | SDK 请求超时（毫秒） | `5000` | 全部 |
-| `WithGetTimeout(d)` | GetConfig 拉取超时 | `30s` | `GetConfig` |
+| `WithTimeoutMs(ms)` | SDK 请求超时（毫秒），负值被忽略 | `5000` | 全部 |
+| `WithGetTimeout(d)` | GetConfig 便捷函数整体超时 | `30s` | `GetConfig` |
 | `WithAuth(user, pass)` | 认证用户名/密码 | `""` | 全部 |
 | `WithClientConfig(cfg)` | 完整 SDK ClientConfig | `nil` | 全部 |
 | `WithServerConfigs(cfgs)` | 完整 SDK ServerConfig 列表 | `nil` | 全部 |
-| `WithMaxRetries(n)` | 最大重试次数，0=无限 | `0` | `WatchConfig` |
-| `WithCreateDelay(d)` | 创建或注册失败重试等待时间 | `5s` | `WatchConfig` |
+| `WithMaxRetries(n)` | 最大重试次数，0=无限，负值被忽略 | `0` | `WatchConfig` |
+| `WithCreateDelay(d)` | 创建或注册失败重试等待时间，负值被忽略 | `5s` | `WatchConfig` |
 
 ---
 
@@ -280,10 +282,15 @@ format, data, err := nacoscli.GetConfig(params,
 func GetConfig(params *Params, opts ...Option) (format string, content []byte, err error)
 ```
 
-- 内部创建客户端 -> 拉取 -> 关闭，超时时间通过 `WithGetTimeout` 配置（默认 30 秒）
+- 内部创建客户端 -> 拉取 -> 关闭，整体超时时间通过 `WithGetTimeout` 配置（默认 30 秒）
 - `params` 不能为 `nil`，`Group`/`DataID`/`Format` 必须有效
 - 返回的 `format` 是归一化后的格式（`yml` -> `yaml`）
 - 每次调用都创建/销毁客户端，高频场景建议使用 `NewConfigClient`
+
+**超时说明**：
+- `WithGetTimeout`：控制便捷函数 `GetConfig` 整体执行时间（创建+拉取+关闭），通过 `context.WithTimeout` 实现
+- `WithTimeoutMs`：控制 Nacos SDK 单次 HTTP 请求超时（毫秒），默认 5000ms
+- `Client.GetConfig(ctx, params)` 中的 `ctx`：仅用于调用前取消检查，无法中断 SDK 内部正在进行的网络请求
 
 ### Client.GetConfig — 复用客户端拉取
 
@@ -292,6 +299,9 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, 
 ```
 
 - 通过 `ctx` 控制超时与取消，调用方可精确控制每次请求的生命周期
+- **注意**：`ctx` 仅用于调用前的取消检查（校验参数前的 `select ctx.Done()`）。
+  由于 Nacos SDK 的 `GetConfig` 不接受 context，实际网络超时由 `WithTimeoutMs`（默认 5000ms）控制。
+  若需要整体超时限制，建议通过 `WithGetTimeout`（默认 30s）配合 `context.WithTimeout` 实现调用级超时。
 - 不自动关闭客户端，需调用方负责 `Client.Close()`
 
 ### NewConfigClient — 创建可复用的配置客户端
@@ -302,6 +312,7 @@ func NewConfigClient(opts ...Option) (*Client, error)
 
 - 返回 `*Client`，提供 `GetConfig(ctx, params)` 和 `Close()` 方法
 - 用于需要多次读取不同配置文件的场景
+- **注意**：`WithGetTimeout` 仅对便捷函数 `GetConfig` 生效，`NewConfigClient` 创建的 `Client.GetConfig(ctx, params)` 完全忽略 `getTimeout`，超时由调用方传入的 `ctx` 控制
 
 ### NewNamingClient — 创建命名客户端
 
@@ -321,6 +332,7 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 - 启动后台 goroutine 监听，返回 `stop` 函数和 `error`
 - `stop()` 调用后 cancel ctx 并等待 goroutine 完全退出（`sync.WaitGroup`）
 - `error` 在 ctx 已取消、params 校验失败或 handler 为空时立即返回（不启动后台循环）
+- **所有路径均返回非 nil 的 `stop` 函数**，可安全 `defer stop()`，不会因错误路径 panic
 - `handler` 签名：`func(namespace, group, dataID, data string)`，不能为空
 - 内部使用 `ListenConfig` 注册回调（SDK 内部后台长轮询），`<-ctx.Done()` 阻塞等待
 - 无论 `Start` 成功与否，都会调用 `CancelListenConfig` + `CloseClient` 清理资源
@@ -354,13 +366,15 @@ var ErrNilParams = errors.New("Params 不能为空")
 |------|------|
 | `GetConfig(nil)` / `Client.GetConfig(ctx, nil)` | 返回 `ErrNilParams` 错误 |
 | `Params.Group/DataID/Format` 为空 | 返回对应校验错误 |
-| `Format` 不支持 | 返回 `fmt.Errorf("配置文件类型 'Format=%s' 不支持")` |
+| `Params.Format` 不支持 | 返回 `fmt.Errorf("配置文件类型 'Format=%s' 不支持")` |
+| `Port` 为 0 且未提供 `WithServerConfigs` | 返回 "Nacos 服务器端口 (Port 或 WithPort) 不能为空" |
 | Nacos 服务器不可达 | 返回 SDK 错误（`从 Nacos 获取配置失败: ...`） |
 | `WatchConfig` ctx 已取消 | 立即返回 `ctx.Err()`，不启动后台循环 |
-| `WatchConfig` handler 为空 | 返回 `errors.New("配置变更回调函数不能为空")` |
-| `WatchConfig` params 非法 | 立即返回 error，不启动后台循环 |
+| `WatchConfig` handler 为空 | 返回 `errors.New("配置变更回调函数不能为空")`，stop 非 nil |
+| `WatchConfig` params 非法 | 立即返回 error，stop 非 nil，不启动后台循环 |
 | `WatchConfig` 创建失败/注册失败 | 自动重试（受 `WithMaxRetries` 控制），retries 持续累积 |
 | `WatchConfig` 超过最大重试 | 记录 Error 日志，goroutine 退出 |
+| `WatchConfig` 所有错误路径 | 返回非 nil stop 函数，可安全 defer |
 | `handler` 回调 panic | recover 捕获，记录 Warn 日志，监听继续 |
 
 ---
@@ -381,11 +395,12 @@ var ErrNilParams = errors.New("Params 不能为空")
 
 ## 集成测试
 
-集成测试依赖真实 Nacos 服务，通过 `NACOS_ADDR` 环境变量控制：
+集成测试依赖真实 Nacos 服务，通过 `NACOS_ADDR` 环境变量配置地址：
 
 ```bash
-# 运行集成测试
-NACOS_ADDR=192.168.3.37 go test ./pkg/nacoscli/ -v
+# 运行集成测试（格式: host:port 或 host:port/namespaceID）
+NACOS_ADDR=192.168.3.37:8848 go test ./pkg/nacoscli/ -v
+NACOS_ADDR=192.168.3.37:8848/de7b176e-91cd-49a3-ac83-beb725979775 go test ./pkg/nacoscli/ -v
 
 # 仅运行单元测试（默认行为）
 go test ./pkg/nacoscli/ -v

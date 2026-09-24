@@ -9,38 +9,39 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
+// exceededMaxRetries 判断是否已达最大重试次数。
+// maxRetries <= 0 表示无限重试，永远返回 false。
+func exceededMaxRetries(maxRetries, current int) bool {
+	return maxRetries > 0 && current >= maxRetries
+}
+
 // WatchConfig 启动 Nacos 配置监听（后台 goroutine），支持注册失败自动重试。
 // ListenConfig 注册失败时自动等待后重试，context 取消时优雅停止。
 // 注册成功后，连接维护由 Nacos SDK 内部长轮询负责，WatchConfig 不再介入。
 //
-// 参数:
-//   - ctx: 控制监听生命周期，取消时停止监听。
-//   - params: 配置查询参数（Group/DataID/Format），不能为空且必填字段必须有效。
-//   - handler: 配置变更回调函数，不能为空。
-//   - opts: 可选连接选项，优先级高于 params 中的连接参数；
-//     支持 WithMaxRetries、WithCreateDelay 控制重试行为。
-//
 // 返回值:
-//   - context.CancelFunc: 调用后停止监听 goroutine 并等待退出。
+//   - context.CancelFunc: 停止监听并等待退出。所有错误路径也返回非 nil 函数，可安全 defer stop()。
 //   - error: params 校验失败或 handler 为空时立即返回。
 func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opts ...Option) (context.CancelFunc, error) {
+	// 空停止函数，所有错误路径统一返回，避免调用方 defer stop() panic
+	noOpStop := func() {}
+
 	// 前置短路：ctx 已取消时直接返回，避免无谓的 Nacos 调用
 	select {
 	case <-ctx.Done():
-		// 返回空函数而非 nil，避免调用方 defer stop() 时 panic
-		return func() {}, ctx.Err()
+		return noOpStop, ctx.Err()
 	default:
 	}
 
 	// 提前校验参数，避免无效参数进入后台循环
 	if params == nil {
-		return nil, ErrNilParams
+		return noOpStop, ErrNilParams
 	}
 	if handler == nil {
-		return nil, errors.New("配置变更回调函数不能为空")
+		return noOpStop, errors.New("配置变更回调函数不能为空")
 	}
 	if _, err := params.valid(); err != nil {
-		return nil, err
+		return noOpStop, err
 	}
 
 	watchCtx, cancel := context.WithCancel(ctx)
@@ -66,7 +67,7 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 					logger.Int("retries", retries),
 					logger.Err(err),
 				)
-				if o.maxRetries > 0 && retries >= o.maxRetries {
+				if exceededMaxRetries(o.maxRetries, retries) {
 					logger.ErrorWithCtx(watchCtx, "[nacos watch] 已达最大重试次数，停止监听",
 						logger.Int("maxRetries", o.maxRetries),
 					)
@@ -108,7 +109,7 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 				logger.Int("retries", retries),
 				logger.Err(startErr),
 			)
-			if o.maxRetries > 0 && retries >= o.maxRetries {
+			if exceededMaxRetries(o.maxRetries, retries) {
 				logger.ErrorWithCtx(watchCtx, "[nacos watch] 已达最大重试次数，停止监听",
 					logger.Int("maxRetries", o.maxRetries),
 				)
