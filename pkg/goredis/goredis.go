@@ -10,6 +10,8 @@ import (
 
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // Client 是 Redis 客户端类型别名
@@ -59,10 +61,9 @@ func setupClient(ctx context.Context, client redis.UniversalClient, o *options, 
 		}
 	}
 
-	// 添加自定义 Hook：从 Context 提取 request_id 并设置到 Span 属性
+	// 添加自定义 Hook：从 Context 提取 request_id（全项目约定的 logger.ContextKeyRequestID）并设置到 Span 属性
 	// 注意：必须在 InstrumentTracing 之后添加，这样 redisotel hook 先执行（创建 Span），我们的 Hook 后执行（设置属性）
-	hook := &requestIDHook{extractor: o.requestIDExtractor}
-	client.AddHook(hook)
+	client.AddHook(&requestIDHook{})
 
 	// 测试连接（由调用方注入 ping 策略：单机直接 Ping，集群 ForEachShard 遍历分片）
 	// 超时可用 WithInitTimeout 覆盖（默认 initTimeout 常量）
@@ -75,17 +76,17 @@ func setupClient(ctx context.Context, client redis.UniversalClient, o *options, 
 	// 探测 Lua 脚本通道是否可用（独立短超时，避免复用已消耗的 pingCtx 产生误报告警；可用 WithProbeTimeout 覆盖）
 	probeCtx, probeCancel := context.WithTimeout(ctx, o.probeTimeout)
 	defer probeCancel()
-	probeLuaScriptChannel(probeCtx, client, o.logger)
+	probeLuaScriptChannel(probeCtx, client)
 
 	return nil
 }
 
 // probeLuaScriptChannel 通过 EVAL "return 1" 探测 Lua 通道是否可用
 // 注：redsync 的脚本加载由 go-redis 的 NOSCRIPT fallback 保证，不依赖本探测
-// 探测失败仅通过 Logger 告警（可注入/可关闭），不中断初始化（启动健壮性原则）
-func probeLuaScriptChannel(ctx context.Context, client redis.Cmdable, lg Logger) {
+// 探测失败仅告警（走全局 pkg/logger），不中断初始化（启动健壮性原则）
+func probeLuaScriptChannel(ctx context.Context, client redis.Cmdable) {
 	if err := client.Eval(ctx, "return 1", nil).Err(); err != nil {
-		resolveLogger(lg).Warn("goredis: Lua 脚本通道探测失败，不影响初始化", "error", err)
+		logWarn(ctx, "goredis: Lua 脚本通道探测失败，不影响初始化", logger.Err(err))
 	}
 }
 
@@ -99,9 +100,9 @@ func defaultContext(ctx context.Context) context.Context {
 
 // closeAfterInitFail 初始化失败后清理已创建的客户端
 // 关闭出错仅告警，不掩盖初始化的原始错误
-func closeAfterInitFail(closer interface{ Close() error }, lg Logger) {
+func closeAfterInitFail(ctx context.Context, closer interface{ Close() error }) {
 	if err := closer.Close(); err != nil {
-		resolveLogger(lg).Warn("goredis: 初始化失败后关闭客户端出错", "error", err)
+		logWarn(ctx, "goredis: 初始化失败后关闭客户端出错", logger.Err(err))
 	}
 }
 
@@ -150,7 +151,7 @@ func InitWithContext(ctx context.Context, dsn string, opts ...Option) (*redis.Cl
 
 	rdb := redis.NewClient(opt)
 	if err := setupClient(ctx, rdb, o, pingSingle); err != nil {
-		closeAfterInitFail(rdb, o.logger)
+		closeAfterInitFail(ctx, rdb)
 		return nil, err
 	}
 
@@ -176,7 +177,7 @@ func InitSingleWithContext(ctx context.Context, addr string, password string, db
 
 	rdb := redis.NewClient(opt)
 	if err := setupClient(ctx, rdb, o, pingSingle); err != nil {
-		closeAfterInitFail(rdb, o.logger)
+		closeAfterInitFail(ctx, rdb)
 		return nil, err
 	}
 
@@ -203,7 +204,7 @@ func InitSentinelWithContext(ctx context.Context, masterName string, addrs []str
 
 	rdb := redis.NewFailoverClient(opt)
 	if err := setupClient(ctx, rdb, o, pingSingle); err != nil {
-		closeAfterInitFail(rdb, o.logger)
+		closeAfterInitFail(ctx, rdb)
 		return nil, err
 	}
 
@@ -238,7 +239,7 @@ func InitClusterWithContext(ctx context.Context, addrs []string, username string
 		})
 	}
 	if err := setupClient(ctx, clusterRdb, o, clusterPing); err != nil {
-		closeAfterInitFail(clusterRdb, o.logger)
+		closeAfterInitFail(ctx, clusterRdb)
 		return nil, err
 	}
 
@@ -349,17 +350,14 @@ const shutdownPollInterval = 50 * time.Millisecond
 // Shutdown 优雅关闭 Redis 客户端
 // 先轮询等待连接池中无命令占用连接（尽力等待飞行中的命令完成），再执行幂等关闭；
 // 等待期间 ctx 取消/超时会立即转入关闭流程（避免连接泄漏）并返回 ctx 的错误
-// 可选 opts 用于注入关闭阶段的选项（如 WithLogger 指定关闭告警的日志实现）
-func Shutdown(ctx context.Context, rdb *redis.Client, opts ...Option) error {
+// 关闭阶段的告警统一走全局 pkg/logger（带 ctx，自动关联 request_id）
+func Shutdown(ctx context.Context, rdb *redis.Client) error {
 	if rdb == nil {
 		return nil
 	}
 	ctx = defaultContext(ctx)
 
-	o := defaultOptions()
-	o.apply(opts...)
-	lg := resolveLogger(o.logger)
-	if err := waitPoolDrained(ctx, rdb.PoolStats, lg); err != nil {
+	if err := waitPoolDrained(ctx, rdb.PoolStats); err != nil {
 		// 等待超时/取消后仍需强制关闭；Close 也失败时用 errors.Join 保留双错误，
 		// 避免丢失“因 ctx 错误进入强制关闭”这一关键上下文
 		if closeErr := Close(rdb); closeErr != nil {
@@ -371,16 +369,13 @@ func Shutdown(ctx context.Context, rdb *redis.Client, opts ...Option) error {
 }
 
 // ShutdownCluster 优雅关闭 Redis 集群客户端（语义同 Shutdown）
-func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts ...Option) error {
+func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient) error {
 	if clusterRdb == nil {
 		return nil
 	}
 	ctx = defaultContext(ctx)
 
-	o := defaultOptions()
-	o.apply(opts...)
-	lg := resolveLogger(o.logger)
-	if err := waitPoolDrained(ctx, clusterRdb.PoolStats, lg); err != nil {
+	if err := waitPoolDrained(ctx, clusterRdb.PoolStats); err != nil {
 		// 同 Shutdown：Close 失败时保留“等待失败 + 关闭失败”双错误
 		if closeErr := CloseCluster(clusterRdb); closeErr != nil {
 			return errors.Join(err, closeErr)
@@ -392,7 +387,7 @@ func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts 
 
 // waitPoolDrained 轮询等待连接池中所有连接归还
 // 判定条件：TotalConns == IdleConns，即无连接被命令占用（尽力而为的飞行中命令等待）
-func waitPoolDrained(ctx context.Context, statsFn func() *redis.PoolStats, lg Logger) error {
+func waitPoolDrained(ctx context.Context, statsFn func() *redis.PoolStats) error {
 	ticker := time.NewTicker(shutdownPollInterval)
 	defer ticker.Stop()
 
@@ -403,7 +398,7 @@ func waitPoolDrained(ctx context.Context, statsFn func() *redis.PoolStats, lg Lo
 		}
 		select {
 		case <-ctx.Done():
-			lg.Warn("goredis: 等待连接池归还超时，将强制关闭客户端", "error", ctx.Err())
+			logWarn(ctx, "goredis: 等待连接池归还超时，将强制关闭客户端", logger.Err(ctx.Err()))
 			return ctx.Err()
 		case <-ticker.C:
 		}

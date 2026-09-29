@@ -58,7 +58,10 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 	mergedOpts := append([]Option{}, baseOpts...)
 	mergedOpts = append(mergedOpts, opts...)
 
-	client, err := NewConfigClient(mergedOpts...)
+	o := defaultOptions()
+	o.apply(mergedOpts...)
+
+	client, err := newClientFromOptions(o)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Nacos 配置监听客户端失败: %w", err)
 	}
@@ -84,7 +87,7 @@ func NewListenClient(params *Params, handler ChangeHandler, opts ...Option) (*Li
 // 无论返回 nil 还是 error，调用方都应调用 Stop() 与 Close() 释放资源。
 // CancelListenConfig 对未注册成功的 (dataId, group) 是无害操作。
 func (c *ListenClient) Start(ctx context.Context) error {
-	logger.InfoWithCtx(ctx, "[nacos listener] 启动中",
+	logInfo(ctx, "[nacos listener] 启动中",
 		logger.String("group", c.group),
 		logger.String("dataId", c.dataID),
 	)
@@ -93,7 +96,7 @@ func (c *ListenClient) Start(ctx context.Context) error {
 	// 真正的长轮询由 SDK 的 startInternal() 后台 goroutine 执行。
 	c.param.OnChange = c.buildOnChange(ctx)
 	if err := c.configClient.ListenConfig(c.param); err != nil {
-		logger.WarnWithCtx(ctx, "[nacos listener] 注册监听失败",
+		logWarn(ctx, "[nacos listener] 注册监听失败",
 			logger.String("dataId", c.dataID),
 			logger.Err(err),
 		)
@@ -103,7 +106,7 @@ func (c *ListenClient) Start(ctx context.Context) error {
 	// 阻塞等待 ctx 取消，保持监听存活
 	<-ctx.Done()
 
-	logger.InfoWithCtx(context.Background(), "[nacos listener] 上下文取消，停止监听")
+	logInfo(context.Background(), "[nacos listener] 上下文取消，停止监听")
 	return nil
 }
 
@@ -118,14 +121,14 @@ func (c *ListenClient) buildOnChange(ctx context.Context) vo.Listener {
 	return func(namespace, group, dataId, data string) {
 		// context 已取消时丢弃变更
 		if ctx.Err() != nil {
-			logger.WarnWithCtx(ctx, "[nacos listener] 上下文已取消，跳过配置变更",
+			logWarn(ctx, "[nacos listener] 上下文已取消，跳过配置变更",
 				logger.String("group", group),
 				logger.String("dataId", dataId),
 			)
 			return
 		}
 
-		logger.InfoWithCtx(ctx, "[nacos listener] 配置已变更",
+		logInfo(ctx, "[nacos listener] 配置已变更",
 			logger.String("group", group),
 			logger.String("dataId", dataId),
 			logger.Int("dataLength", len(data)),
@@ -140,7 +143,7 @@ func (c *ListenClient) buildOnChange(ctx context.Context) vo.Listener {
 func (c *ListenClient) safeCallHandler(ctx context.Context, namespace, group, dataID, data string) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.WarnWithCtx(ctx, "[nacos listener] 配置变更回调 panic",
+			logWarn(ctx, "[nacos listener] 配置变更回调 panic",
 				logger.String("dataId", dataID),
 				logger.Any("panic", r),
 			)

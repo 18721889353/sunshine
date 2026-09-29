@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"log/slog"
 	"net"
 	"time"
 
@@ -13,40 +12,11 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
-// RequestIDExtractor 从 Context 中提取 request_id 的函数签名
-// 用于解耦 goredis 与 logger 包的依赖，上层注入具体提取逻辑
-type RequestIDExtractor func(ctx context.Context) string
-
-// Logger goredis 日志接口
-// 用于依赖倒置：库内部不直接使用标准库 log，上游可通过 WithLogger 注入
-// slog/zap/zerolog 的适配实现；未注入时默认使用标准库 slog 的默认 Logger。
-type Logger interface {
-	// Warn 输出警告级别日志，args 为 slog 风格的 key-value 键值对
-	Warn(msg string, args ...any)
-	// Error 输出错误级别日志，args 为 slog 风格的 key-value 键值对
-	Error(msg string, args ...any)
-}
-
-// defaultLogger 基于标准库 slog 的默认日志实现
-type defaultLogger struct{}
-
-// Warn 输出警告级别日志
-func (defaultLogger) Warn(msg string, args ...any) {
-	slog.Warn(msg, args...)
-}
-
-// Error 输出错误级别日志
-func (defaultLogger) Error(msg string, args ...any) {
-	slog.Error(msg, args...)
-}
-
-// resolveLogger 返回已配置的 Logger，未配置（nil）时回退到 slog 默认实现
-func resolveLogger(lg Logger) Logger {
-	if lg == nil {
-		return defaultLogger{}
-	}
-	return lg
-}
+// 日志与 request_id 统一走全局 pkg/logger（见 logging.go 与 requestid_hook.go），
+// 本包不再提供 Logger 接口 / WithLogger / RequestIDExtractor / WithRequestIDExtractor：
+//   - sunshine 是 mono-repo，pkg/logger 已是全仓日志底座，包内再造接口无法真正解耦；
+//   - 上述注入点在生产代码中零调用，属于死 API，且默认实现走标准库 slog 会绕过项目日志管道；
+//   - 如需替换底层日志实现，正确的收口点是 pkg/logger 自身，而不是每个基础设施包各造一套。
 
 // Option 函数选项模式，用于设置 Redis 配置选项
 type Option func(*options)
@@ -118,7 +88,6 @@ type options struct {
 	// 可观测性
 	enableMetrics bool                 // 是否启用 OpenTelemetry 指标
 	meterProvider metric.MeterProvider // 自定义指标 Provider，nil 时使用全局 MeterProvider
-	logger        Logger               // 日志实现，默认 slog
 
 	// 初始化超时（默认 initTimeout/probeTimeout 常量，可由 WithInitTimeout/WithProbeTimeout 覆盖）
 	initTimeout  time.Duration // 连接测试超时
@@ -129,9 +98,6 @@ type options struct {
 
 	// 追踪
 	tracerProvider *trace.TracerProvider
-
-	// request_id 提取器
-	requestIDExtractor RequestIDExtractor
 }
 
 // apply 应用配置选项（nil Option 防御：跳过以避免 Init(dsn, nil) 等调用 panic）
@@ -155,9 +121,8 @@ func (o *options) validate() error {
 // defaultOptions 返回默认配置选项（零值 = 不覆盖 DSN 解析结果）
 func defaultOptions() *options {
 	return &options{
-		logger:       defaultLogger{}, // 默认使用标准库 slog
-		initTimeout:  initTimeout,     // 连接测试超时，默认 15s
-		probeTimeout: probeTimeout,    // Lua 探测超时，默认 3s
+		initTimeout:  initTimeout,  // 连接测试超时，默认 15s
+		probeTimeout: probeTimeout, // Lua 探测超时，默认 3s
 	}
 }
 
@@ -486,24 +451,6 @@ func WithClusterOptions(opt *redis.ClusterOptions) Option {
 			TLSConfig:       opt.TLSConfig,
 		})
 		expandClusterOptions(o, opt)
-	}
-}
-
-// WithRequestIDExtractor 设置 request_id 提取器
-// 用于从 Context 中提取 request_id 并自动附加到 Redis Span 属性
-// 示例: WithRequestIDExtractor(func(ctx context.Context) string { return ctx.Value("request_id").(string) })
-func WithRequestIDExtractor(fn RequestIDExtractor) Option {
-	return func(o *options) {
-		o.requestIDExtractor = fn
-	}
-}
-
-// WithLogger 注入日志实现，未注入时默认使用标准库 slog
-// 用于上游接管库内部日志（如接入 zap/zerolog），或在生产环境调整日志级别
-// 传入 nil 时恢复为默认实现
-func WithLogger(lg Logger) Option {
-	return func(o *options) {
-		o.logger = resolveLogger(lg)
 	}
 }
 

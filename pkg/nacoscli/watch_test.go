@@ -2,6 +2,7 @@ package nacoscli
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 // exceededMaxRetries 测试
 // ---------------------------------------------------------------------------
 
+// TestExceededMaxRetries 验证重试上限的边界判断。
 func TestExceededMaxRetries(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -127,7 +129,7 @@ func TestWatchConfigWithMaxRetries0(t *testing.T) {
 	assert.Equal(t, 0, o.maxRetries, "WithMaxRetries(0) 应覆盖为 0")
 }
 
-// TestWatchConfigWithMaxRetries 设置有限重试。
+// TestWatchConfigWithMaxRetries 验证 WatchConfig 可设置有限重试次数。
 func TestWatchConfigWithMaxRetries(t *testing.T) {
 	o := defaultOptions()
 	WithMaxRetries(5)(o)
@@ -195,4 +197,76 @@ func TestWatchConfigInvalidParamsErrorMsg(t *testing.T) {
 	assert.Contains(t, err.Error(), "不能为空")
 	assert.NotNil(t, stop)
 	assert.NotPanics(t, func() { stop() })
+}
+
+// ---------------------------------------------------------------------------
+// 日志输出测试（全局 pkg/logger + 包私有钩子捕获）
+// ---------------------------------------------------------------------------
+
+// TestWatchConfigLogsViaGlobalLogger 验证 WatchConfig 的日志经由全局 pkg/logger 输出。
+// 场景：无地址 -> 创建监听器立即失败 -> 达到最大重试次数退出，应产生 Warn 与 Error 日志。
+func TestWatchConfigLogsViaGlobalLogger(t *testing.T) {
+	logs := captureLogs(t)
+
+	stop, err := WatchConfig(context.Background(),
+		&Params{Group: "g", DataID: "d", Format: "yaml"},
+		func(_, _, _, _ string) {},
+		WithMaxRetries(1),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, stop)
+
+	// stop() 等待后台 goroutine 退出，退出前必然已记录 Warn + Error
+	stop()
+
+	assert.NotEmpty(t, logs.msgs("warn"), "创建监听器失败应记录 Warn 日志")
+	assert.NotEmpty(t, logs.msgs("error"), "达到最大重试次数应记录 Error 日志")
+	assert.NotEmpty(t, logs.msgs("info"), "启动日志应记录 Info 日志")
+}
+
+// ---------------------------------------------------------------------------
+// 后台 goroutine panic 防护测试
+// ---------------------------------------------------------------------------
+
+// TestWatchConfigGoroutinePanicRecovered 验证后台 goroutine 内的 panic 不会打死进程。
+// 触发方式不依赖任何测试注入点：传入一个「第二次被调用才 panic」的 Option——
+// 第 1 次发生在 WatchConfig 同步的 o.apply，第 2 次发生在后台 goroutine 内的
+// NewListenClient → apply，从而精确模拟「选项/SDK 在后台协程崩溃」。
+// 断言：进程存活（测试能继续执行）、stop() 不挂起（recover 后 defer wg.Done 仍生效）、panic 经全局 logger 上报。
+func TestWatchConfigGoroutinePanicRecovered(t *testing.T) {
+	logs := captureLogs(t)
+
+	var calls atomic.Int32
+	boom := Option(func(*options) {
+		if calls.Add(1) >= 2 {
+			panic("模拟后台 goroutine 内的 panic")
+		}
+	})
+
+	stop, err := WatchConfig(context.Background(),
+		&Params{Group: "g", DataID: "d", Format: "yaml"},
+		func(_, _, _, _ string) {},
+		WithMaxRetries(3),
+		WithCreateDelay(10*time.Millisecond),
+		boom,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, stop)
+	assert.GreaterOrEqual(t, calls.Load(), int32(1), "Option 应至少被同步调用一次")
+
+	// stop() 必须返回：panic 被 recover 后 defer wg.Done() 仍会执行，否则这里应超时
+	done := make(chan struct{})
+	go func() {
+		stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop() 未在后台 goroutine panic 后返回，可能存在 goroutine 泄漏")
+	}
+
+	errs := logs.msgs("error")
+	require.NotEmpty(t, errs, "goroutine panic 应经全局 logger 记录 Error")
+	assert.Contains(t, errs[len(errs)-1], "panic", "Error 日志应说明是 panic 导致的停止")
 }

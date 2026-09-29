@@ -30,7 +30,7 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 十三 | sync.Map 操作规范 — 计数漂移保护 | Range 内联 I/O 去中间切片 |
 | 十四 | Ctx 变体设计规范 | Ctx 变体 + 构造函数接收 Context |
 | 十五 | Option 配置传播模式 | defaultXxx+apply + 冲突处理 |
-| 十六 | 测试文件组织 | 一对一映射 + mock 共享 + 单元/集成分离 + 集成测试规范 |
+| 十六 | 测试文件组织 | 一对一映射 + mock 共享 + 单元/集成分离（集成测试细则见 skill `package-quality-baseline`） |
 | 十七 | goroutine panic recover 策略 | 终止型退出清理 + 循环型继续执行 |
 | 十八 | 中文注释与日志规范 | 包注释内容要求 / 日志中文 / 错误中文 / 详细注释风格 |
 | 十九 | README 文档编写规范 | 场景驱动 / 架构概览 / 结构体表格 / Option 适用 API / API 速查独立小节 / 分隔线 / 反模式 |
@@ -967,120 +967,18 @@ integration_test.go   # 集成测试（//go:build integration）
 
 ### 集成测试规范
 
-集成测试依赖真实外部服务（Nacos、RabbitMQ、Redis 等），必须通过 build tag 隔离，不影响普通 `go test`。
+> **已迁移**：集成测试的交付物、命名、环境变量与 `.env` 自动加载、Skip/Fail 边界、`TestMain` 超时、
+> 等待时长常量化、依赖 SDK 时读到源码、外部视角验证与证据标准，统一收口到 skill
+> `package-quality-baseline`（`.qoder/skills/package-quality-baseline/SKILL.md`，
+> 骨架见同目录 `integration-skeleton.md`，证据写法见 `evidence-examples.md`）。
+> 本文件不再重复维护，避免两处漂移。
 
-#### 文件与 build tag
+仅保留属于「代码写法」层面、与新 skill 不重叠的四条硬规则：
 
-```go
-// integration_test.go 第一行
-//go:build integration
-
-package mypackage
-```
-
-运行方式：
-```bash
-# 普通单元测试（不包含集成测试）
-go test -v ./pkg/xxx/
-
-# 包含集成测试
-go test -tags=integration -v ./pkg/xxx/
-```
-
-#### 环境变量与跳过机制
-
-集成测试必须通过环境变量控制，未设置时自动 `t.Skip`：
-
-```go
-// requireNacos 从环境变量读取 Nacos 配置，未设置时跳过。
-func requireNacos(t *testing.T) (host string, port int, ...) {
-    t.Helper()
-    host = os.Getenv("NACOS_IP_ADDR")
-    portStr := os.Getenv("NACOS_PORT")
-    if host == "" || portStr == "" {
-        t.Skip("NACOS_IP_ADDR 或 NACOS_PORT 未设置，跳过集成测试")
-    }
-    // ...
-}
-
-func TestIntegration_GetConfig(t *testing.T) {
-    host, port, ... := requireNacos(t)  // 未设置环境变量则自动 skip
-    // ...
-}
-```
-
-#### TestMain 超时保护
-
-依赖外部服务的集成测试包必须实现 `TestMain`，设置总时长上限，防止 SDK goroutine 泄漏导致 `go test` 永远挂起：
-
-```go
-func TestMain(m *testing.M) {
-    ch := make(chan int, 1)
-    go func() {
-        ch <- m.Run()
-    }()
-    select {
-    case code := <-ch:
-        os.Exit(code)
-    case <-time.After(120 * time.Second):
-        fmt.Fprintln(os.Stderr, "FATAL: 集成测试超过 120 秒超时")
-        os.Exit(1)
-    }
-}
-```
-
-#### 命名规范
-
-| 测试函数名 | 说明 |
-|------------|------|
-| `TestIntegration_GetConfig` | 集成测试统一前缀 `TestIntegration_` |
-| `TestIntegration_PublishAndGetConfig` | CRUD 闭环场景 |
-| `TestIntegration_ListenConfigPublishChange` | 监听+发布联动 |
-| `TestIntegration_NamingClientRegisterAndDiscover` | 服务注册发现 |
-
-#### 跳过策略
-
-| 场景 | 策略 | 示例 |
-|------|------|------|
-| 环境变量未设置 | `t.Skip("xxx 未设置")` | `requireNacos` |
-| 外部服务不可达 | `t.Skipf("gRPC 不可达: %v", err)` | TCP 检测失败 |
-| SDK 操作返回 false | `t.Skipf("RegisterInstance 返回 false，gRPC 未就绪")` | gRPC STARTING 状态 |
-| 加密配置无密钥 | `t.Logf(...)` 记录但不 Fatal | Nacos ENC(...) 配置 |
-
-```go
-// ✅ 正确：RegisterInstance 失败时优雅跳过
-success, err := namingClient.RegisterInstance(...)
-if err != nil {
-    t.Skipf("RegisterInstance 失败: %v", err)
-}
-if !success {
-    t.Skipf("RegisterInstance 返回 false，gRPC 服务可能未就绪")
-}
-```
-
-#### 辅助函数规范
-
-| 辅助函数 | 说明 |
-|----------|------|
-| `requireNacos(t)` | 读取 Nacos 连接环境变量，返回 host/port/group/dataID |
-| `requireAuth(t)` | 读取认证环境变量，未设置时 skip |
-| `requireGRPCPort(t)` | 读取 gRPC 端口环境变量 |
-| `isGRPCReachable(host, port)` | TCP 检测 gRPC 端口可达性（3 秒超时） |
-| `testConfigKey()` | 生成唯一临时配置 ID（纳秒时间戳） |
-| `publishConfig(...)` | 直接通过 SDK 发布配置（测试辅助，返回 cleanup 函数） |
-
-#### 集成测试覆盖目标
-
-每个集成测试包至少覆盖以下场景：
-
-| 场景类型 | 示例 |
-|----------|------|
-| **基本 CRUD** | GetConfig、PublishConfig + GetConfig 闭环 |
-| **参数变体** | 不同超时、不同认证方式、不同 ServerConfigs |
-| **监听与变更** | ListenConfig 启动 + PublishConfig 触发回调 |
-| **重试与失败** | WatchConfig maxRetries、不可达地址重试 |
-| **服务注册发现** | NamingClient 注册 + SelectInstances 发现 |
-| **context 控制** | ctx 取消中断 GetConfig、优雅关闭 |
+1. 集成测试文件第一行必须是 `//go:build integration`；单元测试与集成测试不得混在同一文件
+2. 依赖外部服务的包必须实现 `TestMain` 限制总时长（默认 120s），否则 SDK goroutine 泄漏会让 `go test` 永久挂起
+3. 集成测试函数统一前缀 `TestIntegration_`
+4. 环境变量未设置 / 服务不可达 → `t.Skip`；**断言不符 → 必须 Fail**，不得把基础设施故障归类为预期失败
 
 ### 反模式
 
@@ -1112,24 +1010,6 @@ func newMockBackend(bufSize int) *mockBackend
 // ✅ 分离
 // rabbitmq_backend_test.go              — 单元测试（mock 模拟）
 // rabbitmq_backend_integration_test.go   — 集成测试（需真实服务，默认跳过）
-```
-
-```go
-// ❌ 集成测试没有超时保护，SDK goroutine 泄漏导致 go test 永远挂起
-
-// ✅ TestMain 设置 120 秒超时
-func TestMain(m *testing.M) { ... }
-```
-
-```go
-// ❌ RegisterInstance 返回 false 时直接 require.True 导致测试失败
-success, _ := namingClient.RegisterInstance(...)
-require.True(t, success)  // gRPC STARTING 时永远 false → 测试失败
-
-// ✅ 返回 false 时优雅跳过
-if !success {
-    t.Skipf("RegisterInstance 返回 false，gRPC 服务可能未就绪")
-}
 ```
 
 ### 端到端测试（代码生成类）
@@ -1300,6 +1180,10 @@ func (c *middlewareConfig) setGroupPath(groupPath string, handlers ...gin.Handle
 README 是包的门面文档，必须让使用者在 30 秒内找到自己需要的用法。所有 `pkg/` 下的包必须有 README.md。
 
 **参考模板**：`pkg/nacoscli/README.md`（覆盖所有规范要点）。
+
+> 分工：本节是 README **编写规则**的权威来源；**可直接粘贴的章节骨架**、CHANGELOG 模板、
+> 集成测试章节与「实测结果汇总」表模板，见 skill `package-quality-baseline` 的 `doc-templates.md`。
+> 只改模板形式时，动那边即可。
 
 ### 核心原则：场景驱动
 

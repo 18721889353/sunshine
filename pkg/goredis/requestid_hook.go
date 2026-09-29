@@ -5,17 +5,19 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // requestIDHook 自定义 Redis Hook，用于从 Context 提取 request_id 并设置到 Span 属性
-type requestIDHook struct {
-	extractor RequestIDExtractor // request_id 提取器，由上层注入
-}
+// request_id 的 context key 是全项目约定（由 pkg/logger 定义），因此本 Hook 无需任何注入点
+type requestIDHook struct{}
 
 // DialHook 实现 redis.DialHook 接口
 func (h *requestIDHook) DialHook(next redis.DialHook) redis.DialHook {
@@ -27,7 +29,7 @@ func (h *requestIDHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
 		// 此时 redisotel (外层 Hook) 已创建 Redis Span 并注入 Context
 		// 增强当前 Redis Span 的诊断属性
-		enhanceRedisSpan(ctx, cmd, h.extractor)
+		enhanceRedisSpan(ctx, cmd)
 
 		// 执行底层 Redis 命令
 		err := next(ctx, cmd)
@@ -55,7 +57,7 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 	return func(ctx context.Context, cmds []redis.Cmder) error {
 		// 此时 redisotel (外层 Hook) 已创建 Pipeline Span
 		// 直接设置 request_id 到当前的 Pipeline Span
-		setRequestIDToRedisSpan(ctx, h.extractor)
+		setRequestIDToRedisSpan(ctx)
 
 		// 执行底层 Pipeline 命令
 		err := next(ctx, cmds)
@@ -122,9 +124,9 @@ const (
 )
 
 // enhanceRedisSpan 增强 Redis Span 信息（大厂标准：添加 Key、耗时等诊断属性）
-func enhanceRedisSpan(ctx context.Context, cmd redis.Cmder, extractor RequestIDExtractor) {
+func enhanceRedisSpan(ctx context.Context, cmd redis.Cmder) {
 	// 1. 提取 request_id
-	setRequestIDToRedisSpan(ctx, extractor)
+	setRequestIDToRedisSpan(ctx)
 
 	// 2. 获取当前 Span
 	span := trace.SpanFromContext(ctx)
@@ -214,28 +216,35 @@ func trimLockName(keyStr string) string {
 	} else if idx := strings.LastIndex(lockName, "/"); idx != -1 {
 		lockName = lockName[idx+1:]
 	}
-	if name, truncated := truncateRunes(lockName, maxLockNameLen); truncated {
-		lockName = name
-	}
-	return lockName
+	// 始终采用 truncateRunes 的返回值：它除了截断长度，还负责把非法 UTF-8 归一化
+	name, _ := truncateRunes(lockName, maxLockNameLen)
+	return name
 }
 
 // trimScriptSHA 截取 SHA1 前 maxSHANameLen 位用于 Span 名称
 func trimScriptSHA(v any) string {
 	sha1 := fmt.Sprintf("%v", v)
-	if short, truncated := truncateRunes(sha1, maxSHANameLen); truncated {
-		sha1 = short
-	}
-	return sha1
+	// 同 trimLockName：截断与 UTF-8 归一化是一体的，不能只取截断分支
+	short, _ := truncateRunes(sha1, maxSHANameLen)
+	return short
 }
 
-// truncateRunes 按字符（rune）截断字符串到 limit 个字符
-// 不按字节截断：多字节字符（中文/emoji）落在截断边界时会被切成乱码，污染 Span 属性
+// truncateRunes 按字符（rune）截断字符串到 limit 个字符，返回（结果, 是否被截断）。
+// 两个职责都服务于「Span 属性/名称可安全上报」：
+//   - 不按字节截断：多字节字符（中文/emoji）落在截断边界时会被切成乱码；
+//   - 归一化非法 UTF-8：Redis key 常由业务方拼接外部输入而来，可能含非法字节，
+//     而 OTLP 的 protobuf string 字段要求合法 UTF-8，原样上报会让整批 Span 被后端丢弃。
 func truncateRunes(s string, limit int) (string, bool) {
 	runes := []rune(s)
 	if len(runes) <= limit {
-		return s, false
+		if utf8.ValidString(s) {
+			return s, false
+		}
+		// 未超长但含非法字节：替换为 U+FFFD（不标记为截断，避免调用方误加省略号）
+		return strings.ToValidUTF8(s, string(utf8.RuneError)), false
 	}
+
+	// 截断路径已由 []rune 转换完成非法字节的替换
 	return string(runes[:limit]), true
 }
 
@@ -243,20 +252,17 @@ func truncateRunes(s string, limit int) (string, bool) {
 func truncateKey(keyStr string) string {
 	head, truncated := truncateRunes(keyStr, maxKeyDisplayLen)
 	if !truncated {
-		return keyStr
+		return head
 	}
 	return head + "..."
 }
 
 // setRequestIDToRedisSpan 从 Context 提取 request_id 并设置到当前 Span 属性
-func setRequestIDToRedisSpan(ctx context.Context, extractor RequestIDExtractor) {
-	// 如果未设置提取器，则跳过
-	if extractor == nil {
-		return
-	}
-
-	reqID := extractor(ctx)
-	if reqID == "" {
+// 读取的是全项目约定的 logger.ContextKeyRequestID（与 gin/grpc middleware 写入的 key 一致），
+// 提取不到时不设置属性（避免上报空值污染看板）
+func setRequestIDToRedisSpan(ctx context.Context) {
+	reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string)
+	if !ok || reqID == "" {
 		return
 	}
 

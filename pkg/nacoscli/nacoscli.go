@@ -1,10 +1,13 @@
 // Package nacoscli 封装 Nacos 配置中心的客户端操作，提供配置获取、实时监听和服务注册能力。
 //
 // 核心功能：
-//   - 配置获取：GetConfig / Client.GetConfig 从 Nacos 拉取配置，支持 context 超时控制。
+//   - 配置获取：GetConfig / Client.GetConfig 从 Nacos 拉取配置，支持 context 超时控制
+//     （内部通过 goroutine + select 实现，ctx 取消/超时会立即返回）。
 //   - 实时监听：WatchConfig 封装注册失败自动重试，context 取消时优雅停止。
 //     注册成功后，连接维护由 Nacos SDK 内部长轮询负责。
-//   - 服务注册与发现：NewNamingClient 创建命名客户端（NamingClient），用于服务注册/注销/发现。
+//   - 服务注册与发现：NewNamingClient 按本包统一的连接参数创建 SDK 命名客户端
+//     （naming_client.INamingClient），仅承担工厂职责；注册/发现的业务语义与追踪埋点
+//     由 pkg/servicerd 实现，本包不再封装注册/发现方法。
 //   - 选项模式：通过 Option 函数（WithIPAddr、WithAuth、WithClientConfig 等）灵活配置，
 //     支持单字段设置与完整 SDK 配置两种方式，优先级：完整配置 > 单字段选项 > 默认值。
 //
@@ -37,10 +40,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/config_client"
-	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 	"go.opentelemetry.io/otel"
@@ -55,6 +58,10 @@ import (
 var ErrNilParams = errors.New("Params 不能为空")
 
 // Params 包含 Nacos 配置的查询参数。
+//
+// 注意：WatchConfig 会对 *Params 做浅拷贝（见 watch.go 的 paramsCopy）以避免与调用方数据竞争，
+// 因此本结构体新增字段必须是值类型（string/int 等）；
+// 若必须新增 slice/map/pointer 字段，需同步将 watch.go 的浅拷贝改为深拷贝，否则会引入数据竞争。
 type Params struct {
 	IPAddr      string `yaml:"ipAddr" json:"ipAddr"`           // 服务器地址
 	Port        int    `yaml:"port" json:"port"`               // 端口，未提供 WithServerConfigs 时必填
@@ -114,7 +121,8 @@ func (p *Params) valid() (string, error) {
 	case "yml":
 		format = "yaml"
 	default:
-		return "", fmt.Errorf("配置文件类型 'Format=%s' 不支持", p.Format)
+		// Format 来自配置文件/配置中心，用 %q 而非 %s：避免其中的换行/控制字符被原样带入日志与错误消息（日志注入）
+		return "", fmt.Errorf("配置文件类型 'Format=%q' 不支持", p.Format)
 	}
 
 	return format, nil
@@ -138,7 +146,11 @@ type Client struct {
 func NewConfigClient(opts ...Option) (*Client, error) {
 	o := defaultOptions()
 	o.apply(opts...)
+	return newClientFromOptions(o)
+}
 
+// newClientFromOptions 按已解析的 options 创建配置客户端，供 NewConfigClient 与 NewListenClient 复用。
+func newClientFromOptions(o *options) (*Client, error) {
 	if o.ipAddr == "" && len(o.serverConfigs) == 0 {
 		return nil, errors.New("Nacos 服务器地址 (IPAddr/IP 或 WithIPAddr) 不能为空")
 	}
@@ -161,9 +173,14 @@ func NewConfigClient(opts ...Option) (*Client, error) {
 	return &Client{configClient: configClient}, nil
 }
 
-// GetConfig 从 Nacos 获取配置，支持通过 context 传递超时与取消信号。
+// GetConfig 从 Nacos 获取配置，通过 context 控制超时与取消。
 // 内部会校验 params 的 nil 与必填字段，非法参数返回错误，不会 panic。
-func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, content []byte, err error) {
+//
+// 由于 Nacos SDK 的 GetConfig 不接受 context，内部将 SDK 调用放入独立 goroutine，
+// 再通过 select 等待 ctx 或结果：ctx 取消/超时时立即返回 ctx.Err()。
+// 注意 trade-off：超时返回后，后台 goroutine 仍会运行至 SDK 自身超时（WithTimeoutMs，
+// 默认 5000ms）才退出，期间无法被取消；结果写入带缓冲 channel，不会阻塞泄漏。
+func (c *Client) GetConfig(ctx context.Context, params *Params) (string, []byte, error) {
 	if params == nil {
 		return "", nil, ErrNilParams
 	}
@@ -172,18 +189,19 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, 
 	ctx, span := tracer.Start(ctx, "nacos.get_config", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 
+	// DataID/Group 是外部可控输入（来自配置文件/配置中心），写入 Span 属性前先归一化非法 UTF-8
 	span.SetAttributes(
-		attribute.String("nacos.data_id", params.DataID),
-		attribute.String("nacos.group", params.Group),
+		attribute.String("nacos.data_id", safeAttrText(params.DataID)),
+		attribute.String("nacos.group", safeAttrText(params.Group)),
 	)
-	if reqID := requestIDAttr(ctx); reqID != nil {
-		span.SetAttributes(*reqID)
+	if attr := requestIDAttr(ctx); attr.Key != "" {
+		span.SetAttributes(attr)
 	}
 
 	// 先检查 ctx 再校验参数，避免已取消时做无意义校验
 	select {
 	case <-ctx.Done():
-		err = ctx.Err()
+		err := ctx.Err()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return "", nil, err
@@ -197,19 +215,46 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, 
 		return "", nil, err
 	}
 
-	data, err := c.configClient.GetConfig(vo.ConfigParam{
-		DataId: params.DataID,
-		Group:  params.Group,
-	})
-	if err != nil {
+	// SDK 调用不接受 ctx，通过 goroutine + select 让调用方的取消/超时真正生效
+	type getResult struct {
+		data string
+		err  error
+	}
+	resultCh := make(chan getResult, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// recover 值常为 error，用 %w 保留错误链（调用方可 errors.Is/As）；非 error 时退回 %v，文本不变
+				if asErr, ok := r.(error); ok {
+					resultCh <- getResult{err: fmt.Errorf("GetConfig panic: %w", asErr)}
+					return
+				}
+				resultCh <- getResult{err: fmt.Errorf("GetConfig panic: %v", r)}
+			}
+		}()
+		data, callErr := c.configClient.GetConfig(vo.ConfigParam{
+			DataId: params.DataID,
+			Group:  params.Group,
+		})
+		resultCh <- getResult{data: data, err: callErr}
+	}()
+
+	select {
+	case <-ctx.Done():
+		err := ctx.Err()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return "", nil, fmt.Errorf("从 Nacos 获取配置失败: %w", err)
+		return "", nil, err
+	case r := <-resultCh:
+		if r.err != nil {
+			span.RecordError(r.err)
+			span.SetStatus(codes.Error, r.err.Error())
+			return "", nil, fmt.Errorf("从 Nacos 获取配置失败: %w", r.err)
+		}
+		span.SetAttributes(attribute.Int("nacos.config_length", len(r.data)))
+		span.SetStatus(codes.Ok, "配置获取成功")
+		return normalizedFormat, []byte(r.data), nil
 	}
-
-	span.SetAttributes(attribute.Int("nacos.config_length", len(data)))
-	span.SetStatus(codes.Ok, "配置获取成功")
-	return normalizedFormat, []byte(data), nil
 }
 
 // Close 关闭 Nacos 配置客户端，释放底层连接资源。
@@ -233,6 +278,9 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 	if params == nil {
 		return "", nil, ErrNilParams
 	}
+	// 此处的提前校验与下方 client.GetConfig 内部校验存在一次重复，是有意为之的防御：
+	// 非法参数在此直接返回，避免为一个注定失败的请求创建 Nacos 客户端（SDK 会初始化缓存目录与后台 goroutine）。
+	// valid() 无副作用（不修改 Params，实测快路径 9ns / 0 分配），因此重复调用不会重复触发任何行为。
 	if _, err := params.valid(); err != nil {
 		return "", nil, err
 	}
@@ -263,53 +311,25 @@ func GetConfig(params *Params, opts ...Option) (string, []byte, error) {
 	return format, data, err
 }
 
-// NewNamingClient 创建一个 Nacos 服务注册与发现客户端。
-//
-// 参数:
-//   - nacosIPAddr: Nacos 服务器地址，当 opts 中指定 WithServerConfigs 时被覆盖。
-//   - nacosPort: Nacos 服务器端口，当 opts 中指定 WithServerConfigs 时被覆盖。
-//   - nacosNamespaceID: Nacos 命名空间 ID，当 opts 中指定 WithClientConfig 时被覆盖。
-//   - opts: 连接配置选项，优先级高于前三项参数。
-//
-// 返回值:
-//   - naming_client.INamingClient: Nacos 服务注册与发现客户端实例。
-//   - error: 创建客户端过程中的错误。
-func NewNamingClient(nacosIPAddr string, nacosPort int, nacosNamespaceID string, opts ...Option) (naming_client.INamingClient, error) {
-	baseOpts := []Option{
-		WithIPAddr(nacosIPAddr),
-		WithPort(nacosPort),
-		WithNamespaceID(nacosNamespaceID),
+// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
+// request_id 的 context key 是全项目约定（由 pkg/logger 定义），本包不再提供注入点，
+// 与日志走全局 logger 的选型保持一致；提取不到时返回零值（Key 为空，调用方据此不设置属性，
+// 避免上报空值），不以指针返回——本函数在每次 GetConfig 上执行，返回值可避开为「可能不存在的属性」
+// 额外堆分配一个 KeyValue。
+func requestIDAttr(ctx context.Context) attribute.KeyValue {
+	if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
+		return attribute.String("nacoscli.request_id", reqID)
 	}
-	mergedOpts := append([]Option{}, baseOpts...)
-	mergedOpts = append(mergedOpts, opts...)
-
-	o := defaultOptions()
-	o.apply(mergedOpts...)
-
-	// 显式校验地址配置，与 NewConfigClient 保持一致
-	if o.ipAddr == "" && len(o.serverConfigs) == 0 {
-		return nil, errors.New("Nacos 服务器地址 (IPAddr/IP 或 WithIPAddr/WithServerConfigs) 不能为空")
-	}
-	if o.port == 0 && len(o.serverConfigs) == 0 {
-		return nil, errors.New("Nacos 服务器端口 (Port 或 WithPort/WithServerConfigs) 不能为空")
-	}
-
-	clientConfig, serverConfigs := buildConfigs(o)
-
-	return clients.NewNamingClient(
-		vo.NacosClientParam{
-			ClientConfig:  clientConfig,
-			ServerConfigs: serverConfigs,
-		},
-	)
+	return attribute.KeyValue{}
 }
 
-// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
-// 若 context 中不存在 request_id，返回 nil（不设置空字符串属性）。
-func requestIDAttr(ctx context.Context) *attribute.KeyValue {
-	if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
-		v := attribute.String("nacoscli.request_id", reqID)
-		return &v
+// safeAttrText 将外部可控文本归一化为合法 UTF-8，供写入 Span 属性使用。
+// OTLP 的 protobuf string 字段要求合法 UTF-8，非法字节会让整批 Span 被后端拒接或渲染成乱码；
+// Group/DataID 由配置文件与配置中心而来，不能假设它一定合法 UTF-8（与 pkg/goredis 的 Redis key 同一类风险）。
+// 合法输入走 utf8.ValidString 快路径直接返回，不发生拷贝。
+func safeAttrText(s string) string {
+	if utf8.ValidString(s) {
+		return s
 	}
-	return nil
+	return strings.ToValidUTF8(s, string(utf8.RuneError))
 }

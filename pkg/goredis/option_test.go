@@ -21,9 +21,7 @@ func TestDefaultPoolSize_零值(t *testing.T) {
 // TestDefaultOptions_默认值 验证默认选项值
 func TestDefaultOptions_默认值(t *testing.T) {
 	o := defaultOptions()
-	assert.NotNil(t, o.logger, "默认 logger 应为 defaultLogger（非 nil，保证日志可输出）")
 	assert.Nil(t, o.tracerProvider, "默认追踪提供者为 nil")
-	assert.Nil(t, o.requestIDExtractor, "默认提取器为 nil")
 	assert.False(t, o.poolSizeSet, "默认 poolSizeSet 应为 false")
 	assert.False(t, o.maxRetriesSet, "默认 maxRetriesSet 应为 false")
 }
@@ -94,23 +92,6 @@ func TestWithTLSConfig_设置(t *testing.T) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	WithTLSConfig(cfg)(o)
 	assert.Equal(t, cfg, o.tlsConfig)
-}
-
-// TestWithRequestIDExtractor_注入 验证 WithRequestIDExtractor 选项注入
-func TestWithRequestIDExtractor_注入(t *testing.T) {
-	o := defaultOptions()
-	assert.Nil(t, o.requestIDExtractor)
-
-	called := false
-	extractor := func(_ context.Context) string {
-		called = true
-		return "test-id"
-	}
-	WithRequestIDExtractor(extractor)(o)
-
-	assert.NotNil(t, o.requestIDExtractor)
-	assert.Equal(t, "test-id", o.requestIDExtractor(context.Background()))
-	assert.True(t, called)
 }
 
 // TestApplyOrder_后者覆盖先者 验证 apply 按顺序应用选项，后覆盖先
@@ -387,28 +368,6 @@ func TestValidate_单机选项误用(t *testing.T) {
 	o2 := defaultOptions()
 	WithSingleOptions(&redis.Options{PoolSize: 5})(o2)
 	assert.NoError(t, o2.validate(), "仅连接池字段不应误报")
-}
-
-// TestDefaultLogger_可用与回退 验证默认日志实现可用（不 panic）
-func TestDefaultLogger_可用与回退(t *testing.T) {
-	var lg Logger = defaultLogger{}
-	lg.Warn("测试告警", "key", "value")
-	lg.Error("测试错误", "key", "value")
-
-	assert.NotNil(t, resolveLogger(nil), "nil 应回退到默认实现")
-}
-
-// TestWithLogger_注入与恢复默认 验证注入 Logger 与 nil 恢复默认
-func TestWithLogger_注入与恢复默认(t *testing.T) {
-	o := defaultOptions()
-	assert.NotNil(t, o.logger, "默认 logger 不应为 nil")
-
-	lg := &mockLogger{}
-	WithLogger(lg)(o)
-	assert.Same(t, lg, o.logger, "应替换为注入的 Logger")
-
-	WithLogger(nil)(o)
-	assert.NotNil(t, o.logger, "传 nil 应恢复默认实现")
 }
 
 // TestWithMetrics_开关设置 验证指标开关默认关闭、显式开启

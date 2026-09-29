@@ -46,7 +46,9 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 
 	watchCtx, cancel := context.WithCancel(ctx)
 
-	// 拷贝一份 params（当前字段全为值类型，浅拷贝即可），避免与调用方数据竞争
+	// 拷贝一份 params，避免与调用方数据竞争。
+	// 注意：这是浅拷贝，要求 Params 的字段全部为值类型；
+	// 新增 slice/map/pointer 字段时必须同步改为深拷贝（详见 Params 类型注释）。
 	paramsCopy := *params
 
 	// 解析重试配置
@@ -58,17 +60,30 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 
 	go func() {
 		defer wg.Done()
+		// panic 防护：NewListenClient / Start / Stop 都会进入 Nacos SDK 内部，
+		// SDK 自行 panic 不应打死进程（与 listener.safeCallHandler 同一防御思路）；
+		// recover 后本轮监听终止，stop() 仍能正常返回（wg.Done 已 defer）
+		defer func() {
+			if r := recover(); r != nil {
+				logError(watchCtx, "[nacos watch] 监听后台协程 panic 已恢复，监听停止",
+					logger.String("dataID", paramsCopy.DataID),
+					logger.String("group", paramsCopy.Group),
+					logger.Any("panic", r),
+				)
+			}
+		}()
+
 		var retries int
 		for {
 			listener, err := NewListenClient(&paramsCopy, handler, opts...)
 			if err != nil {
 				retries++
-				logger.WarnWithCtx(watchCtx, "[nacos watch] 创建监听器失败",
+				logWarn(watchCtx, "[nacos watch] 创建监听器失败",
 					logger.Int("retries", retries),
 					logger.Err(err),
 				)
 				if exceededMaxRetries(o.maxRetries, retries) {
-					logger.ErrorWithCtx(watchCtx, "[nacos watch] 已达最大重试次数，停止监听",
+					logError(watchCtx, "[nacos watch] 已达最大重试次数，停止监听",
 						logger.Int("maxRetries", o.maxRetries),
 					)
 					return
@@ -87,9 +102,7 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 			if startErr == nil {
 				// 正常路径：ctx 取消，CancelListenConfig 返回错误属预期，记录日志但不阻断
 				if stopErr := listener.Stop(); stopErr != nil {
-					logger.DebugWithCtx(watchCtx, "[nacos watch] ctx 取消后停止监听",
-						logger.Err(stopErr),
-					)
+					logDebug(watchCtx, "[nacos watch] ctx 取消后停止监听", logger.Err(stopErr))
 				}
 				listener.Close()
 				return
@@ -97,20 +110,18 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 
 			// 异常路径：ctx 未取消，Stop 失败是真实故障
 			if stopErr := listener.Stop(); stopErr != nil {
-				logger.WarnWithCtx(watchCtx, "[nacos watch] 取消监听注册失败",
-					logger.Err(stopErr),
-				)
+				logWarn(watchCtx, "[nacos watch] 取消监听注册失败", logger.Err(stopErr))
 			}
 			listener.Close()
 
 			// 累加重试计数，尝试重试
 			retries++
-			logger.WarnWithCtx(watchCtx, "[nacos watch] 监听注册失败，等待重试",
+			logWarn(watchCtx, "[nacos watch] 监听注册失败，等待重试",
 				logger.Int("retries", retries),
 				logger.Err(startErr),
 			)
 			if exceededMaxRetries(o.maxRetries, retries) {
-				logger.ErrorWithCtx(watchCtx, "[nacos watch] 已达最大重试次数，停止监听",
+				logError(watchCtx, "[nacos watch] 已达最大重试次数，停止监听",
 					logger.Int("maxRetries", o.maxRetries),
 				)
 				return
@@ -124,7 +135,7 @@ func WatchConfig(ctx context.Context, params *Params, handler ChangeHandler, opt
 		}
 	}()
 
-	logger.InfoWithCtx(watchCtx, "[nacos watch] 已启动",
+	logInfo(watchCtx, "[nacos watch] 已启动",
 		logger.String("dataID", paramsCopy.DataID),
 		logger.String("group", paramsCopy.Group),
 	)

@@ -55,6 +55,45 @@ func TestWithScheme(t *testing.T) {
 	assert.Equal(t, "grpc", o.scheme)
 }
 
+// TestWithSchemeWhitelist 验证 WithScheme 的防御式取值：
+// 大小写与首尾空格归一化，白名单外取值与空串均被忽略（保留先前设置的值）。
+func TestWithSchemeWhitelist(t *testing.T) {
+	const prev = "grpc" // 先前设置的值，用于验证「忽略时保留原值」
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"小写 http 合法", "http", "http"},
+		{"https 合法", "https", "https"},
+		{"grpc 合法", "grpc", "grpc"},
+		{"大写归一为小写", "HTTP", "http"},
+		{"首尾空格归一", " https ", "https"},
+		{"混合大小写归一", "HtTpS", "https"},
+		{"白名单外取值被忽略", "h2", prev},
+		{"非法协议名被忽略", "tcp", prev},
+		{"空串视为未设置不覆盖", "", prev},
+		{"仅空格视为未设置", "   ", prev},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			o := defaultOptions()
+			o.scheme = prev
+
+			WithScheme(c.in)(o)
+			assert.Equal(t, c.want, o.scheme)
+		})
+	}
+}
+
+// TestWithSchemeDefaultUnset 验证默认不设置协议时保持空串（由 SDK 侧按默认 http 处理）。
+func TestWithSchemeDefaultUnset(t *testing.T) {
+	o := defaultOptions()
+	assert.Equal(t, "", o.scheme, "默认不应预设协议")
+}
+
 // TestWithContextPath 设置上下文路径。
 func TestWithContextPath(t *testing.T) {
 	o := defaultOptions()
@@ -129,11 +168,11 @@ func TestWithCreateDelay(t *testing.T) {
 	assert.Equal(t, 10*time.Second, o.createDelay)
 }
 
-// TestWithCreateDelayZero 验证零值延迟被接受。
+// TestWithCreateDelayZero 验证零值延迟被拒绝（防止 time.After(0) 忙循环）。
 func TestWithCreateDelayZero(t *testing.T) {
 	o := defaultOptions()
 	WithCreateDelay(0)(o)
-	assert.Equal(t, time.Duration(0), o.createDelay, "零值延迟应被接受")
+	assert.Equal(t, 5*time.Second, o.createDelay, "零值延迟应被拒绝，保留默认值")
 }
 
 // TestWithGetTimeout 设置 GetConfig 拉取超时。
@@ -143,11 +182,11 @@ func TestWithGetTimeout(t *testing.T) {
 	assert.Equal(t, 10*time.Second, o.getTimeout)
 }
 
-// TestWithGetTimeoutZero 验证零值超时被设置。
+// TestWithGetTimeoutZero 验证零值超时被拒绝（防止 context.WithTimeout 立即到期）。
 func TestWithGetTimeoutZero(t *testing.T) {
 	o := defaultOptions()
 	WithGetTimeout(0)(o)
-	assert.Equal(t, time.Duration(0), o.getTimeout, "零值 getTimeout 应被设置")
+	assert.Equal(t, 30*time.Second, o.getTimeout, "零值超时应被拒绝，保留默认值")
 }
 
 // ---------------------------------------------------------------------------
@@ -190,11 +229,11 @@ func TestWithPortZero(t *testing.T) {
 	assert.Equal(t, 0, o.port)
 }
 
-// TestWithTimeoutMsZero 零值超时应正常设置。
+// TestWithTimeoutMsZero 零值超时应被拒绝，保留默认值。
 func TestWithTimeoutMsZero(t *testing.T) {
 	o := defaultOptions()
 	WithTimeoutMs(0)(o)
-	assert.Equal(t, 0, o.timeoutMs)
+	assert.Equal(t, 5000, o.timeoutMs, "零值超时应被拒绝，保留默认值")
 }
 
 // ---------------------------------------------------------------------------
@@ -267,4 +306,18 @@ func TestOptionApplyEmpty(t *testing.T) {
 	o.apply()
 	assert.Equal(t, 5000, o.timeoutMs)
 	assert.Equal(t, 30*time.Second, o.getTimeout)
+}
+
+// ---------------------------------------------------------------------------
+// nil Option 防御测试
+// ---------------------------------------------------------------------------
+
+// TestOptionApplyNilOption 验证 nil Option 被跳过而不 panic（动态拼接选项场景）。
+func TestOptionApplyNilOption(t *testing.T) {
+	o := defaultOptions()
+	assert.NotPanics(t, func() {
+		o.apply(nil, WithIPAddr("10.0.0.1"), nil, WithPort(8848), nil)
+	})
+	assert.Equal(t, "10.0.0.1", o.ipAddr)
+	assert.Equal(t, 8848, o.port)
 }

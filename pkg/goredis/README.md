@@ -7,13 +7,17 @@
 ```
 goredis/
 ├── goredis.go          # 核心：Init/InitSingle/InitSentinel/InitCluster/Close/Shutdown、setupClient 统一初始化、Lua 通道探测
-├── option.go           # Functional Options：WithPoolSize/WithTracing/WithLogger/WithMetrics/Without* 等 + Logger 接口
+├── option.go           # Functional Options：WithPoolSize/WithTracing/WithMetrics/Without* 等
+├── logging.go          # 包私有的全局 pkg/logger 日志钩子（仅供单测替换，不对外暴露）
 ├── requestid_hook.go   # Redis Hook：request_id 注入、逐命令 Pipeline 失败事件、eval/evalsha 分布式锁识别
-├── goredis_test.go     # 单元测试：Init/Close/Shutdown 生命周期、nil Option、Logger 注入
+├── goredis_test.go     # 单元测试：Init/Close/Shutdown 生命周期、nil Option、Lua 探测告警
 ├── option_test.go      # 单元测试：默认值、全部 With*/Without* 选项、三阶段合并语义
+├── logging_test.go     # 单元测试：日志钩子捕获辅助、告警是否经由全局 logger 输出
 ├── requestid_hook_test.go  # 单元测试：Span 属性增强、request_id 注入、逐命令失败事件
 ├── integration_test.go # 集成测试（需 GOREDIS_TEST_DSN 环境变量）
 ├── dsn_test.go         # DSN 解析回归测试（query 参数、rediss:// TLS、特殊字符密码、merge 语义）
+├── benchmark_test.go   # 性能基线：DSN 解析、Span 增强、Key 截断、命令端到端（见「性能基线与模糊测试」）
+├── fuzz_test.go        # 模糊测试：DSN 解析不变量、路径补全幂等、Span 文本合法 UTF-8
 ├── CHANGELOG.md        # 版本变更日志（遵循 SemVer）
 └── README.md
 ```
@@ -23,11 +27,39 @@ goredis/
 - **三阶段合并语义**：`DSN < WithXxxOptions 展开 < With* 显式设置`，所有字段通过 `xxxSet` 标志识别，零值（空串、false、nil、0）也可显式设置
 - **Lua 脚本通道探测**：`Init` 时执行 `EVAL "return 1" nil` 确认 Lua 通道可用；redsync 的脚本加载由 go-redis 内置 NOSCRIPT fallback 保证，不依赖本探测
 - **统一初始化路径**：`setupClient` 消除 8 个 Init 函数的重复代码（追踪挂载 → 指标挂载 → Hook 注册 → ping 策略测试 → Lua 探测）；单机/集群仅 ping 策略不同，挂载流程完全共享
-- **日志依赖倒置**：库内不直接使用标准库 `log`，通过 `Logger` 接口（`WithLogger` 注入，默认 `log/slog`）接管告警
+- **日志统一走全局 `pkg/logger`**：库内不定义 `Logger` 接口、不提供 `WithLogger`，也不直接使用标准库 `log`/`slog`（见下方「为何取消日志依赖倒置」）
+- **包内约定选型**：Option 采「`xxxSet` 显式标记」（与 `pkg/nacoscli` 的「最后赋值胜出」不同且均属合法选择）；
+  测试命名现为**方案 B，已列为待收口**（全仓统一为方案 A，见 skill
+  [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md)）
 - **配置错误快速失败**：`WithSingleOptions` 误传 `Addr/Password/DB` 等配置类错误在 `Init` 时返回 error，而非运行期刷屏
 - **幂等关闭**：`Close`/`CloseCluster` 重复调用安全，第二次调用返回 nil；`Shutdown`/`ShutdownCluster` 等待飞行中命令归还后再关闭
-- **request_id 注入**：通过 `RequestIDExtractor` 函数类型解耦 goredis 与 logger 包，上层注入具体实现
+- **request_id 自动注入**：`requestIDHook` 直接读取全项目约定的 `logger.ContextKeyRequestID`（gin/grpc middleware 写入的同一个 key），无需任何注入即可默认生效
 - **evalsha 分布式锁识别**：自动识别 `lock:`、`/dlock/` 前缀，Span 名称显示锁标识便于排查；Pipeline 逐命令记录失败事件
+
+### 为何取消日志依赖倒置
+
+早期版本本包定义 `Logger` 接口 + `WithLogger`（默认实现走 `log/slog`）与 `RequestIDExtractor` + `WithRequestIDExtractor`，已全部删除：
+
+- **mono-repo 前提**：`pkg/logger` 已是全仓日志底座（仓内 **140 个非测试 Go 文件**直接依赖，含 `pkg/es`、`pkg/goMq`、
+  `pkg/kafka`、`pkg/cache`、`pkg/gin/middleware`、`internal/database` 等），包内再造一层接口并不能真正解耦，只多出一份 key-value 翻译逻辑
+- **双出口风险**：默认实现走标准库 `slog`，日志不经过项目的 zap 管道，不带 ctx/request_id/trace_id，事实上形成生产日志盲区
+- **死 API**：`WithLogger` / `WithRequestIDExtractor` 在生产代码中零调用点（仅单测使用），却抬高了 API 面积与认知成本
+- **默认就对**：request_id 改读全项目约定的 context key 后，“忘注入 → Span 没 request_id”这类问题从源头消除
+
+若将来确实需要切换底层日志实现，正确的收口点是 `pkg/logger` 自身，而不是每个基础设施包各造一套 `Logger` + `WithLogger`。
+
+上述两项声明可自行复核（预期结果：前者 140，后者除 `pkg/gocron` 引用的 robfig 库自身 API 外无匹配）：
+
+```bash
+grep -rl "sunshine/pkg/logger" --include=*.go . | grep -v _test.go | wc -l
+grep -rn "WithLogger\|WithRequestIDExtractor" --include=*.go .
+```
+
+可测试性由 `logging.go` 的包私有钩子 `logWarn` 提供；因为它是包级变量，`logging_test.go` 的 `captureWarn`
+内置两项约束：收集器 `warnCollector` 带互斥锁，且用 `atomic.Bool` 拒绝同一测试内嵌套/重复捕获。
+
+`pkg/nacoscli` 已按同一原则处理（可复核：[`pkg/nacoscli/logging.go`](../nacoscli/logging.go) 与
+其 README「为何不依赖倒置日志」章节），两包的日志收口方式与测试侧收集器约束完全一致。
 
 ---
 
@@ -143,13 +175,10 @@ defer goredis.CloseCluster(clusterRdb)
 ```go
 rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 	goredis.WithTracing(tracerProvider),
-	goredis.WithRequestIDExtractor(func(ctx context.Context) string {
-		return logger.GetRequestID(ctx) // 从 Context 提取 request_id
-	}),
 )
 ```
 
-**内部行为**：`redisotel.InstrumentTracing` 挂载 Redis 追踪 Hook → `requestIDHook` 注入 `request_id` 属性 → 命名规则：普通命令 `redis.<cmd>`，分布式锁 `redis.lock:<name>`
+**内部行为**：`redisotel.InstrumentTracing` 挂载 Redis 追踪 Hook → `requestIDHook` 从 ctx 的 `logger.ContextKeyRequestID` 读取 request_id 并注入 `request_id` 属性（无需额外 Option）→ 命名规则：普通命令 `redis.<cmd>`，分布式锁 `redis.lock:<name>`
 
 ---
 
@@ -211,15 +240,15 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 | `WithoutRouteRandomly()` | 显式关闭随机路由（覆盖展开值） | `false` |
 | `WithMaxRedirects(n)` | 集群最大重定向次数（传 `0` 可显式设为 0） | `go-redis 默认值` |
 
-### 追踪、指标与日志
+### 追踪与指标
 
 | Option | 说明 | 默认值 |
 |--------|------|--------|
 | `WithTracing(tp)` | 启用 OpenTelemetry 追踪 | `nil`（不启用） |
-| `WithRequestIDExtractor(fn)` | 自定义 request_id 提取函数 | `nil` |
 | `WithMetrics()` | 启用 Redis 连接池/命令 OTel 指标（`redisotel.InstrumentMetrics`） | `false`（不启用） |
 | `WithMeterProvider(mp)` | 指定指标上报的 `MeterProvider`（与 `WithTracing` 对称；需配合 `WithMetrics`，传 `nil` 回退全局） | `nil`（全局） |
-| `WithLogger(lg)` | 注入日志实现（`Logger` 接口，含 `Warn`/`Error`） | `log/slog` 默认实现 |
+
+> 日志与 request_id 不再提供 Option：日志固定走全局 `pkg/logger`，request_id 自动读 `logger.ContextKeyRequestID`。
 
 ### Options 结构体展开
 
@@ -316,14 +345,17 @@ func CloseCluster(clusterRdb *redis.ClusterClient) error
 ### Shutdown — 优雅关闭单机/哨兵客户端
 
 ```go
-func Shutdown(ctx context.Context, rdb *redis.Client, opts ...Option) error
-func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts ...Option) error
+func Shutdown(ctx context.Context, rdb *redis.Client) error
+func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient) error
 ```
 
 - 轮询连接池状态（`PoolStats`），等待飞行中命令归还（`TotalConns == IdleConns`）后再关闭
-- `ctx` 超时/取消时记录告警并强制关闭，不泄漏连接；若强制关闭也失败，返回 `errors.Join(等待错误, 关闭错误)` 双错误
-- 可选 `opts`：如 `Shutdown(ctx, rdb, goredis.WithLogger(lg))` 指定关闭告警的日志实现（默认 slog）
+- `ctx` 超时/取消时通过全局 `pkg/logger` 记录告警并强制关闭，不泄漏连接；若强制关闭也失败，返回 `errors.Join(等待错误, 关闭错误)` 双错误
 - nil 安全：传入 nil 返回 nil
+
+> 破坏性变更：早期签名为 `Shutdown(ctx, rdb, opts ...Option)`，可变参数仅用于接收 `WithLogger`，
+> 日志改走全局 logger 后已无作用，因此删除。旧调用 `Shutdown(ctx, rdb, goredis.WithLogger(lg))` 升级后编译报错，
+> 改为 `Shutdown(ctx, rdb)` 即可（告警会自动进入项目日志管道并带上 ctx 中的 request_id）。
 
 ---
 
@@ -337,8 +369,8 @@ func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts 
 | 传入 `nil` Option | 自动跳过，不 panic |
 | `Close` 重复调用 | 返回 nil（幂等） |
 | `Close(nil)` | 返回 nil |
-| Lua 通道探测失败 | `Logger.Warn` 记录告警（默认 slog，可 `WithLogger` 注入），不中断初始化 |
-| `Shutdown` 等待超时 | `Logger.Warn` 记录告警后强制关闭；若 Close 也失败，返回 `errors.Join` 合并后的双错误 |
+| Lua 通道探测失败 | `logger.WarnWithCtx` 记录告警（全局 pkg/logger，带 ctx 自动关联 request_id），不中断初始化 |
+| `Shutdown` 等待超时 | `logger.WarnWithCtx` 记录告警后强制关闭；若 Close 也失败，返回 `errors.Join` 合并后的双错误 |
 
 ---
 
@@ -355,6 +387,8 @@ func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts 
 | 版本 | 变更 | 升级影响 |
 |------|------|----------|
 | Unreleased | **删除导出函数 `WithEnableTrace()`**（及其 `enableTrace` 内部字段）：该函数从未产生实际效果（挂载逻辑只读 `tracerProvider`） | 若有调用点，升级后**编译失败**（导出符号不存在）；删除 `goredis.WithEnableTrace()` 并改用 `WithTracing(tp)`，未传 `tp` 的调用本就未启用追踪 |
+| Unreleased | **删除 `Logger` 接口、`WithLogger`、`RequestIDExtractor`、`WithRequestIDExtractor`**：日志统一走全局 `pkg/logger`，request_id 自动读 `logger.ContextKeyRequestID` | 若有调用点，升级后**编译失败**；删除相应 Option 即可，request_id 注入默认生效（不再需要手工传提取函数） |
+| Unreleased | `Shutdown`/`ShutdownCluster` 删除可变参数 `opts ...Option`（早期仅用于 `WithLogger`） | 旧调用 `Shutdown(ctx, rdb, goredis.WithLogger(lg))` 升级后**编译失败**，改为 `Shutdown(ctx, rdb)` |
 | Unreleased | `WithSingleOptions` 传入 `Addr`/`Password`/`DB`：从「log 警告 + 静默忽略 + 正常初始化」改为「**Init 启动期返回 error，rdb 为 nil**」 | 此前复用含这三个字段的配置模板调用本函数的代码，升级后会**启动失败**（符合 SemVer MAJOR 语义）。请改为通过 `InitSingle`/`Init` 参数或 DSN 传入这三个字段 |
 
 详细变更记录见 [CHANGELOG.md](CHANGELOG.md)。
@@ -380,13 +414,112 @@ func TestGetRedisOpt_HostPort(t *testing.T) {}
 func TestGetRedisOpt_主机端口格式1(t *testing.T) {} // 禁止非描述性后缀
 ```
 
-允许保留 ASCII 的专有名词范围：Redis 命令名（`SET`/`GET`/`EVAL`/`EVALSHA`）、协议/字段名（`Key`/`SHA`/`DSN`/`URL`/`PoolSize`/`NilOption`）、库与类型名（`Logger`/`MeterProvider`/`dlock`/`miniredis`）。
+允许保留 ASCII 的专有名词范围：Redis 命令名（`SET`/`GET`/`EVAL`/`EVALSHA`）、协议/字段名（`Key`/`SHA`/`DSN`/`URL`/`PoolSize`/`NilOption`）、库与类型名（`MeterProvider`/`Span`/`dlock`/`miniredis`）。
 
 约束：
 
 - 结构体字段/变量名一律 ASCII（如 `name`/`apply`/`check`），中文仅用于 case 描述字符串与断言消息
 - 注释、日志、错误消息全部中文（见项目公约第十八章）
-- 集成测试统一以 `TestIntegration_` 前缀 + 中文描述命名
+- 集成测试统一以 `TestIntegration_` 前缀命名
+
+> 跨包口径变更：全仓测试命名已统一为方案 A（`Test<被测方法><场景>` 全英文标识符 + 中文 doc 注释 + 中文子测试名），
+> 权威定义见 skill [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md) 第二节。
+> **本包现存用例仍为方案 B（`ASCII 标识符 + _ + 中文描述`），属于已登记的存量待收口项**：
+> 收口仅需一次纯重命名（不改断言逻辑、不改输入输出），尚未执行。
+> 本包**新增**测试请直接按方案 A 命名，不要延续方案 B——包内混用同时违反两套规范。
+
+---
+
+## 性能基线与模糊测试
+
+### 竞态检测
+
+```bash
+# 本包
+CGO_ENABLED=1 go test -race -count=1 -short ./pkg/goredis/
+# 全仓
+CGO_ENABLED=1 go test -race -count=1 ./...
+```
+
+必须带 `CGO_ENABLED=1`（`-race` 依赖 cgo）。本包的并发相关面是
+`requestIDHook`（多 goroutine 共用同一客户端）与 `dlock` 分布式锁脚本路径，因此竞态检测必须一行命令可执行。
+
+> 说明：`-race` 依赖 cgo 工具链。Windows/MinGW 环境可能报 `exit status 0xc0000139`（gcc 运行时问题，与本包代码无关），
+> 此时以 Linux/CI 的读数为准，本 README 不声称已经跑过 `-race`。
+
+### 基准测试（Benchmark）
+
+```bash
+# 全部基准（-run='^$' 用于跳过常规单测，只跑 Benchmark）
+go test -run='^$' -bench=. -benchmem ./pkg/goredis/
+# 需要更稳定的读数时（对比回归推荐：固定迭代次数，读数更可比）
+go test -run='^$' -bench=. -benchmem -benchtime=1000x ./pkg/goredis/
+# 只跑单个基准
+go test -run='^$' -bench='BenchmarkEnhanceRedisSpan' -benchmem ./pkg/goredis/
+```
+
+下表为 Windows/amd64、i5-1135G7、`-benchtime=1000x` 的实测读数。**它的用途是「相对回归基线」——
+判断某次改动是否让热路径变慢，不是生产绝对延迟**（生产延迟由网络与 Redis 决定）：
+
+| 基准 | 场景 | ns/op | B/op | allocs/op |
+| --- | --- | --- | --- | --- |
+| `GetRedisOpt_DSN解析` | 仅地址 | 788.7 | 624 | 7 |
+| `GetRedisOpt_DSN解析` | 带密码与库号 | 800.8 | 672 | 7 |
+| `GetRedisOpt_DSN解析` | 完整 URL 带查询 | 1744 | 1056 | 11 |
+| `EnsureDSNPath_补全路径` | 需补全 | 53.5 | 24 | 1 |
+| `EnsureDSNPath_补全路径` | 已含路径（快路径） | 15.4 | 0 | 0 |
+| `EnhanceRedisSpan_追踪状态` | **未开启追踪** | 18.2 | 0 | 0 |
+| `EnhanceRedisSpan_追踪状态` | 开启追踪不导出 | 648.1 | 525 | 5 |
+| `EnhanceRedisSpan_追踪状态` | 脚本命令走锁分支 | 696.6 | 580 | 6 |
+| `SetRequestIDToRedisSpan_提取开销` | ctx 带 request_id | 137.8 | 128 | 1 |
+| `SetRequestIDToRedisSpan_提取开销` | ctx 无 request_id | 5.8 | 0 | 0 |
+| `TruncateKey_长短Key` | 短 Key（快路径） | 33.5 | 0 | 0 |
+| `TruncateKey_长短Key` | 恰好上限 | 257.3 | 416 | 1 |
+| `TruncateKey_长短Key` | 超长截断 | 1703 | 2016 | 3 |
+| `TruncateKey_长短Key` | 中文超长截断 | 4040 | 2432 | 3 |
+| `命令端到端_miniredis` | 不含 request_id（SET+GET） | 122769 | 1285 | 39 |
+| `命令端到端_miniredis` | 含 request_id（SET+GET） | 108646 | 1286 | 39 |
+
+**读数解读：**
+
+- **未开启追踪 = 18.2ns / 0 分配**：没接 OTel 的部署里，本 Hook 的代价只有一次 `SpanFromContext` + `IsRecording`，
+  这是「可观测性代码不该成为负担」的量化证据，也是最需要盯住不许劣化的一条
+- **每条命令的 Span 增强 ≈ 0.65µs**，相对端到端 ~110µs 占比不足 1%；带 request_id 比不带的增量约 130ns（一次 `SetAttributes`）
+- **`TruncateKey` 中文超长 4µs** 来自 `[]rune(s)` 全串物化。刻意**不做优化**：短 Key 已走零分配快路径（33.5ns），
+  长 Key 成本相对端到端不足 4%，而这个函数刚被 Fuzz 守护过（见下），在此引入「提前计数再截断」的分支
+  只会增加回归风险。若未来出现不可控的超长 Key（如把整个 JSON 当 key），再以此为改造依据
+- `getRedisOpt` 在配置热更新重建客户端时执行，不在每条命令上，故 ~0.8µs 完全可接受
+
+### 模糊测试（Fuzz）
+
+```bash
+# 种子语料随常规 go test 一起执行（无需额外命令，耗时可忽略）
+go test -run='^Fuzz' ./pkg/goredis/
+# 真正的挖掘：不进默认流程，按需本地或定时任务跑
+go test -run='^$' -fuzz=FuzzSpan截断文本_合法UTF8 -fuzztime=30s ./pkg/goredis/
+```
+
+各 target 守护的是「不变量」而非具体输出值——这正是 Fuzz 相对单测的增量价值：
+
+| Target | 不变量 |
+| --- | --- |
+| `FuzzGetRedisOpt_任意DSN` | 不 panic；**出错时必返回 nil Options**（调用方拿不到半成品去建连接）；成功时 `Addr` 非空；错误必带 `goredis:` 前缀 |
+| `FuzzEnsureDSNPath_幂等` | 归一化两次结果一致（配置热更新会反复归一化同一字符串）；含 `://` 时不丢协议头；只增不减 |
+| `FuzzSpan截断文本_合法UTF8` | 写入 Span 名称/属性的文本**必为合法 UTF-8** 且不超长度上限 |
+
+**本包由 Fuzz 实际发现并修复的缺陷（值得留档）：**
+
+`FuzzSpan截断文本_合法UTF8` 的种子 `\xff\xfe invalid`、`a\x80b\x81c` 命中失败。根因是三处「只取截断分支」的疏漏：
+`truncateRunes` 在「未超长」时原样 `return s`；`truncateKey` 未截断时 `return keyStr`；
+`trimLockName`/`trimScriptSHA` 仅在 `truncated == true` 时采用返回值。于是 Redis key 里的非法 UTF-8 字节
+会原样进入 `db.redis.key` 属性与 Span 名称——而 OTLP 的 protobuf string 字段要求合法 UTF-8，
+这类 Span 会让后端拒绝整批上报或渲染成乱码。
+
+修复方式（`requestid_hook.go`）：`truncateRunes` 在「未超长但非法」时用 `strings.ToValidUTF8` 归一化为 U+FFFD
+（且不标记为截断，避免调用方误加省略号），三个调用方改为**始终采用其返回值**。
+Redis key 常由业务方拼接外部输入而来，不能假设它一定合法 UTF-8——这条不变量此后由 Fuzz 长期守住。
+
+> 失败语料会写入 `testdata/fuzz/<TargetName>/`，需人工确认后再提交或修正，不要直接删掉断言让它通过。
 
 ---
 

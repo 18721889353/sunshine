@@ -15,6 +15,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // recordSpans 在回调中创建 Span 并记录，返回所有已完成的 SpanStub
@@ -46,7 +48,7 @@ func TestEnhanceRedisSpan_SET命令(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "SET", "mykey", "myval")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -64,7 +66,7 @@ func TestEnhanceRedisSpan_GET命令(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "GET", "mykey")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -79,7 +81,7 @@ func TestEnhanceRedisSpan_EVALSHA_分布式锁(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "evalsha", "abc123", "1", "lock:order:12345678")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -93,7 +95,7 @@ func TestEnhanceRedisSpan_EVALSHA_dlock前缀(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "evalsha", "abc123", "1", "/dlock/my-lock-key")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -105,7 +107,7 @@ func TestEnhanceRedisSpan_EVALSHA_普通脚本(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "evalsha", "abc123def456", "0")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -119,7 +121,7 @@ func TestEnhanceRedisSpan_EVALSHA_无Key带参数(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "evalsha", "abc123def456", "0", "somearg")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -135,7 +137,7 @@ func TestEnhanceRedisSpan_EVAL_带Key非锁(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "eval", "return redis.call('get', KEYS[1])", "1", "user:1001:name")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -151,7 +153,7 @@ func TestEnhanceRedisSpan_EVAL_带锁前缀(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "eval", "return redis.call('set', KEYS[1], ARGV[1])", "1", "lock:order:42")
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -166,7 +168,7 @@ func TestEnhanceRedisSpan_EVALSHA_锁名超长截断(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "evalsha", "abc123", "1", "lock:"+longName)
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -185,7 +187,7 @@ func TestEnhanceRedisSpan_Key超长截断(t *testing.T) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
 		cmd := redis.NewCmd(ctx, "GET", key)
-		enhanceRedisSpan(ctx, cmd, nil)
+		enhanceRedisSpan(ctx, cmd)
 	})
 
 	require.Len(t, stubs, 1)
@@ -210,7 +212,7 @@ func TestEnhanceRedisSpan_不录制的Span(t *testing.T) {
 	spanCtx, span := noop.NewTracerProvider().Tracer("test").Start(ctx, "noop-span")
 	span.End()
 
-	enhanceRedisSpan(spanCtx, cmd, nil) // 不应 panic
+	enhanceRedisSpan(spanCtx, cmd) // 不应 panic
 	require.Equal(t, beforeArgs, cmd.Args(), "非录制路径不应修改命令参数")
 	require.NoError(t, cmd.Err(), "非录制路径不应设置命令错误")
 }
@@ -219,44 +221,57 @@ func TestEnhanceRedisSpan_不录制的Span(t *testing.T) {
 // setRequestIDToRedisSpan 测试
 // ============================================================================
 
-func TestSetRequestIDToRedisSpan_有提取器(t *testing.T) {
-	extractor := func(_ context.Context) string { return "req-001" }
-
+func TestSetRequestIDToRedisSpan_ctx有request_id(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
-		setRequestIDToRedisSpan(ctx, extractor)
+		ctx = context.WithValue(ctx, logger.ContextKeyRequestID, "req-001")
+		setRequestIDToRedisSpan(ctx)
 	})
 
 	require.Len(t, stubs, 1)
 	assertAttr(t, stubs[0].Attributes, "request_id", "req-001")
 }
 
-func TestSetRequestIDToRedisSpan_无提取器(t *testing.T) {
+func TestSetRequestIDToRedisSpan_ctx无request_id(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
-		setRequestIDToRedisSpan(ctx, nil)
+		setRequestIDToRedisSpan(ctx)
 	})
 
 	require.Len(t, stubs, 1)
 	for _, a := range stubs[0].Attributes {
-		assert.NotEqual(t, attribute.Key("request_id"), a.Key, "无提取器时不应设置 request_id")
+		assert.NotEqual(t, attribute.Key("request_id"), a.Key, "ctx 无 request_id 时不应设置属性")
 	}
 }
 
-func TestSetRequestIDToRedisSpan_提取器返回空(t *testing.T) {
-	extractor := func(_ context.Context) string { return "" }
-
+func TestSetRequestIDToRedisSpan_request_id为空(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
-		setRequestIDToRedisSpan(ctx, extractor)
+		ctx = context.WithValue(ctx, logger.ContextKeyRequestID, "")
+		setRequestIDToRedisSpan(ctx)
 	})
 
 	require.Len(t, stubs, 1)
 	for _, a := range stubs[0].Attributes {
-		assert.NotEqual(t, attribute.Key("request_id"), a.Key, "提取器返回空时不应设置 request_id")
+		assert.NotEqual(t, attribute.Key("request_id"), a.Key, "空 request_id 不应上报")
+	}
+}
+
+func TestSetRequestIDToRedisSpan_request_id类型错误(t *testing.T) {
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+		// 非 string 类型（写入侧异常）应安全忽略而非 panic
+		ctx = context.WithValue(ctx, logger.ContextKeyRequestID, 12345)
+		setRequestIDToRedisSpan(ctx)
+	})
+
+	require.Len(t, stubs, 1)
+	for _, a := range stubs[0].Attributes {
+		assert.NotEqual(t, attribute.Key("request_id"), a.Key, "非 string 类型不应设置属性")
 	}
 }
 
@@ -265,12 +280,12 @@ func TestSetRequestIDToRedisSpan_提取器返回空(t *testing.T) {
 // ============================================================================
 
 func TestRequestIDHook_ProcessHook_增强属性(t *testing.T) {
-	extractor := func(_ context.Context) string { return "hook-req-001" }
-	hook := &requestIDHook{extractor: extractor}
+	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
+		ctx = context.WithValue(ctx, logger.ContextKeyRequestID, "hook-req-001")
 		cmd := redis.NewCmd(ctx, "SET", "testkey", "testval")
 		err := hook.ProcessHook(func(ctx context.Context, cmd redis.Cmder) error {
 			return nil
@@ -286,7 +301,7 @@ func TestRequestIDHook_ProcessHook_增强属性(t *testing.T) {
 }
 
 func TestRequestIDHook_ProcessHook_记录错误(t *testing.T) {
-	hook := &requestIDHook{extractor: nil}
+	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
@@ -307,12 +322,12 @@ func TestRequestIDHook_ProcessHook_记录错误(t *testing.T) {
 // ============================================================================
 
 func TestRequestIDHook_ProcessPipelineHook_记录错误(t *testing.T) {
-	extractor := func(_ context.Context) string { return "pipeline-req-001" }
-	hook := &requestIDHook{extractor: extractor}
+	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
+		ctx = context.WithValue(ctx, logger.ContextKeyRequestID, "pipeline-req-001")
 
 		cmds := make([]redis.Cmder, 1)
 		cmds[0] = redis.NewCmd(ctx, "GET", "key")
@@ -330,12 +345,12 @@ func TestRequestIDHook_ProcessPipelineHook_记录错误(t *testing.T) {
 }
 
 func TestRequestIDHook_ProcessPipelineHook_成功(t *testing.T) {
-	extractor := func(_ context.Context) string { return "pipeline-req-002" }
-	hook := &requestIDHook{extractor: extractor}
+	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
+		ctx = context.WithValue(ctx, logger.ContextKeyRequestID, "pipeline-req-002")
 
 		cmds := make([]redis.Cmder, 1)
 		cmds[0] = redis.NewCmd(ctx, "GET", "key")
@@ -354,7 +369,7 @@ func TestRequestIDHook_ProcessPipelineHook_成功(t *testing.T) {
 // TestRequestIDHook_ProcessPipelineHook_逐命令记录失败 P0-3 回归测试：
 // 遍历每个命令，将失败命令以 Span Event 形式记录（哪个命令失败了）
 func TestRequestIDHook_ProcessPipelineHook_逐命令记录失败(t *testing.T) {
-	hook := &requestIDHook{extractor: nil}
+	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
@@ -391,7 +406,7 @@ func TestRequestIDHook_ProcessPipelineHook_逐命令记录失败(t *testing.T) {
 
 // TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件 验证无失败命令时不产生事件
 func TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件(t *testing.T) {
-	hook := &requestIDHook{extractor: nil}
+	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")

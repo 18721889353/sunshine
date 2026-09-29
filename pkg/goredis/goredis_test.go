@@ -12,27 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ============================================================================
-// 共享 mock（同包其他测试文件直接使用，不重复定义）
-// ============================================================================
-
-// mockLogger 实现 Logger 接口的测试替身，记录告警/错误消息供断言
-// 数组非并发安全，仅用于单线程单测
-type mockLogger struct {
-	warnMsgs []string
-	errMsgs  []string
-}
-
-// Warn 记录告警消息
-func (m *mockLogger) Warn(msg string, _ ...any) {
-	m.warnMsgs = append(m.warnMsgs, msg)
-}
-
-// Error 记录错误消息
-func (m *mockLogger) Error(msg string, _ ...any) {
-	m.errMsgs = append(m.errMsgs, msg)
-}
-
 // TestInit_连接各种情况 测试 Init 函数连接 Redis 的各种情况
 func TestInit_连接各种情况(t *testing.T) {
 	redisServer, _ := miniredis.Run()
@@ -284,23 +263,23 @@ func TestInitWithContext_已取消Context(t *testing.T) {
 	require.Error(t, err, "已取消的 ctx 应导致初始化失败")
 }
 
-// TestProbeLuaScriptChannel_注入Logger
-// 探测失败仅通过 Logger 告警不中断；关闭后的客户端触发失败路径验证告警被接收
-func TestProbeLuaScriptChannel_注入Logger(t *testing.T) {
+// TestProbeLuaScriptChannel_失败仅告警不中断
+// 探测失败仅通过全局 pkg/logger 告警不中断；关闭后的客户端触发失败路径验证告警被接收
+func TestProbeLuaScriptChannel_失败仅告警不中断(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
 	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
 
-	lg := &mockLogger{}
+	warns := captureWarn(t)
 	// 正常探测（miniredis 支持 EVAL）不产生告警
-	probeLuaScriptChannel(context.Background(), rdb, lg)
-	assert.Empty(t, lg.warnMsgs, "正常探测不应告警")
+	probeLuaScriptChannel(context.Background(), rdb)
+	assert.Empty(t, warns.msgs(), "正常探测不应告警")
 
 	require.NoError(t, rdb.Close())
-	// 客户端已关闭，探测失败应走 Logger 告警而非 log.Printf
-	probeLuaScriptChannel(context.Background(), rdb, lg)
-	require.Len(t, lg.warnMsgs, 1, "探测失败应通过 Logger 告警一次")
+	// 客户端已关闭，探测失败应走全局 logger 告警而非标准库 slog / log.Printf
+	probeLuaScriptChannel(context.Background(), rdb)
+	require.Len(t, warns.msgs(), 1, "探测失败应告警一次")
 }
 
 // ============================================================================
@@ -367,38 +346,18 @@ func TestShutdownCluster_正常与幂等(t *testing.T) {
 	require.NoError(t, ShutdownCluster(ctx, nil))
 }
 
-// TestShutdown_注入Logger 验证关闭阶段可通过 WithLogger 指定日志实现（非默认 slog）
-func TestShutdown_注入Logger(t *testing.T) {
+// TestShutdown_正常路径无告警 验证无等待超时的正常关闭不产生 Warn 日志
+func TestShutdown_正常路径无告警(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
 	rdb, err := Init(redisServer.Addr())
 	require.NoError(t, err)
 
-	lg := &mockLogger{}
+	warns := captureWarn(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	require.NoError(t, Shutdown(ctx, rdb, WithLogger(lg)))
+	require.NoError(t, Shutdown(ctx, rdb))
 	// 无等待告警时不应有日志输出
-	assert.Empty(t, lg.warnMsgs)
-
-	// WithLogger(nil) 恢复默认实现，不 panic
-	rdb2, err := Init(redisServer.Addr())
-	require.NoError(t, err)
-	require.NoError(t, Shutdown(ctx, rdb2, WithLogger(nil)))
-}
-
-// TestWaitPoolDrained_注入Logger告警 验证等待超时的告警走注入的 Logger
-func TestWaitPoolDrained_注入Logger告警(t *testing.T) {
-	lg := &mockLogger{}
-	// 模拟池内始终有命令占用连接（TotalConns != IdleConns）
-	statsFn := func() *redis.PoolStats {
-		return &redis.PoolStats{TotalConns: 2, IdleConns: 1}
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	err := waitPoolDrained(ctx, statsFn, lg)
-	require.Error(t, err, "ctx 已取消应返回错误")
-	require.Len(t, lg.warnMsgs, 1, "等待超时告警应走注入的 Logger")
+	assert.Empty(t, warns.msgs(), "正常关闭不应产生 Warn 日志")
 }

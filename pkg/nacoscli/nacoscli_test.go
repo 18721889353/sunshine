@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/model"
@@ -107,6 +109,17 @@ func TestGetConfigInvalidFormat(t *testing.T) {
 	_, _, err := GetConfig(&Params{Group: "g", DataID: "d", Format: "xml"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "不支持")
+}
+
+// TestValidFormatQuotedToPreventLogInjection 验证 Format 含控制字符时以 %q 上报，
+// 不会把换行/回车原样带入错误消息（否则一行日志会被拆成多行，伪造日志结构）。
+func TestValidFormatQuotedToPreventLogInjection(t *testing.T) {
+	_, err := (&Params{Group: "g", DataID: "d", Format: "yaml\n[error] 伪造日志"}).valid()
+	require.Error(t, err)
+
+	msg := err.Error()
+	assert.NotContains(t, msg, "\n", "错误消息不应含换行，控制字符应被转义")
+	assert.Contains(t, msg, `"yaml\n[error] 伪造日志"`, "非法 Format 应以引号包裹的形式可定位")
 }
 
 // TestValid 验证 Params.valid() 的参数校验逻辑。
@@ -238,6 +251,42 @@ func TestClientGetConfigFormatNormalized(t *testing.T) {
 	assert.Equal(t, "yaml", format, "yml 应归一化为 yaml")
 }
 
+// TestClientGetConfigCtxTimeout 验证 ctx 超时立即返回，不被阻塞的 SDK 调用拖住。
+func TestClientGetConfigCtxTimeout(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release) // 测试结束时解除 mock 阻塞，让后台 goroutine 退出
+
+	mock := &mockConfigClient{
+		getConfigFn: func(_ vo.ConfigParam) (string, error) {
+			<-release // 模拟 SDK 网络阻塞
+			return "late", nil
+		},
+	}
+	client := &Client{configClient: mock}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, _, err := client.GetConfig(ctx, &Params{Group: "g", DataID: "d", Format: "yaml"})
+	assert.ErrorIs(t, err, context.DeadlineExceeded, "ctx 超时应返回 DeadlineExceeded")
+	assert.Less(t, time.Since(start), time.Second, "ctx 超时应立即返回，不等待 SDK 完成")
+}
+
+// TestClientGetConfigPanicRecovered 验证 SDK 调用 panic 时被 recover 并转为错误返回。
+func TestClientGetConfigPanicRecovered(t *testing.T) {
+	mock := &mockConfigClient{
+		getConfigFn: func(_ vo.ConfigParam) (string, error) {
+			panic("sdk boom")
+		},
+	}
+	client := &Client{configClient: mock}
+
+	_, _, err := client.GetConfig(context.Background(), &Params{Group: "g", DataID: "d", Format: "yaml"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "panic", "panic 应被 recover 并包装为错误")
+}
+
 // ---------------------------------------------------------------------------
 // Client.Close 测试
 // ---------------------------------------------------------------------------
@@ -254,44 +303,6 @@ func TestClientCloseNormal(t *testing.T) {
 func TestClientCloseNilConfigClient(t *testing.T) {
 	client := &Client{configClient: nil}
 	assert.NotPanics(t, func() { client.Close() })
-}
-
-// ---------------------------------------------------------------------------
-// NewNamingClient 地址校验测试
-// ---------------------------------------------------------------------------
-
-// TestNewNamingClientMissingAddress 验证 NewNamingClient 缺少服务器地址时返回错误。
-func TestNewNamingClientMissingAddress(t *testing.T) {
-	_, err := NewNamingClient("", 0, "")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "不能为空")
-}
-
-// TestNewNamingClientMissingPort 验证 NewNamingClient 有地址无端口时返回错误。
-func TestNewNamingClientMissingPort(t *testing.T) {
-	_, err := NewNamingClient("localhost", 0, "")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "端口")
-}
-
-// TestNewNamingClientMissingAddressOnly 验证 NewNamingClient 有端口无地址时返回错误。
-func TestNewNamingClientMissingAddressOnly(t *testing.T) {
-	_, err := NewNamingClient("", 8848, "")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "地址")
-}
-
-// TestNewNamingClientWithServerConfigs 验证通过 WithServerConfigs 提供地址时通过校验层。
-func TestNewNamingClientWithServerConfigs(t *testing.T) {
-	serverConfigs := []constant.ServerConfig{
-		{IpAddr: "192.168.1.1", Port: 8848},
-	}
-	_, err := NewNamingClient("", 0, "",
-		WithServerConfigs(serverConfigs))
-	if err != nil {
-		assert.NotContains(t, err.Error(), "不能为空",
-			"有 serverConfigs 时不应触发地址/端口校验")
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -337,29 +348,68 @@ func TestNewConfigClientWithValidAddress(t *testing.T) {
 func TestRequestIDAttr_WithID(t *testing.T) {
 	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, "req-123")
 	attr := requestIDAttr(ctx)
-	require.NotNil(t, attr, "有 request_id 时应返回非 nil")
+	require.NotEmpty(t, attr.Key, "有 request_id 时应返回属性键")
 	assert.Equal(t, "nacoscli.request_id", string(attr.Key))
 	assert.Equal(t, "req-123", attr.Value.AsString())
 }
 
-// TestRequestIDAttr_EmptyID 验证空字符串 request_id 返回 nil。
+// TestRequestIDAttr_EmptyID 验证空字符串 request_id 返回零值属性（不上报空值）。
 func TestRequestIDAttr_EmptyID(t *testing.T) {
 	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, "")
 	attr := requestIDAttr(ctx)
-	assert.Nil(t, attr, "空 request_id 应返回 nil")
+	assert.Empty(t, attr.Key, "空 request_id 应返回零值属性")
 }
 
-// TestRequestIDAttr_NoID 验证无 request_id 时返回 nil。
+// TestRequestIDAttr_NoID 验证无 request_id 时返回零值属性。
 func TestRequestIDAttr_NoID(t *testing.T) {
 	attr := requestIDAttr(context.Background())
-	assert.Nil(t, attr, "无 request_id 时应返回 nil")
+	assert.Empty(t, attr.Key, "无 request_id 时应返回零值属性")
 }
 
-// TestRequestIDAttr_WrongType 验证非 string 类型的 request_id 返回 nil。
+// TestRequestIDAttr_WrongType 验证非 string 类型的 request_id 返回零值属性。
 func TestRequestIDAttr_WrongType(t *testing.T) {
 	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, 12345)
 	attr := requestIDAttr(ctx)
-	assert.Nil(t, attr, "非 string 类型的 request_id 应返回 nil")
+	assert.Empty(t, attr.Key, "非 string 类型的 request_id 应返回零值属性")
+}
+
+// ---------------------------------------------------------------------------
+// safeAttrText 测试
+// ---------------------------------------------------------------------------
+
+// TestSafeAttrText 验证写入 Span 属性的文本归一化行为：
+// 合法 UTF-8（含 NUL 这类合法控制字符）原样保留，非法字节归一为合法 UTF-8。
+func TestSafeAttrText(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		wantSame bool // 是否应原样返回（不发生替换）
+	}{
+		{"合法ASCII", "application.yaml", true},
+		{"合法中文", "配置中心.yaml", true},
+		{"空串", "", true},
+		{"NUL是合法码点", "id\x00with", true},
+		{"换行属于合法输入", "a\nb", true},
+		{"单个非法字节", "\xff", false},
+		{"多个非法字节", "a\x80b\x81c", false},
+		{"合法中文夹非法字节", "配置\xff\xcentry", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := safeAttrText(c.input)
+
+			// 无论输入如何，输出必须是合法 UTF-8（否则 OTLP 会整批丢弃 Span）
+			assert.True(t, utf8.ValidString(got), "归一化结果必须是合法 UTF-8: got=%q", got)
+
+			if c.wantSame {
+				assert.Equal(t, c.input, got, "合法输入应原样返回，不做多余处理")
+				return
+			}
+			assert.NotEqual(t, c.input, got, "非法输入应被替换")
+			assert.NotContains(t, got, "\xff", "非法字节不应透传")
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
