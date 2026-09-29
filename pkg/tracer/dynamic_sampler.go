@@ -2,7 +2,7 @@ package tracer
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"sync/atomic"
 
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -50,7 +50,9 @@ func (s *dynamicSampler) ShouldSample(params trace.SamplingParameters) trace.Sam
 		return trace.SamplingResult{Decision: trace.RecordAndSample, Tracestate: ts}
 	}
 
-	// 按比例采样
+	// 按比例采样。
+	// math/rand/v2 的顶层 Float64 无全局锁（per-P 状态），
+	// 避免旧版 math/rand 全局 lockedSource 在高并发采样决策上的锁竞争。
 	if rand.Float64() < rate {
 		return trace.SamplingResult{Decision: trace.RecordAndSample, Tracestate: ts}
 	}
@@ -63,8 +65,10 @@ func (s *dynamicSampler) Description() string {
 }
 
 // clampRate 将采样率限制在 [0, 1] 范围内。
+// NaN 输入视为 0（不采样）：否则 NaN 会穿透钳位逻辑，
+// 导致采样决策退化为“全部丢弃”且读取到的采样率不是合法的 [0,1] 数值。
 func clampRate(rate float64) float64 {
-	if rate <= 0 {
+	if math.IsNaN(rate) || rate <= 0 {
 		return 0
 	}
 	if rate >= 1 {
