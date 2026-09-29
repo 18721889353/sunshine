@@ -3,15 +3,18 @@ package goredis
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // recordSpans 在回调中创建 Span 并记录，返回所有已完成的 SpanStub
@@ -52,6 +55,7 @@ func TestEnhanceRedisSpan_SET命令(t *testing.T) {
 
 	assertAttr(t, span.Attributes, "db.system", "redis")
 	assertAttr(t, span.Attributes, "db.redis.command", "set")
+	assertAttr(t, span.Attributes, "db.operation", "set")
 	assertAttr(t, span.Attributes, "db.redis.key", "mykey")
 }
 
@@ -109,6 +113,53 @@ func TestEnhanceRedisSpan_EVALSHA_普通脚本(t *testing.T) {
 	assert.Equal(t, "redis.evalsha", stubs[0].Name)
 }
 
+func TestEnhanceRedisSpan_EVALSHA_无Key带参数(t *testing.T) {
+	// evalsha SHA1 0 somearg —— len(args)=4 但 numkeys=0，不应提取为 key
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+		cmd := redis.NewCmd(ctx, "evalsha", "abc123def456", "0", "somearg")
+		enhanceRedisSpan(ctx, cmd, nil)
+	})
+
+	require.Len(t, stubs, 1)
+	assert.Equal(t, "redis.evalsha", stubs[0].Name, "numkeys=0 时不应按 key 命名")
+	for _, a := range stubs[0].Attributes {
+		assert.NotEqual(t, attribute.Key("db.redis.key"), a.Key, "numkeys=0 时不应设置 db.redis.key")
+	}
+}
+
+func TestEnhanceRedisSpan_EVAL_带Key非锁(t *testing.T) {
+	// eval 脚本 + 普通 key（非 lock 前缀）→ redis.eval + key 属性
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+		cmd := redis.NewCmd(ctx, "eval", "return redis.call('get', KEYS[1])", "1", "user:1001:name")
+		enhanceRedisSpan(ctx, cmd, nil)
+	})
+
+	require.Len(t, stubs, 1)
+	assert.Equal(t, "redis.eval", stubs[0].Name, "非锁 key 应使用命令名命名")
+	assertAttr(t, stubs[0].Attributes, "db.redis.key", "user:1001:name")
+	assertAttr(t, stubs[0].Attributes, "db.operation", "eval")
+}
+
+// TestEnhanceRedisSpan_EVAL_带锁前缀 固化"eval 也识别分布式锁"契约：
+// evalsha + lock 与 eval + lock 走同一分支，命令名不同但锁识别一致
+func TestEnhanceRedisSpan_EVAL_带锁前缀(t *testing.T) {
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+		cmd := redis.NewCmd(ctx, "eval", "return redis.call('set', KEYS[1], ARGV[1])", "1", "lock:order:42")
+		enhanceRedisSpan(ctx, cmd, nil)
+	})
+
+	require.Len(t, stubs, 1)
+	assert.Equal(t, "redis.lock:42", stubs[0].Name, "eval + lock 前缀应识别为锁操作")
+	assertAttr(t, stubs[0].Attributes, "db.redis.key", "lock:order:42")
+	assertAttr(t, stubs[0].Attributes, "db.operation", "eval")
+}
+
 func TestEnhanceRedisSpan_EVALSHA_锁名超长截断(t *testing.T) {
 	longName := "this-is-a-very-long-lock-name-that-should-be-truncated"
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -149,10 +200,19 @@ func TestEnhanceRedisSpan_Key超长截断(t *testing.T) {
 	t.Fatal("未找到 db.redis.key 属性")
 }
 
+// TestEnhanceRedisSpan_不录制的Span 验证非录制 Span 下既不 panic 也不产生副作用
 func TestEnhanceRedisSpan_不录制的Span(t *testing.T) {
 	ctx := context.Background()
 	cmd := redis.NewCmd(ctx, "SET", "key", "val")
-	enhanceRedisSpan(ctx, cmd, nil) // 不应 panic
+	beforeArgs := append([]any(nil), cmd.Args()...)
+
+	// 已结束的 Span 处于非录制状态（IsRecording()==false），覆盖早退分支
+	spanCtx, span := noop.NewTracerProvider().Tracer("test").Start(ctx, "noop-span")
+	span.End()
+
+	enhanceRedisSpan(spanCtx, cmd, nil) // 不应 panic
+	require.Equal(t, beforeArgs, cmd.Args(), "非录制路径不应修改命令参数")
+	require.NoError(t, cmd.Err(), "非录制路径不应设置命令错误")
 }
 
 // ============================================================================
@@ -289,6 +349,133 @@ func TestRequestIDHook_ProcessPipelineHook_成功(t *testing.T) {
 	require.Len(t, stubs, 1)
 	assert.Equal(t, "Unset", stubs[0].Status.Code.String())
 	assertAttr(t, stubs[0].Attributes, "request_id", "pipeline-req-002")
+}
+
+// TestRequestIDHook_ProcessPipelineHook_逐命令记录失败 P0-3 回归测试：
+// 遍历每个命令，将失败命令以 Span Event 形式记录（哪个命令失败了）
+func TestRequestIDHook_ProcessPipelineHook_逐命令记录失败(t *testing.T) {
+	hook := &requestIDHook{extractor: nil}
+
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+
+		okCmd := redis.NewCmd(ctx, "GET", "okkey")
+		failCmd := redis.NewCmd(ctx, "SET", "badkey", "v")
+		failCmd.SetErr(errors.New("WRONGTYPE 错误"))
+		cmds := []redis.Cmder{okCmd, failCmd}
+
+		err := hook.ProcessPipelineHook(func(ctx context.Context, _ []redis.Cmder) error {
+			return errors.New("pipeline error")
+		})(ctx, cmds)
+		assert.Error(t, err)
+	})
+
+	require.Len(t, stubs, 1)
+	span := stubs[0]
+	// 事件包含：整体错误的 exception + 逐命令的 redis.pipeline.command.failed
+	var failEvent *sdktrace.Event
+	for i := range span.Events {
+		if span.Events[i].Name == "redis.pipeline.command.failed" {
+			failEvent = &span.Events[i]
+			break
+		}
+	}
+	require.NotNil(t, failEvent, "应记录失败命令事件")
+
+	eventAttrs := make([]attribute.KeyValue, 0, len(failEvent.Attributes))
+	eventAttrs = append(eventAttrs, failEvent.Attributes...)
+	assertAttr(t, eventAttrs, "db.redis.command", "set")
+	assertAttr(t, eventAttrs, "error.message", "WRONGTYPE 错误")
+}
+
+// TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件 验证无失败命令时不产生事件
+func TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件(t *testing.T) {
+	hook := &requestIDHook{extractor: nil}
+
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+
+		cmds := []redis.Cmder{
+			redis.NewCmd(ctx, "GET", "k1"),
+			redis.NewCmd(ctx, "SET", "k2", "v"),
+		}
+
+		err := hook.ProcessPipelineHook(func(ctx context.Context, _ []redis.Cmder) error {
+			return nil
+		})(ctx, cmds)
+		assert.NoError(t, err)
+	})
+
+	require.Len(t, stubs, 1)
+	assert.Empty(t, stubs[0].Events, "全部成功时不应记录失败事件")
+}
+
+// ============================================================================
+// P3 回归：多字节字符（中文/emoji）截断不产生乱码
+// ============================================================================
+
+// TestTruncateKey_中文截断不乱码 按 rune 截断，截断结果必须是合法 UTF-8
+func TestTruncateKey_中文截断不乱码(t *testing.T) {
+	key := strings.Repeat("用户昵称", 40) // 160 个 rune，超过 maxKeyDisplayLen=100
+	got := truncateKey(key)
+
+	assert.True(t, utf8.ValidString(got), "截断结果必须是合法 UTF-8，不得切断多字节字符")
+	assert.Equal(t, maxKeyDisplayLen+3, utf8.RuneCountInString(got), "应为 100 字符 + 省略号")
+	assert.True(t, strings.HasSuffix(got, "..."))
+
+	// 未超长时原样返回
+	assert.Equal(t, "短键", truncateKey("短键"))
+}
+
+// TestTrimLockName_中文截断不乱码 锁名按 rune 截断
+func TestTrimLockName_中文截断不乱码(t *testing.T) {
+	// 超长中文锁名：60 个 rune，应截断为 maxLockNameLen=20 个 rune 且不乱码
+	got := trimLockName("lock:" + strings.Repeat("订单锁", 20))
+	assert.True(t, utf8.ValidString(got), "截断结果必须是合法 UTF-8")
+	assert.Equal(t, maxLockNameLen, utf8.RuneCountInString(got), "应截断为 20 个字符")
+
+	// 未超长锁名：完整保留中文
+	assert.Equal(t, "订单锁", trimLockName("lock:订单锁"))
+}
+
+// TestTruncateRunes_边界 验证截断辅助函数的边界行为
+func TestTruncateRunes_边界(t *testing.T) {
+	got, truncated := truncateRunes("abc", 3)
+	assert.Equal(t, "abc", got)
+	assert.False(t, truncated, "长度等于上限不应截断")
+
+	got, truncated = truncateRunes("abcdef", 3)
+	assert.Equal(t, "abc", got)
+	assert.True(t, truncated)
+
+	got, truncated = truncateRunes("中文字符", 2)
+	assert.Equal(t, "中文", got)
+	assert.True(t, truncated)
+	assert.True(t, utf8.ValidString(got))
+}
+
+// BenchmarkRecordFailedPipelineCmds 基准测试 Pipeline 逐命令失败事件记录（P3-B 热路径）
+// 使用 noop Span 衡量遍历与属性构造开销（recording Span 会累积事件导致内存增长）；
+// 属性切片在传参时即求值构造，与 span 是否 recording 无关，故 noop 下测得的构造成本依然准确
+func BenchmarkRecordFailedPipelineCmds(b *testing.B) {
+	ctx := context.Background()
+	_, span := noop.NewTracerProvider().Tracer("bench").Start(ctx, "bench-span")
+	defer span.End()
+
+	cmds := make([]redis.Cmder, 0, 8)
+	for i := 0; i < 8; i++ {
+		cmd := redis.NewCmd(ctx, "GET", "key")
+		cmd.SetErr(errors.New("WRONGTYPE 错误"))
+		cmds = append(cmds, cmd)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		recordFailedPipelineCmds(span, cmds)
+	}
 }
 
 // ============================================================================

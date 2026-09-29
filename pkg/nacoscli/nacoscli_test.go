@@ -435,5 +435,3 @@ func TestBuildConfigsWithNamespaceID(t *testing.T) {
 	clientConfig, _ := buildConfigs(o)
 	assert.Equal(t, "dev-ns", clientConfig.NamespaceId)
 }
-
-

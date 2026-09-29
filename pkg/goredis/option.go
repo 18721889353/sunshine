@@ -3,17 +3,50 @@ package goredis
 import (
 	"context"
 	"crypto/tls"
-	"log"
+	"errors"
+	"log/slog"
 	"net"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 // RequestIDExtractor 从 Context 中提取 request_id 的函数签名
 // 用于解耦 goredis 与 logger 包的依赖，上层注入具体提取逻辑
 type RequestIDExtractor func(ctx context.Context) string
+
+// Logger goredis 日志接口
+// 用于依赖倒置：库内部不直接使用标准库 log，上游可通过 WithLogger 注入
+// slog/zap/zerolog 的适配实现；未注入时默认使用标准库 slog 的默认 Logger。
+type Logger interface {
+	// Warn 输出警告级别日志，args 为 slog 风格的 key-value 键值对
+	Warn(msg string, args ...any)
+	// Error 输出错误级别日志，args 为 slog 风格的 key-value 键值对
+	Error(msg string, args ...any)
+}
+
+// defaultLogger 基于标准库 slog 的默认日志实现
+type defaultLogger struct{}
+
+// Warn 输出警告级别日志
+func (defaultLogger) Warn(msg string, args ...any) {
+	slog.Warn(msg, args...)
+}
+
+// Error 输出错误级别日志
+func (defaultLogger) Error(msg string, args ...any) {
+	slog.Error(msg, args...)
+}
+
+// resolveLogger 返回已配置的 Logger，未配置（nil）时回退到 slog 默认实现
+func resolveLogger(lg Logger) Logger {
+	if lg == nil {
+		return defaultLogger{}
+	}
+	return lg
+}
 
 // Option 函数选项模式，用于设置 Redis 配置选项
 type Option func(*options)
@@ -28,6 +61,7 @@ type options struct {
 	writeTimeout    time.Duration
 	writeTimeoutSet bool
 	tlsConfig       *tls.Config
+	tlsConfigSet    bool
 
 	// 连接池
 	poolSize       int
@@ -54,45 +88,76 @@ type options struct {
 	usernameSet        bool
 
 	// 客户端
-	clientName   string
+	clientName    string
 	clientNameSet bool
-	protocol     int
-	protocolSet  bool
-	onConnect    func(ctx context.Context, cn *redis.Conn) error
-	onConnectSet bool
-	dialer       func(ctx context.Context, network, addr string) (net.Conn, error)
-	dialerSet    bool
+	protocol      int
+	protocolSet   bool
+	onConnect     func(ctx context.Context, cn *redis.Conn) error
+	onConnectSet  bool
+	dialer        func(ctx context.Context, network, addr string) (net.Conn, error)
+	dialerSet     bool
 
 	// 哨兵专用
-	sentinelUsername        string
-	sentinelPassword        string
-	useDisconnectedReplicas bool
+	sentinelUsername           string
+	sentinelUsernameSet        bool
+	sentinelPassword           string
+	sentinelPasswordSet        bool
+	useDisconnectedReplicas    bool
+	useDisconnectedReplicasSet bool
 
 	// 集群专用
-	readOnly       bool
-	routeByLatency bool
-	routeRandomly  bool
-	maxRedirects   int
+	readOnly          bool
+	readOnlySet       bool
+	routeByLatency    bool
+	routeByLatencySet bool
+	routeRandomly     bool
+	routeRandomlySet  bool
+	maxRedirects      int
+	maxRedirectsSet   bool
+
+	// 可观测性
+	enableMetrics bool                 // 是否启用 OpenTelemetry 指标
+	meterProvider metric.MeterProvider // 自定义指标 Provider，nil 时使用全局 MeterProvider
+	logger        Logger               // 日志实现，默认 slog
+
+	// 初始化超时（默认 initTimeout/probeTimeout 常量，可由 WithInitTimeout/WithProbeTimeout 覆盖）
+	initTimeout  time.Duration // 连接测试超时
+	probeTimeout time.Duration // Lua 通道探测超时
+
+	// 配置误用标记：WithSingleOptions 读取到 Addr/Password/DB 时置位，由 Init 阶段快速失败
+	singleOptionsMisused bool
 
 	// 追踪
-	enableTrace    bool // Deprecated: 使用 WithTracing 替代
 	tracerProvider *trace.TracerProvider
 
 	// request_id 提取器
 	requestIDExtractor RequestIDExtractor
 }
 
-// apply 应用配置选项
+// apply 应用配置选项（nil Option 防御：跳过以避免 Init(dsn, nil) 等调用 panic）
 func (o *options) apply(opts ...Option) {
 	for _, opt := range opts {
-		opt(o)
+		if opt != nil {
+			opt(o)
+		}
 	}
+}
+
+// validate 校验选项组合的合法性
+// 配置类错误在 Init 启动阶段快速失败，而不是运行期静默忽略
+func (o *options) validate() error {
+	if o.singleOptionsMisused {
+		return errors.New("goredis: WithSingleOptions 不读取 Addr/Password/DB 字段，请通过 InitSingle/Init 参数或 DSN 传入")
+	}
+	return nil
 }
 
 // defaultOptions 返回默认配置选项（零值 = 不覆盖 DSN 解析结果）
 func defaultOptions() *options {
 	return &options{
-		enableTrace: false, // 是否启用追踪，默认关闭
+		logger:       defaultLogger{}, // 默认使用标准库 slog
+		initTimeout:  initTimeout,     // 连接测试超时，默认 15s
+		probeTimeout: probeTimeout,    // Lua 探测超时，默认 3s
 	}
 }
 
@@ -136,15 +201,6 @@ func WithIdleTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithEnableTrace 启用追踪功能（已废弃，请使用 WithTracing 替代）
-//
-// Deprecated: 请使用 WithTracing 传入 TracerProvider 替代
-func WithEnableTrace() Option {
-	return func(o *options) {
-		o.enableTrace = true
-	}
-}
-
 // WithTracing 设置 Redis 追踪提供者，适用于 redis v9 版本
 func WithTracing(tp *trace.TracerProvider) Option {
 	return func(o *options) {
@@ -177,9 +233,11 @@ func WithWriteTimeout(t time.Duration) Option {
 }
 
 // WithTLSConfig 设置 TLS 配置
+// 传入 nil 表示显式清空（覆盖 DSN/展开值中的 TLS 配置）
 func WithTLSConfig(c *tls.Config) Option {
 	return func(o *options) {
 		o.tlsConfig = c
+		o.tlsConfigSet = true
 	}
 }
 
@@ -255,17 +313,19 @@ func WithDialer(fn func(ctx context.Context, network, addr string) (net.Conn, er
 	}
 }
 
-// WithSentinelUsername 设置哨兵 ACL 用户名
+// WithSentinelUsername 设置哨兵 ACL 用户名（传入空串表示显式清空）
 func WithSentinelUsername(u string) Option {
 	return func(o *options) {
 		o.sentinelUsername = u
+		o.sentinelUsernameSet = true
 	}
 }
 
-// WithSentinelPassword 设置哨兵密码
+// WithSentinelPassword 设置哨兵密码（传入空串表示显式清空）
 func WithSentinelPassword(p string) Option {
 	return func(o *options) {
 		o.sentinelPassword = p
+		o.sentinelPasswordSet = true
 	}
 }
 
@@ -273,6 +333,16 @@ func WithSentinelPassword(p string) Option {
 func WithUseDisconnectedReplicas() Option {
 	return func(o *options) {
 		o.useDisconnectedReplicas = true
+		o.useDisconnectedReplicasSet = true
+	}
+}
+
+// WithoutUseDisconnectedReplicas 显式关闭哨兵断连副本路由
+// 用于覆盖 WithSentinelOptions 展开的 UseDisconnectedReplicas=true
+func WithoutUseDisconnectedReplicas() Option {
+	return func(o *options) {
+		o.useDisconnectedReplicas = false
+		o.useDisconnectedReplicasSet = true
 	}
 }
 
@@ -280,6 +350,16 @@ func WithUseDisconnectedReplicas() Option {
 func WithReadOnly() Option {
 	return func(o *options) {
 		o.readOnly = true
+		o.readOnlySet = true
+	}
+}
+
+// WithoutReadOnly 显式关闭集群只读路由
+// 用于覆盖 WithClusterOptions 展开的 ReadOnly=true（选项系统的对称关闭能力）
+func WithoutReadOnly() Option {
+	return func(o *options) {
+		o.readOnly = false
+		o.readOnlySet = true
 	}
 }
 
@@ -287,6 +367,15 @@ func WithReadOnly() Option {
 func WithRouteByLatency() Option {
 	return func(o *options) {
 		o.routeByLatency = true
+		o.routeByLatencySet = true
+	}
+}
+
+// WithoutRouteByLatency 显式关闭集群延迟路由
+func WithoutRouteByLatency() Option {
+	return func(o *options) {
+		o.routeByLatency = false
+		o.routeByLatencySet = true
 	}
 }
 
@@ -294,19 +383,30 @@ func WithRouteByLatency() Option {
 func WithRouteRandomly() Option {
 	return func(o *options) {
 		o.routeRandomly = true
+		o.routeRandomlySet = true
 	}
 }
 
-// WithMaxRedirects 设置集群最大重定向次数
+// WithoutRouteRandomly 显式关闭集群随机路由
+func WithoutRouteRandomly() Option {
+	return func(o *options) {
+		o.routeRandomly = false
+		o.routeRandomlySet = true
+	}
+}
+
+// WithMaxRedirects 设置集群最大重定向次数（0 也视为显式设置）
 func WithMaxRedirects(n int) Option {
 	return func(o *options) {
 		o.maxRedirects = n
+		o.maxRedirectsSet = true
 	}
 }
 
 // WithSingleOptions 设置单机 Redis 选项（展开到 options 中，With* 显式设置的字段优先）
 //
 // 支持的字段:
+//
 //	连接池: PoolSize, MinIdleConns, PoolTimeout, ConnMaxLifetime, ConnMaxIdleTime
 //	超时:   DialTimeout, ReadTimeout, WriteTimeout, TLSConfig
 //	重试:   MaxRetries, MinRetryBackoff, MaxRetryBackoff
@@ -316,14 +416,21 @@ func WithMaxRedirects(n int) Option {
 //   - Addr/Password/DB 请通过 InitSingle/Init 参数或 DSN 传入，本函数不读取这三个字段。
 //   - MaxRetries=0 表示“未设置”，不会禁用重试。如需显式禁用重试，请使用 WithMaxRetries(0)。
 //   - MinRetryBackoff/MaxRetryBackoff=0 同理，如需显式设置请使用对应的 With* 函数。
+//
+// 破坏性变更（Breaking Change）：
+//   - 早期版本对 Addr/Password/DB 的处理是 log.Printf 警告后静默忽略并正常初始化，
+//     现在改为 Init 启动期直接返回 error（配置类错误快速失败）。
+//   - 升级影响：若此前传入了这三个字段且初始化“能跑”，升级后会启动失败，
+//     请改为通过 InitSingle/Init 参数或 DSN 传入。详见 README「版本兼容」章节与 CHANGELOG。
 func WithSingleOptions(opt *redis.Options) Option {
 	return func(o *options) {
 		if opt == nil {
 			return
 		}
-		// 检测 Addr/Password/DB 非零时警告（本函数不读取这三个字段）
+		// 检测 Addr/Password/DB 非零：本函数不读取这三个字段
+		// 标记误用，由 validate() 在 Init 启动阶段快速失败（而非运行期静默忽略）
 		if opt.Addr != "" || opt.Password != "" || opt.DB != 0 {
-			log.Printf("[goredis] WithSingleOptions 不读取 Addr/Password/DB 字段，请通过 InitSingle/Init 参数或 DSN 传入")
+			o.singleOptionsMisused = true
 		}
 		expandCommonOptions(o, commonOpts{
 			PoolSize:        opt.PoolSize,
@@ -391,6 +498,54 @@ func WithRequestIDExtractor(fn RequestIDExtractor) Option {
 	}
 }
 
+// WithLogger 注入日志实现，未注入时默认使用标准库 slog
+// 用于上游接管库内部日志（如接入 zap/zerolog），或在生产环境调整日志级别
+// 传入 nil 时恢复为默认实现
+func WithLogger(lg Logger) Option {
+	return func(o *options) {
+		o.logger = resolveLogger(lg)
+	}
+}
+
+// WithMetrics 启用 OpenTelemetry 指标上报（redisotel.InstrumentMetrics）
+// 覆盖命令延迟、连接池水位（db_client_connections_*）等指标
+// 默认使用全局 MeterProvider；如需为 Redis 客户端指定独立的指标 Provider
+// （多租户隔离/单测验证），请配合 WithMeterProvider 传入
+func WithMetrics() Option {
+	return func(o *options) {
+		o.enableMetrics = true
+	}
+}
+
+// WithMeterProvider 指定 Redis 指标上报使用的 MeterProvider
+// 需配合 WithMetrics 使用；传入 nil 时回退到全局 MeterProvider（otel.GetMeterProvider）
+// 与 WithTracing(TracerProvider) 对称，用于多租户/按服务隔离指标的观测场景
+func WithMeterProvider(mp metric.MeterProvider) Option {
+	return func(o *options) {
+		o.meterProvider = mp
+	}
+}
+
+// WithInitTimeout 覆盖初始化阶段连接测试的超时时间（默认 15s）
+// 仅接受正数，非正值保持默认
+func WithInitTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.initTimeout = d
+		}
+	}
+}
+
+// WithProbeTimeout 覆盖 Lua 脚本通道探测的超时时间（默认 3s）
+// 仅接受正数，非正值保持默认；探测失败仅告警不中断初始化，超时过长会拖慢初始化
+func WithProbeTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.probeTimeout = d
+		}
+	}
+}
+
 // ============================================================================
 // 内部展开函数
 // ============================================================================
@@ -408,13 +563,6 @@ func setDurIfUnset(v time.Duration, val *time.Duration, flag *bool) {
 	if !*flag && v > 0 {
 		*val = v
 		*flag = true
-	}
-}
-
-// setStrIfEmpty 仅在 val 为空且 v 非空时写入
-func setStrIfEmpty(v string, val *string) {
-	if *val == "" && v != "" {
-		*val = v
 	}
 }
 
@@ -441,8 +589,9 @@ func expandCommonOptions(o *options, src commonOpts) {
 	setDurIfUnset(src.DialTimeout, &o.dialTimeout, &o.dialTimeoutSet)
 	setDurIfUnset(src.ReadTimeout, &o.readTimeout, &o.readTimeoutSet)
 	setDurIfUnset(src.WriteTimeout, &o.writeTimeout, &o.writeTimeoutSet)
-	if o.tlsConfig == nil && src.TLSConfig != nil {
+	if !o.tlsConfigSet && src.TLSConfig != nil {
 		o.tlsConfig = src.TLSConfig
+		o.tlsConfigSet = true
 	}
 }
 
@@ -511,10 +660,18 @@ func expandSentinelOptions(o *options, opt *redis.FailoverOptions) {
 		Username: opt.Username, ClientName: opt.ClientName,
 		Protocol: opt.Protocol, OnConnect: opt.OnConnect, Dialer: opt.Dialer,
 	})
-	setStrIfEmpty(opt.SentinelUsername, &o.sentinelUsername)
-	setStrIfEmpty(opt.SentinelPassword, &o.sentinelPassword)
-	if !o.useDisconnectedReplicas && opt.UseDisconnectedReplicas {
+	// 哨兵专有：仅在用户未通过 With* 显式设置时（xxxSet=false）才写入，并同步置位
+	if !o.sentinelUsernameSet && opt.SentinelUsername != "" {
+		o.sentinelUsername = opt.SentinelUsername
+		o.sentinelUsernameSet = true
+	}
+	if !o.sentinelPasswordSet && opt.SentinelPassword != "" {
+		o.sentinelPassword = opt.SentinelPassword
+		o.sentinelPasswordSet = true
+	}
+	if !o.useDisconnectedReplicasSet && opt.UseDisconnectedReplicas {
 		o.useDisconnectedReplicas = true
+		o.useDisconnectedReplicasSet = true
 	}
 }
 
@@ -525,16 +682,21 @@ func expandClusterOptions(o *options, opt *redis.ClusterOptions) {
 		Username: opt.Username, ClientName: opt.ClientName,
 		Protocol: opt.Protocol, OnConnect: opt.OnConnect, Dialer: opt.Dialer,
 	})
-	if !o.readOnly && opt.ReadOnly {
+	// 集群专有：仅在用户未通过 With* 显式设置时（xxxSet=false）才写入，并同步置位
+	if !o.readOnlySet && opt.ReadOnly {
 		o.readOnly = true
+		o.readOnlySet = true
 	}
-	if !o.routeByLatency && opt.RouteByLatency {
+	if !o.routeByLatencySet && opt.RouteByLatency {
 		o.routeByLatency = true
+		o.routeByLatencySet = true
 	}
-	if !o.routeRandomly && opt.RouteRandomly {
+	if !o.routeRandomlySet && opt.RouteRandomly {
 		o.routeRandomly = true
+		o.routeRandomlySet = true
 	}
-	if o.maxRedirects == 0 && opt.MaxRedirects > 0 {
+	if !o.maxRedirectsSet && opt.MaxRedirects > 0 {
 		o.maxRedirects = opt.MaxRedirects
+		o.maxRedirectsSet = true
 	}
 }

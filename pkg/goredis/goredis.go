@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
-	"net/url"
 	"strings"
 	"time"
 
@@ -21,16 +19,42 @@ const (
 	// ErrRedisNotFound 表示在 Redis 中未找到指定的键
 	ErrRedisNotFound = redis.Nil
 	// DefaultRedisName 默认的 Redis 实例名称
+	// 注：本包内不直接引用，保留为导出符号供上层业务作为默认实例名使用（删除会破坏兼容）
 	DefaultRedisName = "default"
-	// initTimeout 初始化阶段的超时时间
+	// initTimeout 初始化阶段（连接测试）的超时时间
 	initTimeout = 15 * time.Second
+	// probeTimeout Lua 通道探测的独立超时时间
+	// 不复用连接测试的 pingCtx：若 ForEachShard 等已消耗大部分 initTimeout，
+	// 探测会因剩余时间不足而误报告警（噪音日志）
+	probeTimeout = 3 * time.Second
 )
 
-// setupClient 为 Redis 客户端执行通用初始化：追踪挂载、Hook 注册、连接测试、Lua 探测
-func setupClient(ctx context.Context, client redis.UniversalClient, o *options) error {
+// pingFunc 连接测试策略：单机直接 Ping，集群遍历所有分片 Ping
+// 抽象为策略注入 setupClient，保证单机/集群共享同一套挂载与探测流程（统一初始化路径）
+type pingFunc func(ctx context.Context, client redis.UniversalClient) error
+
+// pingSingle 单机连接测试策略：直接对客户端执行 Ping
+func pingSingle(ctx context.Context, client redis.UniversalClient) error {
+	return client.Ping(ctx).Err()
+}
+
+// setupClient 为 Redis 客户端执行通用初始化：追踪/指标挂载、Hook 注册、连接测试（ping 策略）、Lua 探测
+func setupClient(ctx context.Context, client redis.UniversalClient, o *options, ping pingFunc) error {
 	// 挂载 OpenTelemetry 追踪（它会在内部创建 Span）
 	if o.tracerProvider != nil {
 		if err := redisotel.InstrumentTracing(client, redisotel.WithTracerProvider(o.tracerProvider)); err != nil {
+			return err
+		}
+	}
+
+	// 挂载 OpenTelemetry 指标（命令延迟、连接池水位等，需 WithMetrics 开启）
+	// WithMeterProvider 指定了独立 Provider 时优先使用，否则回退到全局 MeterProvider
+	if o.enableMetrics {
+		metricOpts := make([]redisotel.MetricsOption, 0, 1)
+		if o.meterProvider != nil {
+			metricOpts = append(metricOpts, redisotel.WithMeterProvider(o.meterProvider))
+		}
+		if err := redisotel.InstrumentMetrics(client, metricOpts...); err != nil {
 			return err
 		}
 	}
@@ -40,24 +64,44 @@ func setupClient(ctx context.Context, client redis.UniversalClient, o *options) 
 	hook := &requestIDHook{extractor: o.requestIDExtractor}
 	client.AddHook(hook)
 
-	// 测试连接
-	ctx, cancel := context.WithTimeout(ctx, initTimeout)
+	// 测试连接（由调用方注入 ping 策略：单机直接 Ping，集群 ForEachShard 遍历分片）
+	// 超时可用 WithInitTimeout 覆盖（默认 initTimeout 常量）
+	pingCtx, cancel := context.WithTimeout(ctx, o.initTimeout)
 	defer cancel()
-	if err := client.Ping(ctx).Err(); err != nil {
+	if err := ping(pingCtx, client); err != nil {
 		return err
 	}
 
-	// 探测 Lua 脚本通道是否可用
-	probeLuaScriptChannel(ctx, client)
+	// 探测 Lua 脚本通道是否可用（独立短超时，避免复用已消耗的 pingCtx 产生误报告警；可用 WithProbeTimeout 覆盖）
+	probeCtx, probeCancel := context.WithTimeout(ctx, o.probeTimeout)
+	defer probeCancel()
+	probeLuaScriptChannel(probeCtx, client, o.logger)
 
 	return nil
 }
 
 // probeLuaScriptChannel 通过 EVAL "return 1" 探测 Lua 通道是否可用
 // 注：redsync 的脚本加载由 go-redis 的 NOSCRIPT fallback 保证，不依赖本探测
-func probeLuaScriptChannel(ctx context.Context, client redis.Cmdable) {
+// 探测失败仅通过 Logger 告警（可注入/可关闭），不中断初始化（启动健壮性原则）
+func probeLuaScriptChannel(ctx context.Context, client redis.Cmdable, lg Logger) {
 	if err := client.Eval(ctx, "return 1", nil).Err(); err != nil {
-		log.Printf("[goredis] lua channel probe failed: %v", err)
+		resolveLogger(lg).Warn("goredis: Lua 脚本通道探测失败，不影响初始化", "error", err)
+	}
+}
+
+// defaultContext 降级 nil Context 为 context.Background()（Ctx 变体的 nil 防御）
+func defaultContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
+}
+
+// closeAfterInitFail 初始化失败后清理已创建的客户端
+// 关闭出错仅告警，不掩盖初始化的原始错误
+func closeAfterInitFail(closer interface{ Close() error }, lg Logger) {
+	if err := closer.Close(); err != nil {
+		resolveLogger(lg).Warn("goredis: 初始化失败后关闭客户端出错", "error", err)
 	}
 }
 
@@ -67,24 +111,37 @@ func probeLuaScriptChannel(ctx context.Context, client redis.Cmdable) {
 // 选项应用优先级（所有 Init 函数统一）：
 //
 //  1. defaultOptions() 提供零值基底
-//  2. o.apply(opts...) 执行所有 With* 选项
+//  2. o.apply(opts...) 执行所有 With* 选项（nil Option 跳过）
 //     - WithXxxOptions 将传入 Options 的非零字段展开到 o，并置位 xxxSet（确保后续步骤均能识别）
-//     - 其他 With* 直接设置字段并置位 xxxSet
-//  3. baseBuilder / getRedisOpt 构造基础 Options
+//     - 其他 With* 直接设置字段并置位 xxxSet（零值也置位，支持显式清空）
+//  3. o.validate() 校验选项组合，配置类错误在此快速失败
+//  4. baseBuilder / getRedisOpt 构造基础 Options
 //     - Init 路径：DSN 解析值优先；xxxSet=true 的字段覆盖 DSN 值
 //     - InitSingle/Sentinel/Cluster 路径：从 o 中读取所有字段
-//  4. applyExplicitXxxOptions 将 xxxSet=true 的字段最终覆盖基础值
+//  5. applyExplicitXxxOptions 将 xxxSet=true 的字段最终覆盖基础值
+//
+// 无 Context 的变体统一使用 context.Background()；
+// 需要控制初始化超时/取消请使用 InitWithContext 等 Ctx 变体。
 // ============================================================================
 
-// Init 连接到 Redis 服务器
+// Init 连接到 Redis 服务器（内部使用 context.Background()，需控制超时/取消请用 InitWithContext）
 // 支持的 DSN 格式:
 // (1) 无密码无数据库: localhost:6379
 // (2) 带密码和数据库: <user>:<pass>@localhost:6379/2
 // (3) 完整 URL 格式: redis://default:123456@localhost:6379/0?max_retries=3
 // 更多参数请参考 redis 源码中的 setupConnParams 函数
 func Init(dsn string, opts ...Option) (*redis.Client, error) {
+	return InitWithContext(context.Background(), dsn, opts...)
+}
+
+// InitWithContext 连接到 Redis 服务器，支持外部 Context 控制初始化的超时与取消
+func InitWithContext(ctx context.Context, dsn string, opts ...Option) (*redis.Client, error) {
+	ctx = defaultContext(ctx)
 	o := defaultOptions()
 	o.apply(opts...)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
 
 	opt, err := getRedisOpt(dsn, o)
 	if err != nil {
@@ -92,29 +149,34 @@ func Init(dsn string, opts ...Option) (*redis.Client, error) {
 	}
 
 	rdb := redis.NewClient(opt)
-
-	ctx := context.Background()
-	if err := setupClient(ctx, rdb, o); err != nil {
-		_ = rdb.Close()
+	if err := setupClient(ctx, rdb, o, pingSingle); err != nil {
+		closeAfterInitFail(rdb, o.logger)
 		return nil, err
 	}
 
 	return rdb, nil
 }
 
-// InitSingle 连接到单机 Redis 实例
+// InitSingle 连接到单机 Redis 实例（内部使用 context.Background()，需控制超时/取消请用 InitSingleWithContext）
 func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Client, error) {
+	return InitSingleWithContext(context.Background(), addr, password, db, opts...)
+}
+
+// InitSingleWithContext 连接到单机 Redis 实例，支持外部 Context 控制初始化的超时与取消
+func InitSingleWithContext(ctx context.Context, addr string, password string, db int, opts ...Option) (*redis.Client, error) {
+	ctx = defaultContext(ctx)
 	o := defaultOptions()
 	o.apply(opts...)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
 
 	opt := buildRedisBaseOptions(addr, password, db, o)
 	applyExplicitRedisOptions(opt, o)
 
 	rdb := redis.NewClient(opt)
-
-	ctx := context.Background()
-	if err := setupClient(ctx, rdb, o); err != nil {
-		_ = rdb.Close()
+	if err := setupClient(ctx, rdb, o, pingSingle); err != nil {
+		closeAfterInitFail(rdb, o.logger)
 		return nil, err
 	}
 
@@ -122,18 +184,26 @@ func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Cl
 }
 
 // InitSentinel 通过哨兵模式连接到 Redis，所有 Redis 实例使用相同的用户名和密码
+// （内部使用 context.Background()，需控制超时/取消请用 InitSentinelWithContext）
 func InitSentinel(masterName string, addrs []string, username string, password string, opts ...Option) (*redis.Client, error) {
+	return InitSentinelWithContext(context.Background(), masterName, addrs, username, password, opts...)
+}
+
+// InitSentinelWithContext 通过哨兵模式连接到 Redis，支持外部 Context 控制初始化的超时与取消
+func InitSentinelWithContext(ctx context.Context, masterName string, addrs []string, username string, password string, opts ...Option) (*redis.Client, error) {
+	ctx = defaultContext(ctx)
 	o := defaultOptions()
 	o.apply(opts...)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
 
 	opt := buildFailoverBaseOptions(masterName, addrs, username, password, o)
 	applyExplicitFailoverOptions(opt, o)
 
 	rdb := redis.NewFailoverClient(opt)
-
-	ctx := context.Background()
-	if err := setupClient(ctx, rdb, o); err != nil {
-		_ = rdb.Close()
+	if err := setupClient(ctx, rdb, o, pingSingle); err != nil {
+		closeAfterInitFail(rdb, o.logger)
 		return nil, err
 	}
 
@@ -141,37 +211,36 @@ func InitSentinel(masterName string, addrs []string, username string, password s
 }
 
 // InitCluster 通过集群模式连接到 Redis，所有 Redis 实例使用相同的用户名和密码
+// （内部使用 context.Background()，需控制超时/取消请用 InitClusterWithContext）
 func InitCluster(addrs []string, username string, password string, opts ...Option) (*redis.ClusterClient, error) {
+	return InitClusterWithContext(context.Background(), addrs, username, password, opts...)
+}
+
+// InitClusterWithContext 通过集群模式连接到 Redis，支持外部 Context 控制初始化的超时与取消
+func InitClusterWithContext(ctx context.Context, addrs []string, username string, password string, opts ...Option) (*redis.ClusterClient, error) {
+	ctx = defaultContext(ctx)
 	o := defaultOptions()
 	o.apply(opts...)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
 
 	opt := buildClusterBaseOptions(addrs, username, password, o)
 	applyExplicitClusterOptions(opt, o)
 
 	clusterRdb := redis.NewClusterClient(opt)
 
-	// 集群模式：追踪挂载、Hook 注册
-	if o.tracerProvider != nil {
-		if err := redisotel.InstrumentTracing(clusterRdb, redisotel.WithTracerProvider(o.tracerProvider)); err != nil {
-			return nil, err
-		}
+	// 集群连接测试策略：遍历所有分片（含主从）进行连接测试
+	// 挂载/Hook/探测流程与其他 Init 完全共享 setupClient，避免两套逻辑漂移
+	clusterPing := func(pingCtx context.Context, _ redis.UniversalClient) error {
+		return clusterRdb.ForEachShard(pingCtx, func(shardCtx context.Context, client *redis.Client) error {
+			return client.Ping(shardCtx).Err()
+		})
 	}
-	hook := &requestIDHook{extractor: o.requestIDExtractor}
-	clusterRdb.AddHook(hook)
-
-	// 测试连接，遍历所有分片（含主从）进行连接测试
-	ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
-	defer cancel()
-	err := clusterRdb.ForEachShard(ctx, func(ctx context.Context, client *redis.Client) error {
-		return client.Ping(ctx).Err()
-	})
-	if err != nil {
-		_ = clusterRdb.Close()
+	if err := setupClient(ctx, clusterRdb, o, clusterPing); err != nil {
+		closeAfterInitFail(clusterRdb, o.logger)
 		return nil, err
 	}
-
-	// 探测 Lua 脚本通道（集群模式下只需在任一节点执行即可）
-	probeLuaScriptChannel(ctx, clusterRdb)
 
 	return clusterRdb, nil
 }
@@ -198,26 +267,51 @@ func getRedisOpt(dsn string, opts *options) (*redis.Options, error) {
 		dsn = "redis://" + dsn
 	}
 
-	// 2. 用 net/url 解析，判断 Path 是否包含 /db
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("goredis: 解析 DSN 失败: %w", err)
-	}
-	if u.Path == "" || u.Path == "/" {
-		u.Path = "/0"
-	}
+	// 2. 缺少 /db 路径时补 /0（仅做最小字符串拼接，避免 net/url 重新编码破坏密码中的特殊字符）
+	dsn = ensureDSNPath(dsn)
 
-	// 3. 重新序列化为完整 URL，交给 redis.ParseURL
-	dsn = u.String()
+	// 3. 交给 redis.ParseURL 解析
 	redisOpts, err := redis.ParseURL(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("goredis: 解析 DSN 失败: %w", err)
 	}
 
 	// 4. With* 显式设置的字段覆盖 DSN 解析值
 	applyExplicitRedisOptions(redisOpts, opts)
 
 	return redisOpts, nil
+}
+
+// ensureDSNPath 在 DSN 缺少 /db 路径时补全为 /0
+// 仅对缺失场景做最小拼接，不做 net/url 的 parse → String 往返，
+// 避免用户密码中的特殊字符（如 %2B、+ 等）被重新编码后改变语义
+func ensureDSNPath(dsn string) string {
+	schemeIdx := strings.Index(dsn, "://")
+	if schemeIdx < 0 {
+		return dsn
+	}
+
+	// 分离 query 部分（? 之后不参与路径判断）
+	authority := dsn[schemeIdx+3:]
+	query := ""
+	if qIdx := strings.Index(authority, "?"); qIdx >= 0 {
+		authority, query = authority[:qIdx], authority[qIdx:]
+	}
+
+	// authority 中第一个 / 即 path 起点（userinfo 不允许出现未转义的 /）
+	pathIdx := strings.Index(authority, "/")
+	prefix := dsn[:schemeIdx+3]
+	switch {
+	case pathIdx < 0:
+		// 形如 redis://host:6379 → redis://host:6379/0
+		return prefix + authority + "/0" + query
+	case pathIdx == len(authority)-1:
+		// 形如 redis://host:6379/ → redis://host:6379/0
+		return prefix + authority + "0" + query
+	default:
+		// 已有 /db 路径，保持原样
+		return dsn
+	}
 }
 
 // ============================================================================
@@ -244,6 +338,76 @@ func CloseCluster(clusterRdb *redis.ClusterClient) error {
 		return err
 	}
 	return nil
+}
+
+// shutdownPollInterval 关闭前轮询连接池状态的间隔
+// 取值是精度与开销的权衡：过小则高频 shutdown（滚动发布/K8s 频繁重启）场景下
+// PoolStats 查询（互斥锁级别）累计开销可观，过大则池清空后最多多等一个间隔；
+// 50ms 下 Shutdown 的等待尾延迟可忽略（通常 < 1 个轮询周期）
+const shutdownPollInterval = 50 * time.Millisecond
+
+// Shutdown 优雅关闭 Redis 客户端
+// 先轮询等待连接池中无命令占用连接（尽力等待飞行中的命令完成），再执行幂等关闭；
+// 等待期间 ctx 取消/超时会立即转入关闭流程（避免连接泄漏）并返回 ctx 的错误
+// 可选 opts 用于注入关闭阶段的选项（如 WithLogger 指定关闭告警的日志实现）
+func Shutdown(ctx context.Context, rdb *redis.Client, opts ...Option) error {
+	if rdb == nil {
+		return nil
+	}
+	ctx = defaultContext(ctx)
+
+	o := defaultOptions()
+	o.apply(opts...)
+	lg := resolveLogger(o.logger)
+	if err := waitPoolDrained(ctx, rdb.PoolStats, lg); err != nil {
+		// 等待超时/取消后仍需强制关闭；Close 也失败时用 errors.Join 保留双错误，
+		// 避免丢失“因 ctx 错误进入强制关闭”这一关键上下文
+		if closeErr := Close(rdb); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	return Close(rdb)
+}
+
+// ShutdownCluster 优雅关闭 Redis 集群客户端（语义同 Shutdown）
+func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts ...Option) error {
+	if clusterRdb == nil {
+		return nil
+	}
+	ctx = defaultContext(ctx)
+
+	o := defaultOptions()
+	o.apply(opts...)
+	lg := resolveLogger(o.logger)
+	if err := waitPoolDrained(ctx, clusterRdb.PoolStats, lg); err != nil {
+		// 同 Shutdown：Close 失败时保留“等待失败 + 关闭失败”双错误
+		if closeErr := CloseCluster(clusterRdb); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	return CloseCluster(clusterRdb)
+}
+
+// waitPoolDrained 轮询等待连接池中所有连接归还
+// 判定条件：TotalConns == IdleConns，即无连接被命令占用（尽力而为的飞行中命令等待）
+func waitPoolDrained(ctx context.Context, statsFn func() *redis.PoolStats, lg Logger) error {
+	ticker := time.NewTicker(shutdownPollInterval)
+	defer ticker.Stop()
+
+	for {
+		stats := statsFn()
+		if stats.TotalConns == stats.IdleConns {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			lg.Warn("goredis: 等待连接池归还超时，将强制关闭客户端", "error", ctx.Err())
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // ============================================================================
@@ -280,58 +444,58 @@ func buildRedisBaseOptions(addr, password string, db int, o *options) *redis.Opt
 // buildFailoverBaseOptions 从哨兵参数构造 redis.FailoverOptions 基础结构
 func buildFailoverBaseOptions(masterName string, addrs []string, username, password string, o *options) *redis.FailoverOptions {
 	return &redis.FailoverOptions{
-		MasterName:                masterName,
-		SentinelAddrs:             addrs,
-		Username:                  username,
-		Password:                  password,
-		SentinelUsername:          o.sentinelUsername,
-		SentinelPassword:          o.sentinelPassword,
-		UseDisconnectedReplicas:  o.useDisconnectedReplicas,
-		PoolSize:                  o.poolSize,
-		MinIdleConns:              o.minIdleConns,
-		PoolTimeout:               o.poolTimeout,
-		ConnMaxLifetime:           o.maxConnAge,
-		ConnMaxIdleTime:           o.idleTimeout,
-		DialTimeout:               o.dialTimeout,
-		ReadTimeout:               o.readTimeout,
-		WriteTimeout:              o.writeTimeout,
-		TLSConfig:                 o.tlsConfig,
-		MaxRetries:                o.maxRetries,
-		MinRetryBackoff:           o.minRetryBackoff,
-		MaxRetryBackoff:           o.maxRetryBackoff,
-		ClientName:                o.clientName,
-		Protocol:                  o.protocol,
-		OnConnect:                 o.onConnect,
-		Dialer:                    o.dialer,
+		MasterName:              masterName,
+		SentinelAddrs:           addrs,
+		Username:                username,
+		Password:                password,
+		SentinelUsername:        o.sentinelUsername,
+		SentinelPassword:        o.sentinelPassword,
+		UseDisconnectedReplicas: o.useDisconnectedReplicas,
+		PoolSize:                o.poolSize,
+		MinIdleConns:            o.minIdleConns,
+		PoolTimeout:             o.poolTimeout,
+		ConnMaxLifetime:         o.maxConnAge,
+		ConnMaxIdleTime:         o.idleTimeout,
+		DialTimeout:             o.dialTimeout,
+		ReadTimeout:             o.readTimeout,
+		WriteTimeout:            o.writeTimeout,
+		TLSConfig:               o.tlsConfig,
+		MaxRetries:              o.maxRetries,
+		MinRetryBackoff:         o.minRetryBackoff,
+		MaxRetryBackoff:         o.maxRetryBackoff,
+		ClientName:              o.clientName,
+		Protocol:                o.protocol,
+		OnConnect:               o.onConnect,
+		Dialer:                  o.dialer,
 	}
 }
 
 // buildClusterBaseOptions 从集群参数构造 redis.ClusterOptions 基础结构
 func buildClusterBaseOptions(addrs []string, username, password string, o *options) *redis.ClusterOptions {
 	return &redis.ClusterOptions{
-		Addrs:                    addrs,
-		Username:                 username,
-		Password:                 password,
-		ReadOnly:                 o.readOnly,
-		RouteByLatency:           o.routeByLatency,
-		RouteRandomly:            o.routeRandomly,
-		MaxRedirects:             o.maxRedirects,
-		PoolSize:                 o.poolSize,
-		MinIdleConns:             o.minIdleConns,
-		PoolTimeout:              o.poolTimeout,
-		ConnMaxLifetime:          o.maxConnAge,
-		ConnMaxIdleTime:          o.idleTimeout,
-		DialTimeout:              o.dialTimeout,
-		ReadTimeout:              o.readTimeout,
-		WriteTimeout:             o.writeTimeout,
-		TLSConfig:                o.tlsConfig,
-		MaxRetries:               o.maxRetries,
-		MinRetryBackoff:          o.minRetryBackoff,
-		MaxRetryBackoff:          o.maxRetryBackoff,
-		ClientName:               o.clientName,
-		Protocol:                 o.protocol,
-		OnConnect:                o.onConnect,
-		Dialer:                   o.dialer,
+		Addrs:           addrs,
+		Username:        username,
+		Password:        password,
+		ReadOnly:        o.readOnly,
+		RouteByLatency:  o.routeByLatency,
+		RouteRandomly:   o.routeRandomly,
+		MaxRedirects:    o.maxRedirects,
+		PoolSize:        o.poolSize,
+		MinIdleConns:    o.minIdleConns,
+		PoolTimeout:     o.poolTimeout,
+		ConnMaxLifetime: o.maxConnAge,
+		ConnMaxIdleTime: o.idleTimeout,
+		DialTimeout:     o.dialTimeout,
+		ReadTimeout:     o.readTimeout,
+		WriteTimeout:    o.writeTimeout,
+		TLSConfig:       o.tlsConfig,
+		MaxRetries:      o.maxRetries,
+		MinRetryBackoff: o.minRetryBackoff,
+		MaxRetryBackoff: o.maxRetryBackoff,
+		ClientName:      o.clientName,
+		Protocol:        o.protocol,
+		OnConnect:       o.onConnect,
+		Dialer:          o.dialer,
 	}
 }
 
@@ -366,7 +530,7 @@ func applyExplicitRedisOptions(redisOpts *redis.Options, opts *options) {
 	if opts.writeTimeoutSet {
 		redisOpts.WriteTimeout = opts.writeTimeout
 	}
-	if opts.tlsConfig != nil {
+	if opts.tlsConfigSet {
 		redisOpts.TLSConfig = opts.tlsConfig
 	}
 	// 重试与网络
@@ -427,7 +591,7 @@ func applyExplicitFailoverOptions(opt *redis.FailoverOptions, opts *options) {
 	if opts.writeTimeoutSet {
 		opt.WriteTimeout = opts.writeTimeout
 	}
-	if opts.tlsConfig != nil {
+	if opts.tlsConfigSet {
 		opt.TLSConfig = opts.tlsConfig
 	}
 	// 重试与网络
@@ -440,15 +604,20 @@ func applyExplicitFailoverOptions(opt *redis.FailoverOptions, opts *options) {
 	if opts.maxRetryBackoffSet {
 		opt.MaxRetryBackoff = opts.maxRetryBackoff
 	}
-	// 哨兵专有
-	if opts.sentinelUsername != "" {
+	// WithUsername / WithSingleOptions 展开的 Username 对哨兵模式生效
+	//（buildFailoverBaseOptions 中的函数参数 username 作为兜底，显式选项优先）
+	if opts.usernameSet {
+		opt.Username = opts.username
+	}
+	// 哨兵专有：xxxSet=true 时覆盖（零值也生效，支持显式清空）
+	if opts.sentinelUsernameSet {
 		opt.SentinelUsername = opts.sentinelUsername
 	}
-	if opts.sentinelPassword != "" {
+	if opts.sentinelPasswordSet {
 		opt.SentinelPassword = opts.sentinelPassword
 	}
-	if opts.useDisconnectedReplicas {
-		opt.UseDisconnectedReplicas = true
+	if opts.useDisconnectedReplicasSet {
+		opt.UseDisconnectedReplicas = opts.useDisconnectedReplicas
 	}
 	// 客户端
 	if opts.clientNameSet {
@@ -492,7 +661,7 @@ func applyExplicitClusterOptions(opt *redis.ClusterOptions, opts *options) {
 	if opts.writeTimeoutSet {
 		opt.WriteTimeout = opts.writeTimeout
 	}
-	if opts.tlsConfig != nil {
+	if opts.tlsConfigSet {
 		opt.TLSConfig = opts.tlsConfig
 	}
 	// 重试与网络
@@ -505,17 +674,22 @@ func applyExplicitClusterOptions(opt *redis.ClusterOptions, opts *options) {
 	if opts.maxRetryBackoffSet {
 		opt.MaxRetryBackoff = opts.maxRetryBackoff
 	}
-	// 集群专有
-	if opts.readOnly {
-		opt.ReadOnly = true
+	// WithUsername / WithSingleOptions 展开的 Username 对集群模式生效
+	//（buildClusterBaseOptions 中的函数参数 username 作为兜底，显式选项优先）
+	if opts.usernameSet {
+		opt.Username = opts.username
 	}
-	if opts.routeByLatency {
-		opt.RouteByLatency = true
+	// 集群专有：xxxSet=true 时覆盖（零值也生效，支持显式关闭）
+	if opts.readOnlySet {
+		opt.ReadOnly = opts.readOnly
 	}
-	if opts.routeRandomly {
-		opt.RouteRandomly = true
+	if opts.routeByLatencySet {
+		opt.RouteByLatency = opts.routeByLatency
 	}
-	if opts.maxRedirects > 0 {
+	if opts.routeRandomlySet {
+		opt.RouteRandomly = opts.routeRandomly
+	}
+	if opts.maxRedirectsSet {
 		opt.MaxRedirects = opts.maxRedirects
 	}
 	// 客户端

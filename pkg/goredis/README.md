@@ -6,24 +6,28 @@
 
 ```
 goredis/
-├── goredis.go          # 核心：Init/InitSingle/InitSentinel/InitCluster/Close、setupClient 统一初始化、Lua 通道探测
-├── option.go           # Functional Options：WithPoolSize/WithDialTimeout/WithTracing/WithRequestIDExtractor 等
-├── requestid_hook.go   # Redis Hook：从 Context 提取 request_id 并设置到 Span 属性，evalsha 分布式锁识别
-├── goredis_test.go     # 单元测试：Init/Close 幂等性、DSN 解析
-├── option_test.go      # 单元测试：默认值、全部 With* 选项
-├── requestid_hook_test.go  # 单元测试：Span 属性增强、request_id 注入
+├── goredis.go          # 核心：Init/InitSingle/InitSentinel/InitCluster/Close/Shutdown、setupClient 统一初始化、Lua 通道探测
+├── option.go           # Functional Options：WithPoolSize/WithTracing/WithLogger/WithMetrics/Without* 等 + Logger 接口
+├── requestid_hook.go   # Redis Hook：request_id 注入、逐命令 Pipeline 失败事件、eval/evalsha 分布式锁识别
+├── goredis_test.go     # 单元测试：Init/Close/Shutdown 生命周期、nil Option、Logger 注入
+├── option_test.go      # 单元测试：默认值、全部 With*/Without* 选项、三阶段合并语义
+├── requestid_hook_test.go  # 单元测试：Span 属性增强、request_id 注入、逐命令失败事件
 ├── integration_test.go # 集成测试（需 GOREDIS_TEST_DSN 环境变量）
-├── dsn_test.go         # DSN 解析回归测试（query 参数、merge 语义）
+├── dsn_test.go         # DSN 解析回归测试（query 参数、rediss:// TLS、特殊字符密码、merge 语义）
+├── CHANGELOG.md        # 版本变更日志（遵循 SemVer）
 └── README.md
 ```
 
 **核心设计原则：**
 
+- **三阶段合并语义**：`DSN < WithXxxOptions 展开 < With* 显式设置`，所有字段通过 `xxxSet` 标志识别，零值（空串、false、nil、0）也可显式设置
 - **Lua 脚本通道探测**：`Init` 时执行 `EVAL "return 1" nil` 确认 Lua 通道可用；redsync 的脚本加载由 go-redis 内置 NOSCRIPT fallback 保证，不依赖本探测
-- **统一初始化路径**：`setupClient` 消除 4 个 Init 函数的重复代码（追踪挂载 → Hook 注册 → Ping 测试 → Lua 探测）
-- **幂等关闭**：`Close`/`CloseCluster` 重复调用安全，第二次调用返回 nil
+- **统一初始化路径**：`setupClient` 消除 8 个 Init 函数的重复代码（追踪挂载 → 指标挂载 → Hook 注册 → ping 策略测试 → Lua 探测）；单机/集群仅 ping 策略不同，挂载流程完全共享
+- **日志依赖倒置**：库内不直接使用标准库 `log`，通过 `Logger` 接口（`WithLogger` 注入，默认 `log/slog`）接管告警
+- **配置错误快速失败**：`WithSingleOptions` 误传 `Addr/Password/DB` 等配置类错误在 `Init` 时返回 error，而非运行期刷屏
+- **幂等关闭**：`Close`/`CloseCluster` 重复调用安全，第二次调用返回 nil；`Shutdown`/`ShutdownCluster` 等待飞行中命令归还后再关闭
 - **request_id 注入**：通过 `RequestIDExtractor` 函数类型解耦 goredis 与 logger 包，上层注入具体实现
-- **evalsha 分布式锁识别**：自动识别 `lock:`、`/dlock/` 前缀，Span 名称显示锁标识便于排查
+- **evalsha 分布式锁识别**：自动识别 `lock:`、`/dlock/` 前缀，Span 名称显示锁标识便于排查；Pipeline 逐命令记录失败事件
 
 ---
 
@@ -66,11 +70,12 @@ func main() {
 
 **内部行为**：
 
-1. `getRedisOpt` 解析 DSN（`net/url` + `redis.ParseURL`）→ 仅覆盖显式设置的 Option
-2. 创建 `redis.NewClient` → 挂载追踪/Hook → Ping 测试 → Lua 探测
-3. DSN 无 `/db` 后缀时自动追加 `/0`
+1. `getRedisOpt` 解析 DSN（`ensureDSNPath` 补路径 + `redis.ParseURL`）→ 仅覆盖显式设置的 Option
+2. 创建 `redis.NewClient` → 挂载追踪/指标/Hook → Ping 测试 → Lua 探测
+3. DSN 无 `/db` 后缀时自动追加 `/0`（纯字符串拼接，不做 net/url round-trip，密码中的特殊字符不会被二次编码破坏）
+4. 支持 `rediss://` 前缀，自动启用 TLS
 
-**DSN 格式支持**：`host:port` | `:password@host:port/db` | `redis://user:password@host:port/db`
+**DSN 格式支持**：`host:port` | `:password@host:port/db` | `redis://user:password@host:port/db` | `rediss://...`（TLS）
 
 ---
 
@@ -162,7 +167,14 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 | `WithDialTimeout(d)` | 连接拨号超时时间 | `0`（不限） |
 | `WithReadTimeout(d)` | 读取操作超时时间 | `0`（不限） |
 | `WithWriteTimeout(d)` | 写入操作超时时间 | `0`（不限） |
-| `WithTLSConfig(cfg)` | TLS 安全连接配置 | `nil` |
+| `WithTLSConfig(cfg)` | TLS 安全连接配置（传 `nil` 可显式清空 DSN 中的 TLS 配置） | `nil` |
+
+### 初始化超时
+
+| Option | 说明 | 默认值 |
+|--------|------|--------|
+| `WithInitTimeout(d)` | 初始化阶段连接测试（Ping）的超时时间（非正值保持默认） | `15s` |
+| `WithProbeTimeout(d)` | Lua 脚本通道探测的超时时间（非正值保持默认） | `3s` |
 
 ### 重试与网络
 
@@ -172,7 +184,7 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 | `WithMinRetryBackoff(d)` | 最小重试退避时间 | `go-redis 默认值` |
 | `WithMaxRetryBackoff(d)` | 最大重试退避时间 | `go-redis 默认值` |
 | `WithNetwork(n)` | 网络类型（tcp / unix） | `tcp` |
-| `WithUsername(u)` | Redis ACL 用户名 | `""` |
+| `WithUsername(u)` | Redis ACL 用户名，对单机/哨兵/集群三种模式均生效（哨兵/集群的 `Init` 参数作为兜底，本选项优先） | `""` |
 | `WithClientName(name)` | 客户端名称（CLIENT SETNAME） | `""` |
 | `WithProtocol(v)` | RESP 协议版本（2 或 3） | `go-redis 默认值` |
 | `WithOnConnect(fn)` | 连接建立时的回调函数 | `nil` |
@@ -182,25 +194,32 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 
 | Option | 说明 | 默认值 |
 |--------|------|--------|
-| `WithSentinelUsername(u)` | 哨兵 ACL 用户名 | `""` |
-| `WithSentinelPassword(p)` | 哨兵密码 | `""` |
+| `WithSentinelUsername(u)` | 哨兵 ACL 用户名（传 `""` 可显式清空） | `""` |
+| `WithSentinelPassword(p)` | 哨兵密码（传 `""` 可显式清空） | `""` |
 | `WithUseDisconnectedReplicas()` | 启用哨兵断连副本路由 | `false` |
+| `WithoutUseDisconnectedReplicas()` | 显式关闭哨兵断连副本路由（覆盖展开值） | `false` |
 
 ### 集群专用
 
 | Option | 说明 | 默认值 |
 |--------|------|--------|
 | `WithReadOnly()` | 启用集群只读命令路由到副本节点 | `false` |
+| `WithoutReadOnly()` | 显式关闭只读路由（覆盖展开值） | `false` |
 | `WithRouteByLatency()` | 启用集群延迟路由 | `false` |
+| `WithoutRouteByLatency()` | 显式关闭延迟路由（覆盖展开值） | `false` |
 | `WithRouteRandomly()` | 启用集群随机路由 | `false` |
-| `WithMaxRedirects(n)` | 集群最大重定向次数 | `go-redis 默认值` |
+| `WithoutRouteRandomly()` | 显式关闭随机路由（覆盖展开值） | `false` |
+| `WithMaxRedirects(n)` | 集群最大重定向次数（传 `0` 可显式设为 0） | `go-redis 默认值` |
 
-### 追踪与链路
+### 追踪、指标与日志
 
 | Option | 说明 | 默认值 |
 |--------|------|--------|
 | `WithTracing(tp)` | 启用 OpenTelemetry 追踪 | `nil`（不启用） |
 | `WithRequestIDExtractor(fn)` | 自定义 request_id 提取函数 | `nil` |
+| `WithMetrics()` | 启用 Redis 连接池/命令 OTel 指标（`redisotel.InstrumentMetrics`） | `false`（不启用） |
+| `WithMeterProvider(mp)` | 指定指标上报的 `MeterProvider`（与 `WithTracing` 对称；需配合 `WithMetrics`，传 `nil` 回退全局） | `nil`（全局） |
+| `WithLogger(lg)` | 注入日志实现（`Logger` 接口，含 `Warn`/`Error`） | `log/slog` 默认实现 |
 
 ### Options 结构体展开
 
@@ -213,9 +232,10 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 **WithSingleOptions 支持的字段**：`PoolSize`、`MinIdleConns`、`PoolTimeout`、`ConnMaxLifetime`、`ConnMaxIdleTime`、`DialTimeout`、`ReadTimeout`、`WriteTimeout`、`TLSConfig`、`MaxRetries`、`MinRetryBackoff`、`MaxRetryBackoff`、`Network`、`Username`、`ClientName`、`Protocol`、`OnConnect`、`Dialer`。
 
 > 注意：
-> - `Addr`/`Password`/`DB` 请通过 `InitSingle`/`Init` 参数或 DSN 传入，`WithSingleOptions` 不读取这三个字段。
+> - `Addr`/`Password`/`DB` 请通过 `InitSingle`/`Init` 参数或 DSN 传入，`WithSingleOptions` 读取这三个字段会**启动期快速失败**（`Init` 直接返回 error）。
 > - `MaxRetries=0` 通过 `WithSingleOptions` 传入时视为"未设置"，不会禁用重试。如需显式禁用重试，请使用 `WithMaxRetries(0)`。
 > - `MinRetryBackoff`/`MaxRetryBackoff=0` 同理，如需显式设置请使用对应的 `With*` 函数。
+> - 所有展开字段均通过 `xxxSet` 标志识别，可被后续 `With*`/`Without*` 显式覆盖（包括零值）。
 
 ---
 
@@ -225,11 +245,13 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 
 ```go
 func Init(dsn string, opts ...Option) (*redis.Client, error)
+func InitWithContext(ctx context.Context, dsn string, opts ...Option) (*redis.Client, error)
 ```
 
-- 支持 `host:port`、`:password@host:port/db`、`redis://user:pass@host:port/db` 三种 DSN 格式
+- 支持 `host:port`、`:password@host:port/db`、`redis://user:pass@host:port/db` 三种 DSN 格式，`rediss://` 启用 TLS
 - 无 `/db` 时自动追加 `/0`
-- 返回 error：连接失败、DSN 解析失败
+- 返回 error：连接失败、DSN 解析失败、配置类错误（如 `WithSingleOptions` 传入 `Addr`）
+- `InitWithContext`：可被外部取消/超时控制初始化流程；`ctx` 为 nil 时降级为 `context.Background()`
 
 ---
 
@@ -237,6 +259,7 @@ func Init(dsn string, opts ...Option) (*redis.Client, error)
 
 ```go
 func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Client, error)
+func InitSingleWithContext(ctx context.Context, addr string, password string, db int, opts ...Option) (*redis.Client, error)
 ```
 
 - 直接传入 `addr`/`password`/`db`，不经过 DSN 解析
@@ -248,6 +271,7 @@ func InitSingle(addr string, password string, db int, opts ...Option) (*redis.Cl
 
 ```go
 func InitSentinel(masterName string, addrs []string, username string, password string, opts ...Option) (*redis.Client, error)
+func InitSentinelWithContext(ctx context.Context, masterName string, addrs []string, username string, password string, opts ...Option) (*redis.Client, error)
 ```
 
 - `masterName`：Sentinel 监控的主节点名称
@@ -259,6 +283,7 @@ func InitSentinel(masterName string, addrs []string, username string, password s
 
 ```go
 func InitCluster(addrs []string, username string, password string, opts ...Option) (*redis.ClusterClient, error)
+func InitClusterWithContext(ctx context.Context, addrs []string, username string, password string, opts ...Option) (*redis.ClusterClient, error)
 ```
 
 - `addrs`：集群节点地址列表（至少一个即可）
@@ -288,15 +313,80 @@ func CloseCluster(clusterRdb *redis.ClusterClient) error
 
 ---
 
+### Shutdown — 优雅关闭单机/哨兵客户端
+
+```go
+func Shutdown(ctx context.Context, rdb *redis.Client, opts ...Option) error
+func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient, opts ...Option) error
+```
+
+- 轮询连接池状态（`PoolStats`），等待飞行中命令归还（`TotalConns == IdleConns`）后再关闭
+- `ctx` 超时/取消时记录告警并强制关闭，不泄漏连接；若强制关闭也失败，返回 `errors.Join(等待错误, 关闭错误)` 双错误
+- 可选 `opts`：如 `Shutdown(ctx, rdb, goredis.WithLogger(lg))` 指定关闭告警的日志实现（默认 slog）
+- nil 安全：传入 nil 返回 nil
+
+---
+
 ## 错误处理
 
 | 场景 | 行为 |
 |------|------|
 | `Init` DSN 为空或无效 | 返回解析错误 |
 | `Init`/`InitSingle` 连接失败 | 返回 Ping 错误并自动关闭客户端 |
+| `WithSingleOptions` 传入 `Addr/Password/DB` | `Init` 期快速失败，返回配置错误 |
+| 传入 `nil` Option | 自动跳过，不 panic |
 | `Close` 重复调用 | 返回 nil（幂等） |
 | `Close(nil)` | 返回 nil |
-| Lua 通道探测失败 | `log.Printf` 记录错误，不中断初始化 |
+| Lua 通道探测失败 | `Logger.Warn` 记录告警（默认 slog，可 `WithLogger` 注入），不中断初始化 |
+| `Shutdown` 等待超时 | `Logger.Warn` 记录告警后强制关闭；若 Close 也失败，返回 `errors.Join` 合并后的双错误 |
+
+---
+
+## 版本兼容
+
+本包遵循 [语义化版本](https://semver.org/lang/zh-CN/)（SemVer）：
+
+- **MAJOR**：不兼容的 API 变更（导出函数签名删除/语义变更）
+- **MINOR**：向下兼容的功能新增（新 Option、新函数）
+- **PATCH**：向下兼容的问题修复
+
+### 已知破坏性变更（升级必读）
+
+| 版本 | 变更 | 升级影响 |
+|------|------|----------|
+| Unreleased | **删除导出函数 `WithEnableTrace()`**（及其 `enableTrace` 内部字段）：该函数从未产生实际效果（挂载逻辑只读 `tracerProvider`） | 若有调用点，升级后**编译失败**（导出符号不存在）；删除 `goredis.WithEnableTrace()` 并改用 `WithTracing(tp)`，未传 `tp` 的调用本就未启用追踪 |
+| Unreleased | `WithSingleOptions` 传入 `Addr`/`Password`/`DB`：从「log 警告 + 静默忽略 + 正常初始化」改为「**Init 启动期返回 error，rdb 为 nil**」 | 此前复用含这三个字段的配置模板调用本函数的代码，升级后会**启动失败**（符合 SemVer MAJOR 语义）。请改为通过 `InitSingle`/`Init` 参数或 DSN 传入这三个字段 |
+
+详细变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
+---
+
+## 测试规范
+
+测试函数命名统一为**「被测标识符（ASCII）+ `_` + 中文描述」**，全包采用同一策略，禁止整体风格（全中文 vs 全英文）两套并存。描述段以中文为主，**允许保留技术专有名词的 ASCII 原文**（翻译反而失真）：
+
+```go
+// ✅ 被测函数名保留 ASCII，描述段用中文
+func TestGetRedisOpt_主机端口格式(t *testing.T) {}
+func TestWithPoolSize_设置与置位(t *testing.T) {}
+
+// ✅ 描述段中的 Redis 命令名/字段名/库名作为专有名词保留 ASCII
+func TestEnhanceRedisSpan_SET命令(t *testing.T) {}
+func TestEnhanceRedisSpan_EVALSHA_分布式锁(t *testing.T) {}
+func TestTruncateKey_中文截断不乱码(t *testing.T) {}
+
+// ❌ 整段英文描述与 ❌ 纯中文标识符均不接受
+func TestGetRedisOpt_HostPort(t *testing.T) {}
+func TestGetRedisOpt_主机端口格式1(t *testing.T) {} // 禁止非描述性后缀
+```
+
+允许保留 ASCII 的专有名词范围：Redis 命令名（`SET`/`GET`/`EVAL`/`EVALSHA`）、协议/字段名（`Key`/`SHA`/`DSN`/`URL`/`PoolSize`/`NilOption`）、库与类型名（`Logger`/`MeterProvider`/`dlock`/`miniredis`）。
+
+约束：
+
+- 结构体字段/变量名一律 ASCII（如 `name`/`apply`/`check`），中文仅用于 case 描述字符串与断言消息
+- 注释、日志、错误消息全部中文（见项目公约第十八章）
+- 集成测试统一以 `TestIntegration_` 前缀 + 中文描述命名
 
 ---
 

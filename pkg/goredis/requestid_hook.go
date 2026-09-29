@@ -3,6 +3,7 @@ package goredis
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/redis/go-redis/v9"
@@ -59,9 +60,11 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 		// 执行底层 Pipeline 命令
 		err := next(ctx, cmds)
 
-		// Pipeline 错误记录：遍历每个命令，记录失败的命令到 Span
+		// Pipeline 错误记录：先遍历每个命令，将失败命令记录为 Span Event（精确定位哪条命令失败），
+		// 再记录整体错误与错误状态
 		if err != nil {
 			if span := trace.SpanFromContext(ctx); span.IsRecording() {
+				recordFailedPipelineCmds(span, cmds)
 				span.RecordError(err,
 					trace.WithAttributes(
 						attribute.String("error.type", fmt.Sprintf("%T", err)),
@@ -76,18 +79,46 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 	}
 }
 
-// redis 命令相关常量
-const (
-	// evalshaKeyOffset evalsha 命令中 key 的起始偏移量
-	// evalsha 命令结构: evalsha SHA1 numkeys key [key ...] arg [arg ...]
-	// 索引 0=命令名, 1=SHA1, 2=numkeys, 3=第一个 key
-	evalshaKeyOffset = 3
+// recordFailedPipelineCmds 遍历 Pipeline 中的命令，将执行失败的命令记录为 Span Event
+// Pipeline 场景排障刚需：整体错误只告知“失败了”，逐命令 Event 才能定位“哪条失败了”
+func recordFailedPipelineCmds(span trace.Span, cmds []redis.Cmder) {
+	for _, cmd := range cmds {
+		cmdErr := cmd.Err()
+		if cmdErr == nil {
+			continue
+		}
+		span.AddEvent("redis.pipeline.command.failed",
+			trace.WithAttributes(
+				attribute.String("db.redis.command", cmd.Name()),
+				attribute.String("error.type", fmt.Sprintf("%T", cmdErr)),
+				attribute.String("error.message", cmdErr.Error()),
+			),
+		)
+	}
+}
 
+// eval/evalsha 脚本命令参数索引常量
+// 命令结构: evalsha SHA1 numkeys key [key ...] arg [arg ...]
+// 索引      0=命令名  1=SHA1/脚本  2=numkeys  3=第一个 key
+const (
+	// evalScriptIdxSHA SHA1/脚本参数的索引（evalsha 的 SHA1、eval 的脚本文本）
+	evalScriptIdxSHA = 1
+	// evalScriptIdxCount numkeys 参数的索引
+	evalScriptIdxCount = 2
+	// evalScriptIdxKey 第一个 key 的起始索引
+	evalScriptIdxKey = 3
+)
+
+// Span 属性显示长度限制常量
+const (
 	// maxKeyDisplayLen key 属性值的最大显示长度，避免 Span 属性过长
 	maxKeyDisplayLen = 100
 
 	// maxLockNameLen 分布式锁名称在 Span 中的最大显示长度
 	maxLockNameLen = 20
+
+	// maxSHANameLen Span 名称中 SHA1 前缀的显示长度
+	maxSHANameLen = 8
 )
 
 // enhanceRedisSpan 增强 Redis Span 信息（大厂标准：添加 Key、耗时等诊断属性）
@@ -106,60 +137,115 @@ func enhanceRedisSpan(ctx context.Context, cmd redis.Cmder, extractor RequestIDE
 	commandName := cmd.Name()
 
 	// 3. 统一 Span 名称为 redis.{command} 格式（大厂标准规范）
-	// 特殊处理 evalsha：根据 Key 前缀自动识别分布式锁操作
-	if commandName == "evalsha" && len(args) > evalshaKeyOffset {
-		// evalsha SHA1 numkeys key [key ...] arg [arg ...]
-		// 提取第一个 Key（索引 3）
-		keyStr := fmt.Sprintf("%v", args[evalshaKeyOffset])
-
-		// 根据 Key 前缀识别分布式锁操作（大厂标准）
-		if strings.Contains(keyStr, "lock:") || strings.Contains(keyStr, "/dlock/") {
-			// 提取锁名称（去掉前缀）
-			lockName := keyStr
-			if idx := strings.LastIndex(lockName, ":"); idx != -1 {
-				lockName = lockName[idx+1:]
-			} else if idx := strings.LastIndex(lockName, "/"); idx != -1 {
-				lockName = lockName[idx+1:]
-			}
-			// 截取前 maxLockNameLen 个字符
-			if len(lockName) > maxLockNameLen {
-				lockName = lockName[:maxLockNameLen]
-			}
-			span.SetName("redis.lock:" + lockName)
-		} else {
-			// 其他 evalsha 显示 SHA1 前 8 位
-			sha1 := fmt.Sprintf("%v", args[1])
-			if len(sha1) > 8 {
-				sha1 = sha1[:8]
-			}
-			span.SetName("redis.evalsha:" + sha1)
+	// 特殊处理 eval/evalsha 脚本命令：按 numkeys 提取第一个 key，根据 Key 前缀自动识别分布式锁操作
+	spanName := "redis." + commandName
+	if keyStr, ok := evalScriptFirstKey(commandName, args); ok {
+		switch {
+		case strings.Contains(keyStr, "lock:") || strings.Contains(keyStr, "/dlock/"):
+			spanName = "redis.lock:" + trimLockName(keyStr)
+		case commandName == "evalsha":
+			spanName = "redis.evalsha:" + trimScriptSHA(args[evalScriptIdxSHA])
 		}
-	} else {
-		span.SetName("redis." + commandName)
 	}
+	span.SetName(spanName)
 
 	// 4. 添加 Redis 诊断属性
+	// db.operation 为 OpenTelemetry 语义约定的标准键；db.redis.command 保留以兼容既有看板
 	span.SetAttributes(
 		attribute.String("db.system", "redis"),
+		attribute.String("db.operation", commandName),
 		attribute.String("db.redis.command", commandName),
 	)
 
 	// 5. 提取 Key（截取前 maxKeyDisplayLen 个字符，避免过长）
-	if len(args) > 1 {
-		// 根据命令类型确定 key 的起始索引
-		keyIndex := 1
-		if commandName == "evalsha" {
-			// evalsha: SHA1(1) numkeys(2) key(3) ...
-			keyIndex = evalshaKeyOffset
-		}
-		if len(args) > keyIndex {
-			keyStr := fmt.Sprintf("%v", args[keyIndex])
-			if len(keyStr) > maxKeyDisplayLen {
-				keyStr = keyStr[:maxKeyDisplayLen] + "..."
-			}
-			span.SetAttributes(attribute.String("db.redis.key", keyStr))
-		}
+	// 脚本命令（eval/evalsha）按 numkeys 提取真实 key；非脚本命令取索引 1
+	keyStr, hasKey := evalScriptFirstKey(commandName, args)
+	if !hasKey && !isEvalCommand(commandName) && len(args) > 1 {
+		keyStr = fmt.Sprintf("%v", args[1])
+		hasKey = true
 	}
+	if hasKey {
+		span.SetAttributes(attribute.String("db.redis.key", truncateKey(keyStr)))
+	}
+}
+
+// isEvalCommand 判断是否为 Lua 脚本命令（eval/evalsha）
+// 脚本命令的 args[1] 是脚本文本而非 key，不能作为 db.redis.key 上报
+func isEvalCommand(commandName string) bool {
+	return commandName == "eval" || commandName == "evalsha"
+}
+
+// evalScriptFirstKey 提取 eval/evalsha 脚本命令的第一个 key
+// 按 numkeys 参数判断是否存在 key，避免把脚本参数误报为 key
+// 非脚本命令或无 key 时返回 ok=false
+func evalScriptFirstKey(commandName string, args []any) (string, bool) {
+	if !isEvalCommand(commandName) || len(args) <= evalScriptIdxKey {
+		return "", false
+	}
+	if evalScriptKeyCount(args[evalScriptIdxCount]) <= 0 {
+		return "", false
+	}
+	return fmt.Sprintf("%v", args[evalScriptIdxKey]), true
+}
+
+// evalScriptKeyCount 解析 numkeys 参数（可能为 int/int64/string 类型），解析失败返回 0
+func evalScriptKeyCount(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case string:
+		count, err := strconv.Atoi(n)
+		if err != nil {
+			return 0
+		}
+		return count
+	default:
+		return 0
+	}
+}
+
+// trimLockName 提取锁名称（去掉 : 与 / 前缀），并按最大长度截断（按 rune 截断，避免切断中文/emoji）
+func trimLockName(keyStr string) string {
+	lockName := keyStr
+	if idx := strings.LastIndex(lockName, ":"); idx != -1 {
+		lockName = lockName[idx+1:]
+	} else if idx := strings.LastIndex(lockName, "/"); idx != -1 {
+		lockName = lockName[idx+1:]
+	}
+	if name, truncated := truncateRunes(lockName, maxLockNameLen); truncated {
+		lockName = name
+	}
+	return lockName
+}
+
+// trimScriptSHA 截取 SHA1 前 maxSHANameLen 位用于 Span 名称
+func trimScriptSHA(v any) string {
+	sha1 := fmt.Sprintf("%v", v)
+	if short, truncated := truncateRunes(sha1, maxSHANameLen); truncated {
+		sha1 = short
+	}
+	return sha1
+}
+
+// truncateRunes 按字符（rune）截断字符串到 limit 个字符
+// 不按字节截断：多字节字符（中文/emoji）落在截断边界时会被切成乱码，污染 Span 属性
+func truncateRunes(s string, limit int) (string, bool) {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s, false
+	}
+	return string(runes[:limit]), true
+}
+
+// truncateKey 截取 key 到最大显示长度，超长追加省略号（按 rune 截断，避免切断中文/emoji）
+func truncateKey(keyStr string) string {
+	head, truncated := truncateRunes(keyStr, maxKeyDisplayLen)
+	if !truncated {
+		return keyStr
+	}
+	return head + "..."
 }
 
 // setRequestIDToRedisSpan 从 Context 提取 request_id 并设置到当前 Span 属性

@@ -7,12 +7,34 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestInit 测试 Init 函数连接 Redis 的各种情况
-func TestInit(t *testing.T) {
+// ============================================================================
+// 共享 mock（同包其他测试文件直接使用，不重复定义）
+// ============================================================================
+
+// mockLogger 实现 Logger 接口的测试替身，记录告警/错误消息供断言
+// 数组非并发安全，仅用于单线程单测
+type mockLogger struct {
+	warnMsgs []string
+	errMsgs  []string
+}
+
+// Warn 记录告警消息
+func (m *mockLogger) Warn(msg string, _ ...any) {
+	m.warnMsgs = append(m.warnMsgs, msg)
+}
+
+// Error 记录错误消息
+func (m *mockLogger) Error(msg string, _ ...any) {
+	m.errMsgs = append(m.errMsgs, msg)
+}
+
+// TestInit_连接各种情况 测试 Init 函数连接 Redis 的各种情况
+func TestInit_连接各种情况(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -77,8 +99,8 @@ func TestInit(t *testing.T) {
 	}
 }
 
-// TestInitWithPassword 验证带密码的 DSN 连接
-func TestInitWithPassword(t *testing.T) {
+// TestInitWithPassword_带密码 验证带密码的 DSN 连接
+func TestInitWithPassword_带密码(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -113,8 +135,8 @@ func TestInitWithPassword(t *testing.T) {
 	}
 }
 
-// TestInitSingle 测试 InitSingle 函数连接单机 Redis
-func TestInitSingle(t *testing.T) {
+// TestInitSingle_单机连接 测试 InitSingle 函数连接单机 Redis
+func TestInitSingle_单机连接(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -141,8 +163,8 @@ func TestInitSingle(t *testing.T) {
 	assert.NoError(t, rdb.Ping(ctx).Err())
 }
 
-// TestInitSentinel 验证 Sentinel 模式在 miniredis 下的错误处理
-func TestInitSentinel(t *testing.T) {
+// TestInitSentinel_哨兵模式 验证 Sentinel 模式在 miniredis 下的错误处理
+func TestInitSentinel_哨兵模式(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -161,8 +183,8 @@ func TestInitSentinel(t *testing.T) {
 	}
 }
 
-// TestInitCluster 测试 InitCluster 函数
-func TestInitCluster(t *testing.T) {
+// TestInitCluster_集群连接 测试 InitCluster 函数
+func TestInitCluster_集群连接(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -183,8 +205,8 @@ func TestInitCluster(t *testing.T) {
 	require.NotNil(t, clusterRdb)
 }
 
-// TestCloseIdempotent 验证 Close 幂等性
-func TestCloseIdempotent(t *testing.T) {
+// TestClose_幂等 验证 Close 幂等性
+func TestClose_幂等(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -198,8 +220,8 @@ func TestCloseIdempotent(t *testing.T) {
 	assert.NoError(t, Close(nil))
 }
 
-// TestCloseClusterIdempotent 验证 CloseCluster 幂等性
-func TestCloseClusterIdempotent(t *testing.T) {
+// TestCloseCluster_幂等 验证 CloseCluster 幂等性
+func TestCloseCluster_幂等(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -216,4 +238,167 @@ func TestCloseClusterIdempotent(t *testing.T) {
 	assert.NoError(t, CloseCluster(clusterRdb))
 	assert.NoError(t, CloseCluster(clusterRdb))
 	assert.NoError(t, CloseCluster(nil))
+}
+
+// ============================================================================
+// 防御性与快速失败测试
+// ============================================================================
+
+// TestInit_NilOption防御 验证 nil Option 防御：跳过而不 panic
+func TestInit_NilOption防御(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	rdb, err := Init(redisServer.Addr(), nil)
+	require.NoError(t, err)
+	defer Close(rdb)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	assert.NoError(t, rdb.Ping(ctx).Err())
+}
+
+// TestInit_WithSingleOptions误用Addr_快速失败
+// 配置类错误在 Init 启动阶段返回错误，而非 log 后静默忽略
+func TestInit_WithSingleOptions误用Addr_快速失败(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	rdb, err := Init(redisServer.Addr(),
+		WithSingleOptions(&redis.Options{Addr: "ignored:6379", Password: "p", DB: 1}),
+	)
+	require.Error(t, err, "误用 Addr/Password/DB 应快速失败")
+	assert.Nil(t, rdb)
+	assert.Contains(t, err.Error(), "Addr/Password/DB")
+}
+
+// TestInitWithContext_已取消Context 验证 Ctx 变体感知外部取消
+func TestInitWithContext_已取消Context(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := InitWithContext(ctx, redisServer.Addr())
+	require.Error(t, err, "已取消的 ctx 应导致初始化失败")
+}
+
+// TestProbeLuaScriptChannel_注入Logger
+// 探测失败仅通过 Logger 告警不中断；关闭后的客户端触发失败路径验证告警被接收
+func TestProbeLuaScriptChannel_注入Logger(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+
+	lg := &mockLogger{}
+	// 正常探测（miniredis 支持 EVAL）不产生告警
+	probeLuaScriptChannel(context.Background(), rdb, lg)
+	assert.Empty(t, lg.warnMsgs, "正常探测不应告警")
+
+	require.NoError(t, rdb.Close())
+	// 客户端已关闭，探测失败应走 Logger 告警而非 log.Printf
+	probeLuaScriptChannel(context.Background(), rdb, lg)
+	require.Len(t, lg.warnMsgs, 1, "探测失败应通过 Logger 告警一次")
+}
+
+// ============================================================================
+// Shutdown 优雅关闭测试
+// ============================================================================
+
+// TestShutdown_正常与幂等 验证等待归还后关闭、重复调用与 nil 安全
+func TestShutdown_正常与幂等(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	rdb, err := Init(redisServer.Addr())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, Shutdown(ctx, rdb))
+	// 已关闭后重复 Shutdown 仍幂等
+	require.NoError(t, Shutdown(ctx, rdb))
+	// nil 安全
+	require.NoError(t, Shutdown(ctx, nil))
+}
+
+// TestShutdown_已取消Context 仍强制关闭（不泄漏连接）并返回 ctx 错误
+func TestShutdown_已取消Context(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	rdb, err := Init(redisServer.Addr())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// 已取消时池内无飞行命令，可能直接归还成功；两种结果都必须完成关闭
+	shutdownErr := Shutdown(ctx, rdb)
+	if shutdownErr != nil {
+		assert.ErrorIs(t, shutdownErr, context.Canceled)
+	}
+	// 关闭后再次操作应报错，验证连接确实已释放
+	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
+	defer cancel2()
+	assert.Error(t, rdb.Ping(ctx2).Err(), "Shutdown 后客户端应已关闭")
+}
+
+// TestShutdownCluster_正常与幂等 验证集群版优雅关闭（miniredis 不支持时跳过）
+func TestShutdownCluster_正常与幂等(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	clusterRdb, err := InitCluster([]string{redisServer.Addr()}, "", "",
+		WithDialTimeout(time.Second*5),
+		WithClusterOptions(nil),
+	)
+	if err != nil {
+		t.Skipf("miniredis 集群模式不完全支持，跳过: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, ShutdownCluster(ctx, clusterRdb))
+	require.NoError(t, ShutdownCluster(ctx, clusterRdb))
+	require.NoError(t, ShutdownCluster(ctx, nil))
+}
+
+// TestShutdown_注入Logger 验证关闭阶段可通过 WithLogger 指定日志实现（非默认 slog）
+func TestShutdown_注入Logger(t *testing.T) {
+	redisServer, _ := miniredis.Run()
+	defer redisServer.Close()
+
+	rdb, err := Init(redisServer.Addr())
+	require.NoError(t, err)
+
+	lg := &mockLogger{}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, Shutdown(ctx, rdb, WithLogger(lg)))
+	// 无等待告警时不应有日志输出
+	assert.Empty(t, lg.warnMsgs)
+
+	// WithLogger(nil) 恢复默认实现，不 panic
+	rdb2, err := Init(redisServer.Addr())
+	require.NoError(t, err)
+	require.NoError(t, Shutdown(ctx, rdb2, WithLogger(nil)))
+}
+
+// TestWaitPoolDrained_注入Logger告警 验证等待超时的告警走注入的 Logger
+func TestWaitPoolDrained_注入Logger告警(t *testing.T) {
+	lg := &mockLogger{}
+	// 模拟池内始终有命令占用连接（TotalConns != IdleConns）
+	statsFn := func() *redis.PoolStats {
+		return &redis.PoolStats{TotalConns: 2, IdleConns: 1}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := waitPoolDrained(ctx, statsFn, lg)
+	require.Error(t, err, "ctx 已取消应返回错误")
+	require.Len(t, lg.warnMsgs, 1, "等待超时告警应走注入的 Logger")
 }

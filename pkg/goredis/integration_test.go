@@ -25,12 +25,12 @@ func requireRealRedis(t *testing.T) string {
 	return dsn
 }
 
-// TestIntegration_Init 真实 Redis 连接测试
+// TestIntegration_Init_真实连接 真实 Redis 连接测试
 // 运行方式：
 //
 //	cd pkg/goredis
 //	GOREDIS_TEST_DSN="redis://:password@host:port/0" go test -tags=integration -v -run TestIntegration -count=1
-func TestIntegration_Init(t *testing.T) {
+func TestIntegration_Init_真实连接(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	rdb, err := Init(dsn,
@@ -84,8 +84,8 @@ func TestIntegration_Init(t *testing.T) {
 	t.Log("真实 Redis 集成测试全部通过")
 }
 
-// TestIntegration_InitSingle 真实 Redis 单机连接测试
-func TestIntegration_InitSingle(t *testing.T) {
+// TestIntegration_InitSingle_单机连接 真实 Redis 单机连接测试
+func TestIntegration_InitSingle_单机连接(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	u, err := url.Parse(dsn)
@@ -113,8 +113,8 @@ func TestIntegration_InitSingle(t *testing.T) {
 	t.Log("InitSingle 真实 Redis 集成测试通过")
 }
 
-// TestIntegration_LuaProbe 验证 Lua 脚本通道探测
-func TestIntegration_LuaProbe(t *testing.T) {
+// TestIntegration_Lua探测 验证 Lua 脚本通道探测
+func TestIntegration_Lua探测(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	rdb, err := Init(dsn, WithPoolSize(5))
@@ -144,8 +144,8 @@ func TestIntegration_LuaProbe(t *testing.T) {
 	t.Log("Lua 脚本通道探测验证通过")
 }
 
-// TestIntegration_DSNQueryParams 验证 DSN query 参数在集成环境中生效
-func TestIntegration_DSNQueryParams(t *testing.T) {
+// TestIntegration_DSN查询参数 验证 DSN query 参数在集成环境中生效
+func TestIntegration_DSN查询参数(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	// 确保 DSN 中不带 query 参数时不 panic
