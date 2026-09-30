@@ -26,9 +26,9 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 | `benchmark_test.go` | 基于包内 mock，**不含网络 RTT**，定位是回归基线 | 把基准写成集成测试（读数无意义） |
 | `fuzz_test.go` | 守护**不变量**而非输出值；种子语料随常规 `go test` 跑 | 断言具体输出字符串 |
 | `README.md` | 所有 `pkg/` 包必须有；文件数 ≥ 4 必须写架构概览 | 只列函数签名 |
-| `CHANGELOG.md` | 有行为变更/缺陷修复的包必须有（现存仅 `goredis`、`nacoscli`） | 把变更写进 commit 而不落文档 |
+| `CHANGELOG.md` | 有行为变更/缺陷修复的包必须有（现存 `goredis`/`logger`/`jwt`/`tracer`/`nacoscli` 五包已有） | 把变更写进 commit 而不落文档 |
 | `.env` | 集成测试凭据；根 `.gitignore` 的 `*.env` 已覆盖 | 明文凭据入库 |
-| `test_helpers.go` | 跨测试文件共享的 helper 集中放这里 | 同名 helper 在多个文件重复定义 |
+| `test_helpers_test.go` | 跨测试文件共享的 helper 集中放这里；**文件名必须带 `_test.go` 后缀**，否则 `unused` 会把仅测试使用的 helper 报 `is unused`（见第八节） | 同名 helper 在多个文件重复定义；或 helper 文件缺 `_test.go` 后缀 |
 
 ## 二、测试命名：全仓统一为方案 A
 
@@ -149,6 +149,7 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 | Git Bash 把 `-run "A\|B"` 里的 `\|` 当管道 | 日志出现 `TestIntegration_Xxx: command not found` | 用无竖线正则（`Config.*Change`、`TestIntegration_Naming`）或拆多次执行 |
 | 编辑进行中就跑 `go test` | `could not import encoding/json / net/http` 等假错误 | 先 `gofmt -s -l . && go vet -tags=integration ./...` 再跑 |
 | `GetProblems` 对 `//go:build integration` 文件 | 恒报 No errors（无 tag 时整文件被排除） | 不能作为验证手段，必须用 `go vet -tags=integration` |
+| 共享 helper 文件不带 `_test.go` 后缀 | `golangci-lint` 的 `unused` 报 `const/func is unused`（本仓 `run.tests: false`，helper 的使用点全在被排除的 `_test.go` 中） | helper 落 `test_helpers_test.go`；实测案例见 `pkg/jwt` |
 | IDE 终端强杀长命令 | 日志文件为空或 `EXIT=1` 无输出 | `go test -c -o x.test .` 编出二进制再跑；或分段跑；控制单命令 <20s |
 | `$TEMP` 取值随 shell 变 | 同一命令写的日志读不到（可能是 `/tmp` → `D:\Git\tmp`） | 输出写绝对路径，或用包目录相对文件名 |
 | `-race` 需 cgo | `exit status 0xc0000139`（本机 gcc 问题） | `CGO_ENABLED=1`；本机跑不通就在文档里声明未取证 |
@@ -162,7 +163,7 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 - [ ] go vet -tags=integration ./<pkg>/... == 0（带集成标签也须编译通过）
 - [ ] go test ./<pkg>/ -count=1 全绿（不含集成）
 - [ ] go test -tags=integration -count=1 全绿或有 Skip 且 Skip 原因已说明
-- [ ] 每个新增/修改的源文件都有同名 _test.go；helper 放 test_helpers.go
+- [ ] 每个新增/修改的源文件都有同名 _test.go；helper 放 test_helpers_test.go（必须带 _test.go 后缀）
 - [ ] 新测试函数命名符合方案 A（全英文标识符 + 中文 doc）
 - [ ] 集成测试：环境变量缺失→Skip；不可达→Skip 带 error；断言不符→Fail
 - [ ] 等待时长全部是命名常量，注释含「为何固定等待 / 取值依据 / 为何不 flaky」
@@ -172,6 +173,19 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 - [ ] git status 干净：无 .log/.bat/二进制等排障残留；凭据未入库
 - [ ] 未在根 Makefile 新增 target
 ```
+
+## 十、下一阶段工作（团队级 TODO）
+
+跨包共性事项**不挂在单个包的 README 里**（否则会永远挂着），统一在本清单推进：
+
+- [ ] **CI `-race` 首跑取证**：`.github/workflows/race.yml` 已就位但从未首跑。推送触发一次后，
+  把 jwt/tracer/logger 三包 README 中的「本机无法跑 `-race`」诚实声明替换为 CI 结论
+  （自第 3 轮起悬挂，logger 第七轮评审 §四-3 升级至此）
+- [ ] **`loadDotEnv` 抽 `internal/dotenv`**：nacoscli/goredis/tracer 三包 `TestMain` 各自维护同一份
+  手写 dotenv 解析（语义一致：只补缺、不覆盖），抽取后改动只维护一处
+- [ ] **`pkg/goredis` 测试命名收口**：方案 B → 方案 A（见第二节存量清单）
+- [ ] **CHANGELOG 评审编号统一**：存量 `§四-1` 式引用改为 `R<轮次>-<原编号>`
+  （logger 已收口，jwt 等包待对齐，见 doc-templates.md 第五节）
 
 ## 附加资源
 

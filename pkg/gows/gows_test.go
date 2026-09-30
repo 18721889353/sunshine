@@ -681,7 +681,7 @@ func TestParseTokenCtx_EmptyToken(t *testing.T) {
 }
 
 func TestParseTokenCtx_ValidToken(t *testing.T) {
-	jwt.Init()
+	jwt.Init(jwt.WithSigningKey("gows-test-signing-key"))
 	tokenStr := createTestJWT(t, "test-user-uid")
 	uid, err := ParseTokenCtx(context.Background(), tokenStr)
 	if err != nil {
@@ -693,7 +693,7 @@ func TestParseTokenCtx_ValidToken(t *testing.T) {
 }
 
 func TestParseTokenCtx_ValidTokenBearer(t *testing.T) {
-	jwt.Init()
+	jwt.Init(jwt.WithSigningKey("gows-test-signing-key"))
 	tokenStr := "Bearer " + createTestJWT(t, "bearer-user")
 	uid, err := ParseTokenCtx(context.Background(), tokenStr)
 	if err != nil {
@@ -705,7 +705,7 @@ func TestParseTokenCtx_ValidTokenBearer(t *testing.T) {
 }
 
 func TestParseTokenCtx_MissingUID(t *testing.T) {
-	jwt.Init()
+	jwt.Init(jwt.WithSigningKey("gows-test-signing-key"))
 	tokenStr := createTestJWTWithClaims(t, &jwt.Claims{})
 	_, err := ParseTokenCtx(context.Background(), tokenStr)
 	if err != ErrTokenInvalid {

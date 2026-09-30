@@ -69,6 +69,8 @@ func (o *options) apply(opts ...Option) {
 type Option func(*options)
 
 // WithLevel 设置日志级别
+// 合法值（debug/info/warn/error，大小写不敏感）生效；非法值兜底为包默认级别 info——
+// 拼写错误（如 "waring"）若兜底到 debug 会使生产日志量暴涨，兜底到 info 是更安全的降级方向
 func WithLevel(levelName string) Option {
 	return func(o *options) {
 		levelName = strings.ToUpper(levelName)
@@ -76,7 +78,7 @@ func WithLevel(levelName string) Option {
 		case levelDebug, levelInfo, levelWarn, levelError:
 			o.level = levelName
 		default:
-			o.level = levelDebug
+			o.level = defaultLevel // 非法/空值回落到默认 info，而非最详细的 debug
 		}
 	}
 }

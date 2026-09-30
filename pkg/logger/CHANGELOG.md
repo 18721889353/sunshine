@@ -135,14 +135,57 @@
   `sls_integration_test.go`，但核盘发现该文件**从未落盘**——两个网络测试已从 `method_ctx_test.go` 删除却无承接文件，
   集成覆盖实际丢失。现从 git HEAD 忠实恢复 `sls_integration_test.go`（带 `//go:build integration`、**不含 TestMain**）。
   验证：`go vet -tags integration ./pkg/logger/` 编译通过，全包仅 `main_test.go` 一个 `TestMain`，二者不冲突
-  （回应评审 P2-4 对 TestMain 冲突的担忧——冲突不存在，根因是文件缺失）。
+  （回应 R4-P2-4 对 TestMain 冲突的担忧——冲突不存在，根因是文件缺失）。
 
-- **`TestMain` 迁出 benchmark_test.go（评审 P2-1）**：`TestMain`/`isBenchmarkRun`/`cleanupBenchmarkFiles` 移至独立的
+- **`TestMain` 迁出 benchmark_test.go（R4-P2-1）**：`TestMain`/`isBenchmarkRun`/`cleanupBenchmarkFiles` 移至独立的
   `main_test.go`，专注包级 setup/teardown。避免 benchmark_test.go 未来加构建标签或被拆分时连带 TestMain 丢失，
   也让「同包唯一 TestMain」归属清晰。功能与清理逻辑（基准模式条件触发）不变。
 
-- **评审 P2-2 / P2-3 主动不改**：`cleanupBenchmarkFiles` 改前缀扫描（P2-2）与 `isBenchmarkRun` 边界（P2-3）评审均标注
+- **R4-P2-2 / P2-3 主动不改**：`cleanupBenchmarkFiles` 改前缀扫描（R4-P2-2）与 `isBenchmarkRun` 边界（R4-P2-3）评审均标注
   「非 bug / 不必现在做」；且 `filepath.Glob` 会改变删除范围（行为变更风险），遵循「无收益不改动」原则维持现状。
+
+### 第五版评审收口（Round 5）
+
+- **`WithLevel` 非法值兜底到 debug（生产日志量暴涨风险，R5-P0-1）**：原 `default` 分支将拼写错误的级别
+  （如 `"waring"`）或空串归为 `levelDebug`，即“配错反而得到最详细日志”，`WithLevel("waring")` 下生产日志量
+  会暴增。改为兜底 `defaultLevel`（info，与 `defaultOptions` 同源）——配置错误时向安全方向降级，且未来调整
+  包默认级别时兜底自动跟随。同步更新 `option_test.go` 断言（新增 `"waring"` 拼写错误用例）。
+  - 影响面：仅非法/空值输入的行为变化（debug → info）；合法级别输入行为不变。
+
+- **`lookupModule` 前缀匹配结果随机（幽灵 bug，R5-P0-2）**：原实现 `range` 遇到首个前缀命中即返回，
+  而 Go map 遍历顺序不确定——同时注册 `order` 与 `order.payment` 时，查询 `order.payment.create` 会随机路由到
+  两者之一，日志无规律地分散到不同文件。改为「精确匹配优先 → 未命中取最长前缀」，匹配结果确定。
+  - 守护：新增 `router_test.go::TestLookupModuleLongestPrefix`（含精确匹配/最长前缀/点号边界/无命中 6 个用例，
+    每例重复查询 20 次验证确定性）。
+
+### 第六版评审收口（Round 6）
+
+- **`getLevelSize` 兜底与 `WithLevel` 策略不一致（R6-§四-1）**：`getLevelSize` 的未知级别分支原返回
+  `DebugLevel`，与 `WithLevel` 新兜底（info）方向相反——虽是私有函数、默认分支近乎不可达，但若未来有人绕过
+  `WithLevel` 直接调用（如路由配置 `RouteConfig.Level` 拼错），行为会错。改为 `InfoLevel` 并注释与 `WithLevel`
+  对齐。同步更新 `option_test.go::TestGetLevelSize` 的 `trace` 用例（Debug → Info）。
+  - 影响面：仅未知级别字符串的映射变化（debug → info）；合法级别映射不变。
+
+- **README 补充两项行为变更说明（R6-§四-2）**：`WithLevel` 配置表注明「非法值兜底为 info」；
+  日志路由章节新增匹配规则说明（精确匹配优先 → 最长前缀、`.` 为边界、`order.payment.create` 稳定路由到
+  `order.payment`），使对外可见的行为变化不再只存在于 CHANGELOG。
+
+### 第七版评审收口（Round 7）
+
+- **CHANGELOG 节标题与评审编号混乱（R7-§四-1 / R7-§四-2，评审建议改法 A）**：Round 5 节内曾混引
+  「第六轮评审」，且存在「评审 P0-1」与「§四-1」两种编号格式。拆出独立的 Round 6 节（对齐 `pkg/jwt`
+  每轮独立小节的惯例），全包统一编号为 `R<轮次>-<原编号>`（如 R4-P2-1 / R5-P0-1 / R6-§四-1），
+  评审轮次与严重级别一眼可溯。
+  - 影响面：仅文档结构与编号，无代码行为变化。
+
+- **`TestLookupModuleLongestPrefix` 的 identity 比较前提未注明（R7-§四-4）**：断言 `got != tt.want`
+  依赖 `zap.NewNop()` 每次返回新实例（当前实现如此）；若未来 zap 改为单例模式该测试会失效。
+  在测试中补注释标明此前提。
+  - 影响面：仅测试注释，断言逻辑不变。
+
+- **跨包待办升级为团队级清单（R7-§四-3）**：CI race 首跑取证与 `loadDotEnv` 抽 `internal/dotenv`
+  自第 3 轮起悬挂于 jwt/tracer/logger 三包 README，从未推进。移入
+  `.qoder/skills/package-quality-baseline` 的「下一阶段工作」清单，按团队级 TODO 推进，不再散落在各包。
 
 ## 已知限制
 

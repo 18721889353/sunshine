@@ -77,6 +77,10 @@ logger.Init(
 logger.ModuleInfoWithCtx(ctx, "order", "订单创建", logger.String("id", "001"))
 ```
 
+路由匹配规则：**精确匹配优先，未命中时取最长前缀**（前缀以 `.` 为边界）。
+同时注册 `order` 与 `order.payment` 时，`order.payment.create` 会稳定路由到 `order.payment`，
+而非随机命中两者之一（早期实现依赖 map 遍历顺序，结果不确定）。
+
 ### SLS 上报
 
 ```go
@@ -166,7 +170,7 @@ logger.RegisterPrometheus()
 
 | 函数 | 说明 |
 |------|------|
-| `WithLevel(level)` | 日志级别：debug/info/warn/error |
+| `WithLevel(level)` | 日志级别：debug/info/warn/error；非法值兜底为 info（防拼写错误导致日志量暴涨） |
 | `WithFormat(format)` | 输出格式：json/console |
 | `WithSave(isSave, opts...)` | 是否保存到文件 |
 | `WithAsync(enabled)` | 是否异步写入 |

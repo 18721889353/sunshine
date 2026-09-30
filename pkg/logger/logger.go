@@ -293,7 +293,9 @@ func (c *customHookCore) Write(ent zapcore.Entry, fields []Field) error {
 	return c.Core.Write(ent, fields)
 }
 
-// DEBUG(默认), INFO, WARN, ERROR
+// 级别字符串 → zapcore.Level 映射（DEBUG, INFO, WARN, ERROR）
+// 未知级别兜底 InfoLevel，与 WithLevel 的兜底策略保持一致——
+// 配置错误时向安全方向降级，避免拼写错误反而得到最详细的 debug 日志
 func getLevelSize(levelName string) zapcore.Level {
 	levelName = strings.ToUpper(levelName)
 	switch levelName {
@@ -306,7 +308,7 @@ func getLevelSize(levelName string) zapcore.Level {
 	case levelError:
 		return zapcore.ErrorLevel
 	}
-	return zapcore.DebugLevel
+	return zapcore.InfoLevel
 }
 
 func timeFormatter(t time.Time, enc zapcore.PrimitiveArrayEncoder) {

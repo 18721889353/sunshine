@@ -35,13 +35,13 @@ description: Guides modification and extension of the gows WebSocket package, in
 | `client_distributed.go` | `SendToUIDCtx`/`SendToMultiUIDCtx`/`BroadcastCtx`/`BroadcastReliableCtx`（Client 代理 Dispatcher） | ~60 |
 | `backend.go` | `Backend` 接口、`PubSubMessage` 结构体 | ~56 |
 | `rabbitmq_backend.go` | `RabbitMQBackend` 实现（Publish/Receive/Close） | ~489 |
-| `test_helpers.go` | 共享测试工具：`newTestClientPair`/`newTestClientWithUID`/`newTestServer`/`mockBackend` | ~200 |
+| `gows_test.go` | 主测试文件，共享测试工具集中于此：`newTestClientPair`/`newTestClientWithUID`/`newTestServer`/`mockBackend` | ~2784 |
 | `integration_test.go` | 总测：全生命周期 + 分布式消息 + 并发 Stats 一致性 | ~306 |
 | `rabbitmq_backend_integration_test.go` | RabbitMQ 集成测试（需 `RABBITMQ_INTEGRATION=true`） | ~148 |
 
 **如何定位代码**：一个逻辑变更通常只涉及上述 1~2 个文件。例如修改 Upgrade 流程看 `upgrader.go` + `upgrade_options.go`，修改消息发送看 `dispatcher_send.go`。
 
-**测试文件命名对称性**：每个源文件 `xxx.go` 对应一个 `xxx_test.go`（测试文件），Options 文件对应 `xxx_options_test.go`。共享测试工具统一放在 `test_helpers.go`。
+**测试文件命名对称性**：每个源文件 `xxx.go` 对应一个 `xxx_test.go`（测试文件），Options 文件对应 `xxx_options_test.go`。共享测试工具统一放在主测试文件 `gows_test.go`；如需拆出独立 helper 文件，必须命名为 `test_helpers_test.go`（带 `_test.go` 后缀，否则 `unused` 会报 `is unused`，见 package-quality-baseline 第八节）。
 
 ---
 
@@ -262,7 +262,7 @@ gows 中的实现位于 `client.go` 的 `requestIDAttr` 辅助函数。
 | `rabbitmq_backend.go` | `rabbitmq_backend_test.go` | 单元测试（mock 模拟） |
 | | `rabbitmq_backend_integration_test.go` | 集成测试（需真实服务） |
 | | `integration_test.go` | 总测：全生命周期链路 |
-| `test_helpers.go` | 所有测试文件共享 | `newTestClientPair`/`mockBackend`/`skipNoRabbitMQ` |
+| `gows_test.go` | 所有测试文件共享 | `newTestClientPair`/`mockBackend`/`newTestServer` |
 
 ---
 

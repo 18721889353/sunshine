@@ -137,6 +137,9 @@ func GetLoggerByLevel(level string) *zap.Logger {
 }
 
 // lookupModule 内部方法:根据模块获取 logger
+// 精确匹配优先；未命中时取「最长前缀」匹配（如同时注册 order 与 order.payment 时，
+// order.payment.create 稳定路由到 order.payment）——map 的 range 顺序不确定，
+// 若直接返回首个前缀命中会导致日志随机路由
 func (r *LogRouter) lookupModule(module string) *zap.Logger {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -145,13 +148,14 @@ func (r *LogRouter) lookupModule(module string) *zap.Logger {
 		return logger
 	}
 
+	var bestKey string
+	var bestLogger *zap.Logger
 	for key, logger := range r.loggers {
-		if strings.HasPrefix(module, key+".") {
-			return logger
+		if strings.HasPrefix(module, key+".") && len(key) > len(bestKey) {
+			bestKey, bestLogger = key, logger
 		}
 	}
-
-	return nil
+	return bestLogger
 }
 
 // lookupLevel 内部方法:根据级别获取 logger

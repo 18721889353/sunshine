@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -89,6 +90,46 @@ func TestGetRouteKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := r.getRouteKey(tt.config); got != tt.want {
 				t.Errorf("getRouteKey = %q, 期望 %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestLookupModuleLongestPrefix 验证模块路由取「最长前缀」匹配：
+// 同时注册 order 与 order.payment 时，order.payment.create 必须稳定路由到 order.payment（而非随机命中）；
+// 精确匹配优先于前缀匹配，且前缀必须以点号为边界。
+// 注意：断言用指针相等（got != tt.want），依赖 zap.NewNop() 每次调用返回新实例（当前实现如此，
+// 见 zap 源码 func NewNop() *Logger { return &Logger{core: NewNopCore()} }）；
+// 若未来 zap 改为单例模式，需改用带自定义 field 的 logger 保证 identity 唯一。
+func TestLookupModuleLongestPrefix(t *testing.T) {
+	loggerOrder := zap.NewNop()
+	loggerPayment := zap.NewNop()
+	r := &LogRouter{
+		loggers: map[string]*zap.Logger{
+			"order":         loggerOrder,
+			"order.payment": loggerPayment,
+		},
+	}
+
+	tests := []struct {
+		name   string
+		module string
+		want   *zap.Logger
+	}{
+		{"精确匹配优先", "order", loggerOrder},
+		{"最长前缀命中", "order.payment.create", loggerPayment},
+		{"中间层模块", "order.payment.notify", loggerPayment},
+		{"仅命中短前缀", "order.create", loggerOrder},
+		{"点号边界外不匹配", "orders.create", nil},
+		{"无任何前缀命中", "user.profile", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 多次查询验证结果确定性（旧实现 range 首个命中即返回，结果随机）
+			for i := 0; i < 20; i++ {
+				if got := r.lookupModule(tt.module); got != tt.want {
+					t.Fatalf("lookupModule(%q) 命中了非期望 logger（第 %d 次查询）", tt.module, i+1)
+				}
 			}
 		})
 	}

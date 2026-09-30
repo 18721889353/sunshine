@@ -950,7 +950,7 @@ listener_test.go      # 对应测试
 watch.go              # 功能模块源文件
 watch_test.go         # 对应测试
 
-test_helpers.go       # 共享测试工具（newXxxPair、skipXxx）
+test_helpers_test.go  # 共享测试工具（newXxxPair、skipXxx，必须带 _test.go 后缀）
 integration_test.go   # 集成测试（//go:build integration）
 ```
 
@@ -987,7 +987,7 @@ integration_test.go   # 集成测试（//go:build integration）
 // client_test.go 定义了 newTestClientPair
 // dispatcher_test.go 又定义了 newTestClientPair（重复）
 
-// ✅ 统一放在 test_helpers.go
+// ✅ 统一放在 test_helpers_test.go（必须带 _test.go 后缀，否则 unused 会报 is unused）
 func newTestClientPair(t testing.TB, opts ...Option) (*Client, *websocket.Conn)
 func newMockBackend(bufSize int) *mockBackend
 ```

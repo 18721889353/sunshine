@@ -6,7 +6,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// TestWithLevel 验证级别选项：合法值归一为大写，非法/空值兜底 DEBUG。
+// TestWithLevel 验证级别选项：合法值归一为大写，非法/空值兜底默认 info（而非 debug，防拼写错误导致日志量暴涨）。
 func TestWithLevel(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -17,8 +17,9 @@ func TestWithLevel(t *testing.T) {
 		{"info 大写归一", "INFO", levelInfo},
 		{"warn", "warn", levelWarn},
 		{"error", "error", levelError},
-		{"非法值兜底debug", "verbose", levelDebug},
-		{"空串兜底debug", "", levelDebug},
+		{"非法值兜底info", "verbose", defaultLevel},
+		{"拼写错误兜底info", "waring", defaultLevel},
+		{"空串兜底info", "", defaultLevel},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,7 +120,7 @@ func TestFileOptionGuards(t *testing.T) {
 	})
 }
 
-// TestGetLevelSize 验证级别字符串到 zapcore.Level 的映射，未知级别（如 trace）兜底 Debug。
+// TestGetLevelSize 验证级别字符串到 zapcore.Level 的映射，未知级别（如 trace）兜底 Info（与 WithLevel 兜底策略一致）。
 func TestGetLevelSize(t *testing.T) {
 	tests := []struct {
 		input string
@@ -129,7 +130,7 @@ func TestGetLevelSize(t *testing.T) {
 		{"info", zapcore.InfoLevel},
 		{"warn", zapcore.WarnLevel},
 		{"error", zapcore.ErrorLevel},
-		{"trace", zapcore.DebugLevel},
+		{"trace", zapcore.InfoLevel},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {

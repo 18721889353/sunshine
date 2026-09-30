@@ -49,7 +49,8 @@ func extractUID(claims *jwt.Claims) string {
 //   - error: 解析失败时返回具体错误信息
 //
 // 注意:
-//   - 使用前需确保 jwt.Init() 已被调用，通常在应用启动时初始化
+//   - 使用前需确保 jwt.Init(jwt.WithSigningKey("...")) 已被调用，通常在应用启动时初始化；
+//     未配置签名密钥时 ParseTokenCtx 透传 jwt.ErrSigningKeyNotConfigured，调用方可用 errors.Is 判断
 //   - token 过期返回 jwt.ErrTokenExpired，调用方可用 errors.Is 判断
 //   - token 格式正确但缺少 uid 字段返回 ErrTokenInvalid
 //   - 自动去除 "Bearer " 前缀，兼容 Authorization header 传入的 token
