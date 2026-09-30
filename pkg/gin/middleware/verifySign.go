@@ -86,6 +86,15 @@ func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	}
 }
 
+// signEnabled 控制签名验证中间件是否生效，支持热更新
+var signEnabled atomic.Bool
+
+// SetSignEnabled 动态设置签名验证中间件是否生效，支持 Nacos 热更新。
+// enabled=true 时启用签名校验，enabled=false 时所有请求直接放行。
+func SetSignEnabled(enabled bool) {
+	signEnabled.Store(enabled)
+}
+
 // SetSignConfig 设置全局签名配置（支持热更新）
 // 调用后，后续所有请求将使用新的配置
 func SetSignConfig(ignoreUrls []string, ignoreAll bool, signKey string, signExpiredTime time.Duration) {
@@ -115,8 +124,16 @@ func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 	if globalSignConfig.Load() == nil {
 		globalSignConfig.Store(o)
 	}
+	// 初始化开关为启用状态（调用方可随后通过 SetSignEnabled 覆盖）
+	signEnabled.Store(true)
 
 	return func(ctx *gin.Context) {
+		// 热更新开关检查
+		if !signEnabled.Load() {
+			ctx.Next()
+			return
+		}
+
 		// 从全局配置读取（支持热更新）
 		cfg := globalSignConfig.Load()
 		if cfg == nil {

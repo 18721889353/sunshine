@@ -6,12 +6,12 @@ app:
   cacheType: "redis"              # 缓存类型, 如果为空, 不使用缓存, 支持"memory"和"redis", 如果设置为redis, 必须设置redis配置
   registryDiscoveryType: ""       # 注册与发现类型: etcd / nacos, 如果为空, 不使用注册与发现
   host: ""                        # 服务注册IP, 为空则自动解析(POD_IP > HOST_IP > 本机网卡IP > 127.0.0.1)
-  enableMetrics: false            # 是否开启指标收集, true:开启, false:关闭 [热更新]
+  enableMetrics: false            # 是否开启指标收集, true:开启, false:关闭 [热更新: 仅gin侧可动态开关, 启动时false无法热开启(gRPC指标拦截器/路由不装配)]
   enableHTTPProfile: true         # 是否开启性能分析, true:开启, false:关闭 [热更新]
   pprofIPWhiteList:               # pprof IP 白名单（空=仅 prod 环境用默认内网段） [热更新]
     - 127.0.0.1
-  enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭 [热更新]
-  enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭 [热更新]
+  enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭 [热更新: 与 sentinel.limitRules 联动, 关闭时自动清空限流规则]
+  enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭 [热更新: 与 sentinel.breakerRules 联动, 关闭时自动清空熔断规则]
   enableTrace: false              # 是否开启链路追踪, true:开启, false:关闭 [热更新: 设为false等效采样率=0]
   tracingSamplingRate: 1.0        # 链路追踪采样率, 介于0和1之间, 0表示不采样, 1表示采样所有链路 [热更新]
   openXSS: true                   # 是否开启xss过滤, true:开启, false:关闭 [热更新]
@@ -40,7 +40,7 @@ http:
 grpc:
   port: 7001                      # 监听端口
   httpPort: 6001                  # 性能分析和指标端口
-  enableToken: false              # 是否开启服务端token认证 [热更新: 仅支持关闭, 开启需重启]
+  enableToken: false              # 是否开启服务端token认证 [热更新]
   appID: "grpc"                   # Token 认证的应用ID, 为空则使用默认值(grpc)
   appKey: "mko09ijn"              # Token 认证的密钥, 为空则使用默认值(mko09ijn)
   # serverSecure 参数设置

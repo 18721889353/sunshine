@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
@@ -23,6 +24,24 @@ var (
 	resourceName = "default"
 	sentinelOnce sync.Once
 )
+
+// sentinelLimitEnabled 控制限流检查是否生效，支持热更新
+var sentinelLimitEnabled atomic.Bool
+
+// sentinelBreakerEnabled 控制熔断检查是否生效，支持热更新
+var sentinelBreakerEnabled atomic.Bool
+
+// SetSentinelLimitEnabled 动态设置限流检查是否生效，支持 Nacos 热更新。
+// enabled=false 时跳过 Sentinel Entry，请求直接放行。
+func SetSentinelLimitEnabled(enabled bool) {
+	sentinelLimitEnabled.Store(enabled)
+}
+
+// SetSentinelBreakerEnabled 动态设置熔断检查是否生效，支持 Nacos 热更新。
+// enabled=false 时跳过 Sentinel Entry，请求直接放行。
+func SetSentinelBreakerEnabled(enabled bool) {
+	sentinelBreakerEnabled.Store(enabled)
+}
 
 // SentinelOptions 设置 Sentinel 选项的函数类型。
 type SentinelOptions func(*sentinelOptions)
@@ -203,13 +222,26 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 
 	initSentinel(o.flowRules, o.breakerRules)
 
-	return SentinelGin.SentinelMiddleware(
+	// 初始化开关为启用状态（调用方可随后通过 SetSentinelLimitEnabled/SetSentinelBreakerEnabled 覆盖）
+	sentinelLimitEnabled.Store(true)
+	sentinelBreakerEnabled.Store(true)
+
+	inner := SentinelGin.SentinelMiddleware(
 		SentinelGin.WithResourceExtractor(o.resourceExtractor),
 		SentinelGin.WithBlockFallback(func(ctx *gin.Context) {
 			response.Out(ctx, errcode.TooManyRequests.WithDetails("请求被限流/熔断"))
 			ctx.Abort()
 		}),
 	)
+
+	return func(c *gin.Context) {
+		// 热更新开关检查：限流与熔断均关闭时直接放行，避免无效的 Entry 开销
+		if !sentinelLimitEnabled.Load() && !sentinelBreakerEnabled.Load() {
+			c.Next()
+			return
+		}
+		inner(c)
+	}
 }
 
 // ========================== 断路器中间件 (Circuit Breaker) ==========================

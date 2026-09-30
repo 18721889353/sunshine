@@ -6,6 +6,7 @@ package interceptor
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_auth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
@@ -60,10 +61,28 @@ var (
 	authCtxClaimsName = "tokenInfo"
 
 	// authIgnoreMethods 存储需要忽略认证的方法全名（精确匹配），
-	// 由 WithAuthIgnoreMethods 选项填充，包级变量用于兼容原有设计，
-	// 但推荐使用 authOptions.ignoreMethods 和 ignoreAll 进行配置。
-	authIgnoreMethods = map[string]struct{}{}
+	// 由 SetJwtIgnoreMethods 或 WithAuthIgnoreMethods 填充，支持热更新。
+	authIgnoreMethods atomic.Pointer[map[string]struct{}]
 )
+
+// jwtAuthEnabled 控制 JWT 认证拦截器是否生效，支持热更新
+var jwtAuthEnabled atomic.Bool
+
+// SetJwtIgnoreMethods 设置全局 JWT 忽略方法列表（支持热更新）。
+// 调用后，后续所有请求将使用新的忽略列表。
+func SetJwtIgnoreMethods(methods []string) {
+	m := make(map[string]struct{})
+	for _, method := range methods {
+		m[method] = struct{}{}
+	}
+	authIgnoreMethods.Store(&m)
+}
+
+// SetJwtEnabled 动态设置 JWT 认证拦截器是否生效，支持 Nacos 热更新。
+// enabled=true 时启用 JWT 验证，enabled=false 时所有请求直接放行。
+func SetJwtEnabled(enabled bool) {
+	jwtAuthEnabled.Store(enabled)
+}
 
 // GetAuthorization 将纯 Token 组合成标准 Authorization 头值（含 Scheme）
 func GetAuthorization(token string) string {
@@ -263,18 +282,27 @@ func UnaryServerJwtAuth(opts ...AuthOption) grpc.UnaryServerInterceptor {
 	// 更新全局变量（兼容已有代码）
 	authScheme = o.authScheme
 	authCtxClaimsName = o.ctxClaimsName
-	authIgnoreMethods = o.ignoreMethods
+	authIgnoreMethods.Store(&o.ignoreMethods)
+	// 初始化开关为启用状态（调用方可随后通过 SetJwtEnabled 覆盖）
+	jwtAuthEnabled.Store(true)
 	verifyOpt := o.verifyOpts
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// 热更新开关检查
+		if !jwtAuthEnabled.Load() {
+			return handler(ctx, req)
+		}
+
 		// 优先判断全局忽略
 		if o.ignoreAll {
 			return handler(ctx, req)
 		}
 
-		// 其次判断是否在忽略方法列表中
-		if _, ok := authIgnoreMethods[info.FullMethod]; ok {
-			return handler(ctx, req)
+		// 其次判断是否在忽略方法列表中（每次请求读取，支持热更新）
+		if methods := authIgnoreMethods.Load(); methods != nil {
+			if _, ok := (*methods)[info.FullMethod]; ok {
+				return handler(ctx, req)
+			}
 		}
 
 		// 添加完整方法名到 metadata（便于日志追踪）
@@ -296,17 +324,27 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 	o.apply(opts...)
 	authScheme = o.authScheme
 	authCtxClaimsName = o.ctxClaimsName
-	authIgnoreMethods = o.ignoreMethods
+	authIgnoreMethods.Store(&o.ignoreMethods)
+	// 初始化开关为启用状态（调用方可随后通过 SetJwtEnabled 覆盖）
+	jwtAuthEnabled.Store(true)
 	verifyOpt := o.verifyOpts
 
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		// 热更新开关检查
+		if !jwtAuthEnabled.Load() {
+			return handler(srv, stream)
+		}
+
 		// 优先判断全局忽略
 		if o.ignoreAll {
 			return handler(srv, stream)
 		}
 
-		if _, ok := authIgnoreMethods[info.FullMethod]; ok {
-			return handler(srv, stream)
+		// 其次判断是否在忽略方法列表中（每次请求读取，支持热更新）
+		if methods := authIgnoreMethods.Load(); methods != nil {
+			if _, ok := (*methods)[info.FullMethod]; ok {
+				return handler(srv, stream)
+			}
 		}
 
 		newCtx, err := jwtVerify(stream.Context(), verifyOpt)

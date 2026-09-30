@@ -7,6 +7,7 @@ package interceptor
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	sentinel "github.com/alibaba/sentinel-golang/api"
 	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
@@ -23,6 +24,24 @@ var (
 	resourceName = "default"
 	sentinelOnce sync.Once
 )
+
+// sentinelLimitEnabled 控制限流检查是否生效，支持热更新
+var sentinelLimitEnabled atomic.Bool
+
+// sentinelBreakerEnabled 控制熔断检查是否生效，支持热更新
+var sentinelBreakerEnabled atomic.Bool
+
+// SetSentinelLimitEnabled 动态设置限流检查是否生效，支持 Nacos 热更新。
+// enabled=false 时跳过 Sentinel Entry，请求直接放行。
+func SetSentinelLimitEnabled(enabled bool) {
+	sentinelLimitEnabled.Store(enabled)
+}
+
+// SetSentinelBreakerEnabled 动态设置熔断检查是否生效，支持 Nacos 热更新。
+// enabled=false 时跳过 Sentinel Entry，请求直接放行。
+func SetSentinelBreakerEnabled(enabled bool) {
+	sentinelBreakerEnabled.Store(enabled)
+}
 
 // SentinelResourceExtractor 资源提取函数类型，根据方法名返回 Sentinel 资源名称。
 type SentinelResourceExtractor func(method string) string
@@ -233,8 +252,15 @@ func UnaryServerRateLimit(opts ...SentinelOption) grpc.UnaryServerInterceptor {
 	o := defaultSentinelOptions()
 	o.apply(opts...)
 	initSentinel(o.flowRules, nil)
+	// 初始化开关为启用状态（调用方可随后通过 SetSentinelLimitEnabled 覆盖）
+	sentinelLimitEnabled.Store(true)
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+		// 热更新开关检查
+		if !sentinelLimitEnabled.Load() {
+			return handler(ctx, req)
+		}
+
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, e := sentinel.Entry(resource)
 		if e != nil {
@@ -260,8 +286,15 @@ func StreamServerRateLimit(opts ...SentinelOption) grpc.StreamServerInterceptor 
 	o := defaultSentinelOptions()
 	o.apply(opts...)
 	initSentinel(o.flowRules, nil)
+	// 初始化开关为启用状态（调用方可随后通过 SetSentinelLimitEnabled 覆盖）
+	sentinelLimitEnabled.Store(true)
 
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		// 热更新开关检查
+		if !sentinelLimitEnabled.Load() {
+			return handler(srv, ss)
+		}
+
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, err := sentinel.Entry(resource)
 		if err != nil {
@@ -290,8 +323,15 @@ func UnaryServerCircuitBreaker(opts ...SentinelOption) grpc.UnaryServerIntercept
 	o := defaultSentinelOptions()
 	o.apply(opts...)
 	initSentinel(nil, o.breakerRules)
+	// 初始化开关为启用状态（调用方可随后通过 SetSentinelBreakerEnabled 覆盖）
+	sentinelBreakerEnabled.Store(true)
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+		// 热更新开关检查
+		if !sentinelBreakerEnabled.Load() {
+			return handler(ctx, req)
+		}
+
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, e := sentinel.Entry(resource)
 		if e != nil {
@@ -326,8 +366,15 @@ func StreamServerCircuitBreaker(opts ...SentinelOption) grpc.StreamServerInterce
 	o := defaultSentinelOptions()
 	o.apply(opts...)
 	initSentinel(nil, o.breakerRules)
+	// 初始化开关为启用状态（调用方可随后通过 SetSentinelBreakerEnabled 覆盖）
+	sentinelBreakerEnabled.Store(true)
 
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		// 热更新开关检查
+		if !sentinelBreakerEnabled.Load() {
+			return handler(srv, ss)
+		}
+
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, err := sentinel.Entry(resource)
 		if err != nil {

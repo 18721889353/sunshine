@@ -26,6 +26,10 @@ type options struct {
 // pprofEnabled 控制 pprof 路由是否生效，支持热更新
 var pprofEnabled atomic.Bool
 
+// ginAuthMw 全局 pprof 鉴权中间件，支持 Nacos 热替换。
+// 每次请求时读取最新值，nil 表示不启用鉴权。
+var ginAuthMw atomic.Pointer[gin.HandlerFunc]
+
 func (o *options) apply(opts ...Option) {
 	for _, opt := range opts {
 		opt(o)
@@ -74,6 +78,16 @@ func SetPprofEnabled(enabled bool) {
 	pprofEnabled.Store(enabled)
 }
 
+// SetPprofAuth 动态设置 pprof 鉴权中间件，支持 Nacos 热更新（如 IP 白名单变更后即时生效）。
+// 传 nil 表示关闭鉴权。调用后，后续所有请求将使用新的鉴权中间件。
+func SetPprofAuth(mw gin.HandlerFunc) {
+	if mw == nil {
+		ginAuthMw.Store(nil)
+		return
+	}
+	ginAuthMw.Store(&mw)
+}
+
 // Register 将 pprof 路由注册到 Gin 引擎路由组中。
 //
 // 注册的路由（以默认前缀 /debug/pprof 为例）：
@@ -109,10 +123,18 @@ func Register(r *gin.Engine, opts ...Option) {
 		c.Next()
 	})
 
-	// 可选鉴权中间件
+	// 鉴权中间件（启动值写入全局指针，运行时可通过 SetPprofAuth 热替换）
 	if o.authMw != nil {
-		group.Use(o.authMw)
+		ginAuthMw.Store(&o.authMw)
 	}
+	group.Use(func(c *gin.Context) {
+		if p := ginAuthMw.Load(); p != nil && *p != nil {
+			// 由鉴权中间件接管后续链（其内部会调用 c.Next() 或 Abort）
+			(*p)(c)
+			return
+		}
+		c.Next()
+	})
 
 	group.GET("/", gin.WrapF(pprof.Index))
 	group.GET("/cmdline", gin.WrapF(pprof.Cmdline))

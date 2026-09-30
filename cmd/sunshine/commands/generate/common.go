@@ -1039,7 +1039,7 @@ func changeOutPath(outPath string, serverName string) string {
 
 // getSubFiles 收集需要生成的所有文件路径列表。
 // 自动确保 internal/config 目录包含 nacos.go、nacos_encrypt.go、register_helper.go、
-// reload_sentinel/jwt/sign/app/database/infra.go（热更新回调）和 reload.go（热更新框架），支持通过 replaceFiles 替换选定文件。
+// pprofAuth.go（pprof IP 白名单鉴权构造）、reload_sentinel/jwt/sign/app/database/infra.go（热更新回调）和 reload.go（热更新框架），支持通过 replaceFiles 替换选定文件。
 // 参数:
 //   - selectFiles: 按目录分组的待生成文件映射，key 为目录路径，value 为文件名列表。
 //   - replaceFiles: 可选的文件替换映射，会覆盖 selectFiles 中同目录的文件列表。
@@ -1052,6 +1052,7 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	// - nacos.go（配置中心拉取功能）
 	// - nacos_encrypt.go（Nacos凭据加解密）
 	// - register_helper.go（配置构建辅助方法）
+	// - pprofAuth.go（pprof IP 白名单鉴权构造，routers.go 启动注册与 pprofIPWhiteList 热更共用，reload_app.go 依赖）
 	// - reload_sentinel.go（Sentinel 限流/熔断热更新回调）
 	// - reload_jwt.go（JWT 配置热更新回调）
 	// - reload_sign.go（Sign 配置热更新回调）
@@ -1061,6 +1062,7 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	// - reload.go（配置热更新框架）
 	configAutoFiles := []string{
 		"nacos.go", "nacos_encrypt.go", "register_helper.go",
+		"pprofAuth.go",
 		"reload_sentinel.go", "reload_jwt.go", "reload_sign.go",
 		"reload_app.go", "reload_database.go", "reload_infra.go",
 		"reload.go",

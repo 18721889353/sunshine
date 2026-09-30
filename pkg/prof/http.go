@@ -25,6 +25,9 @@ type httpOptions struct {
 // httpPprofEnabled 控制 HTTP pprof 路由是否生效，支持热更新
 var httpPprofEnabled atomic.Bool
 
+// httpPprofAuthFn 存储当前鉴权中间件，支持运行时热替换；nil 表示不启用鉴权。
+var httpPprofAuthFn atomic.Pointer[func(http.Handler) http.Handler]
+
 func (o *httpOptions) apply(opts ...HTTPOption) {
 	for _, opt := range opts {
 		opt(o)
@@ -53,6 +56,7 @@ func WithIOWaitTime() HTTPOption {
 // WithAuth 设置 pprof 路由的鉴权中间件。
 // 在生成环境中，pprof 可能暴露敏感信息（如源码路径、goroutine 堆栈等），
 // 建议通过此选项添加鉴权保护。
+// 注册后仍可通过 SetPprofAuth 在运行时热替换鉴权逻辑。
 //
 // 示例:
 //
@@ -79,6 +83,20 @@ func SetPprofEnabled(enabled bool) {
 	httpPprofEnabled.Store(enabled)
 }
 
+// SetPprofAuth 动态设置 pprof 鉴权中间件，支持 Nacos 热更新。
+// fn=nil 时关闭鉴权，非 nil 时替换为新的鉴权逻辑，下次请求即生效。
+//
+// 示例:
+//
+//	prof.SetPprofAuth(pprofIPWhitelist(config.Get().App.PprofIPWhiteList))
+func SetPprofAuth(fn func(http.Handler) http.Handler) {
+	if fn == nil {
+		httpPprofAuthFn.Store(nil)
+		return
+	}
+	httpPprofAuthFn.Store(&fn)
+}
+
 // Register 将 pprof 路由注册到标准 http.ServeMux 中。
 //
 // 注册的路由（以默认前缀 /debug/pprof 为例）：
@@ -96,12 +114,17 @@ func SetPprofEnabled(enabled bool) {
 //   - /debug/pprof/profile-io  - IO 等待时间（需 WithIOWaitTime）
 //
 // 如果设置了 WithAuth，所有 pprof 路由都将经过鉴权中间件检查。
+// 鉴权中间件支持通过 SetPprofAuth 在运行时热替换（如白名单配置变更后即时生效）。
 func Register(mux *http.ServeMux, opts ...HTTPOption) {
 	o := &httpOptions{prefix: DefaultPrefix}
 	o.apply(opts...)
 
 	// 设置初始开关状态
 	httpPprofEnabled.Store(true)
+
+	// 用本次注册的配置初始化鉴权中间件（nil 也写入，确保未配置鉴权时不受历史值影响），
+	// 后续可通过 SetPprofAuth 热替换
+	SetPprofAuth(o.authFn)
 
 	// 动态开关中间件：根据 httpPprofEnabled 原子变量控制是否放行
 	enabledCheck := func(next http.Handler) http.Handler {
@@ -115,36 +138,41 @@ func Register(mux *http.ServeMux, opts ...HTTPOption) {
 	}
 
 	// 标准 pprof 路由
-	mux.Handle(o.prefix+"/", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Index)))
-	mux.Handle(o.prefix+"/profile", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Profile)))
-	mux.Handle(o.prefix+"/symbol", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Symbol)))
-	mux.Handle(o.prefix+"/cmdline", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Cmdline)))
-	mux.Handle(o.prefix+"/trace", wrapHandler(o.authFn, enabledCheck, http.HandlerFunc(pprof.Trace)))
+	mux.Handle(o.prefix+"/", wrapHandler(enabledCheck, http.HandlerFunc(pprof.Index)))
+	mux.Handle(o.prefix+"/profile", wrapHandler(enabledCheck, http.HandlerFunc(pprof.Profile)))
+	mux.Handle(o.prefix+"/symbol", wrapHandler(enabledCheck, http.HandlerFunc(pprof.Symbol)))
+	mux.Handle(o.prefix+"/cmdline", wrapHandler(enabledCheck, http.HandlerFunc(pprof.Cmdline)))
+	mux.Handle(o.prefix+"/trace", wrapHandler(enabledCheck, http.HandlerFunc(pprof.Trace)))
 
 	// 按名称查询的 profile 类型
-	mux.Handle(o.prefix+"/allocs", wrapHandler(o.authFn, enabledCheck, pprof.Handler("allocs")))
-	mux.Handle(o.prefix+"/heap", wrapHandler(o.authFn, enabledCheck, pprof.Handler("heap")))
-	mux.Handle(o.prefix+"/goroutine", wrapHandler(o.authFn, enabledCheck, pprof.Handler("goroutine")))
-	mux.Handle(o.prefix+"/threadcreate", wrapHandler(o.authFn, enabledCheck, pprof.Handler("threadcreate")))
-	mux.Handle(o.prefix+"/block", wrapHandler(o.authFn, enabledCheck, pprof.Handler("block")))
-	mux.Handle(o.prefix+"/mutex", wrapHandler(o.authFn, enabledCheck, pprof.Handler("mutex")))
+	mux.Handle(o.prefix+"/allocs", wrapHandler(enabledCheck, pprof.Handler("allocs")))
+	mux.Handle(o.prefix+"/heap", wrapHandler(enabledCheck, pprof.Handler("heap")))
+	mux.Handle(o.prefix+"/goroutine", wrapHandler(enabledCheck, pprof.Handler("goroutine")))
+	mux.Handle(o.prefix+"/threadcreate", wrapHandler(enabledCheck, pprof.Handler("threadcreate")))
+	mux.Handle(o.prefix+"/block", wrapHandler(enabledCheck, pprof.Handler("block")))
+	mux.Handle(o.prefix+"/mutex", wrapHandler(enabledCheck, pprof.Handler("mutex")))
 
 	// IO 等待时间 profile（类似 /profile，额外包含 IO 等待时间）
 	if o.enableIOWaitTime {
-		mux.Handle(o.prefix+"/profile-io", wrapHandler(o.authFn, enabledCheck, fgprof.Handler()))
+		mux.Handle(o.prefix+"/profile-io", wrapHandler(enabledCheck, fgprof.Handler()))
 	}
 }
 
-// wrapHandler 用鉴权和开关中间件包装最终的 handler
-// authFn: 鉴权中间件，nil 表示不启用
+// wrapHandler 用鉴权和开关中间件包装最终的 handler。
 // enabledCheck: 开关检查中间件
 // handler: 最终的 pprof handler
-func wrapHandler(authFn func(http.Handler) http.Handler, enabledCheck func(http.Handler) http.Handler, handler http.Handler) http.Handler {
+//
+// 鉴权中间件从 httpPprofAuthFn 原子变量动态加载，每次请求读取最新值，
+// 支持通过 SetPprofAuth 在运行时热替换鉴权逻辑。
+func wrapHandler(enabledCheck func(http.Handler) http.Handler, handler http.Handler) http.Handler {
 	// 先包装开关检查
 	handler = enabledCheck(handler)
-	// 再包装鉴权
-	if authFn != nil {
-		handler = authFn(handler)
-	}
-	return handler
+	// 再包装鉴权：每次请求从原子变量加载最新鉴权中间件，支持热更新
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fnPtr := httpPprofAuthFn.Load(); fnPtr != nil {
+			(*fnPtr)(handler).ServeHTTP(w, r)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
 }

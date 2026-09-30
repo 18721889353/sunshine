@@ -109,6 +109,15 @@ func SetJwtIgnoreMethods(methods []string) {
 	globalJwtIgnoreMethods.Store(&m)
 }
 
+// jwtAuthEnabled 控制 JWT 认证中间件是否生效，支持热更新
+var jwtAuthEnabled atomic.Bool
+
+// SetJwtAuthEnabled 动态设置 JWT 认证中间件是否生效，支持 Nacos 热更新。
+// enabled=true 时启用 JWT 验证，enabled=false 时所有请求直接放行。
+func SetJwtAuthEnabled(enabled bool) {
+	jwtAuthEnabled.Store(enabled)
+}
+
 // responseUnauthorized 统一处理未授权响应
 // 根据 isSwitchHTTPCode 决定使用 HTTP 状态码还是业务错误码返回
 func responseUnauthorized(c *gin.Context, isSwitchHTTPCode bool) {
@@ -188,7 +197,15 @@ func handleAuthVerification(o *jwtOptions, claims *jwt.Claims, token string, c *
 func Auth(opts ...JwtOption) gin.HandlerFunc {
 	o := defaultJwtOptions()
 	o.apply(opts...)
+	// 初始化开关为启用状态（调用方可随后通过 SetJwtAuthEnabled 覆盖）
+	jwtAuthEnabled.Store(true)
 	return func(c *gin.Context) {
+		// 热更新开关检查
+		if !jwtAuthEnabled.Load() {
+			c.Next()
+			return
+		}
+
 		// 优先判断是否全局忽略
 		if o.ignoreAll {
 			c.Next()
@@ -256,8 +273,16 @@ type VerifyCustomFn func(claims *jwt.CustomClaims, tokenTail10 string, c *gin.Co
 func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 	o := defaultJwtOptions()
 	o.apply(opts...)
+	// 初始化开关为启用状态（调用方可随后通过 SetJwtAuthEnabled 覆盖）
+	jwtAuthEnabled.Store(true)
 
 	return func(c *gin.Context) {
+		// 热更新开关检查
+		if !jwtAuthEnabled.Load() {
+			c.Next()
+			return
+		}
+
 		// 优先判断是否全局忽略
 		if o.ignoreAll {
 			c.Next()

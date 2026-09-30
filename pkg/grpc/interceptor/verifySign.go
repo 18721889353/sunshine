@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
@@ -80,6 +81,33 @@ func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 	}
 }
 
+// globalSignConfig 全局签名配置，支持热更新
+var globalSignConfig atomic.Pointer[signOption]
+
+// signEnabled 控制签名拦截器是否生效，支持热更新
+var signEnabled atomic.Bool
+
+// SetSignConfig 设置全局签名配置（支持热更新）。
+// 调用后，后续所有请求将使用新的配置。
+func SetSignConfig(ignoreMethods []string, ignoreAll bool, signKey string, signExpiredTime time.Duration) {
+	o := &signOption{
+		ignoreMethods:   make(map[string]struct{}),
+		ignoreAll:       ignoreAll,
+		signKey:         signKey,
+		signExpiredTime: signExpiredTime,
+	}
+	for _, m := range ignoreMethods {
+		o.ignoreMethods[m] = struct{}{}
+	}
+	globalSignConfig.Store(o)
+}
+
+// SetSignEnabled 动态设置签名拦截器是否生效，支持 Nacos 热更新。
+// enabled=true 时启用签名校验，enabled=false 时所有请求直接放行。
+func SetSignEnabled(enabled bool) {
+	signEnabled.Store(enabled)
+}
+
 // VerifySignatureInterceptor 创建 gRPC 一元服务端拦截器，用于验证请求签名。
 // 验证流程：
 //  1. 若开启 ignoreAll，直接放行
@@ -88,20 +116,34 @@ func WithSignExpiredTime(signExpiredTime time.Duration) SignOption {
 func VerifySignatureInterceptor(opts ...SignOption) grpc.UnaryServerInterceptor {
 	o := defaultSignOptions()
 	o.apply(opts...)
+	// 初始化全局配置与开关（调用方可随后覆盖）
+	globalSignConfig.Store(o)
+	signEnabled.Store(true)
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// 热更新开关检查
+		if !signEnabled.Load() {
+			return handler(ctx, req)
+		}
+
+		// 从全局配置读取（支持热更新）
+		cfg := globalSignConfig.Load()
+		if cfg == nil {
+			cfg = o
+		}
+
 		// 优先判断是否全局忽略
-		if o.ignoreAll {
+		if cfg.ignoreAll {
 			return handler(ctx, req)
 		}
 
 		// 其次判断是否在忽略方法列表中（精确匹配）
-		if _, ok := o.ignoreMethods[info.FullMethod]; ok {
+		if _, ok := cfg.ignoreMethods[info.FullMethod]; ok {
 			return handler(ctx, req)
 		}
 
 		// 执行签名验证，验证通过后将新的上下文传递给业务处理
-		newCtx, err := verifySign(ctx, req, o)
+		newCtx, err := verifySign(ctx, req, cfg)
 		if err != nil {
 			return nil, err
 		}

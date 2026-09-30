@@ -3,8 +3,6 @@
 package routers
 
 import (
-	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -110,10 +108,9 @@ func NewRouter() *gin.Engine {
 	r.Use(middleware.Cors())
 	cfg := config.Get()
 
-	if cfg.HTTP.Timeout > 0 {
-		// if you need more fine-grained control over your routes, set the timeout in your routes, unsetting the timeout globally here.
-		r.Use(middleware.Timeout(time.Second * time.Duration(cfg.HTTP.Timeout)))
-	}
+	// 超时中间件常驻挂载（支持热更新）：每次请求读取全局超时值，0=不限制
+	// if you need more fine-grained control over your routes, set the timeout in your routes, unsetting the timeout globally here.
+	r.Use(middleware.Timeout(time.Second * time.Duration(cfg.HTTP.Timeout)))
 	// validator
 	binding.Validator = validator.Init()
 
@@ -124,7 +121,7 @@ func NewRouter() *gin.Engine {
 	// pprof 性能分析路由
 	// 始终注册路由（支持热更新），通过开关控制是否允许访问
 	// 自动启用 IP 白名单鉴权，防止敏感信息泄露
-	pprofOpts := []prof.Option{prof.WithIOWaitTime(), prof.WithAuth(pprofIPWhitelist(cfg.App.PprofIPWhiteList))}
+	pprofOpts := []prof.Option{prof.WithIOWaitTime(), prof.WithAuth(config.PprofIPWhitelistGin(cfg.App.PprofIPWhiteList))}
 	prof.Register(r, pprofOpts...)
 	// 根据配置设置初始开关状态
 	prof.SetPprofEnabled(cfg.App.EnableHTTPProfile)
@@ -157,16 +154,16 @@ func NewRouter() *gin.Engine {
 	// 这样 customLogFunc 捕获的 context 才包含 request_id、trace_id、caller_func
 	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
 
-	// 将签名添加为全局中间件
-	if cfg.App.OpenSign {
-		r.Use(
-			middleware.VerifySignatureMiddleware(
-				middleware.WithSignKey(cfg.Sign.SignKey),
-				middleware.WithIgnoreURL(cfg.Sign.IgnoreUrls.HTTP...),
-				middleware.WithSignExpiredTime(time.Duration(cfg.Sign.SignExpiredTime)*time.Second),
-			),
-		)
-	}
+	// 签名中间件常驻挂载（支持热更新）：开关由 SetSignEnabled 运行时控制
+	r.Use(
+		middleware.VerifySignatureMiddleware(
+			middleware.WithSignKey(cfg.Sign.SignKey),
+			middleware.WithIgnoreURL(cfg.Sign.IgnoreUrls.HTTP...),
+			middleware.WithSignExpiredTime(time.Duration(cfg.Sign.SignExpiredTime)*time.Second),
+		),
+	)
+	// 根据配置设置初始开关状态
+	middleware.SetSignEnabled(cfg.App.OpenSign)
 	// 将XSSMiddleware添加为全局中间件（支持热更新）
 	r.Use(middleware.XSSCrossMiddleware())
 	// 根据配置设置初始开关状态
@@ -184,7 +181,9 @@ func NewRouter() *gin.Engine {
 	// internally. Using them as separate middlewares would create 2 entries per request,
 	// doubling all traffic statistics and making rate limiting effectively 2x stricter.
 	// Therefore, we always pass both flow and breaker rules to a single SentinelMiddleware.
-	if cfg.App.EnableLimit || cfg.App.EnableCircuitBreaker {
+	// 常驻装配（支持热更新）：开关由 SetSentinelLimitEnabled/SetSentinelBreakerEnabled 运行时控制，
+	// 对应开关为 false 时不传该类规则，请求时开关关闭则跳过 Entry
+	{
 		var sentinelRules []*flow.Rule
 		if cfg.App.EnableLimit {
 			for _, r := range cfg.Sentinel.LimitRules {
@@ -225,17 +224,21 @@ func NewRouter() *gin.Engine {
 			),
 		)
 	}
+	// 根据配置设置初始开关状态
+	middleware.SetSentinelLimitEnabled(cfg.App.EnableLimit)
+	middleware.SetSentinelBreakerEnabled(cfg.App.EnableCircuitBreaker)
 
-	if cfg.App.OpenJwt {
-		//全局权限验证
-		r.Use(
-			middleware.Auth(
-				middleware.WithSwitchHTTPCode(),
-				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...),
-				//middleware.WithVerify(VerifySSO),
-			),
-		)
-	}
+	// JWT 中间件常驻挂载（支持热更新）：开关由 SetJwtAuthEnabled 运行时控制
+	//全局权限验证
+	r.Use(
+		middleware.Auth(
+			middleware.WithSwitchHTTPCode(),
+			middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...),
+			//middleware.WithVerify(VerifySSO),
+		),
+	)
+	// 根据配置设置初始开关状态
+	middleware.SetJwtAuthEnabled(cfg.App.OpenJwt)
 
 	// register routers, middleware support
 	registerRouters(r, "/api/v1", apiV1RouterFns)
@@ -257,37 +260,5 @@ func registerRouters(r *gin.Engine, groupPath string, routerFns []func(*gin.Rout
 	group := r.Group(groupPath, middlewares...)
 	for _, fn := range routerFns {
 		fn(group)
-	}
-}
-
-// pprofIPWhitelist 返回一个 Gin 中间件，仅允许指定 IP/CIDR 列表内的 IP 访问 pprof。
-// 支持两种格式：纯 IP（如 127.0.0.1）和 CIDR（如 10.0.0.0/8）。
-// 如果传入的列表为空，使用默认内网段。
-func pprofIPWhitelist(cidrs []string) gin.HandlerFunc {
-	if len(cidrs) == 0 {
-		cidrs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "::1/128"}
-	}
-	ipNets := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		if _, ipNet, err := net.ParseCIDR(cidr); err == nil {
-			ipNets = append(ipNets, ipNet)
-		} else if ip := net.ParseIP(cidr); ip != nil {
-			// 纯 IP 自动转为 /32（IPv4）或 /128（IPv6）
-			mask := net.CIDRMask(32, 32)
-			if ip.To4() == nil {
-				mask = net.CIDRMask(128, 128)
-			}
-			ipNets = append(ipNets, &net.IPNet{IP: ip.Mask(mask), Mask: mask})
-		}
-	}
-	return func(c *gin.Context) {
-		realIP := c.ClientIP()
-		for _, ipNet := range ipNets {
-			if ipNet.Contains(net.ParseIP(realIP)) {
-				c.Next()
-				return
-			}
-		}
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("Forbidden: IP %s 不在白名单中", realIP)})
 	}
 }

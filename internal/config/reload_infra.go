@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/18721889353/sunshine/pkg/gocron"
+	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
 )
@@ -77,7 +78,7 @@ func reloadOpenCron(oldCfg, newCfg *Config) {
 
 // reloadHTTPTimeout HTTP 超时参数热更新回调。
 // 当 Nacos 配置中的 http.timeout/readTimeout/writeTimeout/readHeaderTimeout/idleTimeout 发生变更时，
-// 动态更新 http.Server 的超时字段，无需重启服务。
+// 动态更新 http.Server 的超时字段与 Gin 中间件请求超时，无需重启服务。
 // 注意：readTimeout 和 writeTimeout 优先使用独立配置，fallback 到 timeout 通用值。
 func reloadHTTPTimeout(oldCfg, newCfg *Config) {
 	ctx := context.Background()
@@ -94,20 +95,25 @@ func reloadHTTPTimeout(oldCfg, newCfg *Config) {
 		return
 	}
 
-	// 2. httpServerGetter 未注册时跳过更新
+	// 2. 更新 Gin 中间件请求超时（超时中间件每次请求读取全局值，与 http.Server 无关，始终可热更新）
+	if oldHTTP.Timeout != newHTTP.Timeout {
+		middleware.SetRequestTimeout(time.Duration(newHTTP.Timeout) * time.Second)
+	}
+
+	// 3. httpServerGetter 未注册时跳过更新
 	if httpServerGetter == nil {
 		logger.WarnWithCtx(ctx, "[config reload] httpServerGetter 未注册，跳过 HTTP 超时配置更新")
 		return
 	}
 
-	// 3. 获取 http.Server 实例，失败时跳过更新
+	// 4. 获取 http.Server 实例，失败时跳过更新
 	srv := httpServerGetter()
 	if srv == nil {
 		logger.WarnWithCtx(ctx, "[config reload] http.Server 实例为 nil，跳过 HTTP 超时配置更新")
 		return
 	}
 
-	// 4. 计算 readTimeout 和 writeTimeout（与 createService 逻辑一致：优先用 readTimeout/writeTimeout，fallback 到 timeout）
+	// 5. 计算 readTimeout 和 writeTimeout（与 createService 逻辑一致：优先用 readTimeout/writeTimeout，fallback 到 timeout）
 	newReadTimeout := newHTTP.Timeout
 	if newHTTP.ReadTimeout > 0 {
 		newReadTimeout = newHTTP.ReadTimeout
@@ -117,7 +123,7 @@ func reloadHTTPTimeout(oldCfg, newCfg *Config) {
 		newWriteTimeout = newHTTP.WriteTimeout
 	}
 
-	// 5. 逐个参数检查并动态更新 http.Server 超时字段
+	// 6. 逐个参数检查并动态更新 http.Server 超时字段
 	if oldHTTP.Timeout != newHTTP.Timeout || oldHTTP.ReadTimeout != newHTTP.ReadTimeout {
 		srv.ReadTimeout = time.Duration(newReadTimeout) * time.Second
 	}
@@ -132,6 +138,7 @@ func reloadHTTPTimeout(oldCfg, newCfg *Config) {
 	}
 
 	logger.InfoWithCtx(ctx, "[config reload] HTTP 超时配置已更新",
+		logger.Int("timeout", newHTTP.Timeout),
 		logger.Int("readTimeout", newReadTimeout),
 		logger.Int("writeTimeout", newWriteTimeout),
 		logger.Int("readHeaderTimeout", newHTTP.ReadHeaderTimeout),

@@ -16,7 +16,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
@@ -214,8 +213,8 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		interceptor.WithLogIgnoreMethods("/grpc.health.v1.Health/Check"), // 屏蔽健康检查日志
 	))
 
-	// token interceptor
-	if config.Get().Grpc.EnableToken {
+	// token interceptor（常驻装配，开关由 SetTokenEnabled 运行时控制）
+	{
 		grpcCfg := config.Get().Grpc
 		appID := grpcCfg.AppID
 		if appID == "" {
@@ -233,22 +232,19 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		}
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerToken(checkToken))
 	}
-	if config.Get().App.OpenJwt {
-		// jwt token interceptor
-		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
-			interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods.Grpc...),
-		))
-	}
+	// jwt token interceptor（常驻装配，开关由 SetJwtEnabled 运行时控制）
+	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
+		interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods.Grpc...),
+	))
 
-	if config.Get().App.OpenSign {
-		unaryServerInterceptors = append(
-			unaryServerInterceptors, interceptor.VerifySignatureInterceptor(
-				interceptor.WithSignKey(config.Get().Sign.SignKey),
-				interceptor.WithSignIgnoreMethods(config.Get().Sign.IgnoreUrls.Grpc...),
-				interceptor.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
-			),
-		)
-	}
+	// sign interceptor（常驻装配，开关由 SetSignEnabled 运行时控制）
+	unaryServerInterceptors = append(
+		unaryServerInterceptors, interceptor.VerifySignatureInterceptor(
+			interceptor.WithSignKey(config.Get().Sign.SignKey),
+			interceptor.WithSignIgnoreMethods(config.Get().Sign.IgnoreUrls.Grpc...),
+			interceptor.WithSignExpiredTime(time.Duration(config.Get().Sign.SignExpiredTime)*time.Second),
+		),
+	)
 
 	// metrics interceptor
 	if config.Get().App.EnableMetrics {
@@ -256,40 +252,51 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 		s.registerMetricsMuxAndMethodFunc = s.registerMetricsMuxAndMethod()
 	}
 
-	// limit interceptor
-	if config.Get().App.EnableLimit {
+	// limit interceptor（常驻装配，开关由 SetSentinelLimitEnabled 运行时控制，启动时开关关闭则不传规则）
+	{
 		var flowRules []*flow.Rule
-		for _, r := range config.Get().Sentinel.LimitRules {
-			flowRules = append(flowRules, &flow.Rule{
-				Resource:               r.Resource,
-				TokenCalculateStrategy: interceptor.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
-				ControlBehavior:        interceptor.ParseControlBehavior(r.ControlBehavior),
-				Threshold:              r.Threshold,
-				StatIntervalInMs:       uint32(r.StatIntervalInMs),
-			})
+		if config.Get().App.EnableLimit {
+			for _, r := range config.Get().Sentinel.LimitRules {
+				flowRules = append(flowRules, &flow.Rule{
+					Resource:               r.Resource,
+					TokenCalculateStrategy: interceptor.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
+					ControlBehavior:        interceptor.ParseControlBehavior(r.ControlBehavior),
+					Threshold:              r.Threshold,
+					StatIntervalInMs:       uint32(r.StatIntervalInMs),
+				})
+			}
 		}
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerRateLimit(
 			interceptor.WithSentinelFlowRules(flowRules),
 		))
 	}
 
-	// circuit breaker interceptor
-	if config.Get().App.EnableCircuitBreaker {
+	// circuit breaker interceptor（常驻装配，开关由 SetSentinelBreakerEnabled 运行时控制，启动时开关关闭则不传规则）
+	{
 		var breakerRules []*circuitbreaker.Rule
-		for _, r := range config.Get().Sentinel.BreakerRules {
-			breakerRules = append(breakerRules, &circuitbreaker.Rule{
-				Resource:         r.Resource,
-				Strategy:         interceptor.ParseBreakerStrategy(r.Strategy),
-				RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
-				MinRequestAmount: uint64(r.MinRequestAmount),
-				StatIntervalMs:   uint32(r.StatIntervalMs),
-				Threshold:        r.Threshold,
-			})
+		if config.Get().App.EnableCircuitBreaker {
+			for _, r := range config.Get().Sentinel.BreakerRules {
+				breakerRules = append(breakerRules, &circuitbreaker.Rule{
+					Resource:         r.Resource,
+					Strategy:         interceptor.ParseBreakerStrategy(r.Strategy),
+					RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
+					MinRequestAmount: uint64(r.MinRequestAmount),
+					StatIntervalMs:   uint32(r.StatIntervalMs),
+					Threshold:        r.Threshold,
+				})
+			}
 		}
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerCircuitBreaker(
 			interceptor.WithSentinelCircuitBreakerRules(breakerRules),
 		))
 	}
+
+	// 初始化拦截器开关（常驻装配后的必要步骤，与启动配置保持一致）
+	interceptor.SetTokenEnabled(config.Get().Grpc.EnableToken)
+	interceptor.SetJwtEnabled(config.Get().App.OpenJwt)
+	interceptor.SetSignEnabled(config.Get().App.OpenSign)
+	interceptor.SetSentinelLimitEnabled(config.Get().App.EnableLimit)
+	interceptor.SetSentinelBreakerEnabled(config.Get().App.EnableCircuitBreaker)
 
 	return grpc.ChainUnaryInterceptor(unaryServerInterceptors...)
 }
@@ -314,8 +321,8 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 	// logger interceptor, to print simple messages, replace interceptor.StreamServerLog with interceptor.StreamServerSimpleLog
 	streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerLog())
 
-	// token interceptor
-	if config.Get().Grpc.EnableToken {
+	// token interceptor（常驻装配，开关由 SetTokenEnabled 运行时控制）
+	{
 		grpcCfg := config.Get().Grpc
 		appID := grpcCfg.AppID
 		if appID == "" {
@@ -339,40 +346,52 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 		streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerMetrics())
 	}
 
-	// limit interceptor
-	if config.Get().App.EnableLimit {
+	// limit interceptor（常驻装配，开关由 SetSentinelLimitEnabled 运行时控制，启动时开关关闭则不传规则）
+	{
 		var flowRules []*flow.Rule
-		for _, r := range config.Get().Sentinel.LimitRules {
-			flowRules = append(flowRules, &flow.Rule{
-				Resource:               r.Resource,
-				TokenCalculateStrategy: interceptor.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
-				ControlBehavior:        interceptor.ParseControlBehavior(r.ControlBehavior),
-				Threshold:              r.Threshold,
-				StatIntervalInMs:       uint32(r.StatIntervalInMs),
-			})
+		if config.Get().App.EnableLimit {
+			for _, r := range config.Get().Sentinel.LimitRules {
+				flowRules = append(flowRules, &flow.Rule{
+					Resource:               r.Resource,
+					TokenCalculateStrategy: interceptor.ParseTokenCalculateStrategy(r.TokenCalculateStrategy),
+					ControlBehavior:        interceptor.ParseControlBehavior(r.ControlBehavior),
+					Threshold:              r.Threshold,
+					StatIntervalInMs:       uint32(r.StatIntervalInMs),
+				})
+			}
 		}
 		streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerRateLimit(
 			interceptor.WithSentinelFlowRules(flowRules),
 		))
 	}
 
-	// circuit breaker interceptor
-	if config.Get().App.EnableCircuitBreaker {
+	// circuit breaker interceptor（常驻装配，开关由 SetSentinelBreakerEnabled 运行时控制，启动时开关关闭则不传规则）
+	{
 		var breakerRules []*circuitbreaker.Rule
-		for _, r := range config.Get().Sentinel.BreakerRules {
-			breakerRules = append(breakerRules, &circuitbreaker.Rule{
-				Resource:         r.Resource,
-				Strategy:         interceptor.ParseBreakerStrategy(r.Strategy),
-				RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
-				MinRequestAmount: uint64(r.MinRequestAmount),
-				StatIntervalMs:   uint32(r.StatIntervalMs),
-				Threshold:        r.Threshold,
-			})
+		if config.Get().App.EnableCircuitBreaker {
+			for _, r := range config.Get().Sentinel.BreakerRules {
+				breakerRules = append(breakerRules, &circuitbreaker.Rule{
+					Resource:         r.Resource,
+					Strategy:         interceptor.ParseBreakerStrategy(r.Strategy),
+					RetryTimeoutMs:   uint32(r.RetryTimeoutMs),
+					MinRequestAmount: uint64(r.MinRequestAmount),
+					StatIntervalMs:   uint32(r.StatIntervalMs),
+					Threshold:        r.Threshold,
+				})
+			}
 		}
 		streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerCircuitBreaker(
 			interceptor.WithSentinelCircuitBreakerRules(breakerRules),
 		))
 	}
+
+	// 初始化拦截器开关（常驻装配后的必要步骤，与启动配置保持一致；
+	// 必须在 stream 拦截器创建之后执行，因为创建时会默认 Store(true)，否则会覆盖 unary 侧已设置的初始值）
+	interceptor.SetTokenEnabled(config.Get().Grpc.EnableToken)
+	interceptor.SetJwtEnabled(config.Get().App.OpenJwt)
+	interceptor.SetSignEnabled(config.Get().App.OpenSign)
+	interceptor.SetSentinelLimitEnabled(config.Get().App.EnableLimit)
+	interceptor.SetSentinelBreakerEnabled(config.Get().App.EnableCircuitBreaker)
 
 	return grpc.ChainStreamInterceptor(streamServerInterceptors...)
 }
@@ -429,7 +448,7 @@ func (s *grpcServer) registerProfMux() {
 
 	pprofOpts := []prof.HTTPOption{prof.WithIOWaitTime()}
 	if config.Get().App.Env == "prod" {
-		pprofOpts = append(pprofOpts, prof.WithAuth(pprofIPWhitelist(config.Get().App.PprofIPWhiteList)))
+		pprofOpts = append(pprofOpts, prof.WithAuth(config.PprofIPWhitelist(config.Get().App.PprofIPWhiteList)))
 	}
 	prof.Register(s.mux, pprofOpts...)
 	// 根据配置设置初始开关状态
@@ -487,61 +506,4 @@ func NewGRPCServer(addr string, opts ...GrpcOption) app.IServer {
 	s.server = grpc.NewServer(s.getOptions()...)
 	service.RegisterAllService(s.server)
 	return s
-}
-
-// pprofIPWhitelist 返回 HTTP 中间件，仅允许指定 IP/CIDR 列表内的 IP 访问 pprof。
-//
-// 支持两种格式：纯 IP（如 127.0.0.1）和 CIDR（如 10.0.0.0/8）。
-// 如果传入的列表为空，使用默认内网段（10.0.0.0/8、172.16.0.0/12、192.168.0.0/16）。
-//
-// 参数:
-//   - cidrs: IP/CIDR 白名单列表。
-//
-// 返回值:
-//   - func(http.Handler) http.Handler: HTTP 中间件处理函数。
-func pprofIPWhitelist(cidrs []string) func(http.Handler) http.Handler {
-	if len(cidrs) == 0 {
-		cidrs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
-	}
-	ipNets := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		if _, ipNet, err := net.ParseCIDR(cidr); err == nil {
-			ipNets = append(ipNets, ipNet)
-		} else if ip := net.ParseIP(cidr); ip != nil {
-			mask := net.CIDRMask(32, 32)
-			if ip.To4() == nil {
-				mask = net.CIDRMask(128, 128)
-			}
-			ipNets = append(ipNets, &net.IPNet{IP: ip.Mask(mask), Mask: mask})
-		}
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// 优先从 X-Forwarded-For 和 X-Real-IP 获取真实客户端 IP
-			// 兼容网关代理场景（Nginx、Kong、API Gateway 等）
-			realIP := r.Header.Get("X-Real-IP")
-			if realIP == "" {
-				if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-					if i := strings.IndexByte(xff, ','); i > 0 {
-						realIP = strings.TrimSpace(xff[:i])
-					} else {
-						realIP = strings.TrimSpace(xff)
-					}
-				}
-			}
-			if realIP == "" {
-				realIP = r.RemoteAddr
-				if host, _, err := net.SplitHostPort(realIP); err == nil {
-					realIP = host
-				}
-			}
-			for _, ipNet := range ipNets {
-				if ipNet.Contains(net.ParseIP(realIP)) {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-			http.Error(w, fmt.Sprintf("Forbidden: IP %s 不在白名单中", realIP), http.StatusForbidden)
-		})
-	}
 }
