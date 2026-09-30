@@ -1,9 +1,13 @@
 // Package gohttp 提供企业级高可用 HTTP 客户端封装。
 // 深度集成了高性能连接池优化、指数退避重试、链路追踪透传、自定义TLS证书、
 // SSRF防护、熔断器、优雅关闭等企业级特性。
+//
+// 构造约定：New 在构造期完成全部配置校验与证书装配，非法配置返回错误
+// （对齐 pkg/nacoscli NewConfigClient、pkg/goredis Init 的快速失败模式）。
 package gohttp
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -12,17 +16,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/18721889353/sunshine/pkg/logger"
@@ -46,6 +47,8 @@ var (
 	ErrSSRFBlocked = errors.New("gohttp: request blocked due to SSRF protection")
 	// ErrCircuitBreakerOpen 熔断器打开的错误
 	ErrCircuitBreakerOpen = errors.New("gohttp: circuit breaker is open")
+	// ErrRequestTooLarge 请求体超过 WithRequestSizeLimit 上限的错误
+	ErrRequestTooLarge = errors.New("gohttp: request body too large")
 )
 
 // contextKey 类型定义，用于避免基本类型作为 context key 的问题
@@ -64,14 +67,13 @@ type Client struct {
 	mu        sync.RWMutex    // 保护动态配置更新
 	config    clientConfig    // 客户端配置快照
 	tracer    trace.Tracer    // OpenTelemetry tracer
+	breaker   *circuitBreaker // 熔断器（未启用时为 nil，方法 nil 安全）
+	sizeLimit int64           // 请求体上限（未启用时为 0）
 }
 
-// clientConfig 内部配置结构
+// clientConfig 内部配置结构（运行期可变的少量快照，受 mu 保护）
 type clientConfig struct {
-	timeout                 time.Duration
-	maxRetries              int
-	enableCircuitBreaker    bool
-	circuitBreakerThreshold int
+	timeout time.Duration
 }
 
 // Response 封装标准响应，解耦底层框架
@@ -81,6 +83,7 @@ type Response struct {
 
 // Request 请求构建器
 type Request struct {
+	c   *Client
 	req *resty.Request
 }
 
@@ -95,15 +98,18 @@ func (e *ErrorResponse) Error() string {
 	return fmt.Sprintf("gohttp: request failed with status code %d, message: %s", e.StatusCode, e.Message)
 }
 
-// Option 客户端配置选项
-type Option func(*Client)
+// New 创建符合大厂生产标准的高可用 HTTP 客户端。
+// 配置非法（越界数值/非法协议/证书文件缺失等）时返回错误，此时不会返回可用客户端。
+func New(opts ...Option) (*Client, error) {
+	// 1. 解析并校验配置（构造期快速失败，杜绝非法值被 resty 静默接受）
+	o := defaultOptions()
+	o.apply(opts...)
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
 
-// New 创建符合大厂生产标准的高可用 HTTP 客户端
-func New(opts ...Option) *Client {
-	client := resty.New()
-
-	// 1. 默认高性能连接池及网络配置（防御高并发下产生大量 TIME_WAIT 导致端口枯竭）
-	defaultTransport := &http.Transport{
+	// 2. 默认高性能连接池及网络配置（防御高并发下产生大量 TIME_WAIT 导致端口枯竭）
+	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second, // TCP 建立连接超时
@@ -114,32 +120,76 @@ func New(opts ...Option) *Client {
 		IdleConnTimeout:       90 * time.Second,       // 空闲连接回收时间
 		TLSHandshakeTimeout:   10 * time.Second,       // TLS 握手超时
 		ExpectContinueTimeout: 1 * time.Second,
-		TLSClientConfig:       &tls.Config{}, // 初始化默认 TLS 容器
 	}
-	client.SetTransport(defaultTransport)
-
-	c := &Client{
-		cli:       client,
-		transport: defaultTransport,
-		config: clientConfig{
-			timeout:                 DefaultTimeout,
-			maxRetries:              DefaultMaxRetries,
-			enableCircuitBreaker:    false,
-			circuitBreakerThreshold: 5,
-		},
-		tracer: otel.Tracer("gohttp"), // 初始化 tracer
+	if o.transportSet && o.transport != nil {
+		transport = o.transport
 	}
 
-	// 2. 默认高可用重试与超时配置
-	c.cli.SetTimeout(DefaultTimeout)
-	c.cli.SetRetryCount(DefaultMaxRetries)
-	c.cli.SetRetryWaitTime(DefaultMinRetryWait)
-	c.cli.SetRetryMaxWaitTime(DefaultMaxRetryWait)
-	c.cli.SetRedirectPolicy(resty.NoRedirectPolicy())
-	c.cli.SetContentLength(true)
+	// 3. TLS 配置装配（克隆后修改，避免污染调用方持有的 tls.Config）
+	tlsCfg := &tls.Config{}
+	if transport.TLSClientConfig != nil {
+		// Clone 而非值拷贝：tls.Config 内含 sync.RWMutex，值拷贝会被 go vet copylocks 拒绝
+		tlsCfg = transport.TLSClientConfig.Clone()
+	}
+	transport.TLSClientConfig = tlsCfg
 
-	// 3. 智能退避重试过滤器：物理网络故障 + 偶发性特定状态码（502/503/504/429）自动重试
-	c.cli.AddRetryCondition(func(r *resty.Response, err error) bool {
+	// 3.1 注入根证书：与系统根证书池**合并**（原实现直接赋值会丢弃系统信任链，
+	// 导致注入自签 CA 后所有公网 HTTPS 证书校验失败）
+	if o.rootCASet {
+		pemCerts, err := os.ReadFile(o.rootCAPath)
+		if err != nil {
+			return nil, fmt.Errorf("gohttp: 读取根证书文件 %q 失败: %w", o.rootCAPath, err)
+		}
+		rootCAs, err := x509.SystemCertPool()
+		if err != nil || rootCAs == nil {
+			rootCAs = x509.NewCertPool()
+		}
+		if !rootCAs.AppendCertsFromPEM(pemCerts) {
+			return nil, fmt.Errorf("gohttp: 根证书文件 %q 中没有可解析的 PEM 证书", o.rootCAPath)
+		}
+		tlsCfg.RootCAs = rootCAs
+	}
+
+	// 3.2 注入客户端证书（mTLS）
+	if o.clientCertSet {
+		cert, err := tls.LoadX509KeyPair(o.certPath, o.keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("gohttp: 加载客户端证书 %q 与私钥 %q 失败: %w", o.certPath, o.keyPath, err)
+		}
+		tlsCfg.Certificates = []tls.Certificate{cert}
+	}
+
+	// 3.3 跳过证书验证（仅开发/测试环境）
+	if o.insecureSkip {
+		tlsCfg.InsecureSkipVerify = true
+	}
+
+	// 3.4 SSRF 双层防护（IP 字面量拨号拦截 + 域名解析结果校验）
+	if o.ssrf {
+		applySSRFProtection(transport)
+	}
+
+	// 4. 构建 resty 客户端
+	restyClient := resty.New()
+	restyClient.SetTransport(transport)
+	restyClient.SetTimeout(o.timeout)
+	restyClient.SetRetryCount(o.retryCount)
+	restyClient.SetRetryWaitTime(o.retryWait)
+	restyClient.SetRetryMaxWaitTime(o.retryMax)
+	restyClient.SetRedirectPolicy(resty.NoRedirectPolicy())
+	restyClient.SetContentLength(true)
+	if o.baseURLSet {
+		restyClient.SetBaseURL(o.baseURL)
+	}
+	if o.proxySet {
+		restyClient.SetProxy(o.proxy) // 空字符串等价于清除代理
+	}
+	if o.debug {
+		restyClient.SetDebug(true)
+	}
+
+	// 4.1 智能退避重试过滤器：物理网络故障 + 偶发性特定状态码（502/503/504/429）自动重试
+	restyClient.AddRetryCondition(func(r *resty.Response, err error) bool {
 		if err != nil {
 			return true // 物理网络故障（如 DNS 解析失败、连接超时等）
 		}
@@ -150,96 +200,79 @@ func New(opts ...Option) *Client {
 			sc == http.StatusTooManyRequests
 	})
 
-	// 4. 企业级链路可观测性与中间件注入
-	c.setupMiddlewares()
-
-	// 5. 应用自定义修改（通过 Functional Options）
-	for _, opt := range opts {
-		opt(c)
+	// 5. TracerProvider：优先使用注入的实现（接口，nil/typed nil 回退全局）
+	tracer := otel.Tracer("gohttp")
+	if isUsableTracerProvider(o.tracerProvider) {
+		tracer = o.tracerProvider.Tracer("gohttp")
 	}
 
-	return c
+	c := &Client{
+		cli:       restyClient,
+		transport: transport,
+		config: clientConfig{
+			timeout: o.timeout,
+		},
+		tracer:    tracer,
+		sizeLimit: o.sizeLimit,
+	}
+	if o.breakerSet {
+		c.breaker = newCircuitBreaker(o.breakerThreshold, defaultCircuitBreakerCooldown)
+	}
+
+	// 6. 企业级链路可观测性与中间件注入
+	c.setupMiddlewares()
+
+	return c, nil
 }
 
-// setupMiddlewares 注册拦截中间件（可观测性与健壮性防护）
+// setupMiddlewares 注册拦截中间件（可观测性与健壮性防护，实现见 tracing.go）
 func (c *Client) setupMiddlewares() {
-	// Request 拦截器：统一注入 TraceID 和公共 Header 审计，并创建 Span
-	c.cli.OnBeforeRequest(func(_ *resty.Client, req *resty.Request) error {
-		ctx := req.Context()
-		if ctx == nil {
-			ctx = context.Background()
-		}
+	// Request 拦截器：创建 Span、注入传播头、执行熔断/大小守卫
+	c.cli.OnBeforeRequest(c.onBeforeRequest)
+	// Response 拦截器：记录响应状态（Span 的 End 统一由 do() 兜底收尾）
+	c.cli.OnAfterResponse(c.onAfterResponse)
+	// 重试钩子：为 transport 失败的中间 attempt 补记错误状态
+	c.cli.AddRetryHook(c.onRetryAttempt)
+}
 
-		// 从 context 中提取现有的 trace context
-		carrier := propagation.MapCarrier{}
-		extractedCtx := otel.GetTextMapPropagator().Extract(ctx, carrier)
-
-		// 创建 HTTP 客户端 Span
-		method := req.Method
-		urlStr := req.URL
-		spanName := fmt.Sprintf("HTTP %s", method)
-
-		spanCtx, span := c.tracer.Start(extractedCtx, spanName,
-			trace.WithSpanKind(trace.SpanKindClient),
-			trace.WithAttributes(
-				attribute.String("http.method", method),
-				attribute.String("http.url", urlStr),
-				attribute.String("http.scheme", "https"),
-				requestIDAttr(ctx),
-			),
-		)
-
-		// 将新的 span context 注入到请求头中
-		otel.GetTextMapPropagator().Inject(spanCtx, propagation.HeaderCarrier(req.Header))
-
-		// 存储 span 到 request 的 user data 中，以便在响应时使用
-		req.SetContext(context.WithValue(spanCtx, httpSpanContextKey, span))
-
-		// 尝试从 context 中自动捞出分布式链路追踪 TraceID（兼容旧逻辑）
-		if traceID, ok := ctx.Value(traceIDContextKey).(string); ok && traceID != "" {
-			req.SetHeader("X-Trace-ID", traceID)
-		}
-
-		req.SetHeader("User-Agent", "Golang-GoHttp-Enterprise/v2.0")
+// checkSizeLimit 校验请求体大小（发送前拦截，超过上限返回包裹 ErrRequestTooLarge 的错误）。
+//
+// 实现说明（历史缺陷修复）：resty 的**用户自定义** OnBeforeRequest 中间件先于其内置的
+// parseRequestBody/createHTTPRequest 执行（见 resty client.go execute：udBeforeRequest
+// 循环在 beforeRequest 循环之前），拦截点上 req.RawRequest 尚未创建——原实现读
+// RawRequest.ContentLength 恒为 nil，上限从未生效。现按 resty Request.Body 的具体类型
+// 估算字节数：nil/[]byte/string/*bytes.Buffer/*bytes.Reader/*strings.Reader 长度已知可比对；
+// 其他类型（含 io.Reader 流式体、待序列化的 struct）无法预知，不拦截（边界与
+// WithRequestSizeLimit 注释一致，单一事实源在本函数）。
+func (c *Client) checkSizeLimit(req *resty.Request) error {
+	if c.sizeLimit <= 0 || req == nil {
 		return nil
-	})
-
-	// Response 拦截器：记录响应状态并完成 Span
-	c.cli.OnAfterResponse(func(_ *resty.Client, resp *resty.Response) error {
-		ctx := resp.Request.Context()
-		if ctx == nil {
-			return nil
-		}
-
-		// 从 context 中获取 span
-		if spanVal := ctx.Value(httpSpanContextKey); spanVal != nil {
-			if span, ok := spanVal.(trace.Span); ok {
-				defer span.End()
-
-				statusCode := resp.StatusCode()
-				span.SetAttributes(
-					attribute.Int("http.status_code", statusCode),
-					attribute.Int64("http.response_content_length", resp.Size()),
-				)
-
-				// 根据状态码设置 span 状态
-				if statusCode >= 400 {
-					span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", statusCode))
-					span.RecordError(fmt.Errorf("http request failed with status %d", statusCode))
-				} else {
-					span.SetStatus(codes.Ok, "")
-				}
-
-				span.AddEvent("response received",
-					trace.WithAttributes(
-						attribute.Int("http.status_code", statusCode),
-						attribute.Int64("http.response_content_length", resp.Size()),
-					),
-				)
-			}
-		}
+	}
+	size, known := bodySize(req.Body)
+	if !known || size <= c.sizeLimit {
 		return nil
-	})
+	}
+	return fmt.Errorf("gohttp: 请求体 %d 字节超过上限 %d 字节: %w", size, c.sizeLimit, ErrRequestTooLarge)
+}
+
+// bodySize 估算请求体字节数；第二个返回值表示长度是否可知
+func bodySize(body interface{}) (int64, bool) {
+	switch b := body.(type) {
+	case nil:
+		return 0, true
+	case []byte:
+		return int64(len(b)), true
+	case string:
+		return int64(len(b)), true
+	case *bytes.Buffer:
+		return int64(b.Len()), true
+	case *bytes.Reader:
+		return int64(b.Len()), true
+	case *strings.Reader:
+		return int64(b.Len()), true
+	default:
+		return 0, false
+	}
 }
 
 // Request 获取绑定了上下文生命周期的请求构建器
@@ -247,13 +280,7 @@ func (c *Client) Request(ctx context.Context) *Request {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	// 引入 Panic 安全恢复防护，防止因极端响应引发核心进程中断
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "[gohttp Panic Recovered]: %v\n%s", r, string(debug.Stack()))
-		}
-	}()
-	return &Request{req: c.cli.R().SetContext(ctx)}
+	return &Request{c: c, req: c.cli.R().SetContext(ctx)}
 }
 
 // ========== 链式配置方法 ==========
@@ -311,22 +338,84 @@ func (r *Request) Delete(requestURL string) (*Response, error) { return r.do("DE
 // Patch 发起PATCH请求
 func (r *Request) Patch(requestURL string) (*Response, error) { return r.do("PATCH", requestURL) }
 
-func (r *Request) do(method, requestURL string) (*Response, error) {
-	resp, err := r.req.Execute(method, requestURL)
-	if err != nil {
-		return nil, fmt.Errorf("gohttp: transport layer execution failed: %w", err)
-	}
+// do HTTP 请求执行主体：负责 panic 恢复、错误脱敏、熔断计数与 Span 统一收尾。
+//
+// 收尾顺序（defer LIFO）：recover 先于 finish 执行，保证 panic 被转成错误后
+// finish 仍能看到最终错误并把 Span 标记为 Error，不会留下永不 End 的 Span。
+func (r *Request) do(method, requestURL string) (resp *Response, err error) {
+	defer func() {
+		r.finish(err)
+	}()
 
-	// 统一拦截非 2xx 业务错误，将其包装为强类型结构返回
-	if resp.IsError() {
-		return &Response{resp: resp}, &ErrorResponse{
-			StatusCode: resp.StatusCode(),
-			Message:    resp.Status(),
-			Body:       resp.Body(),
+	// Panic 安全恢复防护：resty 执行链上的 panic 转为错误返回，防止进程中断。
+	// （原实现把 recover 放在 Request() 中，其函数体内几乎不会 panic，防护形同虚设）
+	defer func() {
+		if rec := recover(); rec != nil {
+			resp = nil
+			err = fmt.Errorf("gohttp: 请求执行期间发生 panic 已恢复: %v", rec)
+			logger.ErrorWithCtx(r.req.Context(),
+				fmt.Sprintf("gohttp: 请求执行期间发生 panic 已恢复: %v", rec),
+				logger.String("stack", string(debug.Stack())))
+		}
+	}()
+
+	restyResp, execErr := r.req.Execute(method, requestURL)
+	if execErr != nil {
+		// transport 层错误：URL 中的 userinfo 密码与敏感 query 参数脱敏后对外呈现，
+		// 错误链通过 redactedError.Unwrap 保留（errors.Is/As 可穿透）
+		return nil, &redactedError{
+			err: execErr,
+			msg: "gohttp: transport layer execution failed: " + redactURL(execErr.Error()),
 		}
 	}
 
-	return &Response{resp: resp}, nil
+	// 统一拦截非 2xx 业务错误，将其包装为强类型结构返回
+	if restyResp.IsError() {
+		return &Response{resp: restyResp}, &ErrorResponse{
+			StatusCode: restyResp.StatusCode(),
+			Message:    restyResp.Status(),
+			Body:       restyResp.Body(),
+		}
+	}
+
+	return &Response{resp: restyResp}, nil
+}
+
+// finish 一次请求的最终收尾：熔断计数 + 全部 Span 兜底 End。只由 do() 调用。
+//
+// 熔断计数口径（一次 do() 调用计一次，内部重试不拆分）：
+//   - 本地拒绝（熔断打开/大小超限/调用方取消上下文）不计入，它们不代表下游故障
+//   - 4xx（含 422/404/429）记为成功：下游可达，故障在调用方
+//   - transport 错误与 5xx 记为失败
+func (r *Request) finish(err error) {
+	if r.c.breaker != nil && !isLocalRejection(err) {
+		var httpErr *ErrorResponse
+		switch {
+		case err == nil:
+			r.c.breaker.onSuccess()
+		case errors.As(err, &httpErr) && httpErr.StatusCode < 500:
+			r.c.breaker.onSuccess()
+		default:
+			r.c.breaker.onFailure()
+		}
+	}
+
+	tracker, ok := r.req.Context().Value(httpSpanContextKey).(*trackedSpanList)
+	if !ok || tracker == nil {
+		return
+	}
+	if err != nil {
+		tracker.finishAllError(err)
+	} else {
+		tracker.endAll()
+	}
+}
+
+// isLocalRejection 判断错误是否属于「本端主动拒绝」而非下游故障
+func isLocalRejection(err error) bool {
+	return errors.Is(err, ErrCircuitBreakerOpen) ||
+		errors.Is(err, ErrRequestTooLarge) ||
+		errors.Is(err, context.Canceled)
 }
 
 // ========== 响应解耦层 ==========
@@ -354,174 +443,10 @@ func (r *Response) JSON(v interface{}) error {
 	return json.Unmarshal(r.resp.Body(), v)
 }
 
-// ========== 函数式配置选项（Functional Options） ==========
-
-// WithBaseURL 设置基础URL
-func WithBaseURL(baseURL string) Option {
-	return func(c *Client) { c.cli.SetBaseURL(baseURL) }
-}
-
-// WithTimeout 设置请求超时时间
-func WithTimeout(timeout time.Duration) Option {
-	return func(c *Client) { c.cli.SetTimeout(timeout) }
-}
-
-// WithRetry 配置重试策略
-func WithRetry(count int, minWait, maxWait time.Duration) Option {
-	return func(c *Client) {
-		c.cli.SetRetryCount(count)
-		c.cli.SetRetryWaitTime(minWait)
-		c.cli.SetRetryMaxWaitTime(maxWait)
-	}
-}
-
-// WithTransport 自定义传输层
-func WithTransport(t *http.Transport) Option {
-	return func(c *Client) {
-		if t != nil {
-			c.transport = t
-			c.cli.SetTransport(t)
-		}
-	}
-}
-
-// WithDebug 启用调试模式
-func WithDebug(enable bool) Option {
-	return func(c *Client) { c.cli.SetDebug(enable) }
-}
-
-// WithProxy 设置代理
-func WithProxy(proxyURL string) Option {
-	return func(c *Client) { c.cli.SetProxy(proxyURL) }
-}
-
-// WithRootCA 注入私有/自签名 CA 证书（解决单向认证下自签名证书授信问题）
-func WithRootCA(caPath string) Option {
-	return func(c *Client) {
-		pemCerts, err := os.ReadFile(caPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[gohttp Config Error] failed to read root CA file: %v\n", err)
-			return
-		}
-		cp := x509.NewCertPool()
-		if cp.AppendCertsFromPEM(pemCerts) {
-			if c.transport.TLSClientConfig == nil {
-				c.transport.TLSClientConfig = &tls.Config{}
-			}
-			c.transport.TLSClientConfig.RootCAs = cp
-		}
-	}
-}
-
-// WithClientCert 注入客户端证书与私钥（用于双向 TLS/mTLS 核心安全认证）
-func WithClientCert(certPath, keyPath string) Option {
-	return func(c *Client) {
-		cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[gohttp Config Error] failed to load client key pair: %v\n", err)
-			return
-		}
-		if c.transport.TLSClientConfig == nil {
-			c.transport.TLSClientConfig = &tls.Config{}
-		}
-		c.transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
-	}
-}
-
-// ========== 新增企业级特性 ==========
-
-// WithSSRFProtection 启用SSRF防护（阻止访问内网地址）
-func WithSSRFProtection() Option {
-	return func(c *Client) {
-		originalDial := c.transport.DialContext
-		c.transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// 解析目标地址
-			host, _, err := net.SplitHostPort(addr)
-			if err != nil {
-				host = addr
-			}
-
-			// 检查是否为内网地址
-			if ip := net.ParseIP(host); ip != nil {
-				if isPrivateIP(ip) {
-					return nil, ErrSSRFBlocked
-				}
-			}
-
-			return originalDial(ctx, network, addr)
-		}
-	}
-}
-
-// isPrivateIP 检查是否为私有IP地址
-func isPrivateIP(ip net.IP) bool {
-	// 本地回环地址
-	if ip.IsLoopback() {
-		return true
-	}
-	// 链路本地地址
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-	// 私有地址段
-	privateBlocks := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"100.64.0.0/10",
-		"169.254.0.0/16",
-	}
-	for _, block := range privateBlocks {
-		_, cidr, err := net.ParseCIDR(block)
-		if err == nil && cidr.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
-
-// WithCircuitBreaker 启用简易熔断器（防止雪崩效应）
-func WithCircuitBreaker(threshold int) Option {
-	return func(c *Client) {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.config.enableCircuitBreaker = true
-		c.config.circuitBreakerThreshold = threshold
-
-		// 添加响应后拦截器，记录失败率
-		c.cli.OnAfterResponse(func(_ *resty.Client, _ *resty.Response) error {
-			// 这里可以集成真实的熔断器逻辑（如sony/gobreaker）
-			// 当前为简化实现，仅作为扩展点
-			return nil
-		})
-	}
-}
-
-// WithRequestSizeLimit 限制请求体大小（防止超大请求）
-func WithRequestSizeLimit(_ int64) Option {
-	return func(c *Client) {
-		c.cli.OnBeforeRequest(func(_ *resty.Client, req *resty.Request) error {
-			if req.Body != nil {
-				// 这里需要在实际发送前检查，Resty本身不直接支持
-				// 可以在业务层通过中间件实现
-				return nil
-			}
-			return nil
-		})
-	}
-}
-
-// WithInsecureSkipVerify 跳过 HTTPS 证书验证（仅用于开发/测试环境，生产环境不建议使用）
-func WithInsecureSkipVerify() Option {
-	return func(c *Client) {
-		if c.transport.TLSClientConfig == nil {
-			c.transport.TLSClientConfig = &tls.Config{}
-		}
-		c.transport.TLSClientConfig.InsecureSkipVerify = true
-	}
-}
+// ========== 运行期管理 ==========
 
 // GetConnectionPoolStats 获取连接池统计信息
+// 并发安全：内部持有读锁（返回的是配置值快照，非实时连接数）
 func (c *Client) GetConnectionPoolStats() map[string]int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -533,74 +458,43 @@ func (c *Client) GetConnectionPoolStats() map[string]int {
 	return stats
 }
 
-// Close 优雅关闭客户端（释放所有连接资源）
+// Close 优雅关闭客户端（释放所有连接资源）。幂等，可重复调用。
 func (c *Client) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.transport.CloseIdleConnections()
 }
 
-// UpdateTimeout 动态更新超时时间（无需重建客户端）
+// UpdateTimeout 动态更新超时时间（无需重建客户端）。
+// 并发约束：内部修改 resty 客户端字段，应在无在途请求时调用（如启动阶段或排空后），
+// 与在途请求并发存在数据竞争。
 func (c *Client) UpdateTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.config.timeout = timeout
 	c.cli.SetTimeout(timeout)
 }
 
-// UpdateInsecureSkipVerify 动态更新是否跳过 HTTPS 证书验证（无需重建客户端）
-// 仅用于开发/测试环境，生产环境不建议使用
+// UpdateInsecureSkipVerify 动态更新是否跳过 HTTPS 证书验证（无需重建客户端）。
+// 仅用于开发/测试环境，生产环境不建议使用。
+// 并发约束：直接修改 TLS 配置结构，应在无在途请求时调用，与在途请求并发存在数据竞争。
 func (c *Client) UpdateInsecureSkipVerify(insecure bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.transport.TLSClientConfig == nil {
 		c.transport.TLSClientConfig = &tls.Config{}
 	}
-	c.transport.TLSClientConfig.InsecureSkipVerify = insecure
+	// Clone 后替换，避免修改共享的 tls.Config 结构体（内含锁，禁止值拷贝）
+	clone := c.transport.TLSClientConfig.Clone()
+	clone.InsecureSkipVerify = insecure
+	c.transport.TLSClientConfig = clone
 }
 
-// requestIDAttr 从 context 中提取 request_id 并返回 span 属性键值对。
-func requestIDAttr(ctx context.Context) attribute.KeyValue {
-	if ctx != nil {
-		if reqID, ok := ctx.Value(logger.ContextKeyRequestID).(string); ok && reqID != "" {
-			return attribute.String("http.request_id", reqID)
-		}
-	}
-	return attribute.String("http.request_id", "")
-}
-
-// ValidateURL 校验URL合法性并防止重定向攻击
-func ValidateURL(rawURL string) error {
-	if rawURL == "" {
-		return errors.New("URL cannot be empty")
-	}
-
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
-	}
-
-	// 只允许http和https协议
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("unsupported scheme: %s (only http and https allowed)", u.Scheme)
-	}
-
-	// 检查主机部分
-	if u.Hostname() == "" {
-		return errors.New("hostname cannot be empty")
-	}
-
-	// 如果主机是IP，检查是否为内网
-	if ip := net.ParseIP(u.Hostname()); ip != nil {
-		if isPrivateIP(ip) {
-			return ErrSSRFBlocked
-		}
-	}
-
-	return nil
-}
-
-// NewRequestWithValidation 创建带URL校验的请求构建器
+// NewRequestWithValidation 创建带URL校验的请求构建器。
+// 注意：ValidateURL 只做字面量校验，域名指向内网需在 New 时启用 WithSSRFProtection。
 func (c *Client) NewRequestWithValidation(ctx context.Context, _, requestURL string) (*Request, error) {
 	if err := ValidateURL(requestURL); err != nil {
 		return nil, err

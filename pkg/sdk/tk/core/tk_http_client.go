@@ -120,8 +120,16 @@ func GetHTTPClient() *TkHTTPClient {
 		// SSRF 防护：防止访问内网地址（生产环境建议启用）
 		// opts = append(opts, gohttp.WithSSRFProtection())
 
-		// 使用 gohttp 创建企业级 HTTP 客户端
-		globalClient = gohttp.New(opts...)
+		// 使用 gohttp 创建企业级 HTTP 客户端。
+		// New 返回 (*Client, error)：配置非法（如超时非正数）时构造期快速失败；
+		// GetHTTPClient 无 error 返回且为 sync.Once 单例，故此处记日志后 panic，
+		// 确保启动期即暴露配置错误，而不是带着坏配置继续运行
+		client, err := gohttp.New(opts...)
+		if err != nil {
+			logger.ErrorWithCtx(context.Background(), "TkHTTPClient: gohttp.New 构造失败", logger.Err(err))
+			panic(fmt.Sprintf("TkHTTPClient 初始化失败: %v", err))
+		}
+		globalClient = client
 
 		logger.InfoWithCtx(context.Background(), "TkHTTPClient initialized with gohttp enterprise client",
 			logger.Int64("timeout", config.HTTPReadTimeout),

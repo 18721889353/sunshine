@@ -58,7 +58,8 @@ package consumers
 //		b.iCpMqLogDao = dao.NewUserExampleDao(db, nil)
 //
 //		b.iCache = cache.NewUserExampleCache(database.GetCacheType())
-//		b.httpClient = gohttp.New(
+//		// gohttp.New 返回 (*Client, error)，配置非法时构造期快速失败
+//		httpClient, httpErr := gohttp.New(
 //			gohttp.WithBaseURL(""),
 //			gohttp.WithTimeout(10*time.Second),
 //			gohttp.WithTransport(&http.Transport{
@@ -86,6 +87,10 @@ package consumers
 //				ForceAttemptHTTP2: true,
 //			}),
 //		)
+//		if httpErr != nil {
+//			panic(fmt.Sprintf("gohttp 客户端初始化失败: %v", httpErr))
+//		}
+//		b.httpClient = httpClient
 //		// 初始化腾讯云邮件客户端
 //		b.initEmailClient()
 //		// 初始化腾讯云短信客户端

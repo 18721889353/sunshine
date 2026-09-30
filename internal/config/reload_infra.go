@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/18721889353/sunshine/pkg/gocron"
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
+	"github.com/18721889353/sunshine/pkg/gocron"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
 )
