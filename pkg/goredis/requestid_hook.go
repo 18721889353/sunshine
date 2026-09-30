@@ -2,6 +2,7 @@ package goredis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -35,7 +36,9 @@ func (h *requestIDHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 		err := next(ctx, cmd)
 
 		// 大厂标准：记录错误到 Span（关键！）
-		if err != nil {
+		// 但 redis.Nil（GET 不存在的 key）是正常缓存 miss，不是错误：
+		// 生产上 miss 率很高，若照单全收会把 Redis Span 错误率打满、掩盖真实故障
+		if err != nil && !errors.Is(err, redis.Nil) {
 			if span := trace.SpanFromContext(ctx); span.IsRecording() {
 				span.RecordError(err,
 					trace.WithAttributes(
@@ -63,17 +66,28 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 		err := next(ctx, cmds)
 
 		// Pipeline 错误记录：先遍历每个命令，将失败命令记录为 Span Event（精确定位哪条命令失败），
-		// 再记录整体错误与错误状态
-		if err != nil {
-			if span := trace.SpanFromContext(ctx); span.IsRecording() {
-				recordFailedPipelineCmds(span, cmds)
+		// 再记录整体错误与错误状态。
+		// redis.Nil（缓存 miss）不计为失败：go-redis 的整体错误取 cmdsFirstErr（第一条命令的错误，
+		// 不跳过 Nil），全 miss 的 Pipeline 会返回 redis.Nil，若不剔除会把正常缓存访问标成 Error
+		if span := trace.SpanFromContext(ctx); span.IsRecording() {
+			failed := recordFailedPipelineCmds(span, cmds)
+			if err != nil && !errors.Is(err, redis.Nil) {
+				failed = true
 				span.RecordError(err,
 					trace.WithAttributes(
 						attribute.String("error.type", fmt.Sprintf("%T", err)),
 						attribute.String("error.context", "redis-pipeline-failed"),
 					),
 				)
-				span.SetStatus(codes.Error, fmt.Sprintf("redis pipeline failed: %v", err))
+			}
+			if failed {
+				// err 可能是被剔除的 redis.Nil（首条命令 miss、后续命令真失败），
+				// 此时不能把它写进状态描述，否则排障时会看到误导性的 "failed: redis: nil"
+				if err != nil && !errors.Is(err, redis.Nil) {
+					span.SetStatus(codes.Error, fmt.Sprintf("redis pipeline failed: %v", err))
+				} else {
+					span.SetStatus(codes.Error, "redis pipeline command failed")
+				}
 			}
 		}
 
@@ -83,12 +97,15 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 
 // recordFailedPipelineCmds 遍历 Pipeline 中的命令，将执行失败的命令记录为 Span Event
 // Pipeline 场景排障刚需：整体错误只告知“失败了”，逐命令 Event 才能定位“哪条失败了”
-func recordFailedPipelineCmds(span trace.Span, cmds []redis.Cmder) {
+// 返回是否有命令被记录（redis.Nil 属正常缓存 miss，跳过不计）
+func recordFailedPipelineCmds(span trace.Span, cmds []redis.Cmder) bool {
+	failed := false
 	for _, cmd := range cmds {
 		cmdErr := cmd.Err()
-		if cmdErr == nil {
+		if cmdErr == nil || errors.Is(cmdErr, redis.Nil) {
 			continue
 		}
+		failed = true
 		span.AddEvent("redis.pipeline.command.failed",
 			trace.WithAttributes(
 				attribute.String("db.redis.command", cmd.Name()),
@@ -97,6 +114,7 @@ func recordFailedPipelineCmds(span trace.Span, cmds []redis.Cmder) {
 			),
 		)
 	}
+	return failed
 }
 
 // eval/evalsha 脚本命令参数索引常量
@@ -163,7 +181,7 @@ func enhanceRedisSpan(ctx context.Context, cmd redis.Cmder) {
 	// 脚本命令（eval/evalsha）按 numkeys 提取真实 key；非脚本命令取索引 1
 	keyStr, hasKey := evalScriptFirstKey(commandName, args)
 	if !hasKey && !isEvalCommand(commandName) && len(args) > 1 {
-		keyStr = fmt.Sprintf("%v", args[1])
+		keyStr = argToString(args[1])
 		hasKey = true
 	}
 	if hasKey {
@@ -177,6 +195,23 @@ func isEvalCommand(commandName string) bool {
 	return commandName == "eval" || commandName == "evalsha"
 }
 
+// argToString 把命令参数转成可上报的字符串
+// 业务常以 []byte 传 key/锁名（go-redis 官方示例即为 []byte），
+// 直接 fmt.Sprintf("%v") 会把 hello 显示成 [104 101 108 108 111]，
+// 看板上无法阅读，也破坏锁名/脚本 SHA 的前缀识别
+func argToString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case []byte:
+		return string(x)
+	case fmt.Stringer:
+		return x.String()
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
 // evalScriptFirstKey 提取 eval/evalsha 脚本命令的第一个 key
 // 按 numkeys 参数判断是否存在 key，避免把脚本参数误报为 key
 // 非脚本命令或无 key 时返回 ok=false
@@ -187,7 +222,7 @@ func evalScriptFirstKey(commandName string, args []any) (string, bool) {
 	if evalScriptKeyCount(args[evalScriptIdxCount]) <= 0 {
 		return "", false
 	}
-	return fmt.Sprintf("%v", args[evalScriptIdxKey]), true
+	return argToString(args[evalScriptIdxKey]), true
 }
 
 // evalScriptKeyCount 解析 numkeys 参数（可能为 int/int64/string 类型），解析失败返回 0
@@ -223,7 +258,7 @@ func trimLockName(keyStr string) string {
 
 // trimScriptSHA 截取 SHA1 前 maxSHANameLen 位用于 Span 名称
 func trimScriptSHA(v any) string {
-	sha1 := fmt.Sprintf("%v", v)
+	sha1 := argToString(v)
 	// 同 trimLockName：截断与 UTF-8 归一化是一体的，不能只取截断分支
 	short, _ := truncateRunes(sha1, maxSHANameLen)
 	return short

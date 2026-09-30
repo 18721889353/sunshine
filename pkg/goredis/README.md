@@ -29,8 +29,8 @@ goredis/
 - **统一初始化路径**：`setupClient` 消除 8 个 Init 函数的重复代码（追踪挂载 → 指标挂载 → Hook 注册 → ping 策略测试 → Lua 探测）；单机/集群仅 ping 策略不同，挂载流程完全共享
 - **日志统一走全局 `pkg/logger`**：库内不定义 `Logger` 接口、不提供 `WithLogger`，也不直接使用标准库 `log`/`slog`（见下方「为何取消日志依赖倒置」）
 - **包内约定选型**：Option 采「`xxxSet` 显式标记」（与 `pkg/nacoscli` 的「最后赋值胜出」不同且均属合法选择）；
-  测试命名现为**方案 B，已列为待收口**（全仓统一为方案 A，见 skill
-  [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md)）
+  测试命名已一次性收口为**方案 A**（全英文驼峰标识符 + 中文 doc + 中文子测试名，与全仓一致，见 skill
+  [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md) 第二节）
 - **配置错误快速失败**：`WithSingleOptions` 误传 `Addr/Password/DB` 等配置类错误在 `Init` 时返回 error，而非运行期刷屏
 - **幂等关闭**：`Close`/`CloseCluster` 重复调用安全，第二次调用返回 nil；`Shutdown`/`ShutdownCluster` 等待飞行中命令归还后再关闭
 - **request_id 自动注入**：`requestIDHook` 直接读取全项目约定的 `logger.ContextKeyRequestID`（gin/grpc middleware 写入的同一个 key），无需任何注入即可默认生效
@@ -244,7 +244,7 @@ rdb, err := goredis.Init("redis://:123456@127.0.0.1:6379/0",
 
 | Option | 说明 | 默认值 |
 |--------|------|--------|
-| `WithTracing(tp)` | 启用 OpenTelemetry 追踪 | `nil`（不启用） |
+| `WithTracing(tp)` | 启用 OpenTelemetry 追踪，参数为 `oteltrace.TracerProvider` **接口**（SDK 具体类型/自定义实现均可注入；传 `nil` 或 typed nil 不启用） | `nil`（不启用） |
 | `WithMetrics()` | 启用 Redis 连接池/命令 OTel 指标（`redisotel.InstrumentMetrics`） | `false`（不启用） |
 | `WithMeterProvider(mp)` | 指定指标上报的 `MeterProvider`（与 `WithTracing` 对称；需配合 `WithMetrics`，传 `nil` 回退全局） | `nil`（全局） |
 
@@ -363,10 +363,13 @@ func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient) error
 
 | 场景 | 行为 |
 |------|------|
-| `Init` DSN 为空或无效 | 返回解析错误 |
+| `Init` DSN 为空或无效 | 返回解析错误，且错误消息**已脱敏**（密码段替换为 `***`，不回显明文；错误链保留供 `errors.Is/As` 判定） |
 | `Init`/`InitSingle` 连接失败 | 返回 Ping 错误并自动关闭客户端 |
 | `WithSingleOptions` 传入 `Addr/Password/DB` | `Init` 期快速失败，返回配置错误 |
+| `WithSentinelOptions` 传入 `MasterName/SentinelAddrs`、`WithClusterOptions` 传入 `Addrs` | `Init` 期快速失败（这三个字段由 `InitSentinel`/`InitCluster` 参数传入，展开函数不读取，静默忽略是误导） |
+| 越界/非法选项值（`WithPoolSize(-1)`、`WithProtocol(9)`、`WithNetwork("foo")`、`WithMaxRetries(-2)`、负 `MinIdleConns`/`MaxRedirects`） | `Init` 期快速失败，返回配置错误 |
 | 传入 `nil` Option | 自动跳过，不 panic |
+| `GET` 不存在的 key（`redis.Nil`） | 正常缓存 miss：错误仍透传调用方，但 **Span 状态保持 Unset、不记录 Error Event**（避免 miss 率打满 Redis Span 错误率） |
 | `Close` 重复调用 | 返回 nil（幂等） |
 | `Close(nil)` | 返回 nil |
 | Lua 通道探测失败 | `logger.WarnWithCtx` 记录告警（全局 pkg/logger，带 ctx 自动关联 request_id），不中断初始化 |
@@ -390,6 +393,8 @@ func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient) error
 | Unreleased | **删除 `Logger` 接口、`WithLogger`、`RequestIDExtractor`、`WithRequestIDExtractor`**：日志统一走全局 `pkg/logger`，request_id 自动读 `logger.ContextKeyRequestID` | 若有调用点，升级后**编译失败**；删除相应 Option 即可，request_id 注入默认生效（不再需要手工传提取函数） |
 | Unreleased | `Shutdown`/`ShutdownCluster` 删除可变参数 `opts ...Option`（早期仅用于 `WithLogger`） | 旧调用 `Shutdown(ctx, rdb, goredis.WithLogger(lg))` 升级后**编译失败**，改为 `Shutdown(ctx, rdb)` |
 | Unreleased | `WithSingleOptions` 传入 `Addr`/`Password`/`DB`：从「log 警告 + 静默忽略 + 正常初始化」改为「**Init 启动期返回 error，rdb 为 nil**」 | 此前复用含这三个字段的配置模板调用本函数的代码，升级后会**启动失败**（符合 SemVer MAJOR 语义）。请改为通过 `InitSingle`/`Init` 参数或 DSN 传入这三个字段 |
+| Unreleased | `WithSentinelOptions` 误传 `MasterName`/`SentinelAddrs`、`WithClusterOptions` 误传 `Addrs`：从「静默忽略」改为「**Init 启动期返回 error**」；越界/非法选项值（负 `PoolSize`/`MinIdleConns`/`MaxRedirects`、`Protocol` 非 2/3、`Network` 非 tcp/unix、`MaxRetries < -1`）同理 | 此前依赖静默忽略或把非法值透传给 go-redis 的代码，升级后会**启动失败**。请改为通过 `InitSentinel`/`InitCluster` 参数传入连接地址，并修正越界值 |
+| Unreleased | `WithTracing` 参数从 SDK 具体类型 `*sdk/trace.TracerProvider` 改为接口 `oteltrace.TracerProvider`；typed nil 自动归一化为「不启用」 | 现有传 SDK 具体类型的调用点**编译与行为均不变**（SDK 实现满足接口）；自定义 `TracerProvider` 实现从此可注入。极少数把 `WithTracing` 赋给旧函数签名变量的代码需同步改类型 |
 
 详细变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -397,36 +402,32 @@ func ShutdownCluster(ctx context.Context, clusterRdb *redis.ClusterClient) error
 
 ## 测试规范
 
-测试函数命名统一为**「被测标识符（ASCII）+ `_` + 中文描述」**，全包采用同一策略，禁止整体风格（全中文 vs 全英文）两套并存。描述段以中文为主，**允许保留技术专有名词的 ASCII 原文**（翻译反而失真）：
+测试函数命名统一为**方案 A**：`Test<被测方法><场景>`，**全英文驼峰标识符** + 中文 doc 注释 + 中文子测试名，全包同一策略：
 
 ```go
-// ✅ 被测函数名保留 ASCII，描述段用中文
-func TestGetRedisOpt_主机端口格式(t *testing.T) {}
-func TestWithPoolSize_设置与置位(t *testing.T) {}
+// ✅ 英文驼峰标识符 + 中文 doc + 中文子测试名
+func TestGetRedisOptHostPortFormat(t *testing.T) {
+	t.Run("自动补前缀与路径", func(t *testing.T) {})
+}
 
-// ✅ 描述段中的 Redis 命令名/字段名/库名作为专有名词保留 ASCII
-func TestEnhanceRedisSpan_SET命令(t *testing.T) {}
-func TestEnhanceRedisSpan_EVALSHA_分布式锁(t *testing.T) {}
-func TestTruncateKey_中文截断不乱码(t *testing.T) {}
+// ✅ 标识符全英文；中文只出现在 doc 注释与子测试名/断言消息里
+func TestEnhanceRedisSpanEvalshaDistributedLock(t *testing.T) {}
 
-// ❌ 整段英文描述与 ❌ 纯中文标识符均不接受
-func TestGetRedisOpt_HostPort(t *testing.T) {}
-func TestGetRedisOpt_主机端口格式1(t *testing.T) {} // 禁止非描述性后缀
+// ❌ 下划线 + 中文描述（已废止的方案 B，全包已重命名清零）
+// TestGetRedisOpt_主机端口格式 —— 方案 B 形态，不再接受
 ```
-
-允许保留 ASCII 的专有名词范围：Redis 命令名（`SET`/`GET`/`EVAL`/`EVALSHA`）、协议/字段名（`Key`/`SHA`/`DSN`/`URL`/`PoolSize`/`NilOption`）、库与类型名（`MeterProvider`/`Span`/`dlock`/`miniredis`）。
 
 约束：
 
-- 结构体字段/变量名一律 ASCII（如 `name`/`apply`/`check`），中文仅用于 case 描述字符串与断言消息
+- 结构体字段/变量名一律 ASCII（如 `name`/`apply`/`check`），中文仅用于 doc 注释、子测试名与断言消息
 - 注释、日志、错误消息全部中文（见项目公约第十八章）
 - 集成测试统一以 `TestIntegration_` 前缀命名
+- **包内禁止混用两套风格**；新测试直接按方案 A 命名
 
-> 跨包口径变更：全仓测试命名已统一为方案 A（`Test<被测方法><场景>` 全英文标识符 + 中文 doc 注释 + 中文子测试名），
-> 权威定义见 skill [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md) 第二节。
-> **本包现存用例仍为方案 B（`ASCII 标识符 + _ + 中文描述`），属于已登记的存量待收口项**：
-> 收口仅需一次纯重命名（不改断言逻辑、不改输入输出），尚未执行。
-> 本包**新增**测试请直接按方案 A 命名，不要延续方案 B——包内混用同时违反两套规范。
+> 跨包口径：全仓测试命名唯一权威是方案 A，定义见 skill
+> [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md) 第二节。
+> 本包存量方案 B 用例已一次性纯重命名收口（不改断言、不改输入输出），验收：
+> `grep -rnP 'func (Test|Fuzz|Benchmark).*[\x{4e00}-\x{9fa5}]' pkg/goredis/` 无匹配。
 
 ---
 
@@ -442,10 +443,16 @@ CGO_ENABLED=1 go test -race -count=1 ./...
 ```
 
 必须带 `CGO_ENABLED=1`（`-race` 依赖 cgo）。本包的并发相关面是
-`requestIDHook`（多 goroutine 共用同一客户端）与 `dlock` 分布式锁脚本路径，因此竞态检测必须一行命令可执行。
+`requestIDHook`（多 goroutine 共用同一客户端）、`dlock` 分布式锁脚本路径与 `captureWarn` 全局钩子替换，
+因此竞态检测必须一行命令可执行。
 
-> 说明：`-race` 依赖 cgo 工具链。Windows/MinGW 环境可能报 `exit status 0xc0000139`（gcc 运行时问题，与本包代码无关），
-> 此时以 Linux/CI 的读数为准，本 README 不声称已经跑过 `-race`。
+> 说明：`-race` 依赖 cgo 工具链。本机 Windows/MinGW 实测报 `exit status 0xc0000139`（gcc 运行时问题，
+> 与本包代码无关），因此本机不采集 `-race` 读数。竞态取证已挂 CI：
+> [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) 在 Linux 上执行
+> `CGO_ENABLED=1 go test -race -count=1 -short ./pkg/goredis/`，同流水线还包含 `go vet`、
+> Fuzz 种子、`golangci-lint` 与 `govulncheck` 门禁；**`-race` 结论以该 workflow 的运行结果为准**，
+> 首次跑通后将在此回填具体结论（当前状态：已就位，尚未首跑）。
+> 本机可验证的部分（`go test`/`vet`/Fuzz 种子/lint）均已本地跑绿。
 
 ### 基准测试（Benchmark）
 
@@ -463,22 +470,22 @@ go test -run='^$' -bench='BenchmarkEnhanceRedisSpan' -benchmem ./pkg/goredis/
 
 | 基准 | 场景 | ns/op | B/op | allocs/op |
 | --- | --- | --- | --- | --- |
-| `GetRedisOpt_DSN解析` | 仅地址 | 788.7 | 624 | 7 |
-| `GetRedisOpt_DSN解析` | 带密码与库号 | 800.8 | 672 | 7 |
-| `GetRedisOpt_DSN解析` | 完整 URL 带查询 | 1744 | 1056 | 11 |
-| `EnsureDSNPath_补全路径` | 需补全 | 53.5 | 24 | 1 |
-| `EnsureDSNPath_补全路径` | 已含路径（快路径） | 15.4 | 0 | 0 |
-| `EnhanceRedisSpan_追踪状态` | **未开启追踪** | 18.2 | 0 | 0 |
-| `EnhanceRedisSpan_追踪状态` | 开启追踪不导出 | 648.1 | 525 | 5 |
-| `EnhanceRedisSpan_追踪状态` | 脚本命令走锁分支 | 696.6 | 580 | 6 |
-| `SetRequestIDToRedisSpan_提取开销` | ctx 带 request_id | 137.8 | 128 | 1 |
-| `SetRequestIDToRedisSpan_提取开销` | ctx 无 request_id | 5.8 | 0 | 0 |
-| `TruncateKey_长短Key` | 短 Key（快路径） | 33.5 | 0 | 0 |
-| `TruncateKey_长短Key` | 恰好上限 | 257.3 | 416 | 1 |
-| `TruncateKey_长短Key` | 超长截断 | 1703 | 2016 | 3 |
-| `TruncateKey_长短Key` | 中文超长截断 | 4040 | 2432 | 3 |
-| `命令端到端_miniredis` | 不含 request_id（SET+GET） | 122769 | 1285 | 39 |
-| `命令端到端_miniredis` | 含 request_id（SET+GET） | 108646 | 1286 | 39 |
+| `BenchmarkGetRedisOptDSNParse` | 仅地址 | 788.7 | 624 | 7 |
+| `BenchmarkGetRedisOptDSNParse` | 带密码与库号 | 800.8 | 672 | 7 |
+| `BenchmarkGetRedisOptDSNParse` | 完整 URL 带查询 | 1744 | 1056 | 11 |
+| `BenchmarkEnsureDSNPathNormalize` | 需补全 | 53.5 | 24 | 1 |
+| `BenchmarkEnsureDSNPathNormalize` | 已含路径（快路径） | 15.4 | 0 | 0 |
+| `BenchmarkEnhanceRedisSpanTracingState` | **未开启追踪** | 18.2 | 0 | 0 |
+| `BenchmarkEnhanceRedisSpanTracingState` | 开启追踪不导出 | 648.1 | 525 | 5 |
+| `BenchmarkEnhanceRedisSpanTracingState` | 脚本命令走锁分支 | 696.6 | 580 | 6 |
+| `BenchmarkSetRequestIDToRedisSpanRequestIDExtract` | ctx 带 request_id | 137.8 | 128 | 1 |
+| `BenchmarkSetRequestIDToRedisSpanRequestIDExtract` | ctx 无 request_id | 5.8 | 0 | 0 |
+| `BenchmarkTruncateKeyLengths` | 短 Key（快路径） | 33.5 | 0 | 0 |
+| `BenchmarkTruncateKeyLengths` | 恰好上限 | 257.3 | 416 | 1 |
+| `BenchmarkTruncateKeyLengths` | 超长截断 | 1703 | 2016 | 3 |
+| `BenchmarkTruncateKeyLengths` | 中文超长截断 | 4040 | 2432 | 3 |
+| `BenchmarkCommandEndToEndMiniredis` | 不含 request_id（SET+GET） | 122769 | 1285 | 39 |
+| `BenchmarkCommandEndToEndMiniredis` | 含 request_id（SET+GET） | 108646 | 1286 | 39 |
 
 **读数解读：**
 
@@ -496,20 +503,20 @@ go test -run='^$' -bench='BenchmarkEnhanceRedisSpan' -benchmem ./pkg/goredis/
 # 种子语料随常规 go test 一起执行（无需额外命令，耗时可忽略）
 go test -run='^Fuzz' ./pkg/goredis/
 # 真正的挖掘：不进默认流程，按需本地或定时任务跑
-go test -run='^$' -fuzz=FuzzSpan截断文本_合法UTF8 -fuzztime=30s ./pkg/goredis/
+go test -run='^$' -fuzz=FuzzSpanTruncateTextValidUTF8 -fuzztime=30s ./pkg/goredis/
 ```
 
 各 target 守护的是「不变量」而非具体输出值——这正是 Fuzz 相对单测的增量价值：
 
 | Target | 不变量 |
 | --- | --- |
-| `FuzzGetRedisOpt_任意DSN` | 不 panic；**出错时必返回 nil Options**（调用方拿不到半成品去建连接）；成功时 `Addr` 非空；错误必带 `goredis:` 前缀 |
-| `FuzzEnsureDSNPath_幂等` | 归一化两次结果一致（配置热更新会反复归一化同一字符串）；含 `://` 时不丢协议头；只增不减 |
-| `FuzzSpan截断文本_合法UTF8` | 写入 Span 名称/属性的文本**必为合法 UTF-8** 且不超长度上限 |
+| `FuzzGetRedisOptArbitraryDSN` | 不 panic；**出错时必返回 nil Options**（调用方拿不到半成品去建连接）；成功时 `Addr` 非空；错误必带 `goredis:` 前缀 |
+| `FuzzEnsureDSNPathIdempotent` | 归一化两次结果一致（配置热更新会反复归一化同一字符串）；含 `://` 时不丢协议头；只增不减 |
+| `FuzzSpanTruncateTextValidUTF8` | 写入 Span 名称/属性的文本**必为合法 UTF-8** 且不超长度上限 |
 
 **本包由 Fuzz 实际发现并修复的缺陷（值得留档）：**
 
-`FuzzSpan截断文本_合法UTF8` 的种子 `\xff\xfe invalid`、`a\x80b\x81c` 命中失败。根因是三处「只取截断分支」的疏漏：
+`FuzzSpanTruncateTextValidUTF8` 的种子 `\xff\xfe invalid`、`a\x80b\x81c` 命中失败。根因是三处「只取截断分支」的疏漏：
 `truncateRunes` 在「未超长」时原样 `return s`；`truncateKey` 未截断时 `return keyStr`；
 `trimLockName`/`trimScriptSHA` 仅在 `truncated == true` 时采用返回值。于是 Redis key 里的非法 UTF-8 字节
 会原样进入 `db.redis.key` 属性与 Span 名称——而 OTLP 的 protobuf string 字段要求合法 UTF-8，

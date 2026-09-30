@@ -25,12 +25,12 @@ func requireRealRedis(t *testing.T) string {
 	return dsn
 }
 
-// TestIntegration_Init_真实连接 真实 Redis 连接测试
+// TestIntegration_InitRealServer 真实 Redis 连接测试
 // 运行方式：
 //
 //	cd pkg/goredis
 //	GOREDIS_TEST_DSN="redis://:password@host:port/0" go test -tags=integration -v -run TestIntegration -count=1
-func TestIntegration_Init_真实连接(t *testing.T) {
+func TestIntegration_InitRealServer(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	rdb, err := Init(dsn,
@@ -84,8 +84,8 @@ func TestIntegration_Init_真实连接(t *testing.T) {
 	t.Log("真实 Redis 集成测试全部通过")
 }
 
-// TestIntegration_InitSingle_单机连接 真实 Redis 单机连接测试
-func TestIntegration_InitSingle_单机连接(t *testing.T) {
+// TestIntegration_InitSingleStandalone 真实 Redis 单机连接测试
+func TestIntegration_InitSingleStandalone(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	u, err := url.Parse(dsn)
@@ -113,8 +113,8 @@ func TestIntegration_InitSingle_单机连接(t *testing.T) {
 	t.Log("InitSingle 真实 Redis 集成测试通过")
 }
 
-// TestIntegration_Lua探测 验证 Lua 脚本通道探测
-func TestIntegration_Lua探测(t *testing.T) {
+// TestIntegration_LuaProbe 验证 Lua 脚本通道探测
+func TestIntegration_LuaProbe(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	rdb, err := Init(dsn, WithPoolSize(5))
@@ -144,8 +144,8 @@ func TestIntegration_Lua探测(t *testing.T) {
 	t.Log("Lua 脚本通道探测验证通过")
 }
 
-// TestIntegration_DSN查询参数 验证 DSN query 参数在集成环境中生效
-func TestIntegration_DSN查询参数(t *testing.T) {
+// TestIntegration_DSNQueryParams 验证 DSN query 参数在集成环境中生效
+func TestIntegration_DSNQueryParams(t *testing.T) {
 	dsn := requireRealRedis(t)
 
 	// 确保 DSN 中不带 query 参数时不 panic
@@ -173,4 +173,29 @@ func TestIntegration_DSN查询参数(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel2()
 	assert.NoError(t, rdb2.Ping(ctx2).Err(), "带 query 参数的 DSN 连接失败")
+}
+
+// TestIntegration_DSNErrorRedactsPassword 验证解析失败的 DSN 错误消息不含真实密码明文
+// 用真实凭据构造一个必失败的 DSN（非法端口），net/url 的错误文本会回显完整 URL，
+// 此时密码是否被脱敏是安全属性，必须用真实密码验证而非构造的假密码
+func TestIntegration_DSNErrorRedactsPassword(t *testing.T) {
+	dsn := requireRealRedis(t)
+
+	u, err := url.Parse(dsn)
+	require.NoError(t, err, "解析 DSN 失败")
+	password := ""
+	if u.User != nil {
+		password, _ = u.User.Password()
+	}
+	if password == "" {
+		t.Skip("GOREDIS_TEST_DSN 未带密码，无密码可泄漏，跳过")
+	}
+
+	badDSN := fmt.Sprintf("redis://:%s@127.0.0.1:notaport/0", url.QueryEscape(password))
+	_, parseErr := Init(badDSN)
+	require.Error(t, parseErr, "非法端口应导致解析失败")
+
+	assert.Contains(t, parseErr.Error(), "解析 DSN 失败", "错误消息应保留安全上下文")
+	assert.NotContains(t, parseErr.Error(), password, "DSN 解析错误不得泄漏密码明文")
+	assert.NotContains(t, parseErr.Error(), url.QueryEscape(password), "DSN 解析错误不得泄漏编码后的密码")
 }

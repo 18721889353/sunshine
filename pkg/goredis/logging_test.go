@@ -81,8 +81,8 @@ func funcPtr(f any) uintptr {
 // 日志输出测试（全局 pkg/logger）
 // ---------------------------------------------------------------------------
 
-// TestWaitPoolDrained_超时告警走全局logger 验证等待连接池归还超时的告警经由全局 pkg/logger 输出。
-func TestWaitPoolDrained_超时告警走全局logger(t *testing.T) {
+// TestWaitPoolDrainedTimeoutWarnsGlobalLogger 验证等待连接池归还超时的告警经由全局 pkg/logger 输出。
+func TestWaitPoolDrainedTimeoutWarnsGlobalLogger(t *testing.T) {
 	warns := captureWarn(t)
 
 	// 模拟池内始终有命令占用连接（TotalConns != IdleConns）
@@ -104,8 +104,8 @@ func TestWaitPoolDrained_超时告警走全局logger(t *testing.T) {
 // 日志钩子机制自身测试
 // ---------------------------------------------------------------------------
 
-// TestLogWarnHook_替换与还原 验证 Warn 钩子默认指向全局 pkg/logger，可被替换捕获并在测试结束后还原。
-func TestLogWarnHook_替换与还原(t *testing.T) {
+// TestLogWarnHookReplaceAndRestore 验证 Warn 钩子默认指向全局 pkg/logger，可被替换捕获并在测试结束后还原。
+func TestLogWarnHookReplaceAndRestore(t *testing.T) {
 	defaultWarn := funcPtr(logger.WarnWithCtx)
 
 	// t.Cleanup 是 LIFO：此处先注册最后执行，因此断言发生在 captureWarn 的还原逻辑之后，
@@ -121,8 +121,8 @@ func TestLogWarnHook_替换与还原(t *testing.T) {
 	require.Equal(t, []string{"replaced"}, warns.msgs(), "替换后应捕获到告警而非写入真实 logger")
 }
 
-// TestWarnCollector_并发安全 验证收集器在并发读写下不丢消息（钩子可能由后台 goroutine 触发）。
-func TestWarnCollector_并发安全(t *testing.T) {
+// TestWarnCollectorConcurrentSafety 验证收集器在并发读写下不丢消息（钩子可能由后台 goroutine 触发）。
+func TestWarnCollectorConcurrentSafety(t *testing.T) {
 	collector := &warnCollector{}
 
 	const perGoroutine = 50

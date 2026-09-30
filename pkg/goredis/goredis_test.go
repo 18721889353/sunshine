@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestInit_连接各种情况 测试 Init 函数连接 Redis 的各种情况
-func TestInit_连接各种情况(t *testing.T) {
+// TestInitConnectionScenarios 测试 Init 函数连接 Redis 的各种情况
+func TestInitConnectionScenarios(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -78,8 +78,8 @@ func TestInit_连接各种情况(t *testing.T) {
 	}
 }
 
-// TestInitWithPassword_带密码 验证带密码的 DSN 连接
-func TestInitWithPassword_带密码(t *testing.T) {
+// TestInitWithPassword 验证带密码的 DSN 连接
+func TestInitWithPassword(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -114,8 +114,8 @@ func TestInitWithPassword_带密码(t *testing.T) {
 	}
 }
 
-// TestInitSingle_单机连接 测试 InitSingle 函数连接单机 Redis
-func TestInitSingle_单机连接(t *testing.T) {
+// TestInitSingleStandalone 测试 InitSingle 函数连接单机 Redis
+func TestInitSingleStandalone(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -142,8 +142,8 @@ func TestInitSingle_单机连接(t *testing.T) {
 	assert.NoError(t, rdb.Ping(ctx).Err())
 }
 
-// TestInitSentinel_哨兵模式 验证 Sentinel 模式在 miniredis 下的错误处理
-func TestInitSentinel_哨兵模式(t *testing.T) {
+// TestInitSentinelMode 验证 Sentinel 模式在 miniredis 下的错误处理
+func TestInitSentinelMode(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -162,8 +162,8 @@ func TestInitSentinel_哨兵模式(t *testing.T) {
 	}
 }
 
-// TestInitCluster_集群连接 测试 InitCluster 函数
-func TestInitCluster_集群连接(t *testing.T) {
+// TestInitClusterConnection 测试 InitCluster 函数
+func TestInitClusterConnection(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -184,8 +184,8 @@ func TestInitCluster_集群连接(t *testing.T) {
 	require.NotNil(t, clusterRdb)
 }
 
-// TestClose_幂等 验证 Close 幂等性
-func TestClose_幂等(t *testing.T) {
+// TestCloseIdempotent 验证 Close 幂等性
+func TestCloseIdempotent(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -199,8 +199,8 @@ func TestClose_幂等(t *testing.T) {
 	assert.NoError(t, Close(nil))
 }
 
-// TestCloseCluster_幂等 验证 CloseCluster 幂等性
-func TestCloseCluster_幂等(t *testing.T) {
+// TestCloseClusterIdempotent 验证 CloseCluster 幂等性
+func TestCloseClusterIdempotent(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 	addr := redisServer.Addr()
@@ -223,8 +223,8 @@ func TestCloseCluster_幂等(t *testing.T) {
 // 防御性与快速失败测试
 // ============================================================================
 
-// TestInit_NilOption防御 验证 nil Option 防御：跳过而不 panic
-func TestInit_NilOption防御(t *testing.T) {
+// TestInitNilOptionDefense 验证 nil Option 防御：跳过而不 panic
+func TestInitNilOptionDefense(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -237,9 +237,9 @@ func TestInit_NilOption防御(t *testing.T) {
 	assert.NoError(t, rdb.Ping(ctx).Err())
 }
 
-// TestInit_WithSingleOptions误用Addr_快速失败
+// TestInitSingleOptionsMisusedAddrFastFail
 // 配置类错误在 Init 启动阶段返回错误，而非 log 后静默忽略
-func TestInit_WithSingleOptions误用Addr_快速失败(t *testing.T) {
+func TestInitSingleOptionsMisusedAddrFastFail(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -251,8 +251,8 @@ func TestInit_WithSingleOptions误用Addr_快速失败(t *testing.T) {
 	assert.Contains(t, err.Error(), "Addr/Password/DB")
 }
 
-// TestInitWithContext_已取消Context 验证 Ctx 变体感知外部取消
-func TestInitWithContext_已取消Context(t *testing.T) {
+// TestInitWithContextCancelledCtx 验证 Ctx 变体感知外部取消
+func TestInitWithContextCancelledCtx(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -263,9 +263,9 @@ func TestInitWithContext_已取消Context(t *testing.T) {
 	require.Error(t, err, "已取消的 ctx 应导致初始化失败")
 }
 
-// TestProbeLuaScriptChannel_失败仅告警不中断
+// TestProbeLuaScriptChannelWarnOnly
 // 探测失败仅通过全局 pkg/logger 告警不中断；关闭后的客户端触发失败路径验证告警被接收
-func TestProbeLuaScriptChannel_失败仅告警不中断(t *testing.T) {
+func TestProbeLuaScriptChannelWarnOnly(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -286,8 +286,8 @@ func TestProbeLuaScriptChannel_失败仅告警不中断(t *testing.T) {
 // Shutdown 优雅关闭测试
 // ============================================================================
 
-// TestShutdown_正常与幂等 验证等待归还后关闭、重复调用与 nil 安全
-func TestShutdown_正常与幂等(t *testing.T) {
+// TestShutdownNormalAndIdempotent 验证等待归还后关闭、重复调用与 nil 安全
+func TestShutdownNormalAndIdempotent(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -303,8 +303,8 @@ func TestShutdown_正常与幂等(t *testing.T) {
 	require.NoError(t, Shutdown(ctx, nil))
 }
 
-// TestShutdown_已取消Context 仍强制关闭（不泄漏连接）并返回 ctx 错误
-func TestShutdown_已取消Context(t *testing.T) {
+// TestShutdownCancelledCtx 仍强制关闭（不泄漏连接）并返回 ctx 错误
+func TestShutdownCancelledCtx(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -325,8 +325,8 @@ func TestShutdown_已取消Context(t *testing.T) {
 	assert.Error(t, rdb.Ping(ctx2).Err(), "Shutdown 后客户端应已关闭")
 }
 
-// TestShutdownCluster_正常与幂等 验证集群版优雅关闭（miniredis 不支持时跳过）
-func TestShutdownCluster_正常与幂等(t *testing.T) {
+// TestShutdownClusterNormalAndIdempotent 验证集群版优雅关闭（miniredis 不支持时跳过）
+func TestShutdownClusterNormalAndIdempotent(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 
@@ -346,8 +346,8 @@ func TestShutdownCluster_正常与幂等(t *testing.T) {
 	require.NoError(t, ShutdownCluster(ctx, nil))
 }
 
-// TestShutdown_正常路径无告警 验证无等待超时的正常关闭不产生 Warn 日志
-func TestShutdown_正常路径无告警(t *testing.T) {
+// TestShutdownNormalPathNoWarn 验证无等待超时的正常关闭不产生 Warn 日志
+func TestShutdownNormalPathNoWarn(t *testing.T) {
 	redisServer, _ := miniredis.Run()
 	defer redisServer.Close()
 

@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/sdk/trace"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // 日志与 request_id 统一走全局 pkg/logger（见 logging.go 与 requestid_hook.go），
@@ -93,11 +95,13 @@ type options struct {
 	initTimeout  time.Duration // 连接测试超时
 	probeTimeout time.Duration // Lua 通道探测超时
 
-	// 配置误用标记：WithSingleOptions 读取到 Addr/Password/DB 时置位，由 Init 阶段快速失败
-	singleOptionsMisused bool
+	// 配置误用标记：WithXxxOptions 读取到本包不处理的字段时置位，由 Init 阶段快速失败
+	singleOptionsMisused   bool
+	sentinelOptionsMisused bool
+	clusterOptionsMisused  bool
 
-	// 追踪
-	tracerProvider *trace.TracerProvider
+	// 追踪（接口类型，自定义 TracerProvider 实现与 SDK 实现均可注入，与 meterProvider 对称）
+	tracerProvider oteltrace.TracerProvider
 }
 
 // apply 应用配置选项（nil Option 防御：跳过以避免 Init(dsn, nil) 等调用 panic）
@@ -111,9 +115,34 @@ func (o *options) apply(opts ...Option) {
 
 // validate 校验选项组合的合法性
 // 配置类错误在 Init 启动阶段快速失败，而不是运行期静默忽略
+// 覆盖三类问题：展开函数不读取的字段误用、越界数值、非法枚举值
 func (o *options) validate() error {
 	if o.singleOptionsMisused {
 		return errors.New("goredis: WithSingleOptions 不读取 Addr/Password/DB 字段，请通过 InitSingle/Init 参数或 DSN 传入")
+	}
+	if o.sentinelOptionsMisused {
+		return errors.New("goredis: WithSentinelOptions 不读取 MasterName/SentinelAddrs 字段，请通过 InitSentinel 参数传入")
+	}
+	if o.clusterOptionsMisused {
+		return errors.New("goredis: WithClusterOptions 不读取 Addrs 字段，请通过 InitCluster 参数传入")
+	}
+	if o.poolSizeSet && o.poolSize < 0 {
+		return fmt.Errorf("goredis: WithPoolSize 不可为负数，当前值 %d", o.poolSize)
+	}
+	if o.minIdleSet && o.minIdleConns < 0 {
+		return fmt.Errorf("goredis: WithMinIdleConns 不可为负数，当前值 %d", o.minIdleConns)
+	}
+	if o.protocolSet && o.protocol != 2 && o.protocol != 3 {
+		return fmt.Errorf("goredis: WithProtocol 仅支持 2（RESP2）或 3（RESP3），当前值 %d", o.protocol)
+	}
+	if o.networkSet && o.network != "tcp" && o.network != "unix" {
+		return fmt.Errorf("goredis: WithNetwork 仅支持 tcp 或 unix，当前值 %q", o.network)
+	}
+	if o.maxRetriesSet && o.maxRetries < -1 {
+		return fmt.Errorf("goredis: WithMaxRetries 最小为 -1（默认重试次数），当前值 %d", o.maxRetries)
+	}
+	if o.maxRedirectsSet && o.maxRedirects < 0 {
+		return fmt.Errorf("goredis: WithMaxRedirects 不可为负数，当前值 %d", o.maxRedirects)
 	}
 	return nil
 }
@@ -167,9 +196,31 @@ func WithIdleTimeout(timeout time.Duration) Option {
 }
 
 // WithTracing 设置 Redis 追踪提供者，适用于 redis v9 版本
-func WithTracing(tp *trace.TracerProvider) Option {
+// 参数为 oteltrace.TracerProvider 接口（与 WithMeterProvider(metric.MeterProvider) 对称），
+// SDK 实现（sdk/trace.TracerProvider）与自定义实现均可注入；传入 nil 或 typed nil 时不启用追踪
+func WithTracing(tp oteltrace.TracerProvider) Option {
 	return func(o *options) {
+		// 接口值的 != nil 判断拦不住 typed nil（如 (*sdktrace.TracerProvider)(nil) 包进接口），
+		// 透传给 redisotel 会在后续调用中 panic，这里统一归一化为未设置
+		if isNilTracerProvider(tp) {
+			o.tracerProvider = nil
+			return
+		}
 		o.tracerProvider = tp
+	}
+}
+
+// isNilTracerProvider 判断接口值是否为 nil 或 typed nil
+func isNilTracerProvider(tp oteltrace.TracerProvider) bool {
+	if tp == nil {
+		return true
+	}
+	rv := reflect.ValueOf(tp)
+	switch rv.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Func, reflect.Map, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
 	}
 }
 
@@ -418,6 +469,11 @@ func WithSentinelOptions(opt *redis.FailoverOptions) Option {
 		if opt == nil {
 			return
 		}
+		// 检测 MasterName/SentinelAddrs 非零：这两个字段由 InitSentinel 参数提供，本函数不读取
+		// 标记误用，由 validate() 在 Init 启动阶段快速失败（而非运行期静默忽略）
+		if opt.MasterName != "" || len(opt.SentinelAddrs) > 0 {
+			o.sentinelOptionsMisused = true
+		}
 		expandCommonOptions(o, commonOpts{
 			PoolSize:        opt.PoolSize,
 			MinIdleConns:    opt.MinIdleConns,
@@ -438,6 +494,11 @@ func WithClusterOptions(opt *redis.ClusterOptions) Option {
 	return func(o *options) {
 		if opt == nil {
 			return
+		}
+		// 检测 Addrs 非零：节点地址由 InitCluster 参数提供，本函数不读取
+		// 标记误用，由 validate() 在 Init 启动阶段快速失败（而非运行期静默忽略）
+		if len(opt.Addrs) > 0 {
+			o.clusterOptionsMisused = true
 		}
 		expandCommonOptions(o, commonOpts{
 			PoolSize:        opt.PoolSize,

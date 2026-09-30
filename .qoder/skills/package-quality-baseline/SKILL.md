@@ -42,9 +42,8 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 
 为什么统一用英文标识符：`-run` 过滤、IDE 符号索引、grep 定位、重构可跟踪性都依赖标识符；中文部分不参与编译，无法反映真实 API 名。
 
-> **存量待收口**：`pkg/goredis` 采用方案 B（`TestXxx_中文描述`）。统一为方案 A 需要一次性重命名其测试函数，
-> 属于独立的机械改动（不改断言逻辑），未与本轮文档工作合并执行。枚举待改点：
-> `grep -rn "^func Test.*_" pkg/*/  --include=*_test.go | grep -v Integration`
+> **存量已收口**：`pkg/goredis` 曾采用方案 B（`TestXxx_中文描述`），已完成一次性纯重命名（不改断言、不改输入输出），
+> 全仓现无方案 B 残留；新包/新增用例一律按方案 A 命名。
 
 ## 三、测试分层与各自合格线
 
@@ -183,7 +182,6 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
   （自第 3 轮起悬挂，logger 第七轮评审 §四-3 升级至此）
 - [ ] **`loadDotEnv` 抽 `internal/dotenv`**：nacoscli/goredis/tracer 三包 `TestMain` 各自维护同一份
   手写 dotenv 解析（语义一致：只补缺、不覆盖），抽取后改动只维护一处
-- [ ] **`pkg/goredis` 测试命名收口**：方案 B → 方案 A（见第二节存量清单）
 - [ ] **CHANGELOG 评审编号统一**：存量 `§四-1` 式引用改为 `R<轮次>-<原编号>`
   （logger 已收口，jwt 等包待对齐，见 doc-templates.md 第五节）
 

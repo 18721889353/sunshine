@@ -633,8 +633,7 @@ go test ./pkg/nacoscli/ -v
 > 跨包口径：本命名风格（全英文函数名 + 中文注释 + 中文子测试名，即方案 A）现为**全仓唯一规范**，
 > 权威定义与维护均位于 skill [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md)
 > 第二节；本小节只作为包内快速说明，不另行定义规则。
-> **存量待收口**：`pkg/goredis` 仍为方案 B（`ASCII 标识符 + _ + 中文描述`），统一它需要一次
-> 纯重命名的机械改动（不改断言逻辑），已登记为待办，尚未执行。
+> 存量方案 B 用例（`pkg/goredis`）已一次性纯重命名收口，全仓已无方案 B 残留。
 
 ---
 

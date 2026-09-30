@@ -16,16 +16,16 @@ import (
 //	# 只跑内置种子语料（默认随 go test 执行，耗时可忽略）
 //	go test -run='^Fuzz' ./pkg/goredis/
 //	# 真正的模糊挖掘（不进 CI 常规流程，按需本地跑）
-//	go test -fuzz=FuzzGetRedisOpt_任意DSN -fuzztime=30s ./pkg/goredis/
-//	go test -fuzz=FuzzEnsureDSNPath_幂等 -fuzztime=30s ./pkg/goredis/
-//	go test -fuzz=FuzzSpan截断文本_合法UTF8 -fuzztime=30s ./pkg/goredis/
+//	go test -fuzz=FuzzGetRedisOptArbitraryDSN -fuzztime=30s ./pkg/goredis/
+//	go test -fuzz=FuzzEnsureDSNPathIdempotent -fuzztime=30s ./pkg/goredis/
+//	go test -fuzz=FuzzSpanTruncateTextValidUTF8 -fuzztime=30s ./pkg/goredis/
 //
 // 失败语料会写入 testdata/fuzz/<TargetName>/，需要人工确认后提交或修正。
 
-// FuzzGetRedisOpt_任意DSN 验证 DSN 解析的不变量：不 panic；
+// FuzzGetRedisOptArbitraryDSN 验证 DSN 解析的不变量：不 panic；
 // 出错时返回 nil（避免调用方拿到半成品 Options 去建连接），成功时地址非空。
 // DSN 来自配置文件/配置中心，是典型的「外部可控输入」，必须能被任意值击中。
-func FuzzGetRedisOpt_任意DSN(f *testing.F) {
+func FuzzGetRedisOptArbitraryDSN(f *testing.F) {
 	seeds := []string{
 		"127.0.0.1:6379",
 		"user:pass@127.0.0.1:6379/2",
@@ -57,9 +57,9 @@ func FuzzGetRedisOpt_任意DSN(f *testing.F) {
 	})
 }
 
-// FuzzEnsureDSNPath_幂等 验证 DSN 路径补全的不变量：不 panic、幂等、且不丢弃原 DSN 的任何部分。
+// FuzzEnsureDSNPathIdempotent 验证 DSN 路径补全的不变量：不 panic、幂等、且不丢弃原 DSN 的任何部分。
 // 幂等性是必需的前提——配置热更新时同一个 DSN 字符串可能被反复归一化。
-func FuzzEnsureDSNPath_幂等(f *testing.F) {
+func FuzzEnsureDSNPathIdempotent(f *testing.F) {
 	seeds := []string{
 		"redis://127.0.0.1:6379",
 		"redis://127.0.0.1:6379/",
@@ -90,12 +90,12 @@ func FuzzEnsureDSNPath_幂等(f *testing.F) {
 	})
 }
 
-// FuzzSpan截断文本_合法UTF8 验证写入 Span 名称与属性的文本一定满足两条不变量：
+// FuzzSpanTruncateTextValidUTF8 验证写入 Span 名称与属性的文本一定满足两条不变量：
 //   - 合法 UTF-8：OTLP 的 protobuf string 字段要求合法 UTF-8，非法字节会让整批 Span 被后端拒绝或渲染成乱码；
 //   - 长度受限：超长 key/锁名不得撑爆 Span 属性。
 //
 // Redis 的 key 常常由业务方拼接用户输入而来，属于外部可控数据，因此不能假设它一定是合法 UTF-8。
-func FuzzSpan截断文本_合法UTF8(f *testing.F) {
+func FuzzSpanTruncateTextValidUTF8(f *testing.F) {
 	seeds := []string{
 		"user:1001:name",
 		"lock:order:中文键名",

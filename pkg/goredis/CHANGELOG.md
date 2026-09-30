@@ -29,24 +29,42 @@
   字段以强类型 `logger.Field` 上报，不再丢失原始类型。
 - `probeLuaScriptChannel` / `closeAfterInitFail` / `waitPoolDrained` 的内部签名改为显式接收 `ctx`，
   移除 `Logger` 参数（均为包内私有函数，不影响调用方）。
+- `WithTracing` 参数由 SDK 具体类型 `*sdk/trace.TracerProvider` 改为接口 `oteltrace.TracerProvider`
+  （与 `WithMeterProvider(metric.MeterProvider)` 对称）；传入 typed nil（如 `(*sdktrace.TracerProvider)(nil)`
+  包进接口）时归一化为「不启用」，避免透传给 redisotel 后运行期 panic。
+  **兼容性**：现有传 SDK 具体类型的调用点编译与行为均不变；自定义 `TracerProvider` 实现从此可注入。
+- **测试命名一次性收口为方案 A**（纯重命名）：全包 `Test*_中文描述` 式标识符（含 Benchmark/Fuzz target）
+  重命名为全英文驼峰，不改断言、不改输入输出；README「测试规范」章节同步删除方案 B 描述，
+  全仓只保留方案 A 单一口径。
+- **validate 扩充快速失败校验**：`WithSentinelOptions` 误传 `MasterName/SentinelAddrs`、
+  `WithClusterOptions` 误传 `Addrs`（此前静默忽略）；越界/非法值 `WithPoolSize(-1)`、`WithMinIdleConns(-1)`、
+  `WithProtocol(9)`、`WithNetwork("foo")`、`WithMaxRetries(-2)`、`WithMaxRedirects(-1)`。
+  **行为变更**：此前依赖静默忽略或把非法值透传给 go-redis 的代码，升级后 `Init` 启动失败（SemVer MAJOR 语义）。
 
 ### 新增
 
+- **CI 质量门禁**（仓库级新增 `.github/workflows/ci.yml`）：`go vet`（含 `-tags=integration`）、
+  `go test`、`CGO_ENABLED=1 go test -race -count=1 -short`、Fuzz 种子、`golangci-lint run ./pkg/goredis/...`、
+  `govulncheck ./...`。本机 Windows/MinGW 下 `-race` 实测报 `0xc0000139`（cgo 运行时问题），
+  竞态证据由该 workflow 在 Linux 上采集，结论以 CI 为准（首跑后回填 README）。
+- P0 回归测试：`TestRequestIDHookProcessHookNilNotRecorded`、`TestRequestIDHookProcessPipelineHookNilNotFailure`、
+  `TestArgToString` / `TestEnhanceRedisSpanByteSliceKey`、`TestValidateRangeAndEnumChecks` / 边界不误报、
+  哨兵/集群误用、`TestWithTracingInterfaceAndTypedNil`、`TestGetRedisOptErrorRedactsPassword`。
 - `logging.go`：包私有的日志钩子变量（`logWarn`），仅用于单元测试替换以捕获日志，不对外暴露注入能力。
 - `logging_test.go`：日志钩子捕获辅助 `captureWarn`，以及「告警是否经由全局 logger 输出」的行为断言。
 - `warnCollector`（测试辅助）：收集告警时内部用 `sync.Mutex` 保护写入与读取（`msgs()` 返回快照副本），
   不再依赖“调用方记住钩子可能由后台 goroutine 触发”这一隐含约束。
 - `captureWarn` 增加重复调用拦截（`atomic.Bool`）：同一测试内嵌套或二次捕获直接 `t.Fatal`，
   避免把上一个钩子当作「默认值」保存导致还原后断言永久读到替换实现。
-- `TestLogWarnHook_替换与还原`：验证钩子默认指向 `logger.WarnWithCtx`、可被替换捕获、测试结束后自动还原。
-- `TestWarnCollector_并发安全`：两个 goroutine 并发写读，验证不丢消息（为 `-race` 环境提供回归基线）。
-- `benchmark_test.go`：性能基线（`BenchmarkGetRedisOpt_DSN解析`、`BenchmarkEnsureDSNPath_补全路径`、
-  `BenchmarkEnhanceRedisSpan_追踪状态`、`BenchmarkSetRequestIDToRedisSpan_提取开销`、`BenchmarkTruncateKey_长短Key`、
-  `Benchmark命令端到端_miniredis`）。定位是「相对回归基线」；其中**未开启追踪时的 18.2ns / 0 分配**是
+- `TestLogWarnHookReplaceAndRestore`：验证钩子默认指向 `logger.WarnWithCtx`、可被替换捕获、测试结束后自动还原。
+- `TestWarnCollectorConcurrentSafety`：两个 goroutine 并发写读，验证不丢消息（为 `-race` 环境提供回归基线）。
+- `benchmark_test.go`：性能基线（`BenchmarkGetRedisOptDSNParse`、`BenchmarkEnsureDSNPathNormalize`、
+  `BenchmarkEnhanceRedisSpanTracingState`、`BenchmarkSetRequestIDToRedisSpanRequestIDExtract`、`BenchmarkTruncateKeyLengths`、
+  `BenchmarkCommandEndToEndMiniredis`）。定位是「相对回归基线」；其中**未开启追踪时的 18.2ns / 0 分配**是
   「可观测性代码不该成为负担」的量化证据；端到端用例基于 miniredis，含回环 RTT，只能比较相对变化。
   读数与解读见 README「性能基线与模糊测试」。
-- `fuzz_test.go`：模糊测试 3 个 target（`FuzzGetRedisOpt_任意DSN` / `FuzzEnsureDSNPath_幂等` /
-  `FuzzSpan截断文本_合法UTF8`），守护「不 panic 且不返回半成品 Options」、「路径补全幂等且不丢协议头」、
+- `fuzz_test.go`：模糊测试 3 个 target（`FuzzGetRedisOptArbitraryDSN` / `FuzzEnsureDSNPathIdempotent` /
+  `FuzzSpanTruncateTextValidUTF8`），守护「不 panic 且不返回半成品 Options」、「路径补全幂等且不丢协议头」、
   「写入 Span 的文本必为合法 UTF-8 且不超长度上限」。种子语料随常规 `go test` 执行，
   挖掘需显式 `go test -run='^$' -fuzz=<Target> -fuzztime=30s ./pkg/goredis/`。
 - 竞态/基准/挖掘均使用原生 `go test` 命令（**不新增 Makefile target**，保持项目根构建入口不变）：
@@ -62,7 +80,19 @@
   归一化为 U+FFFD（且不标记为截断，避免调用方误加省略号），三个调用方始终采用其返回值。
   **行为变更**：仅影响含非法 UTF-8 的输入（由「原样透传」变为「替换为 U+FFFD」）；合法 UTF-8 的
   `db.redis.key` / 锁名 / 脚本摘要输出完全不变，截断长度与省略号规则也不变。
-  **发现方式**：`FuzzSpan截断文本_合法UTF8` 的种子语料 `\xff\xfe invalid`、`a\x80b\x81c`（非人工构造用例）。
+  **发现方式**：`FuzzSpanTruncateTextValidUTF8` 的种子语料 `\xff\xfe invalid`、`a\x80b\x81c`（非人工构造用例）。
+- **`redis.Nil` 被计为 Span Error**（`requestid_hook.go`）：`ProcessHook` / `ProcessPipelineHook` 对任何非 nil 错误
+  照单 `RecordError + SetStatus(Error)`，而 `GET` 不存在的 key 返回 `redis.Nil` 是正常缓存 miss——生产上 miss 率高，
+  会把 Redis Span 错误率打满、掩盖真实故障。现改为 `!errors.Is(err, redis.Nil)` 时才记为错误；Pipeline 同理，
+  逐命令事件也跳过 Nil（go-redis 的 `cmdsFirstErr` 取首条命令错误且不跳过 Nil，故全 miss 时整体 err 就是 `redis.Nil`）。
+  **行为变更**：仅影响可观测性语义（Span 状态/事件）；错误本身仍透传调用方，业务逻辑不受影响。
+- **`[]byte` 类型参数在 Span 中显示为字节数组**（`requestid_hook.go`）：`db.redis.key`、锁名、脚本 SHA 提取路径
+  原用 `fmt.Sprintf("%v", ...)`，业务传 `[]byte("hello")` 会显示为 `[104 101 108 108 111]`。新增 `argToString`
+  依次处理 `string` / `[]byte` / `fmt.Stringer` / 默认回退，三个提取路径全部改用。
+- **DSN 解析失败的错误消息回显密码明文**（`goredis.go`）：`redis.ParseURL` 底层是 `net/url`，解析失败时错误文本
+  含完整 URL（含密码），直接透传会让密码进入日志与监控平台。现经 `redactDSN` 把 userinfo 密码段替换为 `***`，
+  并用 `redactedDSNError` 包装（`Error()` 脱敏 + `Unwrap()` 保留原始错误链，`errors.Is/As` 仍可用）；
+  集成测试 `TestIntegration_DSNErrorRedactsPassword` 断言错误消息不含密码明文。
 
 ### 兼容性说明
 
@@ -72,8 +102,9 @@
 [`package-quality-baseline`](../../.qoder/skills/package-quality-baseline/SKILL.md)（交付物矩阵、测试命名、
 集成测试方法论、证据标准）与 `project-conventions`（代码写法与 README 规则）。
 
-测试命名口径变更：全仓已统一为方案 A（全英文标识符 + 中文 doc 注释），**本包现存用例为方案 B，
-已登记为存量待收口项**（仅需重命名，不改断言逻辑与输入输出，尚未执行）；本包新增测试按方案 A 命名。
+测试命名口径：全仓唯一规范为方案 A（全英文标识符 + 中文 doc 注释），**本包存量方案 B 用例已于本轮
+一次性纯重命名收口**（不改断言逻辑与输入输出），验收 `grep -rnP 'func (Test|Fuzz|Benchmark).*[\x{4e00}-\x{9fa5}]' pkg/goredis/`
+无匹配；包内新增测试同样按方案 A 命名。
 
 ## 历史破坏性变更（升级必读）
 

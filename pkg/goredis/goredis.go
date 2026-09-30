@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -274,7 +275,12 @@ func getRedisOpt(dsn string, opts *options) (*redis.Options, error) {
 	// 3. 交给 redis.ParseURL 解析
 	redisOpts, err := redis.ParseURL(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("goredis: 解析 DSN 失败: %w", err)
+		// net/url 的错误文本会回显原始 URL（含密码），直接 %w 会让密码进入日志与错误链，
+		// 这里用脱敏后的文本作为 Error()，同时保留原始错误供 errors.Is/As 判定
+		return nil, &redactedDSNError{
+			err: err,
+			msg: fmt.Sprintf("goredis: 解析 DSN 失败: %s", redactDSN(err.Error())),
+		}
 	}
 
 	// 4. With* 显式设置的字段覆盖 DSN 解析值
@@ -314,6 +320,31 @@ func ensureDSNPath(dsn string) string {
 		return dsn
 	}
 }
+
+// dsnPasswordRe 匹配 URL userinfo 中的密码段：scheme://user:password@host
+// 密码在 URL 中必须以百分号编码（不允许空白与 @），因此用 [^\s@] 精确圈定，
+// 避免跨 token 误伤错误消息里的其他内容
+var dsnPasswordRe = regexp.MustCompile(`(://[^\s/@]*:)[^\s@]*(@)`)
+
+// redactDSN 把错误文本中的 DSN 密码替换为 ***
+// redis.ParseURL 底层是 net/url，解析失败时错误文本会回显完整 URL（含密码）
+func redactDSN(msg string) string {
+	return dsnPasswordRe.ReplaceAllString(msg, "${1}***${2}")
+}
+
+// redactedDSNError 包装 DSN 解析错误：对外只暴露脱敏后的文本，同时保留原始错误链
+// 仅脱敏不拆链的原因：errors.Is/As 仍需能识别底层 url 错误；而 Unwrap 出来的原始错误
+// 只会被程序化遍历，所有面向日志的出口（Error()/errors.Join）都走本类型的脱敏文本
+type redactedDSNError struct {
+	err error
+	msg string
+}
+
+// Error 返回脱敏后的错误消息（不含密码明文）
+func (e *redactedDSNError) Error() string { return e.msg }
+
+// Unwrap 保留原始错误链，供 errors.Is/As 判定
+func (e *redactedDSNError) Unwrap() error { return e.err }
 
 // ============================================================================
 // Close

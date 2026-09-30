@@ -3,6 +3,7 @@ package goredis
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -43,7 +44,8 @@ func recordSpans(t *testing.T, fn func(ctx context.Context, tr trace.Tracer)) tr
 // enhanceRedisSpan 测试
 // ============================================================================
 
-func TestEnhanceRedisSpan_SET命令(t *testing.T) {
+// TestEnhanceRedisSpanSetCommand 验证 SET 命令的 Span 名称与诊断属性
+func TestEnhanceRedisSpanSetCommand(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -61,7 +63,8 @@ func TestEnhanceRedisSpan_SET命令(t *testing.T) {
 	assertAttr(t, span.Attributes, "db.redis.key", "mykey")
 }
 
-func TestEnhanceRedisSpan_GET命令(t *testing.T) {
+// TestEnhanceRedisSpanGetCommand 验证 GET 命令的 key 属性提取
+func TestEnhanceRedisSpanGetCommand(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -74,7 +77,8 @@ func TestEnhanceRedisSpan_GET命令(t *testing.T) {
 	assertAttr(t, stubs[0].Attributes, "db.redis.key", "mykey")
 }
 
-func TestEnhanceRedisSpan_EVALSHA_分布式锁(t *testing.T) {
+// TestEnhanceRedisSpanEvalshaDistributedLock 验证 evalsha + lock: 前缀识别为分布式锁并按锁名命名
+func TestEnhanceRedisSpanEvalshaDistributedLock(t *testing.T) {
 	// evalsha SHA1 numkeys key [key ...] arg [arg ...]
 	// 索引: 0=evalsha, 1=SHA1, 2=numkeys, 3=key
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -90,7 +94,8 @@ func TestEnhanceRedisSpan_EVALSHA_分布式锁(t *testing.T) {
 	assertAttr(t, span.Attributes, "db.redis.key", "lock:order:12345678")
 }
 
-func TestEnhanceRedisSpan_EVALSHA_dlock前缀(t *testing.T) {
+// TestEnhanceRedisSpanEvalshaDlockPrefix 验证 /dlock/ 前缀同样识别为分布式锁
+func TestEnhanceRedisSpanEvalshaDlockPrefix(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -102,7 +107,8 @@ func TestEnhanceRedisSpan_EVALSHA_dlock前缀(t *testing.T) {
 	assert.Equal(t, "redis.lock:my-lock-key", stubs[0].Name)
 }
 
-func TestEnhanceRedisSpan_EVALSHA_普通脚本(t *testing.T) {
+// TestEnhanceRedisSpanEvalshaPlainScript 验证 numkeys=0 的普通脚本按命令名命名
+func TestEnhanceRedisSpanEvalshaPlainScript(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -115,7 +121,8 @@ func TestEnhanceRedisSpan_EVALSHA_普通脚本(t *testing.T) {
 	assert.Equal(t, "redis.evalsha", stubs[0].Name)
 }
 
-func TestEnhanceRedisSpan_EVALSHA_无Key带参数(t *testing.T) {
+// TestEnhanceRedisSpanEvalshaNoKeyWithArgs 验证 numkeys=0 时脚本参数不会被误报为 key
+func TestEnhanceRedisSpanEvalshaNoKeyWithArgs(t *testing.T) {
 	// evalsha SHA1 0 somearg —— len(args)=4 但 numkeys=0，不应提取为 key
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
@@ -131,7 +138,8 @@ func TestEnhanceRedisSpan_EVALSHA_无Key带参数(t *testing.T) {
 	}
 }
 
-func TestEnhanceRedisSpan_EVAL_带Key非锁(t *testing.T) {
+// TestEnhanceRedisSpanEvalKeyNonLock 验证 eval + 非锁 key 使用命令名命名并提取 key
+func TestEnhanceRedisSpanEvalKeyNonLock(t *testing.T) {
 	// eval 脚本 + 普通 key（非 lock 前缀）→ redis.eval + key 属性
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
@@ -146,9 +154,9 @@ func TestEnhanceRedisSpan_EVAL_带Key非锁(t *testing.T) {
 	assertAttr(t, stubs[0].Attributes, "db.operation", "eval")
 }
 
-// TestEnhanceRedisSpan_EVAL_带锁前缀 固化"eval 也识别分布式锁"契约：
+// TestEnhanceRedisSpanEvalLockPrefix 固化"eval 也识别分布式锁"契约：
 // evalsha + lock 与 eval + lock 走同一分支，命令名不同但锁识别一致
-func TestEnhanceRedisSpan_EVAL_带锁前缀(t *testing.T) {
+func TestEnhanceRedisSpanEvalLockPrefix(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -162,7 +170,8 @@ func TestEnhanceRedisSpan_EVAL_带锁前缀(t *testing.T) {
 	assertAttr(t, stubs[0].Attributes, "db.operation", "eval")
 }
 
-func TestEnhanceRedisSpan_EVALSHA_锁名超长截断(t *testing.T) {
+// TestEnhanceRedisSpanEvalshaLockNameTruncated 验证超长锁名按上限截断
+func TestEnhanceRedisSpanEvalshaLockNameTruncated(t *testing.T) {
 	longName := "this-is-a-very-long-lock-name-that-should-be-truncated"
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
@@ -176,7 +185,8 @@ func TestEnhanceRedisSpan_EVALSHA_锁名超长截断(t *testing.T) {
 	assert.LessOrEqual(t, len(name), len("redis.lock:")+maxLockNameLen)
 }
 
-func TestEnhanceRedisSpan_Key超长截断(t *testing.T) {
+// TestEnhanceRedisSpanKeyTruncated 验证超长 key 按上限截断
+func TestEnhanceRedisSpanKeyTruncated(t *testing.T) {
 	longKey := make([]byte, 150)
 	for i := range longKey {
 		longKey[i] = 'a'
@@ -202,8 +212,8 @@ func TestEnhanceRedisSpan_Key超长截断(t *testing.T) {
 	t.Fatal("未找到 db.redis.key 属性")
 }
 
-// TestEnhanceRedisSpan_不录制的Span 验证非录制 Span 下既不 panic 也不产生副作用
-func TestEnhanceRedisSpan_不录制的Span(t *testing.T) {
+// TestEnhanceRedisSpanNotRecording 验证非录制 Span 下既不 panic 也不产生副作用
+func TestEnhanceRedisSpanNotRecording(t *testing.T) {
 	ctx := context.Background()
 	cmd := redis.NewCmd(ctx, "SET", "key", "val")
 	beforeArgs := append([]any(nil), cmd.Args()...)
@@ -221,7 +231,8 @@ func TestEnhanceRedisSpan_不录制的Span(t *testing.T) {
 // setRequestIDToRedisSpan 测试
 // ============================================================================
 
-func TestSetRequestIDToRedisSpan_ctx有request_id(t *testing.T) {
+// TestSetRequestIDToRedisSpanWithRequestID 验证 ctx 携带 request_id 时写入 Span 属性
+func TestSetRequestIDToRedisSpanWithRequestID(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -233,7 +244,8 @@ func TestSetRequestIDToRedisSpan_ctx有request_id(t *testing.T) {
 	assertAttr(t, stubs[0].Attributes, "request_id", "req-001")
 }
 
-func TestSetRequestIDToRedisSpan_ctx无request_id(t *testing.T) {
+// TestSetRequestIDToRedisSpanNoRequestID 验证 ctx 无 request_id 时不设置属性
+func TestSetRequestIDToRedisSpanNoRequestID(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -246,7 +258,8 @@ func TestSetRequestIDToRedisSpan_ctx无request_id(t *testing.T) {
 	}
 }
 
-func TestSetRequestIDToRedisSpan_request_id为空(t *testing.T) {
+// TestSetRequestIDToRedisSpanEmptyRequestID 验证空 request_id 不上报
+func TestSetRequestIDToRedisSpanEmptyRequestID(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -260,7 +273,8 @@ func TestSetRequestIDToRedisSpan_request_id为空(t *testing.T) {
 	}
 }
 
-func TestSetRequestIDToRedisSpan_request_id类型错误(t *testing.T) {
+// TestSetRequestIDToRedisSpanWrongRequestIDType 验证非 string 类型的 request_id 被安全忽略
+func TestSetRequestIDToRedisSpanWrongRequestIDType(t *testing.T) {
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
 		ctx, span := tr.Start(ctx, "test-span")
 		defer span.End()
@@ -279,7 +293,8 @@ func TestSetRequestIDToRedisSpan_request_id类型错误(t *testing.T) {
 // requestIDHook ProcessHook 测试
 // ============================================================================
 
-func TestRequestIDHook_ProcessHook_增强属性(t *testing.T) {
+// TestRequestIDHookProcessHookEnhancesAttributes 验证 Hook 设置 request_id 与命令诊断属性
+func TestRequestIDHookProcessHookEnhancesAttributes(t *testing.T) {
 	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -300,7 +315,8 @@ func TestRequestIDHook_ProcessHook_增强属性(t *testing.T) {
 	assertAttr(t, span.Attributes, "db.redis.command", "set")
 }
 
-func TestRequestIDHook_ProcessHook_记录错误(t *testing.T) {
+// TestRequestIDHookProcessHookRecordsError 验证真实错误被记录为 Error 状态
+func TestRequestIDHookProcessHookRecordsError(t *testing.T) {
 	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -321,7 +337,8 @@ func TestRequestIDHook_ProcessHook_记录错误(t *testing.T) {
 // requestIDHook ProcessPipelineHook 测试
 // ============================================================================
 
-func TestRequestIDHook_ProcessPipelineHook_记录错误(t *testing.T) {
+// TestRequestIDHookProcessPipelineHookRecordsError 验证 Pipeline 整体错误被记录为 Error 状态
+func TestRequestIDHookProcessPipelineHookRecordsError(t *testing.T) {
 	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -344,7 +361,8 @@ func TestRequestIDHook_ProcessPipelineHook_记录错误(t *testing.T) {
 	assertAttr(t, span.Attributes, "request_id", "pipeline-req-001")
 }
 
-func TestRequestIDHook_ProcessPipelineHook_成功(t *testing.T) {
+// TestRequestIDHookProcessPipelineHookSuccess 验证成功时不设置错误状态
+func TestRequestIDHookProcessPipelineHookSuccess(t *testing.T) {
 	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -366,9 +384,9 @@ func TestRequestIDHook_ProcessPipelineHook_成功(t *testing.T) {
 	assertAttr(t, stubs[0].Attributes, "request_id", "pipeline-req-002")
 }
 
-// TestRequestIDHook_ProcessPipelineHook_逐命令记录失败 P0-3 回归测试：
+// TestRequestIDHookProcessPipelineHookRecordsPerCommandFailure P0-3 回归测试：
 // 遍历每个命令，将失败命令以 Span Event 形式记录（哪个命令失败了）
-func TestRequestIDHook_ProcessPipelineHook_逐命令记录失败(t *testing.T) {
+func TestRequestIDHookProcessPipelineHookRecordsPerCommandFailure(t *testing.T) {
 	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -404,8 +422,8 @@ func TestRequestIDHook_ProcessPipelineHook_逐命令记录失败(t *testing.T) {
 	assertAttr(t, eventAttrs, "error.message", "WRONGTYPE 错误")
 }
 
-// TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件 验证无失败命令时不产生事件
-func TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件(t *testing.T) {
+// TestRequestIDHookProcessPipelineHookNoFailureEvents 验证无失败命令时不产生事件
+func TestRequestIDHookProcessPipelineHookNoFailureEvents(t *testing.T) {
 	hook := &requestIDHook{}
 
 	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
@@ -428,11 +446,129 @@ func TestRequestIDHook_ProcessPipelineHook_全部成功无失败事件(t *testin
 }
 
 // ============================================================================
+// P0-3 回归：redis.Nil 是正常缓存 miss，不计为 Span Error
+// ============================================================================
+
+// TestRequestIDHookProcessHookNilNotRecorded 验证 GET 不存在 key 返回 redis.Nil 时
+// Span 状态保持 Unset 且不产生 Error Event（生产上 miss 率高，计入错误会打满错误率）
+func TestRequestIDHookProcessHookNilNotRecorded(t *testing.T) {
+	hook := &requestIDHook{}
+
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+		cmd := redis.NewCmd(ctx, "GET", "missing-key")
+		err := hook.ProcessHook(func(_ context.Context, cmd redis.Cmder) error {
+			cmd.SetErr(redis.Nil)
+			return redis.Nil
+		})(ctx, cmd)
+		assert.ErrorIs(t, err, redis.Nil, "错误本身仍应透传给调用方")
+	})
+
+	require.Len(t, stubs, 1)
+	span := stubs[0]
+	assert.Equal(t, "Unset", span.Status.Code.String(), "缓存 miss 不应把 Span 置为 Error")
+	for _, e := range span.Events {
+		assert.NotEqual(t, "exception", e.Name, "redis.Nil 不应记录异常事件")
+	}
+}
+
+// TestRequestIDHookProcessPipelineHookNilNotFailure 验证全 miss 的 Pipeline
+// （逐命令与整体错误均为 redis.Nil）不产生失败事件且状态保持 Unset
+func TestRequestIDHookProcessPipelineHookNilNotFailure(t *testing.T) {
+	hook := &requestIDHook{}
+
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+
+		miss1 := redis.NewCmd(ctx, "GET", "miss1")
+		miss1.SetErr(redis.Nil)
+		miss2 := redis.NewCmd(ctx, "GET", "miss2")
+		miss2.SetErr(redis.Nil)
+		cmds := []redis.Cmder{miss1, miss2}
+
+		err := hook.ProcessPipelineHook(func(_ context.Context, _ []redis.Cmder) error {
+			// go-redis 的 cmdsFirstErr 取首条命令错误且不跳过 Nil，全 miss 时整体 err 即 redis.Nil
+			return redis.Nil
+		})(ctx, cmds)
+		assert.ErrorIs(t, err, redis.Nil)
+	})
+
+	require.Len(t, stubs, 1)
+	assert.Equal(t, "Unset", stubs[0].Status.Code.String(), "全 miss 不应置 Error")
+	assert.Empty(t, stubs[0].Events, "全 miss 不应记录失败事件")
+}
+
+// TestRequestIDHookProcessPipelineHookNilFirstRealFailure 验证首条命令 Nil、
+// 后续命令真失败时仍置 Error，且状态消息不携带 "redis: nil"（避免误导排障）
+func TestRequestIDHookProcessPipelineHookNilFirstRealFailure(t *testing.T) {
+	hook := &requestIDHook{}
+
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+
+		nilCmd := redis.NewCmd(ctx, "GET", "miss")
+		nilCmd.SetErr(redis.Nil)
+		failCmd := redis.NewCmd(ctx, "SET", "bad", "v")
+		failCmd.SetErr(errors.New("WRONGTYPE 错误"))
+		cmds := []redis.Cmder{nilCmd, failCmd}
+
+		err := hook.ProcessPipelineHook(func(_ context.Context, _ []redis.Cmder) error {
+			return redis.Nil // 模拟 cmdsFirstErr 取到首条命令的 Nil
+		})(ctx, cmds)
+		assert.ErrorIs(t, err, redis.Nil)
+	})
+
+	require.Len(t, stubs, 1)
+	span := stubs[0]
+	assert.Equal(t, "Error", span.Status.Code.String(), "后续真失败仍应置 Error")
+	assert.Equal(t, "redis pipeline command failed", span.Status.Description,
+		"状态消息应指向真失败命令，而非透传 redis: nil")
+
+	// 真失败命令应记录事件，Nil 命令不应记录
+	var failEvents int
+	for _, e := range span.Events {
+		if e.Name == "redis.pipeline.command.failed" {
+			failEvents++
+		}
+	}
+	assert.Equal(t, 1, failEvents, "仅真失败命令记录事件，redis.Nil 命令跳过")
+}
+
+// ============================================================================
+// P0-4 回归：参数转字符串处理 []byte
+// ============================================================================
+
+// TestArgToString 验证 argToString 的类型分支：string/[]byte/Stringer/default
+func TestArgToString(t *testing.T) {
+	assert.Equal(t, "hello", argToString("hello"), "string 原样返回")
+	assert.Equal(t, "hello", argToString([]byte("hello")), "[]byte 应转为字符串，而非 [104 101 ...] 字节数组")
+	assert.Equal(t, "127.0.0.1", argToString(net.IP{127, 0, 0, 1}), "fmt.Stringer 应走 String()")
+	assert.Equal(t, "42", argToString(42), "default 分支回退 fmt.Sprintf")
+	assert.Equal(t, "<nil>", argToString(nil), "nil 不应 panic")
+}
+
+// TestEnhanceRedisSpanByteSliceKey 验证业务传 []byte key 时 Span 属性显示为字符串
+func TestEnhanceRedisSpanByteSliceKey(t *testing.T) {
+	stubs := recordSpans(t, func(ctx context.Context, tr trace.Tracer) {
+		ctx, span := tr.Start(ctx, "test-span")
+		defer span.End()
+		cmd := redis.NewCmd(ctx, "GET", []byte("user:1001:name"))
+		enhanceRedisSpan(ctx, cmd)
+	})
+
+	require.Len(t, stubs, 1)
+	assertAttr(t, stubs[0].Attributes, "db.redis.key", "user:1001:name")
+}
+
+// ============================================================================
 // P3 回归：多字节字符（中文/emoji）截断不产生乱码
 // ============================================================================
 
-// TestTruncateKey_中文截断不乱码 按 rune 截断，截断结果必须是合法 UTF-8
-func TestTruncateKey_中文截断不乱码(t *testing.T) {
+// TestTruncateKeyChineseNoMojibake 按 rune 截断，截断结果必须是合法 UTF-8
+func TestTruncateKeyChineseNoMojibake(t *testing.T) {
 	key := strings.Repeat("用户昵称", 40) // 160 个 rune，超过 maxKeyDisplayLen=100
 	got := truncateKey(key)
 
@@ -444,8 +580,8 @@ func TestTruncateKey_中文截断不乱码(t *testing.T) {
 	assert.Equal(t, "短键", truncateKey("短键"))
 }
 
-// TestTrimLockName_中文截断不乱码 锁名按 rune 截断
-func TestTrimLockName_中文截断不乱码(t *testing.T) {
+// TestTrimLockNameChineseNoMojibake 锁名按 rune 截断
+func TestTrimLockNameChineseNoMojibake(t *testing.T) {
 	// 超长中文锁名：60 个 rune，应截断为 maxLockNameLen=20 个 rune 且不乱码
 	got := trimLockName("lock:" + strings.Repeat("订单锁", 20))
 	assert.True(t, utf8.ValidString(got), "截断结果必须是合法 UTF-8")
@@ -455,8 +591,8 @@ func TestTrimLockName_中文截断不乱码(t *testing.T) {
 	assert.Equal(t, "订单锁", trimLockName("lock:订单锁"))
 }
 
-// TestTruncateRunes_边界 验证截断辅助函数的边界行为
-func TestTruncateRunes_边界(t *testing.T) {
+// TestTruncateRunesBoundaries 验证截断辅助函数的边界行为
+func TestTruncateRunesBoundaries(t *testing.T) {
 	got, truncated := truncateRunes("abc", 3)
 	assert.Equal(t, "abc", got)
 	assert.False(t, truncated, "长度等于上限不应截断")

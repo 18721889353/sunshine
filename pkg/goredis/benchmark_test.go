@@ -31,9 +31,9 @@ func benchRequestIDCtx() context.Context {
 	return context.WithValue(context.Background(), logger.ContextKeyRequestID, "req-benchmark-id-0123456789")
 }
 
-// BenchmarkGetRedisOpt_DSN解析 测量 DSN 归一化 + 解析开销，覆盖三种常见写法。
+// BenchmarkGetRedisOptDSNParse 测量 DSN 归一化 + 解析开销，覆盖三种常见写法。
 // 该路径在配置热更新重建客户端时执行，不在每条命令上，因此成本可接受但要避免无谓放大。
-func BenchmarkGetRedisOpt_DSN解析(b *testing.B) {
+func BenchmarkGetRedisOptDSNParse(b *testing.B) {
 	cases := []struct {
 		name string
 		dsn  string
@@ -60,8 +60,8 @@ func BenchmarkGetRedisOpt_DSN解析(b *testing.B) {
 	}
 }
 
-// BenchmarkEnsureDSNPath_补全路径 测量纯字符串补全开销（不经过 net/url 往返是它的设计目标）。
-func BenchmarkEnsureDSNPath_补全路径(b *testing.B) {
+// BenchmarkEnsureDSNPathNormalize 测量纯字符串补全开销（不经过 net/url 往返是它的设计目标）。
+func BenchmarkEnsureDSNPathNormalize(b *testing.B) {
 	cases := []struct {
 		name string
 		dsn  string
@@ -84,9 +84,9 @@ func BenchmarkEnsureDSNPath_补全路径(b *testing.B) {
 	}
 }
 
-// BenchmarkEnhanceRedisSpan_追踪状态 对比「未开启追踪」与「开启追踪但不导出」两种部署形态下
+// BenchmarkEnhanceRedisSpanTracingState 对比「未开启追踪」与「开启追踪但不导出」两种部署形态下
 // 每条命令的 Span 增强成本：前者应只有一次 SpanFromContext + IsRecording 判断。
-func BenchmarkEnhanceRedisSpan_追踪状态(b *testing.B) {
+func BenchmarkEnhanceRedisSpanTracingState(b *testing.B) {
 	b.Run("未开启追踪", func(b *testing.B) {
 		tr := noop.NewTracerProvider().Tracer("bench")
 		ctx, span := tr.Start(context.Background(), "redis.set")
@@ -131,8 +131,8 @@ func BenchmarkEnhanceRedisSpan_追踪状态(b *testing.B) {
 	})
 }
 
-// BenchmarkSetRequestIDToRedisSpan_提取开销 测量从 context 提取 request_id 并写属性的成本差异。
-func BenchmarkSetRequestIDToRedisSpan_提取开销(b *testing.B) {
+// BenchmarkSetRequestIDToRedisSpanRequestIDExtract 测量从 context 提取 request_id 并写属性的成本差异。
+func BenchmarkSetRequestIDToRedisSpanRequestIDExtract(b *testing.B) {
 	b.Run("ctx带request_id", func(b *testing.B) {
 		tr := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample())).Tracer("bench")
 		ctx, span := tr.Start(benchRequestIDCtx(), "redis.set")
@@ -158,9 +158,9 @@ func BenchmarkSetRequestIDToRedisSpan_提取开销(b *testing.B) {
 	})
 }
 
-// BenchmarkTruncateKey_长短Key 测量按 rune 截断的开销。
+// BenchmarkTruncateKeyLengths 测量按 rune 截断的开销。
 // 长 Key 分支会构造 []rune 并复制，是「Key 很长时每条命令都要付」的成本，故需盯住不劣化。
-func BenchmarkTruncateKey_长短Key(b *testing.B) {
+func BenchmarkTruncateKeyLengths(b *testing.B) {
 	cases := []struct {
 		name string
 		key  string
@@ -184,9 +184,9 @@ func BenchmarkTruncateKey_长短Key(b *testing.B) {
 	}
 }
 
-// Benchmark命令端到端_miniredis 测量「一条命令穿过全部 Hook」的相对开销（含 miniredis 回环 RTT）。
+// BenchmarkCommandEndToEndMiniredis 测量「一条命令穿过全部 Hook」的相对开销（含 miniredis 回环 RTT）。
 // 与纯函数用例的区别：这里包含 go-redis 自身的编解码与网络，用于观察 Hook 叠加后的整体量级。
-func Benchmark命令端到端_miniredis(b *testing.B) {
+func BenchmarkCommandEndToEndMiniredis(b *testing.B) {
 	server, err := miniredis.Run()
 	if err != nil {
 		b.Fatalf("启动 miniredis 失败: %v", err)
