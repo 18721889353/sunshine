@@ -59,10 +59,11 @@ func WithCallerFunc(ctx context.Context, callerFunc string) context.Context {
 // Sync 刷新所有缓冲的日志条目，应用退出前应调用此方法确保日志完整写入
 func Sync() error {
 	// sugaredLogger 与 defaultLogger 共享底层 writer，只需 Sync 一次
-	if defaultLogger == nil {
+	dl := defaultLoggerPtr.Load()
+	if dl == nil {
 		return nil
 	}
-	if syncErr := defaultLogger.Sync(); syncErr != nil && !strings.Contains(syncErr.Error(), "stdout") {
+	if syncErr := dl.Sync(); syncErr != nil && !strings.Contains(syncErr.Error(), "stdout") {
 		return syncErr
 	}
 	return nil
@@ -120,11 +121,23 @@ func Shutdown(_ context.Context) error {
 	return firstErr
 }
 
-// logWithCtx 提取 context 字段并执行自定义 Hook，返回最终字段列表
+// logWithCtx 提取 context 字段并执行自定义 Hook，返回最终字段列表。
+//
+// 级别未启用时直接返回原始字段：既省去 extractContextFields 的临时切片分配，
+// 更重要的是避免 customHooksWithCtx（如 SLS 上报）在本地根本不会输出的日志上
+// 白白产生网络/序列化开销——这与 zap core 路径上 customHooks 受级别过滤的行为
+// 保持一致。Panic/Fatal 恒高于任何 minLevel，Enabled 恒为 true，不会因此被跳过。
+//
+// 注：此处 Enabled 预检查与后续 zap 内部 Logger.Info 等方法的 Core().Enabled 检查存在
+// 重复，是有意为之——提前返回可省去 extractContextFields 的切片分配与 customHooksWithCtx
+// 序列化开销；两次检查读取的是同一个 Core，语义一致，仅为性能取舍。
 func logWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...Field) []Field {
+	if !getDefaultLogger().Core().Enabled(level) {
+		return fields
+	}
 	ctxFields := extractContextFields(ctx)
 	allFields := append(ctxFields, fields...)
-	if len(customHooksWithCtx) > 0 {
+	if p := customHooksWithCtxPtr.Load(); p != nil && len(*p) > 0 {
 		// Hook 错误静默丢弃：日志系统的错误不应阻塞或拖慢业务逻辑
 		executeHooksIgnoreError(ctx, level, msg, allFields)
 	}
@@ -214,25 +227,13 @@ func ModuleDebugWithCtx(ctx context.Context, module string, msg string, fields .
 //	ctx := context.WithValue(context.Background(), logger.ContextKeyForRequestID(), "12345")
 //	logger.ExecuteCustomHooksWithCtx(ctx, zapcore.InfoLevel, "user login", logger.String("user_id", "123"))
 func ExecuteCustomHooksWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...Field) error {
-	if len(customHooksWithCtx) == 0 {
+	hooks := customHooksWithCtxPtr.Load()
+	if hooks == nil || len(*hooks) == 0 {
 		return nil
 	}
 
-	// 获取调用者信息（跳过 ExecuteCustomHooksWithCtx 和 *WithCtx 两层）
-	pc, file, line, ok := runtime.Caller(2)
-	caller := zapcore.NewEntryCaller(0, "", 0, false)
-	if ok {
-		// 简化文件路径，只保留最后两层目录
-		if idx := strings.LastIndex(file, "/"); idx != -1 {
-			file = file[idx+1:]
-		}
-		caller = zapcore.EntryCaller{
-			Defined: true,
-			PC:      pc,
-			File:    file,
-			Line:    line,
-		}
-	}
+	// 获取调用者信息：取第一个不属于 logger 包的栈帧作为真正的用户调用点
+	caller := callerOutsideLogger()
 
 	entry := zapcore.Entry{
 		Level:      level,
@@ -243,10 +244,50 @@ func ExecuteCustomHooksWithCtx(ctx context.Context, level zapcore.Level, msg str
 		Stack:      "",
 	}
 
-	for _, hook := range customHooksWithCtx {
+	for _, hook := range *hooks {
 		if err := hook(ctx, entry, fields); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// loggerPkgPath 本包函数名前缀（含末尾点号，构成包边界），用于在调用栈中识别并跳过 logger 自身的内部帧。
+// 带点号避免误匹配同前缀的兄弟包（如 .../pkg/logger_test 外部测试包、.../pkg/loggerutil）
+// 注意：本常量硬编码了模块路径，若模块被 fork/重命名（go.mod module 变更）需同步更新，
+// 否则 caller 定位会越过 logger 帧退化到调用框架（如 testing）帧。
+const loggerPkgPath = "github.com/18721889353/sunshine/pkg/logger."
+
+// callerOutsideLogger 返回调用栈中第一个不属于 logger 包的帧，即真正的用户调用点。
+// 为什么不用固定 skip 的 runtime.Caller(n)：直接调用 ExecuteCustomHooksWithCtx 与
+// 经 *WithCtx → logWithCtx → executeHooksIgnoreError 调用两条路径的栈深度不同，
+// 且函数内联会改变物理帧数；而 CallersFrames 会展开内联帧，按「首个非本包帧」
+// 定位对两种调用路径都稳定正确。
+func callerOutsideLogger() zapcore.EntryCaller {
+	pcs := make([]uintptr, 32)
+	// skip=2 跳过 runtime.Callers 与 callerOutsideLogger 自身，从调用方开始采集
+	if n := runtime.Callers(2, pcs); n > 0 {
+		frames := runtime.CallersFrames(pcs[:n])
+		for {
+			f, more := frames.Next()
+			if !strings.HasPrefix(f.Function, loggerPkgPath) {
+				// 简化文件路径，仅保留文件名
+				shortFile := f.File
+				if idx := strings.LastIndex(shortFile, "/"); idx != -1 {
+					shortFile = shortFile[idx+1:]
+				}
+				return zapcore.EntryCaller{
+					Defined:  true,
+					PC:       f.PC,
+					File:     shortFile,
+					Line:     f.Line,
+					Function: f.Function,
+				}
+			}
+			if !more {
+				break
+			}
+		}
+	}
+	return zapcore.NewEntryCaller(0, "", 0, false)
 }

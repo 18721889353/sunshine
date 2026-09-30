@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -38,11 +39,17 @@ type RouteConfig struct {
 var (
 	globalRouter *LogRouter
 	routerOnce   sync.Once
+	routerInited atomic.Bool // 路由器是否已完成首次初始化（sync.Once 无法查询是否已执行）
 )
 
 // InitRouter 初始化全局日志路由器
 // defaultConfig: 默认配置,路由配置中未指定的字段将继承此配置
+// 注意: 受 routerOnce 保护，仅首次调用生效；初始化后再次携带 routes 调用不会重配路由，
+// 会返回明确错误（而非静默 no-op），增量注册请使用 LogRouter.RegisterRoute
 func InitRouter(defaultLog *zap.Logger, routes []*RouteConfig, defaultConfig *RouteConfig) error {
+	// 先记录本次调用前是否已初始化，用于区分「首次初始化」与「后续重复调用」
+	alreadyInited := routerInited.Load()
+
 	var initErr error
 	routerOnce.Do(func() {
 		router := &LogRouter{
@@ -61,9 +68,20 @@ func InitRouter(defaultLog *zap.Logger, routes []*RouteConfig, defaultConfig *Ro
 		}
 
 		globalRouter = router
+		routerInited.Store(true)
 	})
 
-	return initErr
+	if initErr != nil {
+		return initErr
+	}
+
+	// 已初始化后再次携带路由配置：routerOnce 使本次路由静默失效，明确报错告知调用者
+	if alreadyInited && len(routes) > 0 {
+		return fmt.Errorf("InitRouter 已初始化，后续调用不会重配路由（如需增量注册请使用 LogRouter.RegisterRoute）")
+	}
+
+	// 已初始化但本次未携带路由（len(routes)==0）：属幂等 no-op，按预期返回 nil
+	return nil
 }
 
 // RegisterRoute 注册一个日志路由
@@ -211,7 +229,10 @@ func mergeRouteConfig(route, defaultConfig *RouteConfig) *RouteConfig {
 
 // createLogger 根据配置创建 zap logger
 func (r *LogRouter) createLogger(config *RouteConfig) (*zap.Logger, error) {
-	logFilePath := buildLogFilePath(config.Filename)
+	logFilePath, err := buildLogFilePath(config.Filename)
+	if err != nil {
+		return nil, err
+	}
 
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = timeFormatter
@@ -227,8 +248,11 @@ func (r *LogRouter) createLogger(config *RouteConfig) (*zap.Logger, error) {
 		isCompression: config.IsCompression,
 		isSaveDay:     config.IsSaveDay,
 	}
-	ws := buildWriteSyncer(fo)
-	core := buildCore(encoder, ws, getLevelSize(config.Level), config.IsAsync, 0, 0)
+	ws, err := buildWriteSyncer(fo)
+	if err != nil {
+		return nil, err
+	}
+	core := buildCore(encoder, ws, getLevelSize(config.Level), config.IsAsync, 0, 0, currentCustomHooks())
 	return zap.New(core, zap.AddCaller()), nil
 }
 
@@ -271,41 +295,44 @@ func RouterSync() error {
 }
 
 // buildLogFilePath 构建日志文件路径并自动创建目录
-// 支持绝对路径和相对路径
-func buildLogFilePath(filename string) string {
+// 支持绝对路径和相对路径；目录创建失败以 error 返回（而非 panic）
+func buildLogFilePath(filename string) (string, error) {
 	if filename == "" {
-		return "out.log"
+		return "out.log", nil
 	}
 
 	// 如果是绝对路径,直接返回并创建目录
 	if filepath.IsAbs(filename) {
-		dir := filepath.Dir(filename)
-		ensureDirExists(dir)
-		return filename
+		if err := ensureDirExists(filepath.Dir(filename)); err != nil {
+			return "", err
+		}
+		return filename, nil
 	}
 
 	// 如果是相对路径,也需要创建目录
 	if strings.Contains(filename, string(filepath.Separator)) {
-		dir := filepath.Dir(filename)
-		ensureDirExists(dir)
+		if err := ensureDirExists(filepath.Dir(filename)); err != nil {
+			return "", err
+		}
 	}
 
-	return filename
+	return filename, nil
 }
 
 // ensureDirExists 确保目录存在
-func ensureDirExists(dir string) {
+func ensureDirExists(dir string) error {
 	if dir == "" || dir == "." {
-		return
+		return nil
 	}
 
 	if _, err := os.Stat(dir); err == nil {
-		return
+		return nil
 	}
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		panic(fmt.Sprintf("failed to create log directory '%s': %v", dir, err))
+		return fmt.Errorf("failed to create log directory '%s': %w", dir, err)
 	}
+	return nil
 }
 
 // extractContextFields 从 context 中提取链路追踪字段
@@ -314,7 +341,9 @@ func extractContextFields(ctx context.Context) []Field {
 		return nil
 	}
 
-	var fields []Field
+	// 预分配容量：最多 request_id / caller_func / trace_id / span_id 四个字段，
+	// 避免热点日志路径上多次 append 触发扩容重分配
+	fields := make([]Field, 0, 4)
 
 	// 提取 request_id (从 context value)
 	if reqID := getRequestIDFromCtx(ctx); reqID != "" {

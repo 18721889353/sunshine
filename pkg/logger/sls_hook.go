@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -26,8 +27,8 @@ type SLSConfig struct {
 	// 可选参数
 	Topic      string // 日志主题，默认为空
 	Source     string // 日志来源，默认为服务名称
-	MaxRetries int    // 最大重试次数，默认 10
-	Timeout    int    // 超时时间（秒），默认 60
+	MaxRetries int    // 最大重试次数，默认 10（已接线到 producerConfig.Retries）
+	Timeout    int    // 预留字段：aliyun-log-go-sdk 的 ProducerConfig 未暴露对应超时项，当前仅做取值范围校验、不影响发送
 
 	// Producer 性能配置
 	TotalSizeLnBytes      int64 // 缓存总大小(字节)，默认 512MB (512 * 1024 * 1024)
@@ -39,8 +40,8 @@ type SLSConfig struct {
 	// 高级配置（大厂最佳实践）
 	EnableHealthCheck   bool // 是否启用健康检查，默认 false（关闭），true 表示开启
 	HealthCheckInterval int  // 健康检查间隔(秒)，默认 30 秒
-	SendTimeout         int  // 发送超时时间(秒)，默认 5 秒
-	SkipVerify          bool // 是否跳过启动时的测试日志验证，默认 false（建议单元测试时设为 true，避免污染 LogStore）
+	SendTimeout         int  // 预留字段：发送超时（秒）；SDK ProducerConfig 未暴露对应项，当前仅做取值校验、不影响发送
+	SkipVerify          bool // 是否跳过启动时的 Producer 就绪校验，默认 false；校验已不再向 LogStore 写入测试日志，故无需为“避免污染”而显式置 true
 }
 
 // SLS Hook 预定义静态 key，避免每次调用分配字符串
@@ -71,6 +72,7 @@ type SLSHook struct {
 	// 健康检查
 	healthCheckStop chan struct{}
 	healthCheckWg   sync.WaitGroup
+	closeOnce       sync.Once // 兜底防止对 healthCheckStop 二次 close 触发 panic
 }
 
 // NewSLSHook 创建阿里云 SLS 日志钩子
@@ -154,7 +156,8 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	producerConfig.LingerMs = int64(config.LingerMs)
 	producerConfig.Retries = config.MaxRetries
 	producerConfig.DisableRuntimeMetrics = config.DisableRuntimeMetrics
-	// 注意: TimeoutMilliseconds 字段可能不存在，使用默认值
+	// 注：SLSConfig.Timeout / SendTimeout 为预留字段——aliyun-log-go-sdk 的 ProducerConfig 未暴露对应超时项，
+	// 当前由 SDK 默认值控制；validateSLSConfig 仅校验其取值范围，不会改变发送/关闭行为。
 
 	// 创建生产者
 	p, err := producer.NewProducer(producerConfig)
@@ -192,7 +195,7 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 等待短暂时间让 Producer 完成初始化
 	time.Sleep(100 * time.Millisecond)
 
-	// 验证 Producer 状态（SkipVerify=true 时跳过，避免测试时污染 LogStore）
+	// 校验 Producer 就绪状态（SkipVerify=true 时跳过；此校验不向 LogStore 写入任何数据）
 	if !config.SkipVerify {
 		if err := hook.verifyProducerState(); err != nil {
 			// 启动失败，返回错误由调用方决定如何处理
@@ -209,6 +212,13 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 
 // Hook 实现 CustomHookWithCtx 接口，将日志发送到阿里云 SLS
 func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) error {
+	// 关闭过程中（StateStopping/StateStopped）拒绝再入发送：Close() 里 printCloseStats
+	// 会经由本 hook 记录统计日志，若继续向已关闭的 producer 发送将反复失败并无意义地
+	// 抢占 errorMu（甚至与持有者构成自锁），故此处直接放行不发送。
+	if state := h.getCurrentState(); state == StateStopping || state == StateStopped {
+		return nil
+	}
+
 	// 预分配 Contents 容量（5 个基础字段 + 自定义字段）
 	contents := make([]*sls.LogContent, 0, 5+len(fields))
 
@@ -223,41 +233,11 @@ func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) e
 		&sls.LogContent{Key: &slsKeyServiceName, Value: ptrString(h.serviceName)},
 	)
 
-	// 自定义字段（使用 strconv 替代 fmt.Sprintf 避免反射）
+	// 自定义字段（按类型序列化为字符串，抽出为 slsFieldValue 以便单测覆盖各分支）
 	for _, field := range fields {
-		var valueStr string
-		switch field.Type {
-		case zapcore.StringType:
-			valueStr = field.String
-		case zapcore.Int64Type:
-			valueStr = strconv.FormatInt(field.Integer, 10)
-		case zapcore.Int32Type:
-			valueStr = strconv.FormatInt(field.Integer, 10)
-		case zapcore.Uint64Type:
-			valueStr = strconv.FormatUint(uint64(field.Integer), 10)
-		case zapcore.Uint32Type:
-			valueStr = strconv.FormatUint(uint64(field.Integer), 10)
-		case zapcore.BoolType:
-			valueStr = strconv.FormatBool(field.Integer == 1)
-		case zapcore.Float64Type:
-			valueStr = strconv.FormatFloat(float64(field.Integer), 'f', -1, 64)
-		case zapcore.Float32Type:
-			valueStr = strconv.FormatFloat(float64(field.Integer), 'f', -1, 32)
-		default:
-			if field.Interface != nil {
-				jsonBytes, marshalErr := json.Marshal(field.Interface)
-				if marshalErr != nil {
-					valueStr = fmt.Sprintf("序列化错误: %v", marshalErr)
-				} else {
-					valueStr = string(jsonBytes)
-				}
-			} else {
-				valueStr = field.String
-			}
-		}
 		contents = append(contents, &sls.LogContent{
 			Key:   ptrString(field.Key),
-			Value: ptrString(valueStr),
+			Value: ptrString(slsFieldValue(field)),
 		})
 	}
 
@@ -289,8 +269,10 @@ func (h *SLSHook) Close() error {
 	}
 
 	// 停止健康检查
+	// sync.Once 兜底：当状态被健康检查置为 StateFailed 时，状态机的幂等判断会放行，
+	// 并发/重复 Close 可能两次 close(h.healthCheckStop) 触发 panic: close of closed channel
 	if h.healthCheckStop != nil {
-		close(h.healthCheckStop)
+		h.closeOnce.Do(func() { close(h.healthCheckStop) })
 		h.healthCheckWg.Wait()
 	}
 
@@ -370,6 +352,39 @@ func (h *SLSHook) RecordFailure(err error) {
 	h.lastErrorTime = time.Now()
 	h.lastErrorMessage = err.Error()
 	h.errorMu.Unlock()
+}
+
+// slsFieldValue 将单个 zapcore.Field 序列化为 SLS 字符串值。
+//
+// 从 Hook 中抽出为纯函数，使其可脱离网络 Producer 单独做单元/模糊测试。
+// 注意 Float64/Float32：zap 并非把数值直接存进 Integer，而是先用
+// math.Float64bits / math.Float32bits 把浮点数的**位模式**塞进 Integer，
+// 因此必须用 math.Float64frombits / math.Float32frombits 按位还原——
+// 直接 float64(field.Integer) 会得到完全错误的数字（历史 Bug，已修复）。
+func slsFieldValue(field Field) string {
+	switch field.Type {
+	case zapcore.StringType:
+		return field.String
+	case zapcore.Int64Type, zapcore.Int32Type:
+		return strconv.FormatInt(field.Integer, 10)
+	case zapcore.Uint64Type, zapcore.Uint32Type:
+		return strconv.FormatUint(uint64(field.Integer), 10)
+	case zapcore.BoolType:
+		return strconv.FormatBool(field.Integer == 1)
+	case zapcore.Float64Type:
+		return strconv.FormatFloat(math.Float64frombits(uint64(field.Integer)), 'f', -1, 64)
+	case zapcore.Float32Type:
+		return strconv.FormatFloat(float64(math.Float32frombits(uint32(field.Integer))), 'f', -1, 32)
+	default:
+		if field.Interface != nil {
+			jsonBytes, marshalErr := json.Marshal(field.Interface)
+			if marshalErr != nil {
+				return fmt.Sprintf("序列化错误: %v", marshalErr)
+			}
+			return string(jsonBytes)
+		}
+		return field.String
+	}
 }
 
 // ptrString 辅助函数：返回字符串指针
@@ -525,43 +540,20 @@ func (h *SLSHook) performHealthCheck() {
 	}
 }
 
-// verifyProducerState 验证 Producer 启动状态
+// verifyProducerState 校验 Producer 已就绪。
+//
+// 注意：aliyun-log-go-sdk 的 Start() 无返回值，而 SendLog 是异步的——返回 nil
+// 仅代表「已进入发送队列」而非「发送成功」。因此历史上“发一条 health-check 测试日志”
+// 的做法既是**假验证**（无论健康与否只要队列未满都返回 nil），又会向生产 LogStore
+// **写入污染数据**。现改为仅校验内部句柄与状态是否就绪，真正的运行期健康由
+// startHealthCheck/performHealthCheck 基于发送失败率判定。
 func (h *SLSHook) verifyProducerState() error {
-	// 由于 aliyun-log-go-sdk 的 Start() 方法没有返回值
-	// 我们通过尝试发送一条测试日志来验证
-
-	// 创建一条测试日志
-	testLogTime := uint32(time.Now().Unix())
-	testLog := &sls.Log{
-		Time: &testLogTime,
-		Contents: []*sls.LogContent{
-			{
-				Key:   ptrString("__topic__"),
-				Value: ptrString("health-check"),
-			},
-			{
-				Key:   ptrString("__source__"),
-				Value: ptrString(h.config.Source),
-			},
-			{
-				Key:   ptrString("message"),
-				Value: ptrString("SLS producer health check"),
-			},
-		},
+	if h.producer == nil {
+		return fmt.Errorf("SLS producer 未初始化")
 	}
-
-	// 尝试发送测试日志（使用较短的超时）
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// SendLog 是异步的，这里只能验证调用是否成功
-	err := h.producer.SendLog(h.config.ProjectName, h.config.LogStoreName, "health-check", h.config.Source, testLog)
-	if err != nil {
-		return fmt.Errorf("发送测试日志失败: %w", err)
+	if state := h.getCurrentState(); state != StateStarting && state != StateRunning {
+		return fmt.Errorf("SLS producer 状态异常: %d", state)
 	}
-
-	// 如果能成功调用 SendLog，说明 Producer 已启动
-	_ = ctx // 避免未使用变量警告
 	return nil
 }
 
@@ -586,11 +578,16 @@ func (h *SLSHook) printCloseStats() {
 			Float64("success_rate", successRate))
 	}
 
+	// 快照错误信息后先释放读锁再记日志：绝不能在持有 errorMu.RLock 期间调用
+	// WarnWithCtx，否则该日志会再入本 hook 的 RecordFailure 去 Lock 同一把锁 → 同协程自锁死锁。
 	h.errorMu.RLock()
-	if h.lastErrorMessage != "" {
-		WarnWithCtx(context.Background(), "[SLS Hook Closed] Last error",
-			String("last_error", h.lastErrorMessage),
-			String("error_time", h.lastErrorTime.Format(time.RFC3339)))
-	}
+	lastErrorMessage := h.lastErrorMessage
+	lastErrorTime := h.lastErrorTime
 	h.errorMu.RUnlock()
+
+	if lastErrorMessage != "" {
+		WarnWithCtx(context.Background(), "[SLS Hook Closed] Last error",
+			String("last_error", lastErrorMessage),
+			String("error_time", lastErrorTime.Format(time.RFC3339)))
+	}
 }

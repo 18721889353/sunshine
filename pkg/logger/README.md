@@ -23,10 +23,13 @@
 ```go
 import "github.com/18721889353/sunshine/pkg/logger"
 
-// 初始化（终端输出，debug 级别）
+// 初始化（默认行为：保存日志到 logs/app.log，JSON 格式，info 级别，异步写入）
 logger.Init()
 
-// 带 context 的日志（自动注入 request_id、trace_id）
+// 终端输出（开发环境常用）：显式关闭文件保存
+logger.Init(logger.WithSave(false), logger.WithFormat("console"))
+
+// 带 context 的日志（request_id 自动注入；trace_id/span_id 需 ctx 携带真实 OTel SpanContext）
 ctx = context.WithValue(ctx, logger.ContextKeyForRequestID(), "req-001")
 logger.InfoWithCtx(ctx, "用户登录", logger.String("user_id", "123"))
 ```
@@ -99,6 +102,13 @@ logger.Init(
     }),
 )
 ```
+
+> **就绪校验不写测试日志**：`NewSLSHook` 启动时的 `verifyProducerState` 只校验 producer 句柄/状态，
+> 不会向 LogStore 写入 `health-check` 测试日志（历史上会污染生产数据，且因 `SendLog` 异步属假验证，已移除）。
+>
+> **级别门控说明**：带 ctx 的钩子（`customHooksWithCtx`）现与 zap core 上的 `customHooks` 行为一致，
+> 仅当该日志级别被 `Core().Enabled(level)` 启用时才会执行——即 `WithLevel("info")` 下 `DebugWithCtx` 不会触发 SLS 上报，
+> 也不会产生字段提取分配。上述 `entry.Level < zapcore.WarnLevel` 的包裹仍是「只上报 Warn 及以上」所需的最小过滤。
 
 ### 优雅关闭
 
@@ -207,14 +217,20 @@ logger.RegisterPrometheus()
 
   InfoWithCtx(ctx, "msg")
     → getDefaultLogger()
-      → checkNil()           ← initOnce.Do 保证只执行一次
-      → return defaultCallerLogger  ← 全局唯一实例
+      → checkNil()                          ← initOnce.Do 保证只执行一次
+      → return defaultCallerLoggerPtr.Load()  ← 原子读取全局唯一实例
 ```
 
-- `sync.Once` 保护初始化
+- `sync.Once` 保护兜底初始化
+- `atomic.Pointer` 发布默认 logger 与钩子快照：`Init` 写侧 `Store`、日志读侧 `Load`，
+  使「运行期重复 `Init` 与并发日志」不再构成内存模型层面的数据竞争
 - `atomic.Int32/Int64` 保护计数器
 - `sync.RWMutex` 保护路由器 map
 - 全程 2 个 logger 实例，不随请求增长
+
+> **`Init` 启动期单次调用约定**：虽然各包级变量已原子化，但 `Init` 内多次 `Store` 并非单一原子事务，
+> 理论上可观察到「钩子已更新而默认 logger 尚未发布」的中间态。请在服务启动、开始处理流量之前完成 `Init`，
+> 不要在流量期反复调用。
 
 ## 内存模型
 
@@ -232,11 +248,12 @@ logger.RegisterPrometheus()
 
 ## Benchmark 参考
 
-| 场景 | ns/op | allocs/op |
-|------|-------|-----------|
-| InfoWithCtx (异步) | ~2500 | 5 |
-| 高并发 (100 goroutine) | ~3000 | 5 |
-| 路由查找 | ~800 | 2 |
+> 不提供固定参考值：旧表既无测量机器/Go 版本/benchtime，历史 `BenchmarkHighConcurrency` 还存在 `b.N/concurrency` 假基准（现已改 `b.RunParallel`）。
+> 真实数据请以目标环境实测为准：`go test -bench=. -benchtime=1s -count=5`。
+> 纯 CPU 基准已使用丢弃输出（`WithNoPrint(true)`）隔离磁盘 IO；含文件/网络 IO 的基准（`BenchmarkSLSHook` 等）在未配置 SLS 凭据时会自动 Skip。
+>
+> **集成测试**：`TestSLSIntegration`/`TestMixedLogging` 会创建真实 SLS Producer（网络 IO），已收敛到 `//go:build integration`；
+> 默认 `go test ./pkg/logger/` 为纯本地（CPU/内存）测试。跑集成用例：`go test -tags integration ./pkg/logger/`。
 
 ## 目录结构
 
@@ -250,8 +267,17 @@ pkg/logger/
 ├── router.go           # 日志路由、Context 字段提取
 ├── sls_hook.go         # 阿里云 SLS Hook 实现
 ├── grpcLogger.go       # gRPC 日志桥接
-├── benchmark_test.go   # 性能基准测试
+├── main_test.go        # 包级测试入口 TestMain（基准模式条件清理）+ isBenchmarkRun/cleanupBenchmarkFiles
+├── benchmark_test.go   # 性能基准测试（纯 CPU 基准用 WithNoPrint 丢盘；路由写入基准含文件 IO 已在注释标注）
 ├── method_ctx_test.go  # 功能测试（含 table-driven）
+├── caller_ext_test.go  # 外部测试包 logger_test：验证钩子 caller 定位到用户调用点（两条路径）
+├── sls_integration_test.go # `//go:build integration`：TestSLSIntegration/TestMixedLogging（创真实 Producer、含网络 IO）
+├── testutil_test.go    # 测试公共工具（getEnv）
+├── grpcLogger_test.go  # grpcLogger.V 语义回归
+├── sls_hook_test.go    # SLS 纯函数单测 + Fuzz（validateSLSConfig/slsFieldValue 等）
+├── router_test.go      # 路由/Context 纯函数单测（mergeRouteConfig/extractContextFields 等）
+├── option_test.go      # Option 校验分支单测（WithLevel/WithFormat/值域防护）
+├── CHANGELOG.md        # 版本变更日志（含 SLS 浮点序列化 Bug、级别门控、caller 定位的修复记录）
 └── logs/               # 日志输出目录
     ├── order/
     └── payment/

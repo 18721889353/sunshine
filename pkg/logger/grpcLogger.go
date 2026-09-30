@@ -98,5 +98,8 @@ func (l *grpcLogger) Fatalf(format string, args ...interface{}) {
 }
 
 func (l *grpcLogger) V(level int) bool {
-	return l.verbosity <= level
+	// grpclog/glog 语义：verbosity 表示「允许输出的最大详细级别」，
+	// 只有 level <= verbosity 时才启用。verbosity=0 时仅 V(0) 为 true，
+	// V(1)/V(2)... 等 gRPC 内部详细日志一律关闭，避免生产刷屏。
+	return l.verbosity >= level
 }

@@ -3,18 +3,21 @@ package logger
 import (
 	"context"
 	"fmt"
-	"os"
-	"sync"
 	"testing"
 )
 
-// BenchmarkInfoWithCtx 基准测试：InfoWithCtx 方法性能
+// TestMain / isBenchmarkRun / cleanupBenchmarkFiles 已移至 main_test.go（包级 setup/teardown 单独归属，
+// 避免本文件未来加构建标签或被拆分时连带 TestMain 丢失）
+
+// BenchmarkInfoWithCtx 基准测试：InfoWithCtx 方法性能（纯 CPU，输出丢弃以隔离磁盘 IO）
 func BenchmarkInfoWithCtx(b *testing.B) {
 	Init(
 		WithLevel("info"),
 		WithFormat("json"),
 		WithAsync(true),
+		// WithNoPrint(true) 丢弃输出：本基准测量日志编码+异步缓冲管线的 CPU/分配开销，不含磁盘 IO
 		WithSave(true,
+			WithNoPrint(true),
 			WithFileName("benchmark.log"),
 			WithFileMaxSize(1024), // 1GB，避免轮转
 			WithFileMaxBackups(0), // 不备份
@@ -34,13 +37,14 @@ func BenchmarkInfoWithCtx(b *testing.B) {
 	}
 }
 
-// BenchmarkErrorWithCtx 基准测试：ErrorWithCtx 方法性能
+// BenchmarkErrorWithCtx 基准测试：ErrorWithCtx 方法性能（纯 CPU，输出丢弃以隔离磁盘 IO）
 func BenchmarkErrorWithCtx(b *testing.B) {
 	Init(
 		WithLevel("error"),
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 丢弃输出，只测量日志管线 CPU 开销
 			WithFileName("benchmark-error.log"),
 			WithFileMaxSize(1024), // 1GB
 			WithFileMaxBackups(0),
@@ -59,13 +63,14 @@ func BenchmarkErrorWithCtx(b *testing.B) {
 	}
 }
 
-// BenchmarkModuleLog 基准测试：模块化日志性能
+// BenchmarkModuleLog 基准测试：模块化日志性能（含路由文件写入 IO、非纯 CPU 口径：默认 logger 丢弃、order 路由仍写盘）
 func BenchmarkModuleLog(b *testing.B) {
 	Init(
 		WithLevel("info"),
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 默认 logger 丢弃输出；order 路由 logger 仍写文件（RouteConfig 无丢弃开关），故本基准含路由文件写入 IO
 			WithFileName("benchmark-module.log"),
 			WithFileMaxSize(1024),
 		),
@@ -92,7 +97,9 @@ func BenchmarkModuleLog(b *testing.B) {
 	}
 }
 
-// BenchmarkSLSHook 基准测试：SLS Hook 性能（需要有效的 SLS 配置）
+// BenchmarkSLSHook 基准测试：SLS Hook 性能（需有效的 SLS 配置）
+// 注意：本基准会创建真实 Producer 并向配置的 LogStore 发送日志（含网络 IO），
+// 不属于纯 CPU 基准；未配置 SLS 凭据时会自动 Skip，切勿指向生产 LogStore
 func BenchmarkSLSHook(b *testing.B) {
 	slsConfig := &SLSConfig{
 		Endpoint:        getEnv("SLS_ENDPOINT", "cn-shanghai.log.aliyuncs.com"),
@@ -135,13 +142,14 @@ func BenchmarkSLSHook(b *testing.B) {
 	}
 }
 
-// BenchmarkConcurrentLogging 基准测试：并发日志性能
+// BenchmarkConcurrentLogging 基准测试：并发日志性能（含路由文件写入 IO、非纯 CPU 口径）
 func BenchmarkConcurrentLogging(b *testing.B) {
 	Init(
 		WithLevel("info"),
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 默认 logger 丢弃输出；路由 logger 仍写文件，含路由文件写入 IO
 			WithFileName("benchmark-concurrent.log"),
 			WithFileMaxSize(1024),
 		),
@@ -181,6 +189,7 @@ func BenchmarkSyncVsAsync(b *testing.B) {
 			WithFormat("json"),
 			WithAsync(false), // 同步模式
 			WithSave(true,
+				WithNoPrint(true), // 丢弃输出，Sync/Async 对比只反映管线开销而非磁盘 IO
 				WithFileName("benchmark-sync.log"),
 				WithFileMaxSize(1024),
 			),
@@ -202,6 +211,7 @@ func BenchmarkSyncVsAsync(b *testing.B) {
 			WithFormat("json"),
 			WithAsync(true), // 异步模式
 			WithSave(true,
+				WithNoPrint(true), // 丢弃输出，Sync/Async 对比只反映管线开销而非磁盘 IO
 				WithFileName("benchmark-async.log"),
 				WithFileMaxSize(1024),
 			),
@@ -218,13 +228,14 @@ func BenchmarkSyncVsAsync(b *testing.B) {
 	})
 }
 
-// BenchmarkContextExtraction 基准测试：Context 字段提取性能
+// BenchmarkContextExtraction 基准测试：Context 字段提取性能（纯 CPU，输出丢弃以隔离磁盘 IO）
 func BenchmarkContextExtraction(b *testing.B) {
 	Init(
 		WithLevel("info"),
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 丢弃输出，专注测量 context 字段提取开销
 			WithFileName("benchmark-ctx.log"),
 			WithFileMaxSize(1024),
 		),
@@ -251,13 +262,14 @@ func BenchmarkContextExtraction(b *testing.B) {
 	})
 }
 
-// BenchmarkRouteLookup 基准测试：路由查找性能
+// BenchmarkRouteLookup 基准测试：路由查找性能（含路由文件写入 IO、非纯 CPU 口径）
 func BenchmarkRouteLookup(b *testing.B) {
 	Init(
 		WithLevel("info"),
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 默认 logger 丢弃输出；路由 logger 仍写文件，含路由文件写入 IO
 			WithFileName("benchmark-route.log"),
 			WithFileMaxSize(1024),
 		),
@@ -313,13 +325,14 @@ func BenchmarkRouteLookup(b *testing.B) {
 	})
 }
 
-// BenchmarkHighConcurrency 基准测试：高并发场景（100个goroutine）
+// BenchmarkHighConcurrency 基准测试：高并发场景（含路由文件写入 IO、非纯 CPU 口径）
 func BenchmarkHighConcurrency(b *testing.B) {
 	Init(
 		WithLevel("info"),
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 默认 logger 丢弃输出；路由 logger 仍写文件，含路由文件写入 IO
 			WithFileName("benchmark-high-concurrency.log"),
 			WithFileMaxSize(1024),
 			WithFileMaxBackups(0),
@@ -344,31 +357,24 @@ func BenchmarkHighConcurrency(b *testing.B) {
 	ctx := context.WithValue(context.Background(), ContextKeyForRequestID(), "bench-high-concurrent")
 
 	b.ResetTimer()
-	// 模拟100个并发 goroutine
-	var wg sync.WaitGroup
-	concurrency := 100
-	perGoroutine := b.N / concurrency
-
-	for g := 0; g < concurrency; g++ {
-		wg.Add(1)
-		go func(goroutineID int) {
-			defer wg.Done()
-			for i := 0; i < perGoroutine; i++ {
-				InfoWithCtx(ctx, "high concurrency log",
-					String("goroutine", fmt.Sprintf("%d", goroutineID)),
-					Int("iteration", i),
-				)
-				ModuleInfoWithCtx(ctx, "order", "order log",
-					String("order_id", fmt.Sprintf("ORD-%d-%d", goroutineID, i)),
-				)
-			}
-		}(g)
-	}
-
-	wg.Wait()
+	// 用 RunParallel 让 benchmark 框架自行决定并发度与每个 P 的迭代数，
+	// 避免手动 b.N/concurrency 在 b.N<concurrency 时 perGoroutine=0 产生“假基准”
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0 // 每个 P 独立的局部计数，避免跨 goroutine 共享产生数据竞争
+		for pb.Next() {
+			InfoWithCtx(ctx, "high concurrency log",
+				Int("iteration", i),
+			)
+			ModuleInfoWithCtx(ctx, "order", "order log",
+				String("order_id", fmt.Sprintf("ORD-%d", i)),
+			)
+			i++
+		}
+	})
 }
 
 // BenchmarkMixedScenarios 基准测试：混合场景（多种日志类型 + 路由 + SLS）
+// 注意：当 SLS 凭据可用时会接真实 Hook（含网络 IO）；无凭据时 Skip。不属于纯 CPU 基准，切勿指向生产
 func BenchmarkMixedScenarios(b *testing.B) {
 	slsConfig := &SLSConfig{
 		Endpoint:        getEnv("SLS_ENDPOINT", "cn-shanghai.log.aliyuncs.com"),
@@ -395,6 +401,7 @@ func BenchmarkMixedScenarios(b *testing.B) {
 		WithFormat("json"),
 		WithAsync(true),
 		WithSave(true,
+			WithNoPrint(true), // 默认 logger 丢弃输出；路由 logger 仍写文件，含路由文件写入 IO（叠加 SLS 网络 IO）
 			WithFileName("benchmark-mixed.log"),
 			WithFileMaxSize(1024),
 		),
@@ -450,47 +457,4 @@ func BenchmarkMixedScenarios(b *testing.B) {
 	})
 }
 
-// cleanupBenchmarkFiles 清理基准测试生成的日志文件
-func cleanupBenchmarkFiles(b *testing.B) {
-	files := []string{
-		"benchmark.log",
-		"benchmark-error.log",
-		"benchmark-module.log",
-		"benchmark-sls.log",
-		"benchmark-concurrent.log",
-		"benchmark-sync.log",
-		"benchmark-async.log",
-		"benchmark-ctx.log",
-		"benchmark-route.log",
-		"benchmark-high-concurrency.log",
-		"benchmark-mixed.log",
-	}
-
-	for _, file := range files {
-		os.Remove(file)
-	}
-
-	dirs := []string{
-		"logs/benchmark-order",
-		"logs/benchmark-payment",
-		"logs/benchmark-user",
-	}
-
-	for _, dir := range dirs {
-		os.RemoveAll(dir)
-	}
-}
-
-// TestMain 运行基准测试前后的清理
-func TestMain(m *testing.M) {
-	// 运行测试
-	code := m.Run()
-
-	// 清理测试文件
-	cleanupBenchmarkFiles(&testing.B{})
-
-	os.Exit(code)
-}
-
-// syncWaitGroup 用于并发测试的等待组
-var syncWaitGroup sync.WaitGroup
+// TestMain、isBenchmarkRun、cleanupBenchmarkFiles 见 main_test.go
