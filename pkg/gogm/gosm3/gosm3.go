@@ -1,4 +1,9 @@
-// Package gosm3 提供国密 SM3 哈希算法实现。
+// Package gosm3 封装国密 SM3 哈希算法，提供字节/字符串两种摘要计算入口。
+//
+// 核心功能：
+//   - 摘要计算：Hash / HashString 基于 gmsm sm3.Sm3Sum，输出固定 32 字节（256 位）。
+//   - 链式转换：HashResult 经 ToBytes/ToHex 转为字节切片或 64 位小写 Hex。
+//   - 选项模式：SM3Option 预留（当前无配置项，NewSM3() 直接可用），保持与 gosm2/gosm4 一致的构造风格。
 package gosm3
 
 import (
@@ -32,7 +37,8 @@ type SM3 struct {
 	// 当前版本不包含配置选项，为将来扩展预留
 }
 
-// NewSM3 创建一个新的SM3实例
+// NewSM3 创建一个新的SM3实例。
+// 不返回 error：当前 SM3Option 为预留纯值选项、无 IO 与前置校验。
 func NewSM3(opts ...SM3Option) *SM3 {
 	o := defaultSM3Options()
 	o.apply(opts...)

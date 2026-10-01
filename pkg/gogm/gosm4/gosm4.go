@@ -1,17 +1,25 @@
-// Package gosm4 提供国密 SM4 对称加密算法的封装。
-// 该包支持 ECB 和 CBC 两种加密模式，并提供多种数据格式的加解密接口。
+// Package gosm4 封装国密 SM4 对称加密算法，提供 ECB / CBC 两种模式的加解密能力。
+//
+// 核心功能：
+//   - ECB 模式：EncryptECB / DecryptECB，另有 FromByte/FromHex/FromBase64 输入变体。
+//   - CBC 模式：EncryptCBC / DecryptCBC，IV 由调用方每次传入，实现不读写任何全局状态，可并发调用。
+//   - PKCS7 填充：包内自实现填充与校验，解密失败（乱码密文、长度非 16 倍数、空输入）如实返回错误，
+//     不会静默返回空数据，也不会对合法空明文误报。
+//   - 选项模式：WithUnescapeHTML 控制加密前是否做 HTML 反转义（默认开启，兼容历史密文生成路径）。
+//
+// 密文与 gmsm 上游 sm4.Sm4Ecb/Sm4Cbc 字节级兼容，internal/config 已有的 Nacos ENC() 密文无需迁移。
 package gosm4
 
 import (
+	"crypto/cipher"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html"
 
 	"github.com/tjfoc/gmsm/sm4"
 )
-
-// 添加gmsm/sm4导入以支持SM4加密
 
 // SM4Option 是用于配置SM4的函数类型
 type SM4Option func(*sm4Options)
@@ -35,7 +43,10 @@ func (o *sm4Options) apply(opts ...SM4Option) {
 	}
 }
 
-// WithUnescapeHTML 设置是否进行HTML转义处理
+// WithUnescapeHTML 设置是否进行HTML转义处理。
+// ⚠ 默认 true：EncryptECB/EncryptCBC 会先把明文 html.UnescapeString（&amp; → &），
+// 解密入口不做对应处理，对含 HTML 实体的输入 Decrypt(Encrypt(x)) != x（往返不守恒）；
+// 配置、密码等要求字节原样的场景必须显式 WithUnescapeHTML(false)。
 func WithUnescapeHTML(unescape bool) SM4Option {
 	return func(o *sm4Options) {
 		o.unescapeHTML = unescape
@@ -47,7 +58,8 @@ type SM4 struct {
 	unescapeHTML bool
 }
 
-// NewSM4 创建一个新的SM4实例
+// NewSM4 创建一个新的SM4实例。
+// 不返回 error：当前 Option 均为纯值、无 IO；实例无全局状态，可并发使用。
 func NewSM4(opts ...SM4Option) *SM4 {
 	o := defaultSM4Options()
 	o.apply(opts...)
@@ -56,12 +68,13 @@ func NewSM4(opts ...SM4Option) *SM4 {
 	}
 }
 
-// EncryptECB 使用SM4 ECB模式加密数据
+// EncryptECB 使用SM4 ECB模式加密数据。
+// 注意：默认对明文做 HTML 反转义，见 WithUnescapeHTML 的数据改写警告。
 func (s *SM4) EncryptECB(plaintextByte, keyByte []byte) *EncryptResult {
 	if s.unescapeHTML {
 		plaintextByte = []byte(html.UnescapeString(string(plaintextByte)))
 	}
-	ciphertext, err := sm4.Sm4Ecb(keyByte, plaintextByte, true)
+	ciphertext, err := sm4ECBEncrypt(keyByte, plaintextByte)
 	if err != nil {
 		return &EncryptResult{&Result{nil, fmt.Errorf("failed to encrypt with SM4 ECB: %w", err)}}
 	}
@@ -71,8 +84,8 @@ func (s *SM4) EncryptECB(plaintextByte, keyByte []byte) *EncryptResult {
 
 // DecryptECB 使用SM4 ECB模式解密数据
 func (s *SM4) DecryptECB(ciphertextByte, keyByte []byte) *DecryptResult {
-	// 使用gmsm库中的Sm4Ecb方法进行ECB解密
-	plaintext, err := sm4.Sm4Ecb(keyByte, ciphertextByte, false)
+	// 自实现解密：gmsm 上游会丢弃 PKCS7 校验错误并对空输入越界 panic（见 sm4ECBDecrypt 注释）
+	plaintext, err := sm4ECBDecrypt(keyByte, ciphertextByte)
 	if err != nil {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 ECB: %w", err)}}
 	}
@@ -109,16 +122,17 @@ func (s *SM4) DecryptECBFromBase64(ciphertextBase64 string, keyByte []byte) *Dec
 	return s.DecryptECB(ciphertext, keyByte)
 }
 
-// EncryptCBC 使用SM4 CBC模式加密数据
+// EncryptCBC 使用SM4 CBC模式加密数据。
+// 注意：默认对明文做 HTML 反转义，见 WithUnescapeHTML 的数据改写警告。
 func (s *SM4) EncryptCBC(plaintextByte, keyByte, ivByte []byte) *EncryptResult {
 	if s.unescapeHTML {
 		plaintextByte = []byte(html.UnescapeString(string(plaintextByte)))
 	}
-	err := sm4.SetIV(ivByte) //设置SM4算法实现的IV值,不设置则使用默认值
-	if err != nil {
-		return &EncryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", err)}}
+	// IV 长度校验先于加密执行，错误文本与历史版本（gmsm sm4.SetIV）保持一致
+	if len(ivByte) != sm4.BlockSize {
+		return &EncryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", errIVSize)}}
 	}
-	ciphertextByte, err := sm4.Sm4Cbc(keyByte, plaintextByte, true)
+	ciphertextByte, err := sm4CBCEncrypt(keyByte, ivByte, plaintextByte)
 	if err != nil {
 		return &EncryptResult{&Result{nil, fmt.Errorf("failed to encrypt with SM4 CBC: %w", err)}}
 	}
@@ -127,15 +141,11 @@ func (s *SM4) EncryptCBC(plaintextByte, keyByte, ivByte []byte) *EncryptResult {
 
 // DecryptCBC 使用SM4 CBC模式解密数据
 func (s *SM4) DecryptCBC(ciphertextByte, keyByte, ivByte []byte) *DecryptResult {
-	err := sm4.SetIV(ivByte) //设置SM4算法实现的IV值,不设置则使用默认值
-	if err != nil {
-		return &DecryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", err)}}
+	if len(ivByte) != sm4.BlockSize {
+		return &DecryptResult{&Result{nil, fmt.Errorf("failed to set IV: %w", errIVSize)}}
 	}
-	plaintextByte, err := sm4.Sm4Cbc(keyByte, ciphertextByte, false)
+	plaintextByte, err := sm4CBCDecrypt(keyByte, ivByte, ciphertextByte)
 	if err != nil {
-		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 CBC: %w", err)}}
-	}
-	if len(plaintextByte) == 0 {
 		return &DecryptResult{&Result{nil, fmt.Errorf("failed to decrypt with SM4 CBC: %w", err)}}
 	}
 	return &DecryptResult{&Result{plaintextByte, nil}}
@@ -186,28 +196,117 @@ type Result struct {
 	err  error
 }
 
-// pkcs7Padding 使用PKCS7填充数据(暂未使用,保留供将来扩展)
-// func pkcs7Padding(data []byte, blockSize int) []byte {
-// 	padding := blockSize - len(data)%blockSize
-// 	padtext := make([]byte, padding)
-// 	for i := range padtext {
-// 		padtext[i] = byte(padding)
-// 	}
-// 	return append(data, padtext...)
-// }
+// 错误哨兵：errIVSize 文本与 gmsm v1.4.1 sm4.SetIV 返回值保持一致，保证上层错误串不变。
+var (
+	// errIVSize IV 长度不等于 16 字节。
+	errIVSize = errors.New("SM4: invalid iv size")
+	// errCiphertextLen 密文长度不是 16 字节的整倍数，无法按块解密。
+	errCiphertextLen = errors.New("SM4: 密文长度必须是 16 字节的整倍数")
+	// errPadding PKCS7 填充校验失败（乱码密文 / 空输入）。gmsm 上游会丢弃该错误返回
+	// (nil, nil) 甚至对空输入越界 panic，本包改为如实上抛，避免解密失败被误判为成功。
+	errPadding = errors.New("PKCS7 填充校验失败")
+)
 
-// pkcs7Unpadding 去除PKCS7填充(暂未使用,保留供将来扩展)
-// func pkcs7Unpadding(data []byte) ([]byte, error) {
-// 	length := len(data)
-// 	if length == 0 {
-// 		return nil, fmt.Errorf("invalid padding size")
-// 	}
-// 	padding := int(data[length-1])
-// 	if padding > length {
-// 		return nil, fmt.Errorf("invalid padding size")
-// 	}
-// 	return data[:(length - padding)], nil
-// }
+// sm4ECBEncrypt 基于 sm4.NewCipher 自实现 SM4-ECB + PKCS7 加密，
+// 密文与 gmsm sm4.Sm4Ecb(key, in, true) 字节级一致。
+// 调用方保证 len(key) 由 NewCipher 校验（错误文本与上游一致：SM4: invalid key size N）。
+func sm4ECBEncrypt(key, plaintext []byte) ([]byte, error) {
+	block, err := sm4.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	padded := pkcs7Pad(plaintext)
+	out := make([]byte, len(padded))
+	for i := 0; i < len(padded); i += sm4.BlockSize {
+		block.Encrypt(out[i:i+sm4.BlockSize], padded[i:i+sm4.BlockSize])
+	}
+	return out, nil
+}
+
+// sm4ECBDecrypt 基于 sm4.NewCipher 自实现 SM4-ECB 解密 + PKCS7 校验。
+// 不调用 gmsm sm4.Sm4Ecb 的原因：其解密路径 out, _ = pkcs7UnPadding(out) 丢弃校验错误，
+// 乱码密文会静默返回 (nil, nil)；空输入还会在 pkcs7UnPadding 内 src[length-1] 越界 panic
+// （gmsm v1.4.1 sm4.go L277-292 / L369 取证）。本实现对这两种情况均返回明确错误。
+func sm4ECBDecrypt(key, ciphertext []byte) ([]byte, error) {
+	block, err := sm4.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(ciphertext)%sm4.BlockSize != 0 {
+		return nil, errCiphertextLen
+	}
+	out := make([]byte, len(ciphertext))
+	for i := 0; i < len(ciphertext); i += sm4.BlockSize {
+		block.Decrypt(out[i:i+sm4.BlockSize], ciphertext[i:i+sm4.BlockSize])
+	}
+	return pkcs7Unpad(out)
+}
+
+// sm4CBCEncrypt 基于 sm4.NewCipher + crypto/cipher 实现 SM4-CBC + PKCS7 加密。
+// 不调用 gmsm sm4.Sm4Cbc/SetIV 的原因：上游把 IV 存在包级全局变量 sm4.IV 中
+// （gmsm v1.4.1 sm4.go L29/L293/L311 取证），SetIV 与 Sm4Cbc 两步无任何同步，
+// 并发使用不同 IV 会互相覆盖导致错误加解密；本实现 IV 只存在于本次调用栈内。
+// 密文与 gmsm sm4.Sm4Cbc(key, in, true) 字节级一致（标准 CBC + PKCS7）。
+// 调用方保证 len(key)、len(iv) 均为 16（方法入口已校验，NewCipher 另行兜底 key）。
+func sm4CBCEncrypt(key, iv, plaintext []byte) ([]byte, error) {
+	block, err := sm4.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	ivCopy := make([]byte, sm4.BlockSize)
+	copy(ivCopy, iv) // 显式拷贝，杜绝调用方复用底层数组时被中途修改
+	padded := pkcs7Pad(plaintext)
+	out := make([]byte, len(padded))
+	cipher.NewCBCEncrypter(block, ivCopy).CryptBlocks(out, padded)
+	return out, nil
+}
+
+// sm4CBCDecrypt 基于 sm4.NewCipher + crypto/cipher 实现 SM4-CBC 解密 + PKCS7 校验，
+// 错误处理语义与 sm4ECBDecrypt 一致：长度非整倍数 / 填充非法 / 空输入均返回明确错误。
+func sm4CBCDecrypt(key, iv, ciphertext []byte) ([]byte, error) {
+	block, err := sm4.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(ciphertext)%sm4.BlockSize != 0 {
+		return nil, errCiphertextLen
+	}
+	ivCopy := make([]byte, sm4.BlockSize)
+	copy(ivCopy, iv)
+	out := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, ivCopy).CryptBlocks(out, ciphertext)
+	return pkcs7Unpad(out)
+}
+
+// pkcs7Pad 按 PKCS7 填充到 16 字节边界。
+// 总是分配新切片，不写入入参的底层数组（gmsm 上游 pkcs7Padding 用 append 会污染调用方数据）。
+func pkcs7Pad(src []byte) []byte {
+	padding := sm4.BlockSize - len(src)%sm4.BlockSize
+	out := make([]byte, len(src)+padding)
+	copy(out, src)
+	for i := len(src); i < len(out); i++ {
+		out[i] = byte(padding)
+	}
+	return out
+}
+
+// pkcs7Unpad 校验并去除 PKCS7 填充，失败返回 errPadding。
+// 空入参直接报错，避免上游的越界 panic；合法空明文（整块填充）可正常还原为空切片。
+func pkcs7Unpad(src []byte) ([]byte, error) {
+	if len(src) == 0 || len(src)%sm4.BlockSize != 0 {
+		return nil, errPadding
+	}
+	n := int(src[len(src)-1])
+	if n == 0 || n > sm4.BlockSize || n > len(src) {
+		return nil, errPadding
+	}
+	for i := len(src) - n; i < len(src); i++ {
+		if src[i] != byte(n) {
+			return nil, errPadding
+		}
+	}
+	return src[:len(src)-n], nil
+}
 
 // ToBytes 返回原始字节数据
 func (r *Result) ToBytes() ([]byte, error) {
