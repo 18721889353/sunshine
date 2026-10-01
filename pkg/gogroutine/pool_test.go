@@ -1,152 +1,88 @@
 package gogroutine
 
 import (
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 )
 
-// ============================================================================
-// 测试 Pool 接口实现
-// ============================================================================
+// 本文件对应 pool.go（Pool 接口定义 + 全局默认池管理）的一对一测试映射。
 
-func TestPoolInstance_Submit(t *testing.T) {
-	p, err := newInstance("test-submit", 100)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-	defer p.Release()
+// TestCurrentGlobalPoolNilBeforeInit 验证未初始化时全局池快照为 nil。
+func TestCurrentGlobalPoolNilBeforeInit(t *testing.T) {
+	resetForTest()
+	defer resetForTest()
 
-	done := make(chan struct{})
-	if err := p.Submit(func() {
-		close(done)
-	}); err != nil {
-		t.Fatalf("Submit failed: %v", err)
-	}
-
-	select {
-	case <-done:
-		// 任务执行完成
-	case <-time.After(5 * time.Second):
-		t.Fatal("task did not complete within timeout")
+	if p := currentGlobalPool(); p != nil {
+		t.Errorf("未初始化时 currentGlobalPool() = %v, want nil", p)
 	}
 }
 
-func TestPoolInstance_Go(t *testing.T) {
-	p, err := newInstance("test-go", 100)
+// TestGetOrCreateGlobalPoolIdempotent 验证重复创建返回同一实例（不重复建池）。
+func TestGetOrCreateGlobalPoolIdempotent(t *testing.T) {
+	resetForTest()
+	defer resetForTest()
+
+	first, err := getOrCreateGlobalPool(defaultPoolConfig())
 	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
+		t.Fatalf("getOrCreateGlobalPool failed: %v", err)
 	}
-	defer p.Release()
+	second, err := getOrCreateGlobalPool(defaultPoolConfig())
+	if err != nil {
+		t.Fatalf("second getOrCreateGlobalPool failed: %v", err)
+	}
+	if first != second {
+		t.Error("重复调用应返回同一实例，而不是新建池")
+	}
+	if got := first.GetCap(); got != DefaultPoolSize {
+		t.Errorf("GetCap() = %d, want %d", got, DefaultPoolSize)
+	}
+}
 
-	var executed atomic.Bool
-	done := make(chan struct{})
-
-	p.Go(func() {
-		executed.Store(true)
-		close(done)
+// TestPoolConfigToOptionsConversion 验证 poolConfig→Option 转换只带生效项：
+// 关闭的开关不产出 Option（避免覆盖 newInstance 里的默认值判断）。
+func TestPoolConfigToOptionsConversion(t *testing.T) {
+	t.Run("全部关闭时不产出 Option", func(t *testing.T) {
+		cfg := &poolConfig{}
+		if opts := poolConfigToOptions(cfg); len(opts) != 0 {
+			t.Errorf("len(opts) = %d, want 0", len(opts))
+		}
 	})
 
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("Go task did not complete within timeout")
-	}
-
-	if !executed.Load() {
-		t.Error("task was not executed")
-	}
-}
-
-func TestPoolInstance_CtxGo(t *testing.T) {
-	p, err := newInstance("test-ctxgo", 100)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-	defer p.Release()
-
-	var executed atomic.Bool
-	done := make(chan struct{})
-
-	p.CtxGo(t.Context(), func() {
-		executed.Store(true)
-		close(done)
+	t.Run("开启项逐一产出", func(t *testing.T) {
+		cfg := &poolConfig{NonBlocking: true, PreAlloc: true, DisablePurge: true}
+		if opts := poolConfigToOptions(cfg); len(opts) != 3 {
+			t.Errorf("len(opts) = %d, want 3", len(opts))
+		}
 	})
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("CtxGo task did not complete within timeout")
-	}
-
-	if !executed.Load() {
-		t.Error("task was not executed")
-	}
 }
 
-func TestPoolInstance_Cap(t *testing.T) {
-	p, err := newInstance("test-cap", 200)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-	defer p.Release()
+// TestCurrentGlobalPoolConcurrentWithInit 并发「首次初始化写」与「快照读」守护。
+// 原实现 Release/ReleaseAndWait 直接裸读 globalPool，与并发首次 Init 的写构成数据竞争；
+// 现读写统一经 globalPoolMu。本机 Windows/MinGW 无法执行 -race 取证（见 README 诚实声明），
+// 该用例的作用是保证并发路径不 panic、且初始化完成后读取方可见。
+func TestCurrentGlobalPoolConcurrentWithInit(t *testing.T) {
+	resetForTest()
+	defer resetForTest()
 
-	if v := p.GetCap(); v != 200 {
-		t.Errorf("GetCap() = %d, want 200", v)
-	}
-}
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-func TestPoolInstance_Name(t *testing.T) {
-	p, err := newInstance("test-name", 100)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-	defer p.Release()
+	go func() { // 初始化方：once 内写 globalPool
+		defer wg.Done()
+		initAndGetPool()
+	}()
+	go func() { // 读取方：不经 once 的裸读路径
+		defer wg.Done()
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			_ = currentGlobalPool()
+		}
+	}()
 
-	if v := p.Name(); v != "test-name" {
-		t.Errorf("Name() = %s, want test-name", v)
-	}
-}
+	wg.Wait()
 
-func TestPoolInstance_Release(t *testing.T) {
-	p, err := newInstance("test-release", 100)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-
-	p.Release()
-
-	// Release 后 GetRunningNum 应返回 0
-	if v := p.GetRunningNum(); v != 0 {
-		t.Errorf("GetRunningNum() after Release = %d, want 0", v)
-	}
-}
-
-func TestPoolInstance_BasicIsFull(t *testing.T) {
-	p, err := newInstance("test-isfull", 2)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-	defer p.Release()
-
-	// 初始状态
-	if p.IsFull() {
-		t.Error("IsFull() should be false for empty pool")
-	}
-}
-
-func TestPoolInstance_BasicStats(t *testing.T) {
-	p, err := newInstance("test-stats", 100)
-	if err != nil {
-		t.Fatalf("newInstance failed: %v", err)
-	}
-	defer p.Release()
-
-	stats := p.Stats()
-	if stats.Name != "test-stats" {
-		t.Errorf("Stats().Name = %s, want test-stats", stats.Name)
-	}
-	if stats.Cap != 100 {
-		t.Errorf("Stats().Cap = %d, want 100", stats.Cap)
+	if p := currentGlobalPool(); p == nil {
+		t.Fatal("初始化完成后 currentGlobalPool() 不应为 nil")
 	}
 }

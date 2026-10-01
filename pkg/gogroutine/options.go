@@ -23,9 +23,12 @@ type poolConfig struct {
 	NonBlocking             bool          // 是否启用非阻塞模式
 	PreAlloc                bool          // 是否预分配内存
 	DisablePurge            bool          // 是否禁用自动清理
-	PurgeInterval           time.Duration // 自动清理间隔
 	GracefulShutdown        bool          // 是否启用优雅关闭（信号退出自动释放）
 	GracefulShutdownTimeout time.Duration // 优雅关闭超时时间
+	// poolSizeSet 记录 WithPoolSize 是否被显式传入。
+	// 用途：New*/NewWithContext 的容量以 capacity 参数为准，检测到显式 WithPoolSize 时打 WARN
+	// 提示被忽略（评审 R2-P1-2），避免「签名暗示生效但实际不生效」的静默陷阱。
+	poolSizeSet bool
 }
 
 // defaultPoolConfig 返回默认的池配置。
@@ -36,7 +39,6 @@ func defaultPoolConfig() *poolConfig {
 		NonBlocking:             false,                          // 阻塞模式（池满时降级，不丢失任务）
 		PreAlloc:                true,                           // 预分配内存（减少 GC，生产环境推荐）
 		DisablePurge:            true,                           // 禁用自动清理（保留 worker，避免冷启动延迟）
-		PurgeInterval:           1 * time.Second,                // 自动清理间隔（DisablePurge=true 时无效）
 		GracefulShutdown:        true,                           // 启用优雅关闭（程序退出自动释放池）
 		GracefulShutdownTimeout: DefaultGracefulShutdownTimeout, // 优雅关闭超时时间（默认 30 秒）
 	}
@@ -57,9 +59,12 @@ func (c *poolConfig) apply(opts ...Option) {
 }
 
 // WithPoolSize 设置协程池大小（自动限制在 [MinPoolSize, MaxPoolSize] 范围内）。
+// 注意：仅对 Init 生效；传入 New*/NewWithContext 时容量以 capacity 参数为准，
+// 本选项会被忽略并打 WARN（评审 R2-P1-2）。
 func WithPoolSize(size int) Option {
 	return func(c *poolConfig) {
 		c.PoolSize = clampPoolSize(size)
+		c.poolSizeSet = true
 	}
 }
 

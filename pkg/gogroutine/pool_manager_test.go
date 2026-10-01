@@ -13,7 +13,7 @@ import (
 // 测试多实例池管理器 - 基础功能
 // ============================================================================
 
-func TestNew_Success(t *testing.T) {
+func TestNewSuccess(t *testing.T) {
 	pool := New("test-new", 100)
 	defer pool.Release()
 
@@ -28,7 +28,7 @@ func TestNew_Success(t *testing.T) {
 	}
 }
 
-func TestNew_WithOptions(t *testing.T) {
+func TestNewWithOptions(t *testing.T) {
 	pool := New("test-opts", 100,
 		WithPreAlloc(true),
 		WithDisablePurge(true),
@@ -40,7 +40,7 @@ func TestNew_WithOptions(t *testing.T) {
 	}
 }
 
-func TestNewWithContext_Success(t *testing.T) {
+func TestNewWithContextSuccess(t *testing.T) {
 	ctx := context.Background()
 	pool, err := NewWithContext(ctx, "test-ctx", 100)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestNewWithContext_Success(t *testing.T) {
 	}
 }
 
-func TestGet_Success(t *testing.T) {
+func TestGetSuccess(t *testing.T) {
 	pool := New("test-get", 100)
 	defer pool.Release()
 
@@ -69,14 +69,14 @@ func TestGet_Success(t *testing.T) {
 	}
 }
 
-func TestGet_NotFound(t *testing.T) {
+func TestGetNotFound(t *testing.T) {
 	got := Get("nonexistent-pool")
 	if got != nil {
 		t.Error("Get() should return nil for nonexistent pool")
 	}
 }
 
-func TestMustGet_Success(t *testing.T) {
+func TestMustGetSuccess(t *testing.T) {
 	pool := New("test-must", 100)
 	defer pool.Release()
 
@@ -86,7 +86,7 @@ func TestMustGet_Success(t *testing.T) {
 	}
 }
 
-func TestMustGet_Panic(t *testing.T) {
+func TestMustGetPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("MustGet() should panic for nonexistent pool")
@@ -100,7 +100,7 @@ func TestMustGet_Panic(t *testing.T) {
 // 测试多实例池管理器 - 边界条件
 // ============================================================================
 
-func TestNew_EmptyName(t *testing.T) {
+func TestNewEmptyName(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Error("New() with empty name should panic")
@@ -110,14 +110,14 @@ func TestNew_EmptyName(t *testing.T) {
 	New("", 100)
 }
 
-func TestNewWithContext_EmptyName(t *testing.T) {
+func TestNewWithContextEmptyName(t *testing.T) {
 	_, err := NewWithContext(context.Background(), "", 100)
 	if err == nil {
 		t.Error("NewWithContext() with empty name should return error")
 	}
 }
 
-func TestNew_DuplicateName(t *testing.T) {
+func TestNewDuplicateName(t *testing.T) {
 	pool1 := New("test-dup", 100)
 	defer pool1.Release()
 
@@ -130,7 +130,7 @@ func TestNew_DuplicateName(t *testing.T) {
 	New("test-dup", 100)
 }
 
-func TestNewWithContext_DuplicateName(t *testing.T) {
+func TestNewWithContextDuplicateName(t *testing.T) {
 	pool1, _ := NewWithContext(context.Background(), "test-dup-ctx", 100)
 	defer pool1.Release()
 
@@ -140,7 +140,7 @@ func TestNewWithContext_DuplicateName(t *testing.T) {
 	}
 }
 
-func TestNew_ZeroCapacity(t *testing.T) {
+func TestNewZeroCapacity(t *testing.T) {
 	pool := New("test-zero", 0)
 	defer pool.Release()
 
@@ -150,7 +150,7 @@ func TestNew_ZeroCapacity(t *testing.T) {
 	}
 }
 
-func TestNew_NegativeCapacity(t *testing.T) {
+func TestNewNegativeCapacity(t *testing.T) {
 	pool := New("test-neg", -100)
 	defer pool.Release()
 
@@ -159,7 +159,7 @@ func TestNew_NegativeCapacity(t *testing.T) {
 	}
 }
 
-func TestNew_VeryLargeCapacity(t *testing.T) {
+func TestNewVeryLargeCapacity(t *testing.T) {
 	pool := New("test-large", 100000)
 	defer pool.Release()
 
@@ -172,7 +172,7 @@ func TestNew_VeryLargeCapacity(t *testing.T) {
 // 测试多实例池管理器 - 生命周期管理
 // ============================================================================
 
-func TestReleasePool_Success(t *testing.T) {
+func TestReleasePoolSuccess(t *testing.T) {
 	New("test-release", 100)
 	ReleasePool("test-release")
 
@@ -182,18 +182,18 @@ func TestReleasePool_Success(t *testing.T) {
 	}
 }
 
-func TestReleasePool_NotFound(t *testing.T) {
+func TestReleasePoolNotFound(t *testing.T) {
 	// 不存在的池应该静默处理
 	ReleasePool("nonexistent-pool")
 }
 
-func TestReleasePool_DoubleRelease(t *testing.T) {
+func TestReleasePoolDoubleRelease(t *testing.T) {
 	New("test-double", 100)
 	ReleasePool("test-double")
 	ReleasePool("test-double") // 第二次释放应该静默处理
 }
 
-func TestDelete_Success(t *testing.T) {
+func TestDeleteSuccess(t *testing.T) {
 	New("test-delete", 100)
 	Delete("test-delete")
 
@@ -203,7 +203,7 @@ func TestDelete_Success(t *testing.T) {
 	}
 }
 
-func TestReleaseAllPools_Success(t *testing.T) {
+func TestReleaseAllPoolsSuccess(t *testing.T) {
 	New("test-all-1", 100)
 	New("test-all-2", 100)
 	New("test-all-3", 100)
@@ -273,7 +273,7 @@ func TestConcurrentCreateAndRelease(t *testing.T) {
 			defer wg.Done()
 			name := fmt.Sprintf("concurrent-cr-%d", i)
 			pool := New(name, 10)
-			time.Sleep(time.Millisecond)
+			time.Sleep(overlapPad)
 			pool.Release()
 		}(i)
 	}
@@ -328,7 +328,7 @@ func TestStats(t *testing.T) {
 // 测试 Pool 实例方法 - 边界条件
 // ============================================================================
 
-func TestPoolInstance_Go_NilTask(t *testing.T) {
+func TestPoolInstanceGoNilTask(t *testing.T) {
 	p := New("test-nil-go", 100)
 	defer p.Release()
 
@@ -336,7 +336,7 @@ func TestPoolInstance_Go_NilTask(t *testing.T) {
 	p.Go(nil)
 }
 
-func TestPoolInstance_CtxGo_NilTask(t *testing.T) {
+func TestPoolInstanceCtxGoNilTask(t *testing.T) {
 	p := New("test-nil-ctxgo", 100)
 	defer p.Release()
 
@@ -344,7 +344,7 @@ func TestPoolInstance_CtxGo_NilTask(t *testing.T) {
 	p.CtxGo(context.Background(), nil)
 }
 
-func TestPoolInstance_CtxGo_CancelledCtx(t *testing.T) {
+func TestPoolInstanceCtxGoCancelledCtx(t *testing.T) {
 	p := New("test-cancel-ctxgo", 100)
 	defer p.Release()
 
@@ -356,14 +356,15 @@ func TestPoolInstance_CtxGo_CancelledCtx(t *testing.T) {
 		executed.Store(true)
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	// 负向断言：「不发生」无完成信号，观察窗口见 negativeAssertionWindow 注释
+	time.Sleep(negativeAssertionWindow)
 
 	if executed.Load() {
 		t.Error("task should not be executed with cancelled context")
 	}
 }
 
-func TestPoolInstance_Submit_NilTask(t *testing.T) {
+func TestPoolInstanceSubmitNilTask(t *testing.T) {
 	p := New("test-nil-submit", 100)
 	defer p.Release()
 
@@ -373,7 +374,7 @@ func TestPoolInstance_Submit_NilTask(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_Submit_AfterRelease(t *testing.T) {
+func TestPoolInstanceSubmitAfterRelease(t *testing.T) {
 	p := New("test-submit-released", 100)
 	p.Release()
 
@@ -383,7 +384,7 @@ func TestPoolInstance_Submit_AfterRelease(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_Go_AfterRelease(t *testing.T) {
+func TestPoolInstanceGoAfterRelease(t *testing.T) {
 	p := New("test-go-released", 100)
 	p.Release()
 
@@ -393,11 +394,10 @@ func TestPoolInstance_Go_AfterRelease(t *testing.T) {
 		executed.Store(true)
 	})
 
-	time.Sleep(50 * time.Millisecond)
-	// 不验证 executed，因为 Release 后的行为取决于实现
+	// 不验证 executed，因为 Release 后的行为取决于实现（此处无断言，无需等待）
 }
 
-func TestPoolInstance_SetCap(t *testing.T) {
+func TestPoolInstanceSetCap(t *testing.T) {
 	p := New("test-setcap", 100)
 	defer p.Release()
 
@@ -407,7 +407,7 @@ func TestPoolInstance_SetCap(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_IsFull(t *testing.T) {
+func TestPoolInstanceIsFull(t *testing.T) {
 	p := New("test-isfull", 2) // 小池
 	defer p.Release()
 
@@ -417,7 +417,7 @@ func TestPoolInstance_IsFull(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_Stats(t *testing.T) {
+func TestPoolInstanceStats(t *testing.T) {
 	p := New("test-stats-method", 100)
 	defer p.Release()
 
@@ -430,7 +430,7 @@ func TestPoolInstance_Stats(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_SetPanicHandler(t *testing.T) {
+func TestPoolInstanceSetPanicHandler(t *testing.T) {
 	p := New("test-panic-handler", 100)
 	defer p.Release()
 
@@ -451,17 +451,15 @@ func TestPoolInstance_SetPanicHandler(t *testing.T) {
 		t.Fatal("task did not complete within timeout")
 	}
 
-	time.Sleep(100 * time.Millisecond)
-	if !panicCalled.Load() {
-		t.Error("custom panic handler was not called")
-	}
+	// panic handler 在 recover 后异步于 close(done) 落地，轮询等待（固定 sleep 读数是 flaky 源）
+	waitUntil(t, func() bool { return panicCalled.Load() }, "custom panic handler 未被调用")
 }
 
 // ============================================================================
 // 测试 Pool 实例 - 任务执行
 // ============================================================================
 
-func TestPoolInstance_TaskExecution(t *testing.T) {
+func TestPoolInstanceTaskExecution(t *testing.T) {
 	p := New("test-exec", 100)
 	defer p.Release()
 
@@ -485,7 +483,7 @@ func TestPoolInstance_TaskExecution(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_PanicRecovery(t *testing.T) {
+func TestPoolInstancePanicRecovery(t *testing.T) {
 	p := New("test-panic-recovery", 100)
 	defer p.Release()
 
@@ -506,13 +504,11 @@ func TestPoolInstance_PanicRecovery(t *testing.T) {
 		t.Fatal("task did not complete within timeout")
 	}
 
-	time.Sleep(100 * time.Millisecond)
-	if !recovered.Load() {
-		t.Error("panic was not recovered")
-	}
+	// panic handler 在 recover 后异步于 close(done) 落地，轮询等待
+	waitUntil(t, func() bool { return recovered.Load() }, "panic 未被 recover")
 }
 
-func TestPoolInstance_ConcurrentSubmit(t *testing.T) {
+func TestPoolInstanceConcurrentSubmit(t *testing.T) {
 	p := New("test-concurrent-submit", 100)
 	defer p.Release()
 
@@ -539,7 +535,7 @@ func TestPoolInstance_ConcurrentSubmit(t *testing.T) {
 // 测试全局池与多实例池共存
 // ============================================================================
 
-func TestGlobalPool_CoexistWithMultiplePools(t *testing.T) {
+func TestGlobalPoolCoexistWithMultiplePools(t *testing.T) {
 	// 使用全局池
 	var globalExecuted atomic.Bool
 	Go(context.Background(), func() {
@@ -555,7 +551,8 @@ func TestGlobalPool_CoexistWithMultiplePools(t *testing.T) {
 		poolExecuted.Store(true)
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	// 两个池的任务各自异步执行，轮询等待而非固定 sleep 后单次读数
+	waitUntil(t, func() bool { return globalExecuted.Load() && poolExecuted.Load() }, "池任务未执行")
 
 	if !globalExecuted.Load() {
 		t.Error("global pool task was not executed")
@@ -569,7 +566,7 @@ func TestGlobalPool_CoexistWithMultiplePools(t *testing.T) {
 // 测试生产场景模拟
 // ============================================================================
 
-func TestProductionScenario_OrderProcessor(t *testing.T) {
+func TestProductionScenarioOrderProcessor(t *testing.T) {
 	// 模拟订单处理场景
 	pool := New("order-processor", 50)
 	defer pool.Release()
@@ -583,7 +580,7 @@ func TestProductionScenario_OrderProcessor(t *testing.T) {
 	for i := 0; i < orders; i++ {
 		pool.Go(func() {
 			defer wg.Done()
-			time.Sleep(time.Millisecond) // 模拟处理
+			time.Sleep(overlapPad) // 模拟处理（交叠构造，不参与判定）
 			processed.Add(1)
 		})
 	}
@@ -600,7 +597,7 @@ func TestProductionScenario_OrderProcessor(t *testing.T) {
 	}
 }
 
-func TestProductionScenario_MultiService(t *testing.T) {
+func TestProductionScenarioMultiService(t *testing.T) {
 	// 模拟多服务场景
 	orders := New("orders", 50)
 	payments := New("payments", 30)
@@ -649,28 +646,28 @@ func TestProductionScenario_MultiService(t *testing.T) {
 // 测试边界情况 - 极端场景
 // ============================================================================
 
-func TestPoolInstance_Go_WithTimeout_ContextExpiry(t *testing.T) {
+func TestPoolInstanceGoWithTimeoutContextExpiry(t *testing.T) {
 	p := New("test-timeout-expiry", 100)
 	defer p.Release()
 
 	// Context 超时后提交任务
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	// 直接构造已过期的 deadline（避免「短超时 + sleep 等过期」的字面量等待）
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	defer cancel()
-
-	time.Sleep(20 * time.Millisecond) // 等待 context 过期
 
 	var executed atomic.Bool
 	p.CtxGo(ctx, func() {
 		executed.Store(true)
 	})
 
-	time.Sleep(50 * time.Millisecond)
+	// 负向断言：观察窗口见 negativeAssertionWindow 注释
+	time.Sleep(negativeAssertionWindow)
 	if executed.Load() {
 		t.Error("task should not be executed with expired context")
 	}
 }
 
-func TestPoolInstance_Submit_WhilePoolIsDraining(t *testing.T) {
+func TestPoolInstanceSubmitWhilePoolIsDraining(t *testing.T) {
 	p := New("test-draining", 5)
 	defer p.Release()
 
@@ -697,7 +694,7 @@ func TestPoolInstance_Submit_WhilePoolIsDraining(t *testing.T) {
 	wg.Wait()
 }
 
-func TestPoolInstance_Stats_AfterRelease(t *testing.T) {
+func TestPoolInstanceStatsAfterRelease(t *testing.T) {
 	p := New("test-stats-after-release", 100)
 	p.Release()
 
@@ -708,7 +705,7 @@ func TestPoolInstance_Stats_AfterRelease(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_GetCap_AfterSetCap(t *testing.T) {
+func TestPoolInstanceGetCapAfterSetCap(t *testing.T) {
 	p := New("test-getcap-setcap", 100)
 	defer p.Release()
 
@@ -724,7 +721,7 @@ func TestPoolInstance_GetCap_AfterSetCap(t *testing.T) {
 	}
 }
 
-func TestPoolManager_ReleaseAllPools_Consistency(t *testing.T) {
+func TestPoolManagerReleaseAllPoolsConsistency(t *testing.T) {
 	// 创建多个池
 	New("release-all-1", 10)
 	New("release-all-2", 20)
@@ -744,7 +741,7 @@ func TestPoolManager_ReleaseAllPools_Consistency(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_CtxGo_MultipleContexts(t *testing.T) {
+func TestPoolInstanceCtxGoMultipleContexts(t *testing.T) {
 	p := New("test-multi-ctx", 100)
 	defer p.Release()
 
@@ -768,7 +765,22 @@ func TestPoolInstance_CtxGo_MultipleContexts(t *testing.T) {
 	}
 }
 
-func TestPoolInstance_SetCap_DuringExecution(t *testing.T) {
+// ============================================================================
+// 测试 New* 的 WithPoolSize 语义（评审 R2-P1-2）
+// ============================================================================
+
+// TestNewWithPoolSizeDoesNotOverrideCapacity 验证 New* 容量以 capacity 参数为准，
+// 显式传入 WithPoolSize 不改变容量（传入时 newInstance 打 WARN 提示被忽略）。
+func TestNewWithPoolSizeDoesNotOverrideCapacity(t *testing.T) {
+	p := New("poolsize-ignored", 100, WithPoolSize(500))
+	defer p.Release()
+
+	if got := p.GetCap(); got != 100 {
+		t.Errorf("GetCap() = %d, want 100（WithPoolSize 不应覆盖 capacity 参数）", got)
+	}
+}
+
+func TestPoolInstanceSetCapDuringExecution(t *testing.T) {
 	p := New("test-setcap-during", 10)
 	defer p.Release()
 
@@ -778,7 +790,7 @@ func TestPoolInstance_SetCap_DuringExecution(t *testing.T) {
 	// 并发执行任务和调整容量
 	for i := 0; i < 10; i++ {
 		p.Go(func() {
-			time.Sleep(time.Millisecond)
+			time.Sleep(overlapPad)
 			wg.Done()
 		})
 	}

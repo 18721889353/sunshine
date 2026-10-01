@@ -31,7 +31,8 @@ type Pool interface {
 
 	// ---- 扩展接口（保持兼容） ----
 
-	// Submit 提交任务到池中执行
+	// Submit 提交任务到池中执行（底层提交语义：不降级——池满/已释放返回 error，
+	// 交由调用方处理；需要「池满自动降级为原生 goroutine」时用 CtxGo，评审 R2-P1-5）
 	Submit(task func()) error
 	// GetRunningNum 返回当前运行中的任务数
 	GetRunningNum() int
@@ -64,11 +65,24 @@ type PoolStatsInfo struct {
 // ============================================================================
 
 var (
-	// globalPool 全局默认协程池实例
+	// globalPool 全局默认协程池实例（读写均经 globalPoolMu，见 currentGlobalPool）
 	globalPool Pool
 	// globalPoolOnce 确保全局池只初始化一次
 	globalPoolOnce sync.Once
+	// globalPoolMu 保护 globalPool 变量本身的读写。
+	// 初始化仍在 once 内串行，但 Release/ReleaseAndWait 等读取方不经过 once，
+	// 若无锁直接读会与并发首次 Init 的写构成数据竞争（原实现缺陷）。
+	globalPoolMu sync.RWMutex
 )
+
+// currentGlobalPool 返回全局池快照（未初始化时为 nil）。
+// 所有非初始化路径的 globalPool 读取都走本函数，与 getOrCreateGlobalPool 的写互斥。
+func currentGlobalPool() Pool {
+	globalPoolMu.RLock()
+	p := globalPool
+	globalPoolMu.RUnlock()
+	return p
+}
 
 // ============================================================================
 // 全局池辅助函数
@@ -77,8 +91,8 @@ var (
 // getOrCreateGlobalPool 获取或创建全局默认协程池。
 // 注意：此函数不使用 sync.Once，调用方（Init）需自行保证并发安全。
 func getOrCreateGlobalPool(cfg *poolConfig) (Pool, error) {
-	if globalPool != nil {
-		return globalPool, nil
+	if p := currentGlobalPool(); p != nil {
+		return p, nil
 	}
 
 	// 创建新的全局池实例（使用 "_global" 作为名称）
@@ -86,10 +100,15 @@ func getOrCreateGlobalPool(cfg *poolConfig) (Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gogroutine: create global pool: %w", err)
 	}
+	globalPoolMu.Lock()
+	// 绑定全局池计数器：globalTaskHooks 经 atomic 读取它维护 running，
+	// 保证 PoolStats().Running 与 ReleaseAndWait 轮询口径不因管线统一而改变（评审 R2-P1-3）
+	globalPoolMetrics.Store(p.metrics)
 	globalPool = p
+	globalPoolMu.Unlock()
 	logger.InfoWithCtx(context.Background(), "gogroutine global pool initialized",
 		logger.Int("pool_size", cfg.PoolSize))
-	return globalPool, nil
+	return p, nil
 }
 
 // poolConfigToOptions 将 poolConfig 转换为 Option 列表。

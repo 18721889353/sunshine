@@ -9,7 +9,7 @@ import (
 // 测试 SetMetrics / getMetrics
 // ============================================================================
 
-func TestSetMetrics_GetMetrics(t *testing.T) {
+func TestSetMetricsGetMetrics(t *testing.T) {
 	// 初始状态应为 nil
 	SetMetrics(nil)
 	if m := getMetrics(); m != nil {
@@ -34,7 +34,7 @@ func TestSetMetrics_GetMetrics(t *testing.T) {
 // 测试原子计数器 - 独立于池生命周期
 // ============================================================================
 
-func TestAtomicCounters_Initial(t *testing.T) {
+func TestAtomicCountersInitial(t *testing.T) {
 	resetMetrics()
 
 	if v := metricsMgr.successCount.Load(); v != 0 {
@@ -48,7 +48,7 @@ func TestAtomicCounters_Initial(t *testing.T) {
 	}
 }
 
-func TestAtomicCounters_IncrementSuccess(t *testing.T) {
+func TestAtomicCountersIncrementSuccess(t *testing.T) {
 	resetMetrics()
 
 	// 创建最小池并提交一个简单任务
@@ -72,7 +72,7 @@ func TestAtomicCounters_IncrementSuccess(t *testing.T) {
 	}
 }
 
-func TestAtomicCounters_IncrementMultiple(t *testing.T) {
+func TestAtomicCountersIncrementMultiple(t *testing.T) {
 	resetMetrics()
 
 	for i := 0; i < 10; i++ {
@@ -88,7 +88,7 @@ func TestAtomicCounters_IncrementMultiple(t *testing.T) {
 // 测试 mockMetrics - 指标回调正确触发
 // ============================================================================
 
-func TestMockMetrics_IncRunning(t *testing.T) {
+func TestMockMetricsIncRunning(t *testing.T) {
 	mm := &mockMetrics{}
 	mm.IncRunning("test-task")
 
@@ -97,7 +97,7 @@ func TestMockMetrics_IncRunning(t *testing.T) {
 	}
 }
 
-func TestMockMetrics_DecRunning(t *testing.T) {
+func TestMockMetricsDecRunning(t *testing.T) {
 	mm := &mockMetrics{}
 	mm.IncRunning("test-task")
 	mm.DecRunning("test-task")
@@ -107,7 +107,7 @@ func TestMockMetrics_DecRunning(t *testing.T) {
 	}
 }
 
-func TestMockMetrics_IncPanic(t *testing.T) {
+func TestMockMetricsIncPanic(t *testing.T) {
 	mm := &mockMetrics{}
 	mm.IncPanic("test-task")
 
@@ -116,7 +116,7 @@ func TestMockMetrics_IncPanic(t *testing.T) {
 	}
 }
 
-func TestMockMetrics_IncFallback(t *testing.T) {
+func TestMockMetricsIncFallback(t *testing.T) {
 	mm := &mockMetrics{}
 	mm.IncFallback("test-task")
 
@@ -129,7 +129,7 @@ func TestMockMetrics_IncFallback(t *testing.T) {
 // 测试 ObserveTaskDuration - 记录任务耗时
 // ============================================================================
 
-func TestMockMetrics_ObserveTaskDuration(t *testing.T) {
+func TestMockMetricsObserveTaskDuration(t *testing.T) {
 	mm := &mockMetrics{}
 
 	// 此方法无返回值，验证不 panic 即可

@@ -14,38 +14,13 @@ import (
 // 测试辅助
 // ============================================================================
 
-// resetForTest 重置全局状态，确保测试隔离。
-func resetForTest() {
-	// 释放旧池
-	if globalPool != nil {
-		globalPool.Release()
-		globalPool = nil
-	}
-	// 重置 sync.Once（重新赋值为零值）
-	globalPoolOnce = sync.Once{}
-
-	// 重置全局指标管理器
-	resetMetrics()
-}
-
-// mockMetrics 用于测试的指标采集器。
-type mockMetrics struct {
-	running    atomic.Int64
-	panicCount atomic.Int64
-	fallback   atomic.Int64
-}
-
-func (m *mockMetrics) IncRunning(_ string)                           { m.running.Add(1) }
-func (m *mockMetrics) DecRunning(_ string)                           { m.running.Add(-1) }
-func (m *mockMetrics) ObserveTaskDuration(_ string, _ time.Duration) {}
-func (m *mockMetrics) IncPanic(_ string)                             { m.panicCount.Add(1) }
-func (m *mockMetrics) IncFallback(_ string)                          { m.fallback.Add(1) }
+// 测试辅助（resetForTest/resetMetrics/mockMetrics/waitDone）统一集中在 test_helpers_test.go
 
 // ============================================================================
 // 测试 Init - 全局池初始化
 // ============================================================================
 
-func TestInit_DefaultConfig(t *testing.T) {
+func TestInitDefaultConfig(t *testing.T) {
 	resetForTest()
 	Init()
 
@@ -60,7 +35,7 @@ func TestInit_DefaultConfig(t *testing.T) {
 	globalPool = nil
 }
 
-func TestInit_WithOptions(t *testing.T) {
+func TestInitWithOptions(t *testing.T) {
 	resetForTest()
 	Init(WithPoolSize(50))
 
@@ -75,7 +50,7 @@ func TestInit_WithOptions(t *testing.T) {
 	globalPool = nil
 }
 
-func TestInit_Idempotent(t *testing.T) {
+func TestInitIdempotent(t *testing.T) {
 	resetForTest()
 	Init(WithPoolSize(50))
 
@@ -94,7 +69,7 @@ func TestInit_Idempotent(t *testing.T) {
 // 测试 Go / GoWithName - 基础任务提交
 // ============================================================================
 
-func TestGo_Success(t *testing.T) {
+func TestGoSuccess(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -118,7 +93,7 @@ func TestGo_Success(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGo_NilTask(t *testing.T) {
+func TestGoNilTask(t *testing.T) {
 	resetForTest()
 
 	// nil 任务不应 panic
@@ -127,7 +102,7 @@ func TestGo_NilTask(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoWithName_Success(t *testing.T) {
+func TestGoWithNameSuccess(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -151,7 +126,7 @@ func TestGoWithName_Success(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoWithName_CancelledCtx(t *testing.T) {
+func TestGoWithNameCancelledCtx(t *testing.T) {
 	resetForTest()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -169,7 +144,7 @@ func TestGoWithName_CancelledCtx(t *testing.T) {
 // 测试 GoWithTimeout - 超时控制
 // ============================================================================
 
-func TestGoWithTimeout_Success(t *testing.T) {
+func TestGoWithTimeoutSuccess(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -193,7 +168,7 @@ func TestGoWithTimeout_Success(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoWithTimeout_ContextCancelled(t *testing.T) {
+func TestGoWithTimeoutContextCancelled(t *testing.T) {
 	resetForTest()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -219,7 +194,7 @@ func TestGoWithTimeout_ContextCancelled(t *testing.T) {
 // 测试 GoBatch - 批量任务
 // ============================================================================
 
-func TestGoBatch_Success(t *testing.T) {
+func TestGoBatchSuccess(t *testing.T) {
 	resetForTest()
 
 	var counter atomic.Int64
@@ -239,7 +214,7 @@ func TestGoBatch_Success(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoBatch_EmptyTasks(t *testing.T) {
+func TestGoBatchEmptyTasks(t *testing.T) {
 	resetForTest()
 
 	// 空任务列表不应 panic
@@ -247,7 +222,7 @@ func TestGoBatch_EmptyTasks(t *testing.T) {
 	GoBatch(context.Background(), []func(){})
 }
 
-func TestGoBatch_SingleTask(t *testing.T) {
+func TestGoBatchSingleTask(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -266,7 +241,7 @@ func TestGoBatch_SingleTask(t *testing.T) {
 // 测试 GoBatchWithName - 带名称前缀的批量任务
 // ============================================================================
 
-func TestGoBatchWithName_Success(t *testing.T) {
+func TestGoBatchWithNameSuccess(t *testing.T) {
 	resetForTest()
 
 	var counter atomic.Int64
@@ -286,7 +261,7 @@ func TestGoBatchWithName_Success(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoBatchWithName_EmptyTasks(t *testing.T) {
+func TestGoBatchWithNameEmptyTasks(t *testing.T) {
 	resetForTest()
 
 	// 空任务列表不应 panic
@@ -298,7 +273,7 @@ func TestGoBatchWithName_EmptyTasks(t *testing.T) {
 // 测试 GoBatchWithResult - 泛型批量结果收集
 // ============================================================================
 
-func TestGoBatchWithResult_Success(t *testing.T) {
+func TestGoBatchWithResultSuccess(t *testing.T) {
 	resetForTest()
 
 	tasks := []func() (string, error){
@@ -325,7 +300,7 @@ func TestGoBatchWithResult_Success(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoBatchWithResult_WithError(t *testing.T) {
+func TestGoBatchWithResultWithError(t *testing.T) {
 	resetForTest()
 
 	targetErr := errors.New("failed")
@@ -348,7 +323,7 @@ func TestGoBatchWithResult_WithError(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-func TestGoBatchWithResult_EmptyTasks(t *testing.T) {
+func TestGoBatchWithResultEmptyTasks(t *testing.T) {
 	resetForTest()
 
 	tasks := []func() (int, error){}
@@ -361,7 +336,7 @@ func TestGoBatchWithResult_EmptyTasks(t *testing.T) {
 	}
 }
 
-func TestGoBatchWithResult_AllErrors(t *testing.T) {
+func TestGoBatchWithResultAllErrors(t *testing.T) {
 	resetForTest()
 
 	err1 := errors.New("err1")
@@ -391,14 +366,14 @@ func TestGoBatchWithResult_AllErrors(t *testing.T) {
 // 测试 collectBatchErrors - 错误聚合
 // ============================================================================
 
-func TestCollectBatchErrors_NoErrors(t *testing.T) {
+func TestCollectBatchErrorsNoErrors(t *testing.T) {
 	errs := []error{nil, nil, nil}
 	if err := collectBatchErrors(errs); err != nil {
 		t.Errorf("expected nil, got %v", err)
 	}
 }
 
-func TestCollectBatchErrors_SingleError(t *testing.T) {
+func TestCollectBatchErrorsSingleError(t *testing.T) {
 	target := errors.New("target error")
 	errs := []error{nil, target, nil}
 	err := collectBatchErrors(errs)
@@ -407,7 +382,7 @@ func TestCollectBatchErrors_SingleError(t *testing.T) {
 	}
 }
 
-func TestCollectBatchErrors_MultipleErrors(t *testing.T) {
+func TestCollectBatchErrorsMultipleErrors(t *testing.T) {
 	err1 := errors.New("err1")
 	err2 := errors.New("err2")
 	err3 := errors.New("err3")
@@ -422,7 +397,7 @@ func TestCollectBatchErrors_MultipleErrors(t *testing.T) {
 	}
 }
 
-func TestCollectBatchErrors_EmptySlice(t *testing.T) {
+func TestCollectBatchErrorsEmptySlice(t *testing.T) {
 	err := collectBatchErrors([]error{})
 	if err != nil {
 		t.Errorf("expected nil, got %v", err)
@@ -450,7 +425,7 @@ func (p *rejectPool) Release()                                             {}
 func (p *rejectPool) IsFull() bool                                         { return true }
 func (p *rejectPool) Stats() PoolStatsInfo                                 { return PoolStatsInfo{} }
 
-func TestGoWithName_FallbackWhenPoolFull(t *testing.T) {
+func TestGoWithNameFallbackWhenPoolFull(t *testing.T) {
 	resetForTest()
 
 	// 注入 mock Pool，使 Submit 始终返回错误，触发降级路径
@@ -481,7 +456,7 @@ func TestGoWithName_FallbackWhenPoolFull(t *testing.T) {
 	globalPool = nil
 }
 
-func TestGoWithName_FallbackWithMetrics(t *testing.T) {
+func TestGoWithNameFallbackWithMetrics(t *testing.T) {
 	resetForTest()
 
 	mm := &mockMetrics{}
@@ -540,10 +515,10 @@ func TestRelease(t *testing.T) {
 	resetForTest()
 
 	Go(context.Background(), func() {
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(simulatedTaskWork)
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(taskStartPad)
 	Release()
 
 	// Release 后不应 panic
@@ -557,12 +532,13 @@ func TestReleaseAndWait(t *testing.T) {
 
 	var executed atomic.Bool
 	Go(context.Background(), func() {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(simulatedTaskWork)
 		executed.Store(true)
 	})
 
-	// 等待任务完成后再释放
-	time.Sleep(100 * time.Millisecond)
+	// 先等任务真正跑起来（Running>=1），ReleaseAndWait 才会走到「等待运行中任务」路径；
+	// 若任务尚在队列未被调度，Release 后可能被丢弃，断言反而测不到目标语义
+	waitUntil(t, func() bool { return PoolStats().Running >= 1 }, "任务未开始执行")
 	ReleaseAndWait()
 
 	if !executed.Load() {
@@ -572,7 +548,7 @@ func TestReleaseAndWait(t *testing.T) {
 	globalPool = nil
 }
 
-func TestReleaseAndWaitWithTimeout_Timeout(t *testing.T) {
+func TestReleaseAndWaitWithTimeoutTimeout(t *testing.T) {
 	resetForTest()
 
 	blockCh := make(chan struct{})
@@ -580,7 +556,7 @@ func TestReleaseAndWaitWithTimeout_Timeout(t *testing.T) {
 		<-blockCh
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	waitUntil(t, func() bool { return PoolStats().Running >= 1 }, "任务未开始执行")
 
 	// 设置极短超时，任务未完成就超时
 	ReleaseAndWaitWithTimeout(1 * time.Millisecond)
@@ -589,22 +565,23 @@ func TestReleaseAndWaitWithTimeout_Timeout(t *testing.T) {
 	globalPool = nil
 }
 
-func TestReleaseAndWaitWithTimeout_NilPool(t *testing.T) {
+func TestReleaseAndWaitWithTimeoutNilPool(t *testing.T) {
 	// globalPool 为 nil 时不应 panic
 	ReleaseAndWaitWithTimeout(1 * time.Second)
 }
 
-// TestReleaseAndWaitWithTimeout_WaitForCompletion 测试等待任务完成后释放
-func TestReleaseAndWaitWithTimeout_WaitForCompletion(t *testing.T) {
+// TestReleaseAndWaitWithTimeoutWaitForCompletion 测试等待任务完成后释放
+func TestReleaseAndWaitWithTimeoutWaitForCompletion(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
 	Go(context.Background(), func() {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(simulatedTaskWork)
 		executed.Store(true)
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	// 先等任务真正跑起来（Running>=1），ReleaseAndWaitWithTimeout 才测得到「等待完成」语义
+	waitUntil(t, func() bool { return PoolStats().Running >= 1 }, "任务未开始执行")
 
 	// 等待足够时间让任务完成
 	ReleaseAndWaitWithTimeout(5 * time.Second)
@@ -616,8 +593,8 @@ func TestReleaseAndWaitWithTimeout_WaitForCompletion(t *testing.T) {
 	globalPool = nil
 }
 
-// TestReleaseAndWaitWithTimeout_TimeoutPath 测试超时路径
-func TestReleaseAndWaitWithTimeout_TimeoutPath(t *testing.T) {
+// TestReleaseAndWaitWithTimeoutTimeoutPath 测试超时路径
+func TestReleaseAndWaitWithTimeoutTimeoutPath(t *testing.T) {
 	resetForTest()
 
 	blockCh := make(chan struct{})
@@ -625,7 +602,7 @@ func TestReleaseAndWaitWithTimeout_TimeoutPath(t *testing.T) {
 		<-blockCh
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	waitUntil(t, func() bool { return PoolStats().Running >= 1 }, "任务未开始执行")
 
 	// 设置极短超时，任务未完成就超时
 	ReleaseAndWaitWithTimeout(1 * time.Millisecond)
@@ -656,14 +633,10 @@ func TestConcurrentGo(t *testing.T) {
 		}()
 	}
 
-	wg.Wait()
+	wg.Wait() // 只保证提交完成，任务异步执行
 
-	// 等待所有任务执行完成
-	time.Sleep(200 * time.Millisecond)
-
-	if v := counter.Load(); v != n {
-		t.Errorf("counter = %d, want %d", v, n)
-	}
+	// 轮询等待所有任务执行完成（固定 sleep 后单次读数是 flaky 源，改轮询+deadline）
+	waitUntil(t, func() bool { return counter.Load() == n }, "并发任务未全部执行")
 
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
@@ -672,7 +645,7 @@ func TestConcurrentGo(t *testing.T) {
 // 测试 panic 恢复 - 通过 Go API 提交 panic 任务
 // ============================================================================
 
-func TestGo_PanicRecovery(t *testing.T) {
+func TestGoPanicRecovery(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -696,12 +669,8 @@ func TestGo_PanicRecovery(t *testing.T) {
 		t.Fatal("subsequent task after panic did not complete")
 	}
 
-	// 等待异步 panic 处理完成
-	time.Sleep(50 * time.Millisecond)
-
-	if v := metricsMgr.panicCount.Load(); v < 1 {
-		t.Errorf("panicCount = %d, want >= 1", v)
-	}
+	// panic 计数在 recover defer 中落地，与第二个任务无顺序保证，轮询等待
+	waitUntil(t, func() bool { return metricsMgr.panicCount.Load() >= 1 }, "panic 未被计数")
 	if !executed.Load() {
 		t.Error("task after panic was not executed")
 	}
@@ -713,7 +682,7 @@ func TestGo_PanicRecovery(t *testing.T) {
 // 测试 ctx 校验 - 已取消的 ctx 跳过提交
 // ============================================================================
 
-func TestGo_CancelledCtxSkipped(t *testing.T) {
+func TestGoCancelledCtxSkipped(t *testing.T) {
 	resetForTest()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -724,8 +693,8 @@ func TestGo_CancelledCtxSkipped(t *testing.T) {
 		executed.Store(true)
 	})
 
-	// 等待一下确认没有任务执行
-	time.Sleep(100 * time.Millisecond)
+	// 负向断言：「不发生」无完成信号可监听，只能给定观察窗口（见 negativeAssertionWindow 注释）
+	time.Sleep(negativeAssertionWindow)
 
 	if executed.Load() {
 		t.Error("task with cancelled ctx should not be executed")
@@ -755,7 +724,7 @@ func TestRegisterGracefulShutdownHook(t *testing.T) {
 	}
 }
 
-func TestRegisterGracefulShutdownHook_Multiple(t *testing.T) {
+func TestRegisterGracefulShutdownHookMultiple(t *testing.T) {
 	resetForTest()
 	gracefulShutdown.once = sync.Once{}
 	gracefulShutdown.hooks = nil
@@ -775,7 +744,7 @@ func TestRegisterGracefulShutdownHook_Multiple(t *testing.T) {
 	}
 }
 
-func TestRegisterGracefulShutdownHook_OnceOnly(t *testing.T) {
+func TestRegisterGracefulShutdownHookOnceOnly(t *testing.T) {
 	resetForTest()
 	gracefulShutdown.once = sync.Once{}
 	gracefulShutdown.hooks = nil
@@ -793,7 +762,7 @@ func TestRegisterGracefulShutdownHook_OnceOnly(t *testing.T) {
 	}
 }
 
-func TestRegisterGracefulShutdownHook_PanicRecovery(t *testing.T) {
+func TestRegisterGracefulShutdownHookPanicRecovery(t *testing.T) {
 	resetForTest()
 	gracefulShutdown.once = sync.Once{}
 	gracefulShutdown.hooks = nil
@@ -845,8 +814,8 @@ func TestIsGracefulShutdownEnabled(t *testing.T) {
 // 大厂级边界条件测试
 // ============================================================================
 
-// TestGoBatch_LargeNumberOfTasks 测试大批量任务（1000+）
-func TestGoBatch_LargeNumberOfTasks(t *testing.T) {
+// TestGoBatchLargeNumberOfTasks 测试大批量任务（1000+）
+func TestGoBatchLargeNumberOfTasks(t *testing.T) {
 	resetForTest()
 
 	const n = 1000
@@ -867,8 +836,8 @@ func TestGoBatch_LargeNumberOfTasks(t *testing.T) {
 	ReleaseAndWaitWithTimeout(10 * time.Second)
 }
 
-// TestGoBatchWithResult_LargeNumberOfTasks 测试大批量结果收集
-func TestGoBatchWithResult_LargeNumberOfTasks(t *testing.T) {
+// TestGoBatchWithResultLargeNumberOfTasks 测试大批量结果收集
+func TestGoBatchWithResultLargeNumberOfTasks(t *testing.T) {
 	resetForTest()
 
 	const n = 500
@@ -891,8 +860,8 @@ func TestGoBatchWithResult_LargeNumberOfTasks(t *testing.T) {
 	ReleaseAndWaitWithTimeout(10 * time.Second)
 }
 
-// TestGoWithTimeout_VeryShortTimeout 测试极短超时
-func TestGoWithTimeout_VeryShortTimeout(t *testing.T) {
+// TestGoWithTimeoutVeryShortTimeout 测试极短超时
+func TestGoWithTimeoutVeryShortTimeout(t *testing.T) {
 	resetForTest()
 
 	done := make(chan struct{})
@@ -912,8 +881,8 @@ func TestGoWithTimeout_VeryShortTimeout(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestGoWithTimeout_NegativeTimeout 测试负数超时
-func TestGoWithTimeout_NegativeTimeout(t *testing.T) {
+// TestGoWithTimeoutNegativeTimeout 测试负数超时
+func TestGoWithTimeoutNegativeTimeout(t *testing.T) {
 	resetForTest()
 
 	done := make(chan struct{})
@@ -933,8 +902,8 @@ func TestGoWithTimeout_NegativeTimeout(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestReleaseAndWaitWithTimeout_ZeroTimeout 测试零超时
-func TestReleaseAndWaitWithTimeout_ZeroTimeout(t *testing.T) {
+// TestReleaseAndWaitWithTimeoutZeroTimeout 测试零超时
+func TestReleaseAndWaitWithTimeoutZeroTimeout(t *testing.T) {
 	resetForTest()
 
 	blockCh := make(chan struct{})
@@ -942,7 +911,7 @@ func TestReleaseAndWaitWithTimeout_ZeroTimeout(t *testing.T) {
 		<-blockCh
 	})
 
-	time.Sleep(10 * time.Millisecond)
+	waitUntil(t, func() bool { return PoolStats().Running >= 1 }, "任务未开始执行")
 
 	// 零超时应该立即返回
 	ReleaseAndWaitWithTimeout(0)
@@ -951,8 +920,8 @@ func TestReleaseAndWaitWithTimeout_ZeroTimeout(t *testing.T) {
 	globalPool = nil
 }
 
-// TestPoolStats_WithRunningTasks 测试运行中任务的统计
-func TestPoolStats_WithRunningTasks(t *testing.T) {
+// TestPoolStatsWithRunningTasks 测试运行中任务的统计
+func TestPoolStatsWithRunningTasks(t *testing.T) {
 	resetForTest()
 
 	startCh := make(chan struct{})
@@ -964,8 +933,7 @@ func TestPoolStats_WithRunningTasks(t *testing.T) {
 		<-blockCh
 	})
 
-	<-startCh
-	time.Sleep(10 * time.Millisecond)
+	<-startCh // 任务体已执行，ants Running 计数在此之前已 add，直读安全
 
 	s := PoolStats()
 	if s.Running < 1 {
@@ -1084,7 +1052,7 @@ func TestConcurrentSubmitAndRelease(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(taskStartPad)
 		Release()
 	}()
 
@@ -1123,8 +1091,8 @@ func TestConcurrentRegisterHooks(t *testing.T) {
 // 大厂级异常场景测试
 // ============================================================================
 
-// TestGo_NestedPanic 嵌套 panic 恢复
-func TestGo_NestedPanic(t *testing.T) {
+// TestGoNestedPanic 嵌套 panic 恢复
+func TestGoNestedPanic(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -1149,11 +1117,8 @@ func TestGo_NestedPanic(t *testing.T) {
 		t.Fatal("subsequent task after nested panic did not complete")
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	if v := metricsMgr.panicCount.Load(); v < 1 {
-		t.Errorf("panicCount = %d, want >= 1", v)
-	}
+	// panic 计数在 recover defer 中落地，与第二个任务无顺序保证，轮询等待
+	waitUntil(t, func() bool { return metricsMgr.panicCount.Load() >= 1 }, "nested panic 未被计数")
 	if !executed.Load() {
 		t.Error("task after panic was not executed")
 	}
@@ -1161,8 +1126,8 @@ func TestGo_NestedPanic(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestGo_PanicWithNilRecover panic 后 recover 返回 nil
-func TestGo_PanicWithNilRecover(t *testing.T) {
+// TestGoPanicWithNilRecover panic 后 recover 返回 nil
+func TestGoPanicWithNilRecover(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -1185,10 +1150,8 @@ func TestGo_PanicWithNilRecover(t *testing.T) {
 		t.Fatal("subsequent task after nil panic did not complete")
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	// panic(nil) 在 Go 中是特殊情况，recover() 返回 nil
-	// 但我们的代码应该能处理这种情况
+	// done 信号已建立 happens-before：executed.Store 在 close(done) 之前，此处直读即可
+	// panic(nil) 在 Go 中是特殊情况，recover() 返回 nil，但本包代码必须能处理
 	if !executed.Load() {
 		t.Error("task after panic was not executed")
 	}
@@ -1196,8 +1159,8 @@ func TestGo_PanicWithNilRecover(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestGoBatchWithResult_MixedSuccessAndError 混合成功和失败
-func TestGoBatchWithResult_MixedSuccessAndError(t *testing.T) {
+// TestGoBatchWithResultMixedSuccessAndError 混合成功和失败
+func TestGoBatchWithResultMixedSuccessAndError(t *testing.T) {
 	resetForTest()
 
 	err1 := errors.New("error1")
@@ -1231,8 +1194,8 @@ func TestGoBatchWithResult_MixedSuccessAndError(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestGoWithName_EmptyName 空任务名称
-func TestGoWithName_EmptyName(t *testing.T) {
+// TestGoWithNameEmptyName 空任务名称
+func TestGoWithNameEmptyName(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -1256,8 +1219,8 @@ func TestGoWithName_EmptyName(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestGoWithName_VeryLongName 极长任务名称
-func TestGoWithName_VeryLongName(t *testing.T) {
+// TestGoWithNameVeryLongName 极长任务名称
+func TestGoWithNameVeryLongName(t *testing.T) {
 	resetForTest()
 
 	var executed atomic.Bool
@@ -1282,8 +1245,8 @@ func TestGoWithName_VeryLongName(t *testing.T) {
 	ReleaseAndWaitWithTimeout(5 * time.Second)
 }
 
-// TestWithPoolSize_BoundaryValues 池大小边界值
-func TestWithPoolSize_BoundaryValues(t *testing.T) {
+// TestWithPoolSizeBoundaryValues 池大小边界值
+func TestWithPoolSizeBoundaryValues(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    int
@@ -1343,13 +1306,14 @@ func TestFullLifecycle(t *testing.T) {
 		GoWithName(context.Background(), fmt.Sprintf("task_%d", i), func() {
 			defer wg.Done()
 			counter.Add(1)
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(simulatedTaskWork)
 		})
 	}
 
-	// 5. 等待任务完成
+	// 5. 等待任务完成（wg.Wait 只覆盖到闭包 defer，executeTask 的 DecRunning 在其后落地，
+	// 因此还需轮询 running 归零才能断言指标）
 	wg.Wait()
-	time.Sleep(50 * time.Millisecond)
+	waitUntil(t, func() bool { return mm.running.Load() == 0 }, "任务指标未归零")
 
 	// 6. 验证指标
 	if v := counter.Load(); v != 10 {
@@ -1416,8 +1380,8 @@ func TestGracefulShutdownFlow(t *testing.T) {
 	}
 }
 
-// TestSetMetrics_RuntimeReplacement 运行时替换监控
-func TestSetMetrics_RuntimeReplacement(t *testing.T) {
+// TestSetMetricsRuntimeReplacement 运行时替换监控
+func TestSetMetricsRuntimeReplacement(t *testing.T) {
 	resetForTest()
 
 	// 1. 设置第一个监控
@@ -1431,8 +1395,7 @@ func TestSetMetrics_RuntimeReplacement(t *testing.T) {
 		close(startCh)
 		<-blockCh
 	})
-	<-startCh
-	time.Sleep(10 * time.Millisecond)
+	<-startCh // IncRunning 先于任务体执行，close(startCh) 已建立 happens-before，直读安全
 
 	// 3. 验证第一个监控记录了数据
 	if mm1.running.Load() < 1 {
@@ -1450,8 +1413,7 @@ func TestSetMetrics_RuntimeReplacement(t *testing.T) {
 		close(startCh2)
 		<-blockCh2
 	})
-	<-startCh2
-	time.Sleep(10 * time.Millisecond)
+	<-startCh2 // 同上：close(startCh2) 已建立 happens-before，直读安全
 
 	// 6. 验证第二个监控记录了数据
 	if mm2.running.Load() < 1 {
@@ -1515,15 +1477,12 @@ func TestIsFull(t *testing.T) {
 	globalPool = nil
 }
 
-// TestBatchWithCancelledCtx 批量任务使用已取消的 ctx
-// 注意：当 ctx 已取消时，GoBatchWithName 会阻塞，因为被跳过的任务不会调用 wg.Done()
-// 这是当前设计的预期行为，用户应该在调用前检查 ctx 状态
-func TestBatchWithCancelledCtx(t *testing.T) {
+// TestGoBatchCancelledCtxReturns 验证已取消 ctx 下 GoBatch 立即返回且不执行任务。
+// 历史缺陷：被跳过的任务不会执行闭包内的 wg.Done()，wg.Wait 永久阻塞（调用方协程泄漏）；
+// 原用例只断言 counter=0，对“阻塞”与“立即返回”都不断言，实际是空断言。
+func TestGoBatchCancelledCtxReturns(t *testing.T) {
 	resetForTest()
 
-	// 使用已取消的 ctx 调用 GoBatch
-	// 预期：任务被跳过，但函数会阻塞（因为 wg.Done() 不会被调用）
-	// 我们使用超时来验证这个行为
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -1535,36 +1494,186 @@ func TestBatchWithCancelledCtx(t *testing.T) {
 		}
 	}
 
-	// 启动一个 goroutine 调用 GoBatch
 	done := make(chan struct{})
 	go func() {
 		GoBatch(ctx, tasks)
 		close(done)
 	}()
 
-	// 等待一段时间，确认任务被跳过但函数阻塞
-	time.Sleep(100 * time.Millisecond)
+	// 断言一：函数必须返回（阻塞即死锁回归）
+	waitDone(t, done, "已取消 ctx 下 GoBatch 未返回（死锁回归）")
+
+	// 断言二：任务全部被跳过
 	if v := counter.Load(); v != 0 {
-		t.Errorf("counter = %d, want 0 (all tasks should be skipped)", v)
+		t.Errorf("counter = %d, want 0（全部任务应被跳过）", v)
 	}
 
-	// 函数应该还在阻塞（因为 wg.Done() 不会被调用）
+	resetForTest()
+}
+
+// TestGoBatchWithResultCancelledCtx 验证已取消 ctx 下 GoBatchWithResult 不阻塞，
+// 且被跳过的任务返回 ctx.Err() 聚合错误（而非静默零值）。
+func TestGoBatchWithResultCancelledCtx(t *testing.T) {
+	resetForTest()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	tasks := []func() (int, error){
+		func() (int, error) { return 1, nil },
+		func() (int, error) { return 2, nil },
+	}
+
+	type batchOut struct {
+		results []int
+		err     error
+	}
+	done := make(chan batchOut, 1)
+	go func() {
+		results, err := GoBatchWithResult(ctx, "cancelled", tasks)
+		done <- batchOut{results: results, err: err}
+	}()
+
+	var out batchOut
 	select {
-	case <-done:
-		// 如果函数返回了，说明任务被正确处理
-	default:
-		// 预期：函数还在阻塞
+	case out = <-done:
+	case <-time.After(taskWaitTimeout):
+		t.Fatal("已取消 ctx 下 GoBatchWithResult 未返回（死锁回归）")
 	}
 
-	// 清理
-	if globalPool != nil {
-		globalPool.Release()
-		globalPool = nil
+	if !errors.Is(out.err, context.Canceled) {
+		t.Errorf("err = %v, want errors.Is(context.Canceled)", out.err)
+	}
+	if len(out.results) != 2 {
+		t.Errorf("len(results) = %d, want 2（零值切片仍应保持长度）", len(out.results))
+	}
+
+	resetForTest()
+}
+
+// TestGoNilCtxFallsBackToBackground 验证 nil ctx 不 panic 且任务正常执行。
+func TestGoNilCtxFallsBackToBackground(t *testing.T) {
+	resetForTest()
+
+	done := make(chan struct{})
+	Go(nil, func() { close(done) }) // 故意传 nil，验证 normalizeCtx 防御层
+	waitDone(t, done, "nil ctx 下 Go 任务未执行")
+
+	ReleaseAndWaitWithTimeout(taskWaitTimeout)
+}
+
+// TestGoWithNameNilCtxFallsBackToBackground 验证 GoWithName 的 nil ctx 防御。
+func TestGoWithNameNilCtxFallsBackToBackground(t *testing.T) {
+	resetForTest()
+
+	done := make(chan struct{})
+	GoWithName(nil, "nil-ctx", func() { close(done) }) // 故意传 nil
+	waitDone(t, done, "nil ctx 下 GoWithName 任务未执行")
+
+	ReleaseAndWaitWithTimeout(taskWaitTimeout)
+}
+
+// TestGoWithTimeoutNilCtxFallsBackToBackground 验证 GoWithTimeout 入口归一 nil ctx
+// （否则闭包内 context.WithTimeout(nil, ...) 会 panic）。
+func TestGoWithTimeoutNilCtxFallsBackToBackground(t *testing.T) {
+	resetForTest()
+
+	done := make(chan struct{})
+	GoWithTimeout(nil, "nil-ctx-timeout", time.Second, func(context.Context) { // 故意传 nil
+		close(done)
+	})
+	waitDone(t, done, "nil ctx 下 GoWithTimeout 任务未执行")
+
+	ReleaseAndWaitWithTimeout(taskWaitTimeout)
+}
+
+// TestGoBatchNilCtxFallsBackToBackground 验证批量接口的 nil ctx 防御。
+func TestGoBatchNilCtxFallsBackToBackground(t *testing.T) {
+	resetForTest()
+
+	var counter atomic.Int64
+	done := make(chan struct{})
+	GoBatch(nil, []func(){ // 故意传 nil
+		func() {
+			counter.Add(1)
+			close(done)
+		},
+	})
+	waitDone(t, done, "nil ctx 下 GoBatch 任务未执行")
+
+	ReleaseAndWaitWithTimeout(taskWaitTimeout)
+}
+
+// ============================================================================
+// 测试 Init 迟到调用与批量 nil 任务条目（评审 R2-P1-1 / R2-P1-4）
+// ============================================================================
+
+// TestInitAfterLazyInitIgnoresOptions 验证先 Go 后 Init 的隐式陷阱：
+// 池已由惰性路径按默认配置创建，迟到 Init 的 Option 不生效（同时打 WARN），
+// 守护「以为 WithPoolSize(5000) 已生效而实际仍是 1000」的误判（评审 R2-P1-1）。
+func TestInitAfterLazyInitIgnoresOptions(t *testing.T) {
+	resetForTest()
+
+	// 惰性路径先触发（模拟某包 init() 里先调 Go）
+	done := make(chan struct{})
+	Go(context.Background(), func() { close(done) })
+	<-done
+	waitUntil(t, func() bool { return currentGlobalPool() != nil }, "惰性初始化未创建池")
+
+	// 迟到的 Init：本次 Option 被忽略并打 WARN 日志
+	Init(WithPoolSize(5000))
+
+	p := currentGlobalPool()
+	if p == nil {
+		t.Fatal("全局池不应为 nil")
+	}
+	if got := p.GetCap(); got != DefaultPoolSize {
+		t.Errorf("GetCap() = %d, want %d（迟到 Init 的 WithPoolSize 不应生效）", got, DefaultPoolSize)
 	}
 }
 
-// TestGoWithTimeout_ContextAlreadyCancelled 超时任务使用已取消的 ctx
-func TestGoWithTimeout_ContextAlreadyCancelled(t *testing.T) {
+// TestGoBatchWithResultNilTask 验证 nil 任务条目记 errNilTask 而非静默返回 err==nil
+// （评审 R2-P1-4：原实现包装闭包非 nil 被受理，执行时 panic 被 recover，
+// errs[i] 保持 nil，调用方误以为全部成功）。
+func TestGoBatchWithResultNilTask(t *testing.T) {
+	resetForTest()
+
+	tasks := []func() (int, error){
+		nil,
+		func() (int, error) { return 42, nil },
+	}
+	results, err := GoBatchWithResult(context.Background(), "nil-entry", tasks)
+	if err == nil {
+		t.Fatal("nil 任务条目应产生错误，实际 err == nil（静默失败回归）")
+	}
+	if !errors.Is(err, errNilTask) {
+		t.Errorf("err 应可 errors.Is(errNilTask)，实际: %v", err)
+	}
+	if results[0] != 0 {
+		t.Errorf("results[0] = %d, want 0（nil 条目结果位为零值）", results[0])
+	}
+	if results[1] != 42 {
+		t.Errorf("results[1] = %d, want 42（正常条目不受影响）", results[1])
+	}
+}
+
+// TestGoBatchWithNameNilTaskSkipped 验证 GoBatch* 的 nil 条目当场跳过：
+// 不提交、不产生 panic 噪声、不影响其他任务、不挂起（与 GoBatchWithResult 口径一致）。
+func TestGoBatchWithNameNilTaskSkipped(t *testing.T) {
+	resetForTest()
+
+	var executed atomic.Bool
+	GoBatch(context.Background(), []func(){
+		nil,
+		func() { executed.Store(true) },
+	})
+	if !executed.Load() {
+		t.Error("非 nil 任务应正常执行")
+	}
+}
+
+// TestGoWithTimeoutContextAlreadyCancelled 超时任务使用已取消的 ctx
+func TestGoWithTimeoutContextAlreadyCancelled(t *testing.T) {
 	resetForTest()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1575,7 +1684,8 @@ func TestGoWithTimeout_ContextAlreadyCancelled(t *testing.T) {
 		executed.Store(true)
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	// 负向断言：「不发生」无完成信号可监听，只能给定观察窗口（见 negativeAssertionWindow 注释）
+	time.Sleep(negativeAssertionWindow)
 	if executed.Load() {
 		t.Error("task with cancelled ctx should not be executed")
 	}

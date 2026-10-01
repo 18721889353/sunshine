@@ -52,6 +52,12 @@ import (
 // 初始化
 // ============================================================================
 
+// releasePollInterval ReleaseAndWaitWithTimeout 轮询运行中任务数的间隔。
+// 为何轮询而非事件：ants 未暴露「全部任务完成」信号，只能读 Running 计数；
+// 取值依据：10ms 相对默认 30s 关闭超时足够细，轮询本身开销可忽略；
+// 为何不 flaky：结果由 deadline 兜底判定（超时即返回并告警），间隔只影响收尾延迟。
+const releasePollInterval = 10 * time.Millisecond
+
 var (
 	// gracefulShutdown 优雅关闭的运行时状态
 	gracefulShutdown struct {
@@ -65,8 +71,18 @@ var (
 
 // Init 初始化全局协程池（可选，不调用则使用默认配置）。
 // 使用 sync.Once 确保并发安全，多次调用只有首次生效。
+//
+// 重要：必须先于任何 Go/GoWithName/GoBatch* 等会触发池创建的调用。
+// 若池已由惰性路径（如某包 init() 里先调了 Go）以默认配置创建，
+// 或已有另一次 Init 先行生效，本次 Option 会被忽略并打 WARN
+// （评审 R2-P1-1）——避免用户以为 WithPoolSize(5000) 生效而实际仍为 1000。
 func Init(opts ...Option) {
+	// firstInit 仅在本次调用真正执行了初始化闭包时为 true。
+	// sync.Once 保证闭包对首个进入者执行一次；后续调用（含并发调用）
+	// 会阻塞至首个完成然后跳过闭包，此时 firstInit 保持 false → 触发 WARN。
+	firstInit := false
 	globalPoolOnce.Do(func() {
+		firstInit = true
 		cfg := defaultPoolConfig()
 		cfg.apply(opts...)
 		if _, err := getOrCreateGlobalPool(cfg); err != nil {
@@ -83,6 +99,14 @@ func Init(opts ...Option) {
 			startSignalWatcher(cfg.GracefulShutdownTimeout)
 		}
 	})
+	if !firstInit {
+		// 池已初始化（可能来自惰性 Go* 路径或先前的 Init），本次 Option 被忽略——
+		// 不打这条 WARN，用户无从得知真实池大小与预期不符（评审 R2-P1-1）。
+		logger.WarnWithCtx(context.Background(),
+			"gogroutine: pool already initialized, Init options ignored",
+			logger.Int("ignored_options", len(opts)),
+		)
+	}
 }
 
 // startSignalWatcher 启动信号监听，收到退出信号时自动释放协程池。
@@ -117,30 +141,54 @@ func startSignalWatcher(timeout time.Duration) {
 // ============================================================================
 
 // Go 提交一个任务到全局协程池（fire-and-forget）。
+// ctx 为 nil 时按 context.Background() 处理（不跳过任务）。
 func Go(ctx context.Context, task func()) {
 	GoWithName(ctx, "", task)
 }
 
 // GoWithName 提交一个带名称的任务（便于日志追踪和监控）。
-// 如果 ctx 已取消，任务将被跳过而非入队浪费资源。
+// 如果 ctx 已取消，任务将被跳过而非入队浪费资源；ctx 为 nil 时按 context.Background() 处理。
 // 如果池已满，自动降级为原生 goroutine 执行。
 func GoWithName(ctx context.Context, name string, task func()) {
-	if task == nil || shouldSkipSubmit(ctx, name) {
-		return
+	submitTask(ctx, name, task)
+}
+
+// submitTask 提交任务并返回是否受理。
+// 返回 false 表示任务被跳过（task 为 nil 或 ctx 已取消），此时闭包从未执行——
+// 批量提交场景必须据此自行归还 WaitGroup 计数，否则被跳过的任务会让 wg.Wait 永久阻塞
+// （历史缺陷：GoBatch* 传入已取消的 ctx 会死锁，守护用例 TestGoBatchWithResultCancelledCtx）。
+func submitTask(ctx context.Context, name string, task func()) bool {
+	if task == nil {
+		return false
+	}
+	ctx = normalizeCtx(ctx)
+	if shouldSkipSubmit(ctx, name) {
+		return false
 	}
 
 	p := initAndGetPool()
-
-	if err := p.Submit(func() {
+	wrapper := func() {
 		executeTask(ctx, name, task)
-	}); err != nil {
+	}
+	var err error
+	if rs, ok := p.(rawSubmitter); ok {
+		// 全局池走 submitRaw：闭包自带 executeTask，绕过 Submit 的实例级包装，
+		// 避免同一任务被双重埋点（双 Span、双计数；评审 R2-P1-3 前置改造）
+		err = rs.submitRaw(wrapper)
+	} else {
+		// mock 或其他 Pool 实现（如测试注入的 rejectPool）保持原 Submit 路径
+		err = p.Submit(wrapper)
+	}
+	if err != nil {
 		handleSubmitFallback(ctx, name, task)
 	}
+	return true
 }
 
 // GoWithTimeout 提交一个带超时控制的任务。
-// 任务接收的 ctx 会在超时后自动取消。
+// 任务接收的 ctx 会在超时后自动取消；ctx 为 nil 时按 context.Background() 处理。
 func GoWithTimeout(ctx context.Context, name string, timeout time.Duration, task func(ctx context.Context)) {
+	ctx = normalizeCtx(ctx)
 	GoWithName(ctx, name, func() {
 		timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
@@ -153,38 +201,53 @@ func GoWithTimeout(ctx context.Context, name string, timeout time.Duration, task
 // ============================================================================
 
 // GoBatch 批量提交任务并等待全部完成。
-// 所有任务并发执行，单个任务 panic 不影响其他任务。
+// 所有任务并发执行，单个任务 panic 不影响其他任务；nil 任务条目会被跳过（不执行、不报错）。
+// ctx 已取消时任务全部被跳过，函数立即返回（不会阻塞）。
 func GoBatch(ctx context.Context, tasks []func()) {
 	GoBatchWithName(ctx, "batch", tasks)
 }
 
 // GoBatchWithName 批量提交带统一名称前缀的任务并等待全部完成。
 // 任务名称格式：{name}_{index}，便于监控系统按前缀聚合。
-// 注意：ctx 已取消时，任务会被跳过，但函数会立即返回。
+// 注意：ctx 已取消时任务被跳过，但函数仍立即返回——被跳过的任务会当场归还 WaitGroup 计数。
+// nil 任务条目同样当场跳过（不提交、不产生 panic 噪声），与 GoBatchWithResult 的 errNilTask 口径一致。
 func GoBatchWithName(ctx context.Context, name string, tasks []func()) {
 	if len(tasks) == 0 {
 		return
 	}
+	ctx = normalizeCtx(ctx)
 
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for i := range tasks {
+		if tasks[i] == nil {
+			// nil 条目无法执行：不提交，当场归还计数。
+			// 否则包装闭包非 nil 会被受理，执行时 panic 虽被 recover 但徒增 WARN 噪声。
+			wg.Done()
+			continue
+		}
 		taskName := fmt.Sprintf("%s_%d", name, i)
-		GoWithName(ctx, taskName, func() {
+		if !submitTask(ctx, taskName, func() {
 			defer wg.Done()
 			tasks[i]()
-		})
+		}) {
+			wg.Done() // 任务被跳过，闭包未执行：当场归还计数，避免 wg.Wait 永久阻塞
+		}
 	}
 	wg.Wait()
 }
 
 // GoBatchWithResult 批量提交任务并收集结果（泛型版本）。
 // 所有任务并发执行，返回按索引对应的结果切片。
-// 如果有任何任务失败，返回所有错误的聚合结果。
+// 如果有任何任务失败，返回所有错误的聚合结果；
+// ctx 已取消时被跳过的任务记 errs[i] = ctx.Err()，结果位为零值，函数不会阻塞。
+// nil 任务条目记 errs[i] = errNilTask（可用 errors.Is 判定），结果位为零值——
+// 不会静默返回 err==nil（评审 R2-P1-4）。
 func GoBatchWithResult[T any](ctx context.Context, name string, tasks []func() (T, error)) ([]T, error) {
 	if len(tasks) == 0 {
 		return nil, nil
 	}
+	ctx = normalizeCtx(ctx)
 
 	results := make([]T, len(tasks))
 	errs := make([]error, len(tasks))
@@ -192,10 +255,22 @@ func GoBatchWithResult[T any](ctx context.Context, name string, tasks []func() (
 	var wg sync.WaitGroup
 	wg.Add(len(tasks))
 	for i := range tasks {
-		GoWithName(ctx, fmt.Sprintf("%s_%d", name, i), func() {
+		if tasks[i] == nil {
+			// 必须在 submitTask 之前检查：包装闭包本身非 nil，若照常受理，
+			// 执行时 tasks[i]() 会 panic 被 recover，errs[i] 保持 nil →
+			// 调用方拿到 err==nil 但结果位零值的静默失败（评审 R2-P1-4）。
+			errs[i] = errNilTask
+			wg.Done()
+			continue
+		}
+		if !submitTask(ctx, fmt.Sprintf("%s_%d", name, i), func() {
 			defer wg.Done()
 			results[i], errs[i] = tasks[i]()
-		})
+		}) {
+			// 任务被跳过必因 ctx 已取消（闭包本身非 nil），记录 ctx 错误而非静默留零值
+			errs[i] = ctx.Err()
+			wg.Done()
+		}
 	}
 	wg.Wait()
 
@@ -240,6 +315,9 @@ func collectBatchErrors(errs []error) error {
 	return errors.Join(collected...)
 }
 
+// errNilTask 批量任务中的 nil 项错误，提交跳过与错误聚合共用同一值，便于调用方 errors.Is 判定。
+var errNilTask = errors.New("gogroutine: nil task")
+
 // ============================================================================
 // 生命周期管理
 // ============================================================================
@@ -271,8 +349,8 @@ func PoolStats() StatsInfo {
 // 注意：不会执行 shutdown hooks，不会等待运行中的任务完成。
 // 如需等待任务完成，请使用 ReleaseAndWait 或 ReleaseAndWaitWithTimeout。
 func Release() {
-	if globalPool != nil {
-		globalPool.Release()
+	if p := currentGlobalPool(); p != nil {
+		p.Release()
 	}
 }
 
@@ -290,21 +368,22 @@ func ReleaseAndWait() {
 //
 // 执行流程：Release 停止接收新任务 → 轮询等待运行中任务完成 → 超时则强制返回。
 func ReleaseAndWaitWithTimeout(timeout time.Duration) {
-	if globalPool == nil {
+	p := currentGlobalPool()
+	if p == nil {
 		return
 	}
-	globalPool.Release()
+	p.Release()
 
 	deadline := time.Now().Add(timeout)
-	for globalPool.GetRunningNum() > 0 {
+	for p.GetRunningNum() > 0 {
 		if time.Now().After(deadline) {
 			logger.WarnWithCtx(context.Background(), "gogroutine: ReleaseAndWait timeout",
-				logger.Int("remaining", globalPool.GetRunningNum()),
+				logger.Int("remaining", p.GetRunningNum()),
 				logger.String("timeout", timeout.String()),
 			)
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(releasePollInterval)
 	}
 }
 
@@ -367,5 +446,5 @@ func initAndGetPool() Pool {
 			panic(fmt.Sprintf("gogroutine: init pool failed: %v", err))
 		}
 	})
-	return globalPool
+	return currentGlobalPool()
 }

@@ -2,7 +2,6 @@ package gogroutine
 
 import (
 	"testing"
-	"time"
 )
 
 // ============================================================================
@@ -24,9 +23,6 @@ func TestDefaultPoolConfig(t *testing.T) {
 	if !cfg.DisablePurge {
 		t.Error("DisablePurge should be true for production (avoid cold start)")
 	}
-	if cfg.PurgeInterval != 1*time.Second {
-		t.Errorf("PurgeInterval = %v, want 1s", cfg.PurgeInterval)
-	}
 	if !cfg.GracefulShutdown {
 		t.Error("GracefulShutdown should be true for production (auto cleanup)")
 	}
@@ -39,7 +35,7 @@ func TestDefaultPoolConfig(t *testing.T) {
 // 测试 apply - Option 批量应用
 // ============================================================================
 
-func TestApply_NoOptions(t *testing.T) {
+func TestApplyNoOptions(t *testing.T) {
 	cfg := defaultPoolConfig()
 	cfg.apply()
 
@@ -48,7 +44,7 @@ func TestApply_NoOptions(t *testing.T) {
 	}
 }
 
-func TestApply_MultipleOptions(t *testing.T) {
+func TestApplyMultipleOptions(t *testing.T) {
 	cfg := defaultPoolConfig()
 	cfg.apply(
 		WithPoolSize(200),
@@ -71,7 +67,7 @@ func TestApply_MultipleOptions(t *testing.T) {
 	}
 }
 
-func TestApply_LastOptionWins(t *testing.T) {
+func TestApplyLastOptionWins(t *testing.T) {
 	cfg := defaultPoolConfig()
 	cfg.apply(
 		WithPoolSize(100),
@@ -96,7 +92,7 @@ func TestWithPoolSize(t *testing.T) {
 	}
 }
 
-func TestWithPoolSize_BelowMin(t *testing.T) {
+func TestWithPoolSizeBelowMin(t *testing.T) {
 	cfg := defaultPoolConfig()
 	WithPoolSize(1)(cfg)
 
@@ -105,7 +101,7 @@ func TestWithPoolSize_BelowMin(t *testing.T) {
 	}
 }
 
-func TestWithPoolSize_AboveMax(t *testing.T) {
+func TestWithPoolSizeAboveMax(t *testing.T) {
 	cfg := defaultPoolConfig()
 	WithPoolSize(99999)(cfg)
 
@@ -114,7 +110,7 @@ func TestWithPoolSize_AboveMax(t *testing.T) {
 	}
 }
 
-func TestWithPoolSize_AtBoundary(t *testing.T) {
+func TestWithPoolSizeAtBoundary(t *testing.T) {
 	// 测试下边界
 	cfg1 := defaultPoolConfig()
 	WithPoolSize(MinPoolSize)(cfg1)

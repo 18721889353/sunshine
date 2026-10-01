@@ -8,21 +8,13 @@ import (
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
-// resetMetrics 重置全局指标状态（仅用于测试）。
-func resetMetrics() {
-	metricsMgr.successCount.Store(0)
-	metricsMgr.panicCount.Store(0)
-	metricsMgr.fallbackCount.Store(0)
-	metricsMgr.mu.Lock()
-	metricsMgr.collector = nil
-	metricsMgr.mu.Unlock()
-}
+// 测试辅助（resetMetrics/mockMetrics 等）统一集中在 test_helpers_test.go
 
 // ============================================================================
 // 测试 requestIDAttr - 链路追踪属性
 // ============================================================================
 
-func TestRequestIDAttr_WithRequestID(t *testing.T) {
+func TestRequestIDAttrWithRequestID(t *testing.T) {
 	// 创建带有 request_id 的 context
 	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, "test-request-123")
 	attr := requestIDAttr(ctx)
@@ -32,7 +24,7 @@ func TestRequestIDAttr_WithRequestID(t *testing.T) {
 	}
 }
 
-func TestRequestIDAttr_WithoutRequestID(t *testing.T) {
+func TestRequestIDAttrWithoutRequestID(t *testing.T) {
 	// 创建没有 request_id 的 context
 	ctx := context.Background()
 	attr := requestIDAttr(ctx)
@@ -42,7 +34,7 @@ func TestRequestIDAttr_WithoutRequestID(t *testing.T) {
 	}
 }
 
-func TestRequestIDAttr_NilCtx(t *testing.T) {
+func TestRequestIDAttrNilCtx(t *testing.T) {
 	// 测试 nil context
 	attr := requestIDAttr(nil)
 
@@ -51,7 +43,7 @@ func TestRequestIDAttr_NilCtx(t *testing.T) {
 	}
 }
 
-func TestRequestIDAttr_EmptyRequestID(t *testing.T) {
+func TestRequestIDAttrEmptyRequestID(t *testing.T) {
 	// 创建带有空 request_id 的 context
 	ctx := context.WithValue(context.Background(), logger.ContextKeyRequestID, "")
 	attr := requestIDAttr(ctx)
@@ -65,16 +57,14 @@ func TestRequestIDAttr_EmptyRequestID(t *testing.T) {
 // 测试 shouldSkipSubmit - 提交前校验
 // ============================================================================
 
-func TestShouldSkipSubmit_NilCtx(t *testing.T) {
-	// 即使 ctx 为 nil，select 会 panic，但正常情况下不会传 nil
-	// 这里只测试正常 context
-	ctx := context.Background()
-	if shouldSkipSubmit(ctx, "test") {
-		t.Error("shouldSkipSubmit should return false for active context")
+func TestShouldSkipSubmitNilCtx(t *testing.T) {
+	// nil ctx 不 panic 且不跳过（normalizeCtx 归一为 Background 的防御层）
+	if shouldSkipSubmit(nil, "test") {
+		t.Error("nil ctx 应返回 false（按 Background 处理，不跳过任务）")
 	}
 }
 
-func TestShouldSkipSubmit_CancelledCtx(t *testing.T) {
+func TestShouldSkipSubmitCancelledCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 立即取消
 
@@ -83,7 +73,7 @@ func TestShouldSkipSubmit_CancelledCtx(t *testing.T) {
 	}
 }
 
-func TestShouldSkipSubmit_DeadlineExceeded(t *testing.T) {
+func TestShouldSkipSubmitDeadlineExceeded(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-1*time.Second))
 	defer cancel()
 
@@ -96,7 +86,7 @@ func TestShouldSkipSubmit_DeadlineExceeded(t *testing.T) {
 // 测试 executeTask - 正常执行
 // ============================================================================
 
-func TestExecuteTask_Success(t *testing.T) {
+func TestExecuteTaskSuccess(t *testing.T) {
 	resetMetrics()
 
 	done := make(chan struct{})
@@ -116,7 +106,7 @@ func TestExecuteTask_Success(t *testing.T) {
 	}
 }
 
-func TestExecuteTask_WithoutName(t *testing.T) {
+func TestExecuteTaskWithoutName(t *testing.T) {
 	resetMetrics()
 
 	done := make(chan struct{})
@@ -136,7 +126,7 @@ func TestExecuteTask_WithoutName(t *testing.T) {
 // 测试 executeTask - panic 恢复
 // ============================================================================
 
-func TestExecuteTask_PanicRecovery(t *testing.T) {
+func TestExecuteTaskPanicRecovery(t *testing.T) {
 	resetMetrics()
 
 	// executeTask 不应传播 panic
@@ -158,7 +148,7 @@ func TestExecuteTask_PanicRecovery(t *testing.T) {
 // 测试 executeTask - 指标集成
 // ============================================================================
 
-func TestExecuteTask_WithMetrics(t *testing.T) {
+func TestExecuteTaskWithMetrics(t *testing.T) {
 	resetMetrics()
 
 	mm := &mockMetrics{}
@@ -179,7 +169,7 @@ func TestExecuteTask_WithMetrics(t *testing.T) {
 	}
 }
 
-func TestExecuteTask_PanicWithMetrics(t *testing.T) {
+func TestExecuteTaskPanicWithMetrics(t *testing.T) {
 	resetMetrics()
 
 	mm := &mockMetrics{}
@@ -207,7 +197,7 @@ func TestExecuteTask_PanicWithMetrics(t *testing.T) {
 // 测试 executeTask - 并发安全
 // ============================================================================
 
-func TestExecuteTask_Concurrent(t *testing.T) {
+func TestExecuteTaskConcurrent(t *testing.T) {
 	resetMetrics()
 
 	const goroutines = 50
