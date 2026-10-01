@@ -86,12 +86,15 @@ Adaptive flow limitation based on hardware resources.
 import "github.com/18721889353/sunshine/pkg/jwt"
 import "github.com/18721889353/sunshine/pkg/gin/middleware"
 
+// 创建 jwt.Manager 实例（应用侧通常由 internal/config.JwtManager() 提供）
+var jwtMgr, _ = jwt.New(jwt.WithSigningKey("your-secret-key"))
+
 func main() {
     r := gin.Default()
 
     r.POST("/user/login", Login)
-    r.GET("/user/:id", middleware.Auth(), h.GetByID) // no verify field
-    // r.GET("/user/:id", middleware.Auth(middleware.WithVerify(adminVerify)), h.GetByID) // with verify field
+    r.GET("/user/:id", middleware.Auth(middleware.WithJwtManager(jwtMgr)), h.GetByID) // no verify field
+    // r.GET("/user/:id", middleware.Auth(middleware.WithJwtManager(jwtMgr), middleware.WithVerify(adminVerify)), h.GetByID) // with verify field
 
     r.Run(serverAddr)
 }
@@ -109,7 +112,7 @@ func adminVerify(claims *jwt.Claims, tokenTail10 string, c *gin.Context) error {
 
 func Login(c *gin.Context) {
     // generate token
-    token, err := jwt.GenerateToken("123", "admin")
+    token, err := jwtMgr.GenerateToken("123", "admin", nil)
     // save token
 }
 ```
@@ -122,11 +125,14 @@ func Login(c *gin.Context) {
 import "github.com/18721889353/sunshine/pkg/jwt"
 import "github.com/18721889353/sunshine/pkg/gin/middleware"
 
+// 创建 jwt.Manager 实例（应用侧通常由 internal/config.JwtManager() 提供）
+var jwtMgr, _ = jwt.New(jwt.WithSigningKey("your-secret-key"))
+
 func main() {
     r := gin.Default()
 
     r.POST("/user/login", Login)
-    r.GET("/user/:id", middleware.AuthCustom(verify), h.GetByID)
+    r.GET("/user/:id", middleware.AuthCustom(verify, middleware.WithJwtManager(jwtMgr)), h.GetByID)
 
     r.Run(serverAddr)
 }
@@ -156,7 +162,7 @@ func verify(claims *jwt.CustomClaims, tokenTail10 string, c *gin.Context) error 
 func Login(c *gin.Context) {
     // generate token
     fields := jwt.KV{"id": 123, "foo": "bar"}
-    token, err := jwt.GenerateCustomToken(fields)
+    token, err := jwtMgr.GenerateCustomToken(fields)
     // save token end fields
 }
 ```

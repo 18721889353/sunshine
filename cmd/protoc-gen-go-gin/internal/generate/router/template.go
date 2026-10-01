@@ -241,7 +241,7 @@ func (r *{{$.LowerName}}Router) withMiddleware(method string, path string, fn gi
 		logger.WarnWithCtx(ctx, "websocket missing token")
 		return
 	}
-	uid, err := gows.ParseTokenCtx(ctx, token)
+	uid, err := gows.ParseTokenCtx(ctx, token, config.JwtManager())
 	if err != nil {
 		logger.WarnWithCtx(ctx, "websocket parse token error", logger.Err(err))
 		return

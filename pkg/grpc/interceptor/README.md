@@ -307,8 +307,9 @@ func getServerOptions() []grpc.ServerOption {
 	// token authorization
 	options = append(options, grpc.UnaryInterceptor(
 	    interceptor.UnaryServerJwtAuth(
-	        // middleware.WithAuthClaimsName("tokenInfo"), // set the name of the forensic information attached to the ctx, the default is tokenInfo
-	        middleware.WithAuthIgnoreMethods( // add a way to ignore token validation
+	        interceptor.WithJwtManager(jwtMgr), // 注入 jwt.Manager（应用侧通常由 internal/config.JwtManager() 提供）
+	        // interceptor.WithAuthClaimsName("tokenInfo"), // set the name of the forensic information attached to the ctx, the default is tokenInfo
+	        interceptor.WithAuthIgnoreMethods( // add a way to ignore token validation
 	            "/proto.Account/Register",
 	        ),
 	    ),
@@ -318,11 +319,12 @@ func getServerOptions() []grpc.ServerOption {
 }
 
 // generate forensic information authorization
+// jwtMgr 为 jwt.New 创建的实例，签发与拦截器必须注入同一实例（同一密钥）
 func (a *Account) Register(ctx context.Context, req *serverNameV1.RegisterRequest) (*serverNameV1.RegisterReply, error) {
 	// ......
-	token, err := jwt.GenerateToken(uid)
+	token, err := jwtMgr.GenerateToken(uid, name, nil)
 	// handle err
-	authorization = middleware.GetAuthorization(token)
+	authorization = interceptor.GetAuthorization(token)
 	// ......
 }
 

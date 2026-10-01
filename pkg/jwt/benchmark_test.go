@@ -8,19 +8,18 @@ import (
 // 不含任何网络 RTT，定位是「相对回归基线」而非生产延迟。
 // 读数与口径说明见 README「性能基线与模糊测试」。
 //
-// 并发安全说明：各 Benchmark 通过 initTestJWT 反复 Init 覆盖全局配置是安全的——
-// 同 package 内的基准测试由 go test 串行调度（无 t.Parallel），且 Cleanup 在
-// 全部 b.N 迭代结束后才还原；若未来改为并发执行，需先改成每基准独立初始化机制。
+// 并发安全说明：各 Benchmark 通过 newTestManager 创建独立 Manager 实例，配置互不共享，
+// 不存在全局可变状态，基准之间（以及未来改为并发执行时）互不污染。
 
 // BenchmarkGenerateToken 基准标准 token 签发开销（含 1 个自定义字段）。
 func BenchmarkGenerateToken(b *testing.B) {
-	initTestJWT(b)
+	mgr := newTestManager(b)
 	fields := map[string]any{"role": "admin"}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := GenerateToken("10001", "sunshine", fields); err != nil {
+		if _, err := mgr.GenerateToken("10001", "sunshine", fields); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -28,8 +27,8 @@ func BenchmarkGenerateToken(b *testing.B) {
 
 // BenchmarkParseToken 基准标准 token 解析与校验开销（签名验证 + claims 反序列化）。
 func BenchmarkParseToken(b *testing.B) {
-	initTestJWT(b)
-	token, err := GenerateToken("10001", "sunshine", map[string]any{"role": "admin"})
+	mgr := newTestManager(b)
+	token, err := mgr.GenerateToken("10001", "sunshine", map[string]any{"role": "admin"})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -37,7 +36,7 @@ func BenchmarkParseToken(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := ParseToken(token); err != nil {
+		if _, err := mgr.ParseToken(token); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -45,13 +44,13 @@ func BenchmarkParseToken(b *testing.B) {
 
 // BenchmarkGenerateCustomToken 基准自定义字段 token 签发开销（5 个字段）。
 func BenchmarkGenerateCustomToken(b *testing.B) {
-	initTestJWT(b)
+	mgr := newTestManager(b)
 	fields := KV{"name": "sunshine", "age": 10, "id": 20, "vip": true, "score": 9.5}
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := GenerateCustomToken(fields); err != nil {
+		if _, err := mgr.GenerateCustomToken(fields); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -59,8 +58,8 @@ func BenchmarkGenerateCustomToken(b *testing.B) {
 
 // BenchmarkParseCustomToken 基准自定义字段 token 解析与校验开销。
 func BenchmarkParseCustomToken(b *testing.B) {
-	initTestJWT(b)
-	token, err := GenerateCustomToken(KV{"name": "sunshine", "age": 10, "id": 20, "vip": true, "score": 9.5})
+	mgr := newTestManager(b)
+	token, err := mgr.GenerateCustomToken(KV{"name": "sunshine", "age": 10, "id": 20, "vip": true, "score": 9.5})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -68,7 +67,7 @@ func BenchmarkParseCustomToken(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := ParseCustomToken(token); err != nil {
+		if _, err := mgr.ParseCustomToken(token); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -76,8 +75,8 @@ func BenchmarkParseCustomToken(b *testing.B) {
 
 // BenchmarkRefreshToken 基准标准 token 刷新开销（解析 + 重新签发的组合路径）。
 func BenchmarkRefreshToken(b *testing.B) {
-	initTestJWT(b)
-	token, err := GenerateToken("10001", "sunshine")
+	mgr := newTestManager(b)
+	token, err := mgr.GenerateToken("10001", "sunshine", nil)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -85,7 +84,7 @@ func BenchmarkRefreshToken(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := RefreshToken(token); err != nil {
+		if _, err := mgr.RefreshToken(token); err != nil {
 			b.Fatal(err)
 		}
 	}

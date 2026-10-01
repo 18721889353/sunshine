@@ -235,6 +235,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	// jwt token interceptor（常驻装配，开关由 SetJwtEnabled 运行时控制）
 	unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerJwtAuth(
 		interceptor.WithAuthIgnoreMethods(config.Get().Jwt.IgnoreMethods.Grpc...),
+		interceptor.WithJwtManager(config.JwtManager()),
 	))
 
 	// sign interceptor（常驻装配，开关由 SetSignEnabled 运行时控制）

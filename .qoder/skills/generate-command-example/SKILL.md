@@ -10,6 +10,15 @@ description: 规范 `cmd/sunshine/commands/generate/` 下所有命令的文档�
 所有 `cmd/sunshine/commands/generate/` 下的命令，其 `Use`、`Short`、`Long`、`Example`、flag usage 描述**全部使用中文**，并遵循统一格式。
 以 `dao.go` 为**标准参考**。
 
+## 关联约定：`configAutoFiles` 清单同步
+
+`common.go` 的 `configAutoFiles`（含上方逐文件注释列表）是生成器自动携带的 `internal/config/` 文件清单，
+与文档格式无关但同属 generate 目录维护职责：
+
+- `internal/config/` 新增/删除文件时，**数组与注释两处必须同步**，否则 generate 出的新项目会缺文件
+  （实测：新增 `jwt.go` 曾漏登记）
+- `serverNameExample*.go` 是模板样例文件，不进清单
+
 ## 规则清单
 
 ### 一、Use / Short / Long — 中文描述

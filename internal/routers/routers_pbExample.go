@@ -185,7 +185,8 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		r.Use(
 			middleware.Auth(
 				middleware.WithSwitchHTTPCode(),
-				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...)),
+				middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...),
+				middleware.WithJwtManager(config.JwtManager())),
 		)
 	}
 

@@ -157,10 +157,24 @@ func (m *mockBackend) Close() error {
 	return nil
 }
 
+// gowsTestSigningKey gows 测试统一的 JWT 签名密钥（带 TEST_ONLY 前缀防止误用）。
+const gowsTestSigningKey = "TEST_ONLY_gows_test_signing_key_do_not_use"
+
+// newTestJWTManager 创建 gows 测试专用的 jwt.Manager 实例（固定测试密钥）。
+// 实例模型下各测试自建实例、互不共享配置，密钥一致保证跨用例签发/解析兼容。
+func newTestJWTManager(t testing.TB) *jwt.Manager {
+	t.Helper()
+	mgr, err := jwt.New(jwt.WithSigningKey(gowsTestSigningKey))
+	if err != nil {
+		t.Fatalf("create test jwt manager: %v", err)
+	}
+	return mgr
+}
+
 // createTestJWT 创建包含指定 UID 的测试 JWT token
 func createTestJWT(t testing.TB, uid string) string {
 	t.Helper()
-	token, err := jwt.GenerateToken(uid, "test-user")
+	token, err := newTestJWTManager(t).GenerateToken(uid, "test-user", nil)
 	if err != nil {
 		t.Fatalf("create test JWT: %v", err)
 	}
@@ -174,7 +188,7 @@ func createTestJWTWithClaims(t testing.TB, claims *jwt.Claims) string {
 	for k, v := range claims.Fields {
 		fields[k] = v
 	}
-	token, err := jwt.GenerateCustomToken(fields)
+	token, err := newTestJWTManager(t).GenerateCustomToken(fields)
 	if err != nil {
 		t.Fatalf("create test JWT with claims: %v", err)
 	}
@@ -660,30 +674,30 @@ func TestExtractUID_IntField(t *testing.T) {
 }
 
 func TestParseTokenCtx_InvalidToken(t *testing.T) {
-	_, err := ParseTokenCtx(context.Background(), "invalid-token")
+	_, err := ParseTokenCtx(context.Background(), "invalid-token", newTestJWTManager(t))
 	if err == nil {
 		t.Error("should return error for invalid token")
 	}
 }
 
 func TestParseTokenCtx_BearerPrefix(t *testing.T) {
-	_, err := ParseTokenCtx(context.Background(), "Bearer invalid-token")
+	_, err := ParseTokenCtx(context.Background(), "Bearer invalid-token", newTestJWTManager(t))
 	if err == nil {
 		t.Error("should return error for Bearer token")
 	}
 }
 
 func TestParseTokenCtx_EmptyToken(t *testing.T) {
-	_, err := ParseTokenCtx(context.Background(), "")
+	_, err := ParseTokenCtx(context.Background(), "", newTestJWTManager(t))
 	if err == nil {
 		t.Error("should return error for empty token")
 	}
 }
 
 func TestParseTokenCtx_ValidToken(t *testing.T) {
-	jwt.Init(jwt.WithSigningKey("gows-test-signing-key"))
+	mgr := newTestJWTManager(t)
 	tokenStr := createTestJWT(t, "test-user-uid")
-	uid, err := ParseTokenCtx(context.Background(), tokenStr)
+	uid, err := ParseTokenCtx(context.Background(), tokenStr, mgr)
 	if err != nil {
 		t.Fatalf("ParseTokenCtx failed: %v", err)
 	}
@@ -693,9 +707,9 @@ func TestParseTokenCtx_ValidToken(t *testing.T) {
 }
 
 func TestParseTokenCtx_ValidTokenBearer(t *testing.T) {
-	jwt.Init(jwt.WithSigningKey("gows-test-signing-key"))
+	mgr := newTestJWTManager(t)
 	tokenStr := "Bearer " + createTestJWT(t, "bearer-user")
-	uid, err := ParseTokenCtx(context.Background(), tokenStr)
+	uid, err := ParseTokenCtx(context.Background(), tokenStr, mgr)
 	if err != nil {
 		t.Fatalf("ParseTokenCtx with Bearer prefix failed: %v", err)
 	}
@@ -705,9 +719,9 @@ func TestParseTokenCtx_ValidTokenBearer(t *testing.T) {
 }
 
 func TestParseTokenCtx_MissingUID(t *testing.T) {
-	jwt.Init(jwt.WithSigningKey("gows-test-signing-key"))
+	mgr := newTestJWTManager(t)
 	tokenStr := createTestJWTWithClaims(t, &jwt.Claims{})
-	_, err := ParseTokenCtx(context.Background(), tokenStr)
+	_, err := ParseTokenCtx(context.Background(), tokenStr, mgr)
 	if err != ErrTokenInvalid {
 		t.Errorf("got %v, want ErrTokenInvalid", err)
 	}

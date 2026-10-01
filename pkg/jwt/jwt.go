@@ -6,25 +6,29 @@
 //   - 自定义字段 token：GenerateCustomToken / ParseCustomToken 以纯 KV 字段为主体，
 //     解析后用 CustomClaims.Get / GetString / GetInt / GetUint64 取值。
 //   - token 刷新：RefreshToken / RefreshCustomToken 在原 token 未过期时重新签发，延长有效期。
-//   - 选项模式：Init 配合 Option（WithSigningKey、WithExpire、WithSigningMethod 等）集中配置，
+//   - 选项模式：New 配合 Option（WithSigningKey、WithExpire、WithSigningMethod 等）集中配置，
 //     未显式设置的选项使用默认值，优先级：单字段选项 > 默认值。
 //   - 安全默认值：本包不提供默认签名密钥，未配置密钥时签发/解析返回
 //     ErrSigningKeyNotConfigured（fail loud）；生产环境建议再传 RequireSigningKey()
-//     把问题提前到 Init 阶段 panic 暴露。
+//     把问题提前到 New/Reload 阶段返回 error。
 //
 // 使用方式：
-//   - 初始化：jwt.Init(jwt.WithSigningKey("..."), jwt.WithExpire(time.Hour))
-//   - 签发：token, err := jwt.GenerateToken("10001", "sunshine")
-//   - 校验：claims, err := jwt.ParseToken(token)
+//   - 初始化：mgr, err := jwt.New(jwt.WithSigningKey("..."), jwt.WithExpire(time.Hour))
+//   - 签发：token, err := mgr.GenerateToken("10001", "sunshine", nil)
+//   - 校验：claims, err := mgr.ParseToken(token)
 //
-// 设计说明 — 全局配置的并发安全：
+// 设计说明 — 实例模型（无包级全局配置）：
 //
-// Init 与所有签发/解析函数共享同一份全局配置，而 Init 可能在运行期被配置热更新重复调用
-// （见 internal/config 的 reloadJwtConfig），此时请求线程正在并发解析 token。
-// 因此配置存放在 atomic.Pointer[options] 中：Init 只做原子写，签发/解析只做原子读，
-// 读写之间无需加锁，也不会读到「写了一半的配置」。
+// 本包不提供任何包级可变状态：每个 jwt.Manager 独立持有自己的配置快照，
+// 同一进程可创建多个 Manager 并存（不同业务线用不同密钥互不覆盖，
+// 密钥轮换过渡期也可新旧两实例并存：旧实例验签、新实例签发）。
+// 应用侧默认实例由 internal/config 的 InitJwt/JwtManager 持有并注入消费方
+// （middleware / interceptor / gows），热更新通过对同一实例调 Reload 完成，
+// 注入的指针永不变。
 //
-// 注意：多次 Init 之间应由调用方保证串行（配置热更新回调天然串行），以最后一次调用整体生效。
+// 并发安全：配置存放在 atomic.Pointer[options] 中，Reload 只做原子写，
+// 签发/解析只做原子读，读写之间无需加锁，也不会读到「写了一半的配置」。
+// 多次 Reload 之间应由调用方保证串行（配置热更新回调天然串行），以最后一次调用整体生效。
 //
 // 设计说明 — sub 字段的双层声明：
 //
@@ -45,43 +49,81 @@ import (
 var (
 	// ErrTokenExpired token 已过期，可用 errors.Is 判断，等价于 jwt.ErrTokenExpired。
 	ErrTokenExpired = jwt.ErrTokenExpired
-	// ErrNotInitialized 包尚未初始化，签发或解析前需先调用 Init。
-	ErrNotInitialized = errors.New("jwt 尚未初始化，请先调用 jwt.Init()")
-	// ErrSignatureInvalid token 校验未通过（claims 类型断言失败或校验位为假），
-	// 属兜底错误；签名不匹配等常见失败由底层库错误直接返回，可用 errors.Is(jwt.ErrTokenSignatureInvalid) 判断。
+	// ErrNotInitialized jwt.Manager 未注入（nil receiver）：消费方未通过 WithJwtManager 等方式
+	// 注入实例，或 config.InitJwt() 尚未调用。签发或解析前需先注入 Manager。
+	ErrNotInitialized = errors.New("jwt.Manager 未注入，请先通过 jwt.New 创建并注入实例")
+	// ErrSignatureInvalid token 校验未通过的防御性兜底（claims 类型断言失败或校验位为假）。
+	// 底层库在 err == nil 时必保证 token.Valid 为 true 且传入的 claims 类型断言成功，
+	// 正常路径不可达；保留本错误作为防御——若底层库行为变化，仍能 fail loud 而非 panic。
+	// 签名不匹配等常见失败由底层库错误直接返回，可用 errors.Is(jwt.ErrTokenSignatureInvalid) 判断。
 	ErrSignatureInvalid = errors.New("token 签名校验失败")
-	// ErrSigningKeyNotConfigured 签名密钥未配置：Init 未传 WithSigningKey（或只传了空串）。
-	// 本包刻意不提供默认密钥，避免静默用公开密钥签发 token；用 errors.Is 判断。
-	ErrSigningKeyNotConfigured = errors.New("jwt 签名密钥未配置，请调用 jwt.Init(jwt.WithSigningKey(\"...\")) 设置")
+	// ErrSigningKeyNotConfigured 签名密钥未配置：未传 WithSigningKey（或只传了空串），
+	// 且传入了 RequireSigningKey() 时 New/Reload 直接返回本错误；未传 RequireSigningKey()
+	// 则延迟到签发/解析时返回。用 errors.Is 判断。
+	ErrSigningKeyNotConfigured = errors.New("jwt 签名密钥未配置，请调用 jwt.New(jwt.WithSigningKey(\"...\")) 设置")
 )
 
-// optStore 全局配置，原子读写保证 Init 与签发/解析并发安全；未 Init 时为 nil。
-var optStore atomic.Pointer[options]
-
-// Init 初始化全局 jwt 配置，可多次调用（如配置热更新），以最后一次调用整体生效。
-// 未显式设置的选项使用默认值，不传任何选项等价于恢复默认配置。
+// Manager JWT 签发/解析/刷新器，独立持有自己的配置快照。
+// 零值不可用，请通过 New 创建；配置存放在 atomic.Pointer[options] 中，
+// Reload 与签发/解析并发安全（见包注释「设计说明 — 实例模型」）。
 //
-// 安全校验：本包不提供默认签名密钥，未配置密钥时签发/解析会返回
-// ErrSigningKeyNotConfigured；若传入 RequireSigningKey() 而密钥缺失或为空，
-// Init 直接 panic（fail fast），防止服务带病启动。
-func Init(opts ...Option) {
-	o := defaultOptions()
-	o.apply(opts...)
-	if o.requireSigningKey && len(o.signingKey) == 0 {
-		panic(ErrSigningKeyNotConfigured)
-	}
-	optStore.Store(o)
+// 本类型不可复制（内含 atomic.Pointer，值拷贝会被 go vet copylocks 拦截），
+// 请始终传递 *Manager，不要按值复制。
+type Manager struct {
+	optStore atomic.Pointer[options]
 }
 
-// currentOptions 返回当前全局配置，并做两级前置校验：
-//  1. 未初始化（optStore 为 nil）返回 ErrNotInitialized；
-//  2. 已初始化但签名密钥为空返回 ErrSigningKeyNotConfigured。
+// New 创建 JWT Manager，未显式设置的选项使用默认值，不传任何选项等价于默认配置。
+//
+// 安全校验：本包不提供默认签名密钥；传入 RequireSigningKey() 而密钥缺失或为空时
+// 直接返回 ErrSigningKeyNotConfigured（fail fast），防止服务带病启动。
+// 未传 RequireSigningKey() 时允许携带空配置创建，签发/解析会返回
+// ErrSigningKeyNotConfigured（fail loud），与原 Init 语义一致。
+func New(opts ...Option) (*Manager, error) {
+	o := defaultOptions()
+	o.apply(opts...)
+	o.finalize()
+	if o.requireSigningKey && len(o.signingKey) == 0 {
+		return nil, ErrSigningKeyNotConfigured
+	}
+	m := &Manager{}
+	m.optStore.Store(o)
+	return m, nil
+}
+
+// Reload 按传入选项重建配置并整体生效（如配置热更新场景）。
+// 未显式设置的选项恢复默认值，不传任何选项等价于恢复默认配置。
+//
+// 校验失败（RequireSigningKey 且密钥缺失）时返回 error 并保留旧配置，
+// 不会出现「热更新把可用配置打成半残」的中间态。
+// 多次 Reload 之间应由调用方保证串行，以最后一次调用整体生效。
+func (m *Manager) Reload(opts ...Option) error {
+	if m == nil {
+		return ErrNotInitialized
+	}
+	o := defaultOptions()
+	o.apply(opts...)
+	o.finalize()
+	if o.requireSigningKey && len(o.signingKey) == 0 {
+		return ErrSigningKeyNotConfigured
+	}
+	m.optStore.Store(o)
+	return nil
+}
+
+// currentOptions 返回当前实例配置快照，并做两级前置校验：
+//  1. Manager 为 nil（未注入）返回 ErrNotInitialized；
+//  2. 已创建但签名密钥为空返回 ErrSigningKeyNotConfigured。
 //
 // 所有签发/解析入口都经由本函数，保证「未配置密钥」在任何路径上都 fail loud，
 // 调用方必须显式处理该错误，不得直接解引用返回值。
-func currentOptions() (*options, error) {
-	o := optStore.Load()
+func (m *Manager) currentOptions() (*options, error) {
+	if m == nil {
+		return nil, ErrNotInitialized
+	}
+	o := m.optStore.Load()
 	if o == nil {
+		// 仅在手工构造 Manager{}（零值）时出现，New/Reload 创建的实例必有配置
 		return nil, ErrNotInitialized
 	}
 	if len(o.signingKey) == 0 {
@@ -130,25 +172,26 @@ type Claims struct {
 }
 
 // GenerateToken 签发标准 token，claims 包含 uid、name 与可选的自定义字段。
-// kvs 只取第一个 map 作为附加字段；不传或传空时 Fields 为空 map。
+// fields 为 nil 或空 map 时，签发的 token 解析后 Fields 为 nil
+// （与 GenerateCustomToken(nil) 的 nil 语义一致，两条签发路径不变量统一）。
 // 返回的字符串可直接放入 Authorization: Bearer <token> 请求头。
 //
-// 并发约定：内部会遍历传入的 map 做浅拷贝，Go map 非并发安全，
+// 并发约定：内部会遍历 fields 做浅拷贝，Go map 非并发安全，
 // 调用方需保证该 map 在函数返回前不被并发读写；浅拷贝不递归，嵌套 map/切片等
 // 引用类型的 value 由调用方自行保证并发安全。
-func GenerateToken(uid string, name string, kvs ...map[string]any) (string, error) {
-	o, err := currentOptions()
+func (m *Manager) GenerateToken(uid string, name string, fields map[string]any) (string, error) {
+	o, err := m.currentOptions()
 	if err != nil {
 		return "", err
 	}
 
-	// 1. 附加字段只取第一个可变参数，多余的忽略；
-	//    浅拷贝一份再使用，避免调用方在签发期间并发修改原 map 引发 data race
-	fields := make(map[string]any)
-	if len(kvs) > 0 && kvs[0] != nil {
-		fields = make(map[string]any, len(kvs[0]))
-		for k, v := range kvs[0] {
-			fields[k] = v
+	// 1. 浅拷贝一份附加字段再使用，避免调用方在签发期间并发修改原 map 引发 data race；
+	//    nil 与空 map 统一归一为 nil，不产生「有时 {} 有时 nil」的两种不变量
+	var copied map[string]any
+	if len(fields) > 0 {
+		copied = make(map[string]any, len(fields))
+		for k, v := range fields {
+			copied[k] = v
 		}
 	}
 
@@ -156,7 +199,7 @@ func GenerateToken(uid string, name string, kvs ...map[string]any) (string, erro
 	claims := Claims{
 		UID:    uid,
 		Name:   name,
-		Fields: fields,
+		Fields: copied,
 		CustomRegisteredClaims: CustomRegisteredClaims{
 			RegisteredClaims: buildRegisteredClaims(o, time.Now()),
 			Subject:          o.subject,
@@ -170,8 +213,8 @@ func GenerateToken(uid string, name string, kvs ...map[string]any) (string, erro
 
 // ParseToken 解析并校验标准 token，返回 Claims。
 // 校验内容包括签名、过期时间（exp）等；token 过期返回 ErrTokenExpired。
-func ParseToken(tokenString string) (*Claims, error) {
-	o, err := currentOptions()
+func (m *Manager) ParseToken(tokenString string) (*Claims, error) {
+	o, err := m.currentOptions()
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +247,14 @@ func parseTokenWith(tokenString string, o *options) (*Claims, error) {
 //
 // 校验项均为显式条件追加，不依赖底层库「空值自动跳过」的内部行为，避免版本升级时语义漂移。
 func buildParseOptions(o *options) []jwt.ParserOption {
+	// 直接引用预计算的算法白名单（省去每次解析的 slice 分配）；
+	// 兜底：未经 finalize 的配置不得静默失去白名单（保持 fail loud 而非回退到隐式约束）
+	validMethods := o.validMethods
+	if len(validMethods) == 0 {
+		validMethods = []string{o.signingMethod.Alg()}
+	}
 	parseOpts := []jwt.ParserOption{
-		jwt.WithValidMethods([]string{o.signingMethod.Alg()}),
+		jwt.WithValidMethods(validMethods),
 	}
 	if o.leeway > 0 {
 		parseOpts = append(parseOpts, jwt.WithLeeway(o.leeway))
@@ -227,8 +276,8 @@ func buildParseOptions(o *options) []jwt.ParserOption {
 // 配置一致性：整个刷新流程（校验 + 重新签发）只 Load 一次配置，
 // 冻结在同一份配置快照上，避免两次 Load 之间配置热更新导致
 // 「用旧配置校验、用新配置签发」的中间态；跨调用的语义仍是「按刷新时刻的配置重新签发」。
-func RefreshToken(tokenString string) (string, error) {
-	o, err := currentOptions()
+func (m *Manager) RefreshToken(tokenString string) (string, error) {
+	o, err := m.currentOptions()
 	if err != nil {
 		return "", err
 	}
@@ -281,6 +330,9 @@ func (c *CustomClaims) GetString(key string) (string, bool) {
 // GetInt 按 key 读取整数类型字段，字段不存在或类型不匹配时返回 false。
 // 经 token JSON 往返后数字为 float64，内存对象中可能为 int，两者都支持。
 // 类型集合有意与 GetUint64 不对称：负 int 能被无损读出，不受无符号转换影响。
+//
+// 精度注意：JSON 数字经 float64 中转只有 53 位尾数，绝对值超过 2^53 的整数
+// （如雪花 ID、Unix 纳秒时间戳）会静默丢失精度，此类字段请勿依赖本方法读取。
 func (c *CustomClaims) GetInt(key string) (int, bool) {
 	val, isExist := c.Get(key)
 	if isExist {
@@ -297,13 +349,19 @@ func (c *CustomClaims) GetInt(key string) (int, bool) {
 // GetUint64 按 key 读取无符号整数类型字段，字段不存在或类型不匹配时返回 false。
 // 经 token JSON 往返后数字为 float64，内存对象中可能为 uint64，两者都支持。
 //
-// 类型集合有意不包含内存对象中的 int（与 GetInt 不对称）：负 int 若被
-// uint64(v) 静默转换会得到巨大的无符号值，属于数据损坏而非读取成功，
-// 故返回 false 让调用方显式感知类型不匹配；需要读 int 请用 GetInt。
+// 负数一律返回 false（无论内存对象中的 int 还是 JSON 往返后的 float64）：
+// uint64(v) 对负数的静默转换会得到巨大的无符号值，属于数据损坏而非读取成功；
+// 与 GetInt 的类型集合有意不对称，需要读有符号整数请用 GetInt。
+// 同理，绝对值超过 2^53 的数字经 float64 中转会丢精度（见 GetInt 的精度注意）。
 func (c *CustomClaims) GetUint64(key string) (uint64, bool) {
 	val, isExist := c.Get(key)
 	if isExist {
 		if v, ok := val.(float64); ok {
+			// 防数据损坏：负 float64（如 JSON 往返的 -1）转换为 uint64
+			// 会静默变成 18446744073709551615 量级的巨大值，必须显式拒绝
+			if v < 0 {
+				return 0, false
+			}
 			return uint64(v), true
 		}
 		if v, ok := val.(uint64); ok {
@@ -314,19 +372,21 @@ func (c *CustomClaims) GetUint64(key string) (uint64, bool) {
 }
 
 // GenerateCustomToken 按自定义字段签发 token，业务数据全部放在 kv 中。
-// kv 为 nil 时签发的 token 解析后 Fields 为 nil。
-// 非 nil 的 kv 会先浅拷贝再使用，避免调用方在签发期间并发修改原 map 引发 data race。
+// kv 为 nil 或空 map 时签发的 token 解析后 Fields 为 nil
+// （与 GenerateToken 的归一口径一致，两条签发路径不变量统一）。
+// 非空的 kv 会先浅拷贝再使用，避免调用方在签发期间并发修改原 map 引发 data race。
 //
 // 并发约定：Go map 非并发安全，调用方需保证 kv 在函数返回前不被并发读写；
 // 浅拷贝不递归，嵌套 map/切片等引用类型的 value 由调用方自行保证并发安全。
-func GenerateCustomToken(kv KV) (string, error) {
-	o, err := currentOptions()
+func (m *Manager) GenerateCustomToken(kv KV) (string, error) {
+	o, err := m.currentOptions()
 	if err != nil {
 		return "", err
 	}
 
+	// nil 与空 map 统一归一为 nil，与 GenerateToken 的口径一致
 	var fields KV
-	if kv != nil {
+	if len(kv) > 0 {
 		fields = make(KV, len(kv))
 		for k, v := range kv {
 			fields[k] = v
@@ -347,8 +407,8 @@ func GenerateCustomToken(kv KV) (string, error) {
 
 // ParseCustomToken 解析并校验自定义字段 token，返回 CustomClaims。
 // 校验内容包括签名、过期时间（exp）等；token 过期返回 ErrTokenExpired。
-func ParseCustomToken(tokenString string) (*CustomClaims, error) {
-	o, err := currentOptions()
+func (m *Manager) ParseCustomToken(tokenString string) (*CustomClaims, error) {
+	o, err := m.currentOptions()
 	if err != nil {
 		return nil, err
 	}
@@ -379,8 +439,8 @@ func parseCustomTokenWith(tokenString string, o *options) (*CustomClaims, error)
 //
 // 配置一致性：同 RefreshToken，整个刷新流程只 Load 一次配置，
 // 校验与重新签发冻结在同一份配置快照上。
-func RefreshCustomToken(tokenString string) (string, error) {
-	o, err := currentOptions()
+func (m *Manager) RefreshCustomToken(tokenString string) (string, error) {
+	o, err := m.currentOptions()
 	if err != nil {
 		return "", err
 	}

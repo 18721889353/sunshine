@@ -127,6 +127,7 @@ type authOptions struct {
 	ignoreMethods map[string]struct{} // 需要忽略认证的方法全名列表
 	ignoreAll     bool                // 是否全局忽略所有方法的认证（优先级最高）
 	verifyOpts    *verifyOptions      // 验证函数配置
+	jwtManager    *jwt.Manager        // JWT 解析实例（nil 时拒绝，见 WithJwtManager）
 }
 
 // defaultAuthOptions 返回默认配置
@@ -203,11 +204,26 @@ func WithCustomVerify(verify CustomVerifyFn) AuthOption {
 	}
 }
 
+// WithJwtManager 注入用于解析 Token 的 jwt.Manager 实例。
+// 应用侧一般注入 config.JwtManager()（由 config.InitJwt 创建，热更新对其 Reload，指针不变）；
+// 多密钥场景可各自 jwt.New 后注入对应实例。
+// 未注入（nil）时拦截器返回 Unauthenticated 错误，不 panic。
+func WithJwtManager(m *jwt.Manager) AuthOption {
+	return func(o *authOptions) {
+		o.jwtManager = m
+	}
+}
+
 // -------------------------------------------------------------------------------------------
 
 // jwtVerify 从上下文中提取并验证 JWT Token，支持标准和自定义 Claims。
+// mgr 为注入的 JWT 解析实例，未注入时返回 Unauthenticated（fail loud，不 panic）。
 // 返回包含 Claims 的新 context（通过 WithValue 存储）。
-func jwtVerify(ctx context.Context, opt *verifyOptions) (context.Context, error) {
+func jwtVerify(ctx context.Context, opt *verifyOptions, mgr *jwt.Manager) (context.Context, error) {
+	if mgr == nil {
+		return ctx, status.Error(codes.Unauthenticated, "jwt manager not injected")
+	}
+
 	if opt == nil {
 		opt = &verifyOptions{
 			verifyType: 1,
@@ -228,7 +244,7 @@ func jwtVerify(ctx context.Context, opt *verifyOptions) (context.Context, error)
 	// 处理自定义 Claims
 	if opt.verifyType == 2 {
 		var claims *jwt.CustomClaims
-		claims, err = jwt.ParseCustomToken(token)
+		claims, err = mgr.ParseCustomToken(token)
 		if err != nil {
 			return ctx, status.Errorf(codes.Unauthenticated, "%v", err)
 		}
@@ -244,7 +260,7 @@ func jwtVerify(ctx context.Context, opt *verifyOptions) (context.Context, error)
 	}
 
 	// 处理标准 Claims
-	claims, err := jwt.ParseToken(token)
+	claims, err := mgr.ParseToken(token)
 	if err != nil {
 		return ctx, status.Errorf(codes.Unauthenticated, "%v", err)
 	}
@@ -275,7 +291,7 @@ func GetJwtCustomClaims(ctx context.Context) (*jwt.CustomClaims, bool) {
 // 验证流程：
 //  1. 若开启 ignoreAll，直接放行
 //  2. 若当前方法在 ignoreMethods 中，直接放行
-//  3. 否则执行 JWT 解析和自定义验证（若有）
+//  3. 否则用注入的 jwt.Manager 执行 JWT 解析和自定义验证（未注入返回 Unauthenticated）
 func UnaryServerJwtAuth(opts ...AuthOption) grpc.UnaryServerInterceptor {
 	o := defaultAuthOptions()
 	o.apply(opts...)
@@ -286,6 +302,7 @@ func UnaryServerJwtAuth(opts ...AuthOption) grpc.UnaryServerInterceptor {
 	// 初始化开关为启用状态（调用方可随后通过 SetJwtEnabled 覆盖）
 	jwtAuthEnabled.Store(true)
 	verifyOpt := o.verifyOpts
+	mgr := o.jwtManager
 
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// 热更新开关检查
@@ -309,7 +326,7 @@ func UnaryServerJwtAuth(opts ...AuthOption) grpc.UnaryServerInterceptor {
 		ctx = metautils.ExtractIncoming(ctx).Add("grpc-full-method", info.FullMethod).ToIncoming(ctx)
 
 		// 执行 JWT 验证
-		newCtx, err := jwtVerify(ctx, verifyOpt)
+		newCtx, err := jwtVerify(ctx, verifyOpt, mgr)
 		if err != nil {
 			return nil, err
 		}
@@ -328,6 +345,7 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 	// 初始化开关为启用状态（调用方可随后通过 SetJwtEnabled 覆盖）
 	jwtAuthEnabled.Store(true)
 	verifyOpt := o.verifyOpts
+	mgr := o.jwtManager
 
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		// 热更新开关检查
@@ -347,7 +365,7 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 			}
 		}
 
-		newCtx, err := jwtVerify(stream.Context(), verifyOpt)
+		newCtx, err := jwtVerify(stream.Context(), verifyOpt, mgr)
 		if err != nil {
 			return err
 		}
@@ -361,12 +379,16 @@ func StreamServerJwtAuth(opts ...AuthOption) grpc.StreamServerInterceptor {
 // GetUIDByCtx 从 Context 中提取用户 ID（uint64 格式）。
 // 该方法直接从 metadata 中解析 Authorization 头，重新解析 Token，
 // 适用于没有使用本拦截器或需要独立获取 UID 的场景。
-func GetUIDByCtx(ctx context.Context) (uid uint64, err error) {
+// 参数 mgr 为注入的 JWT 解析实例（未注入时返回错误）。
+func GetUIDByCtx(ctx context.Context, mgr *jwt.Manager) (uid uint64, err error) {
+	if mgr == nil {
+		return 0, errors.New("jwt manager not injected")
+	}
 	var claims *jwt.Claims
 	authorization := metautils.ExtractIncoming(ctx).Get("Authorization")
 	if len(authorization) > 6 {
 		token := authorization[7:] // 去除 "Bearer " 前缀
-		claims, err = jwt.ParseToken(token)
+		claims, err = mgr.ParseToken(token)
 		if err != nil {
 			return uid, err
 		}

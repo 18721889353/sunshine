@@ -1,13 +1,12 @@
 package jwt
 
 import (
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// 本文件集中放置跨测试文件共享的测试工具（jwt_test.go / option_test.go /
-// benchmark_test.go / fuzz_test.go 共用），避免同名 helper 在多个文件重复定义。
+// 本文件集中放置跨测试文件共享的测试工具（jwt_test.go / benchmark_test.go /
+// fuzz_test.go 共用），避免同名 helper 在多个文件重复定义。
 //
 // 注意：文件名必须带 _test.go 后缀——本仓 .golangci.yml 配置了 run.tests: false，
 // 非 _test.go 文件会被当作生产代码分析，仅测试使用的 helper 会被 unused 规则报错；
@@ -17,36 +16,26 @@ import (
 // 值带 TEST_ONLY 前缀是刻意的：即使被误复制到配置文件里也能一眼识别为测试密钥。
 const testSigningKey = "TEST_ONLY_do_not_use_in_production_qcGnoQoYKn9bWLFWjk7"
 
-// testInUse 全局测试占用标志，拦截并发进入 initTestJWT 的调用（机制化保障，见 initTestJWT）。
-var testInUse atomic.Bool
-
-// initTestJWT 用固定的测试配置初始化全局 jwt，并在测试结束时还原调用前的配置，
-// 避免用例之间通过全局状态互相污染。
+// newTestManager 用固定的测试配置创建独立的 Manager 实例并返回。
 //
-// IMPORTANT（禁止并发）：本包测试共享同一份全局 optStore，
-// 「Load 旧值 → 写入自己的配置 → Cleanup 还原」的模式在并发下会互相覆盖
-// （A 保存的 prev 可能已含 B 的配置，Cleanup 时交叉污染）。
-// 该约束不只靠注释：testInUse 以 CAS 拦截并发进入，误加 t.Parallel() 的用例
-// 会在 initTestJWT 中直接 Fatal（而非静默污染或仅在 -race 下偶发失败）。
+// 实例模型带来的测试收益：每个用例持有自己的 Manager，配置互不共享，
+// 用例之间天然隔离，不再需要旧全局单例时代的「占用标志 + Cleanup 还原」
+// 串行约束；t.Parallel() 可安全使用，基准/模糊测试也不会互相污染配置。
 //
-// 占用标志的复位依赖 Go testing 包的硬性保证：Cleanup 在测试结束时必然执行，
-// 覆盖正常返回、t.Fatal / t.FailNow、以及用例内 panic 三条路径——因此只要
-// CAS 成功并注册了 Cleanup，标志一定会释放；后到者 Fatal 时 Cleanup 尚未注册，
-// 不会误清别人的标志，释放责任始终归属先行进入者。
-// 如未来需真正并行，必须先改为每用例独立的配置注入机制（不走全局 optStore）。
-func initTestJWT(tb testing.TB) {
-	if !testInUse.CompareAndSwap(false, true) {
-		tb.Fatalf("%s 检测到 initTestJWT 并发进入：本包测试共享全局 optStore，不支持 t.Parallel() 并行", tb.Name())
-	}
-	prev := optStore.Load()
-	tb.Cleanup(func() {
-		optStore.Store(prev)
-		testInUse.Store(false)
-	})
-
-	Init(
+// 基线配置：testSigningKey + 1 小时有效期 + sunshine-test 签发者；
+// 追加 opts 通过 apply 叠加在基线上，同名选项最后赋值胜出（与生产侧 New 语义一致）。
+// 需要「从默认值整体重建」语义时（如验证 Reload 不传选项会清空密钥），
+// 请在用例内显式调用 mgr.Reload(...)，不要依赖本 helper。
+func newTestManager(tb testing.TB, opts ...Option) *Manager {
+	tb.Helper()
+	base := []Option{
 		WithSigningKey(testSigningKey),
 		WithExpire(time.Hour),
 		WithIssuer("sunshine-test"),
-	)
+	}
+	mgr, err := New(append(base, opts...)...)
+	if err != nil {
+		tb.Fatalf("创建测试 Manager 失败: %v", err)
+	}
+	return mgr
 }

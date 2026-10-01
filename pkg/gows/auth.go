@@ -43,18 +43,20 @@ func extractUID(claims *jwt.Claims) string {
 // 参数:
 //   - ctx: 上下文，用于链路追踪传播（其中应包含 request_id）
 //   - tokenString: JWT token 字符串，支持带 "Bearer " 前缀或不带前缀两种格式
+//   - mgr: 注入的 jwt.Manager 实例，应用侧一般传 config.JwtManager()
 //
 // 返回:
 //   - string: 用户标识（UID），token 有效时返回
 //   - error: 解析失败时返回具体错误信息
 //
 // 注意:
-//   - 使用前需确保 jwt.Init(jwt.WithSigningKey("...")) 已被调用，通常在应用启动时初始化；
-//     未配置签名密钥时 ParseTokenCtx 透传 jwt.ErrSigningKeyNotConfigured，调用方可用 errors.Is 判断
+//   - 使用前需确保 mgr 已由 jwt.New 初始化（应用侧由 config.InitJwt 创建并热更 Reload）；
+//     mgr 为 nil 时透传 jwt.ErrNotInitialized，未配置签名密钥时透传 jwt.ErrSigningKeyNotConfigured，
+//     调用方可用 errors.Is 判断
 //   - token 过期返回 jwt.ErrTokenExpired，调用方可用 errors.Is 判断
 //   - token 格式正确但缺少 uid 字段返回 ErrTokenInvalid
 //   - 自动去除 "Bearer " 前缀，兼容 Authorization header 传入的 token
-func ParseTokenCtx(ctx context.Context, tokenString string) (string, error) {
+func ParseTokenCtx(ctx context.Context, tokenString string, mgr *jwt.Manager) (string, error) {
 	tracer := otel.Tracer("gows")
 	_, span := tracer.Start(ctx, "ws.parse_token", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
@@ -64,7 +66,7 @@ func ParseTokenCtx(ctx context.Context, tokenString string) (string, error) {
 		tokenString = tokenString[7:]
 	}
 
-	claims, err := jwt.ParseToken(tokenString)
+	claims, err := mgr.ParseToken(tokenString) // mgr 为 nil 时返回 jwt.ErrNotInitialized，不 panic
 	if err != nil {
 		span.SetAttributes(attribute.String("ws.token_error", err.Error()))
 		span.SetStatus(codes.Error, err.Error())

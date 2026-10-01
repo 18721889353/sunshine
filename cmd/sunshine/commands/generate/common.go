@@ -1053,6 +1053,7 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	// - nacos_encrypt.go（Nacos凭据加解密）
 	// - register_helper.go（配置构建辅助方法）
 	// - pprofAuth.go（pprof IP 白名单鉴权构造，routers.go 启动注册与 pprofIPWhiteList 热更共用，reload_app.go 依赖）
+	// - jwt.go（JWT 应用侧默认实例 InitJwt/JwtManager 持有，消费方注入与热更 Reload 共用）
 	// - reload_sentinel.go（Sentinel 限流/熔断热更新回调）
 	// - reload_jwt.go（JWT 配置热更新回调）
 	// - reload_sign.go（Sign 配置热更新回调）
@@ -1062,7 +1063,7 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	// - reload.go（配置热更新框架）
 	configAutoFiles := []string{
 		"nacos.go", "nacos_encrypt.go", "register_helper.go",
-		"pprofAuth.go",
+		"pprofAuth.go", "jwt.go",
 		"reload_sentinel.go", "reload_jwt.go", "reload_sign.go",
 		"reload_app.go", "reload_database.go", "reload_infra.go",
 		"reload.go",

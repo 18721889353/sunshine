@@ -44,6 +44,17 @@ func TestOptionsApplyEmptyKeepsDefaults(t *testing.T) {
 	assert.Equal(t, defaultExpire, o.expire)
 }
 
+// TestFinalizeNilSigningMethodFallsBack 验证 finalize 对 signingMethod 为 nil 的防御：
+// defaultOptions 总是设置默认算法，此路径仅在未来新增 options 构造路径遗漏默认值时可达；
+// finalize 应回退到默认算法并正常预计算白名单，而非 panic。
+func TestFinalizeNilSigningMethodFallsBack(t *testing.T) {
+	o := &options{} // 不经过 defaultOptions，signingMethod 为 nil
+	o.finalize()
+
+	assert.Equal(t, defaultSigningMethod, o.signingMethod, "signingMethod 应回退到默认算法")
+	assert.Equal(t, []string{defaultSigningMethod.Alg()}, o.validMethods, "白名单应回退后的算法正常预计算")
+}
+
 // TestWithSigningKeyEmptyKeepsOldValue 验证空串密钥被视为未设置：
 // 不覆盖已有密钥，避免配置中心返回空值时把已有密钥静默清空。
 func TestWithSigningKeyEmptyKeepsOldValue(t *testing.T) {
@@ -57,7 +68,7 @@ func TestWithSigningKeyEmptyKeepsOldValue(t *testing.T) {
 	assert.Empty(t, o.signingKey)
 }
 
-// TestRequireSigningKeySetsFlag 验证 RequireSigningKey 打开 Init 阶段的密钥强校验标志。
+// TestRequireSigningKeySetsFlag 验证 RequireSigningKey 打开 New/Reload 阶段的密钥强校验标志。
 func TestRequireSigningKeySetsFlag(t *testing.T) {
 	o := defaultOptions()
 	assert.False(t, o.requireSigningKey)
@@ -125,7 +136,7 @@ func TestWithAudienceCopiesSlice(t *testing.T) {
 	o := new(options)
 	o.apply(WithAudience(aud))
 
-	aud[0] = "attacker" // Init 后篡改原切片
+	aud[0] = "attacker" // apply 后篡改原切片
 	assert.Equal(t, []string{"svc-a", "svc-b"}, o.audience, "配置不得受原切片后续修改影响")
 
 	// 空切片重置为 nil（不写入 aud 字段）

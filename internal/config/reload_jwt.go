@@ -3,18 +3,15 @@ package config
 import (
 	"context"
 	"reflect"
-	"time"
-
-	v5 "github.com/golang-jwt/jwt/v5"
 
 	"github.com/18721889353/sunshine/pkg/gin/middleware"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
-	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 // reloadJwtConfig JWT 配置热更新回调。
-// 当 Nacos 配置中的 jwt 段发生变更时，重新初始化 JWT 全局配置，并同步更新 Gin/gRPC 两侧的 ignoreMethods。
+// 当 Nacos 配置中的 jwt 段发生变更时，对已持有的默认 JWT Manager 实例执行 Reload
+// （注入的指针永不变，消费方无需重注入），并同步更新 Gin/gRPC 两侧的 ignoreMethods。
 // 注意：开关（openJwt）由 reloadAppFlags 控制，此处仅维护配置本身，
 // 即使开关关闭也保持配置最新，保证开关打开瞬间配置已是最新值。
 func reloadJwtConfig(oldCfg, newCfg *Config) {
@@ -24,22 +21,14 @@ func reloadJwtConfig(oldCfg, newCfg *Config) {
 		return
 	}
 
-	// 2. 根据配置选择签名算法，支持 HS256/HS384/HS512
-	var sm *v5.SigningMethodHMAC
-	switch newCfg.Jwt.SigningMethod {
-	case "HS256":
-		sm = jwt.HS256
-	case "HS384":
-		sm = jwt.HS384
-	default:
-		sm = jwt.HS512
+	// 2. 更新 JWT Manager（同一实例 Reload；尚未创建时按新配置创建）。
+	// 本回调先于 Set(newCfg) 执行，必须用 newCfg.Jwt 而非 Get()。
+	// 失败时保留旧配置并告警，不中断后续 ignoreMethods 同步
+	if err := applyJwtConfig(newCfg.Jwt); err != nil {
+		logger.WarnWithCtx(ctx, "[config reload] JWT 配置更新失败，保留旧配置",
+			logger.String("error", err.Error()),
+		)
 	}
-	jwt.Init(
-		jwt.WithExpire(time.Minute*time.Duration(newCfg.Jwt.Expire)),
-		jwt.WithSigningKey(newCfg.Jwt.SigningKey),
-		jwt.WithSigningMethod(sm),
-		jwt.WithIssuer(newCfg.Jwt.Issuer),
-	)
 
 	// 3. 合并 HTTP 和 gRPC 的忽略路径列表
 	// 注意：分配新 slice 避免直接 append 到原配置 slice 上引发 data race

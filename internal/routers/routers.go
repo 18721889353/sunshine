@@ -234,6 +234,7 @@ func NewRouter() *gin.Engine {
 		middleware.Auth(
 			middleware.WithSwitchHTTPCode(),
 			middleware.WithJwtIgnoreMethods(cfg.Jwt.IgnoreMethods.HTTP...),
+			middleware.WithJwtManager(config.JwtManager()),
 			//middleware.WithVerify(VerifySSO),
 		),
 	)

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	v5 "github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/18721889353/sunshine/configs"
@@ -17,7 +16,6 @@ import (
 	"github.com/18721889353/sunshine/internal/database"
 
 	"github.com/18721889353/sunshine/pkg/gogroutine"
-	"github.com/18721889353/sunshine/pkg/jwt"
 	"github.com/18721889353/sunshine/pkg/logger"
 	"github.com/18721889353/sunshine/pkg/tracer"
 )
@@ -260,22 +258,10 @@ func initConfig() {
 	}
 }
 
-// initJWT 根据配置初始化 JWT 签名方法和参数。
+// initJWT 根据配置初始化 JWT Manager（创建应用侧默认实例并持有，热更新对其 Reload）。
 func initJWT() {
-	var sm *v5.SigningMethodHMAC
-	switch config.Get().Jwt.SigningMethod {
-	case "HS256":
-		sm = jwt.HS256
-	case "HS384":
-		sm = jwt.HS384
-	default:
-		sm = jwt.HS512
+	if err := config.InitJwt(); err != nil {
+		panic(err)
 	}
-	jwt.Init(
-		jwt.WithExpire(time.Minute*time.Duration(config.Get().Jwt.Expire)),
-		jwt.WithSigningKey(config.Get().Jwt.SigningKey),
-		jwt.WithSigningMethod(sm),
-		jwt.WithIssuer(config.Get().Jwt.Issuer),
-	)
 	logger.InfoWithCtx(initCtx, "init jwt succeeded")
 }

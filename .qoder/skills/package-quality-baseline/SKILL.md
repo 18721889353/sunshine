@@ -182,8 +182,9 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
   （自第 3 轮起悬挂，logger 第七轮评审 §四-3 升级至此）
 - [ ] **`loadDotEnv` 抽 `internal/dotenv`**：nacoscli/goredis/tracer 三包 `TestMain` 各自维护同一份
   手写 dotenv 解析（语义一致：只补缺、不覆盖），抽取后改动只维护一处
-- [ ] **CHANGELOG 评审编号统一**：存量 `§四-1` 式引用改为 `R<轮次>-<原编号>`
-  （logger 已收口，jwt 等包待对齐，见 doc-templates.md 第五节）
+- [x] **CHANGELOG 评审编号统一**：存量已清零——logger 已按 `R<轮次>-<原编号>` 收口（11 处），
+  实测 jwt/tracer/goredis/nacoscli 均无 `§四-1` 式存量（从未采用该体系，无需对齐）；
+  后续新条目遵循 doc-templates.md 第五节
 
 ## 附加资源
 

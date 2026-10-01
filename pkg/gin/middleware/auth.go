@@ -27,6 +27,7 @@ type jwtOptions struct {
 	ignoreMethods    map[string]struct{} // 需要忽略 JWT 验证的 URL 列表（精确匹配）
 	uidFields        []string            // 用户 ID 字段名优先级列表，用于从 Claims.Fields 中提取 UID
 	ignoreAll        bool                // 是否全局忽略所有请求的 JWT 验证（优先级最高）
+	jwtManager       *jwt.Manager        // JWT 解析实例（nil 时请求被拒绝，见 WithJwtManager）
 }
 
 // globalJwtIgnoreMethods 全局 JWT 忽略方法列表，支持热更新
@@ -96,6 +97,16 @@ func WithAuthUIDFields(fields ...string) JwtOption {
 func WithAuthIgnoreAll() JwtOption {
 	return func(o *jwtOptions) {
 		o.ignoreAll = true
+	}
+}
+
+// WithJwtManager 注入用于解析 Token 的 jwt.Manager 实例。
+// 应用侧一般注入 config.JwtManager()（由 config.InitJwt 创建，热更新对其 Reload，指针不变）；
+// 多密钥场景可各自 jwt.New 后注入对应实例。
+// 未注入（nil）时中间件记录 warn 并拒绝请求（401），不 panic。
+func WithJwtManager(m *jwt.Manager) JwtOption {
+	return func(o *jwtOptions) {
+		o.jwtManager = m
 	}
 }
 
@@ -189,9 +200,10 @@ func handleAuthVerification(o *jwtOptions, claims *jwt.Claims, token string, c *
 // 验证流程：
 //  1. 若开启 ignoreAll，直接放行
 //  2. 若当前请求 URL 在 ignoreMethods 中，直接放行
-//  3. 否则从 Authorization 头提取 Bearer Token，解析 JWT
-//  4. 执行自定义验证（若有），或提取用户信息存入 Context
-//  5. 验证通过则继续，否则返回未授权错误
+//  3. 校验已注入的 jwt.Manager（未注入则 401 拒绝）
+//  4. 从 Authorization 头提取 Bearer Token，用注入实例解析 JWT
+//  5. 执行自定义验证（若有），或提取用户信息存入 Context
+//  6. 验证通过则继续，否则返回未授权错误
 //
 // 支持热更新：ignoreMethods 每次请求时从全局配置读取
 func Auth(opts ...JwtOption) gin.HandlerFunc {
@@ -224,6 +236,16 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 			return
 		}
 
+		// 未注入 JWT Manager（如 config.InitJwt 未调用）：拒绝而非 panic
+		if o.jwtManager == nil {
+			logger.WarnWithCtx(c.Request.Context(), "jwt manager not injected",
+				logger.String("method", c.Request.Method),
+				logger.String("url", c.Request.URL.String()))
+			responseUnauthorized(c, o.isSwitchHTTPCode)
+			c.Abort()
+			return
+		}
+
 		authorization := c.GetHeader(HeaderAuthorizationKey)
 		// 检查 Authorization 头是否存在且长度足够（至少 "Bearer " + token，token 通常较长）
 		if len(authorization) < 150 {
@@ -239,7 +261,7 @@ func Auth(opts ...JwtOption) gin.HandlerFunc {
 
 		// 去除 "Bearer " 前缀（长度为 7）
 		token := authorization[7:]
-		claims, err := jwt.ParseToken(token)
+		claims, err := o.jwtManager.ParseToken(token)
 		if err != nil {
 			logger.WarnWithCtx(c.Request.Context(), "ParseToken error",
 				logger.String("current_time", time.Now().Format("2006-01-02 15:04:05.000000000")),
@@ -269,7 +291,7 @@ type VerifyCustomFn func(claims *jwt.CustomClaims, tokenTail10 string, c *gin.Co
 
 // AuthCustom 创建使用自定义 Claims 的 JWT 认证中间件。
 // 该中间件同样支持 WithIgnoreAll() 选项，启用后全局跳过所有鉴权。
-// 验证流程与 Auth 一致，但使用 jwt.ParseCustomToken 解析 Token，并调用传入的 verify 函数。
+// 验证流程与 Auth 一致，但使用注入的 jwt.Manager 解析 Custom Token，并调用传入的 verify 函数。
 func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 	o := defaultJwtOptions()
 	o.apply(opts...)
@@ -289,6 +311,14 @@ func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 			return
 		}
 
+		// 未注入 JWT Manager（如 config.InitJwt 未调用）：拒绝而非 panic
+		if o.jwtManager == nil {
+			logger.WarnWithCtx(c.Request.Context(), "jwt manager not injected")
+			responseUnauthorized(c, o.isSwitchHTTPCode)
+			c.Abort()
+			return
+		}
+
 		authorization := c.GetHeader(HeaderAuthorizationKey)
 		if len(authorization) < 150 {
 			logger.WarnWithCtx(c.Request.Context(), "authorization is illegal")
@@ -298,7 +328,7 @@ func AuthCustom(verify VerifyCustomFn, opts ...JwtOption) gin.HandlerFunc {
 		}
 
 		token := authorization[7:]
-		claims, err := jwt.ParseCustomToken(token)
+		claims, err := o.jwtManager.ParseCustomToken(token)
 		if err != nil {
 			logger.WarnWithCtx(c.Request.Context(), "ParseToken error", logger.Err(err))
 			responseUnauthorized(c, o.isSwitchHTTPCode)

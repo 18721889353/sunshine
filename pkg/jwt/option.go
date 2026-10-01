@@ -7,6 +7,9 @@ import (
 )
 
 // 本包支持的 HMAC 签名算法，通过 WithSigningMethod 选用。
+//
+// 注意：以下三个为包级导出变量（沿袭 golang-jwt 上游设计），仅供读取与传参使用，
+// 库外代码禁止赋值——对其重新赋值会波及同进程内所有引用方（全局可变状态）。
 var (
 	// HS256 HMAC-SHA256 签名算法，本包默认算法。
 	HS256 = jwt.SigningMethodHS256
@@ -21,14 +24,14 @@ var (
 // 安全设计：本包不提供默认签名密钥。未通过 WithSigningKey 设置密钥时，
 // 签发/解析返回 ErrSigningKeyNotConfigured（fail loud），
 // 避免「配置漏读密钥后静默用公开密钥签发 token」的漏洞路径；
-// 生产环境可额外传 RequireSigningKey()，把问题提前到 Init 阶段 panic 暴露。
+// 生产环境可额外传 RequireSigningKey()，把问题提前到 New/Reload 阶段返回 error（fail fast）。
 var (
 	defaultSigningMethod = HS256          // 默认签名算法
 	defaultExpire        = 24 * time.Hour // 默认有效期
 	defaultIssuer        = ""             // 默认签发者（空表示不写入 iss）
 )
 
-// options 全局配置，由 Init 统一构建后存入 optStore。
+// options 实例配置，由 New/Reload 统一构建后存入 Manager.optStore。
 type options struct {
 	signingKey    []byte
 	expire        time.Duration
@@ -40,8 +43,12 @@ type options struct {
 	expectedAudience []string
 	leeway           time.Duration
 
-	// requireSigningKey 为 true 时，Init 要求 signingKey 非空，否则 panic（见 RequireSigningKey）
+	// requireSigningKey 为 true 时，New/Reload 要求 signingKey 非空，否则返回错误（见 RequireSigningKey）
 	requireSigningKey bool
+
+	// validMethods 解析侧算法白名单，由 finalize 在 apply 之后预计算（见 finalize 注释），
+	// buildParseOptions 直接引用，省去每次解析时重新分配 []string
+	validMethods []string
 
 	// 以下为可选的 RegisteredClaims 字段，零值表示不写入对应 token 声明
 	subject   string
@@ -60,7 +67,7 @@ func defaultOptions() *options {
 	}
 }
 
-// Option 全局配置项，通过 Init 传入，未设置的项保留默认值。
+// Option 实例配置项，通过 New / Reload 传入，未设置的项保留默认值。
 type Option func(*options)
 
 // apply 依次应用配置项，后应用的同名配置覆盖先前值（最后赋值胜出）。
@@ -70,11 +77,26 @@ func (o *options) apply(opts ...Option) {
 	}
 }
 
-// WithSigningKey 设置签名密钥，影响所有签发与解析函数。
+// finalize 在 apply 完成后预计算派生配置（当前为解析侧算法白名单），
+// 由 New / Reload 在 Store 前调用，保证白名单与生效配置同批原子提交。
+//
+// buildParseOptions 对未 finalize 的配置保留兜底（现场构造白名单），
+// 即使未来新增构造路径遗漏本方法，也不会静默失去算法白名单（保持 fail loud）。
+func (o *options) finalize() {
+	// 防御：defaultOptions 总是设置默认算法，WithSigningMethod(nil) 也会被忽略，
+	// 正常路径下 signingMethod 恒非 nil；此处兜底覆盖「未来新增 options 构造路径
+	// 遗漏默认值」的情况——回退到默认算法（与未设置该选项的语义一致）而非 panic
+	if o.signingMethod == nil {
+		o.signingMethod = defaultSigningMethod
+	}
+	o.validMethods = []string{o.signingMethod.Alg()}
+}
+
+// WithSigningKey 设置签名密钥，影响所属 Manager 的全部签发与解析方法。
 //
 // 传空串视为未设置：忽略并保留当前值（不覆盖），避免配置中心返回空值时
 // 把已有密钥静默清空。未设置密钥时，签发/解析返回 ErrSigningKeyNotConfigured。
-// 生产环境必须显式设置，建议配合 RequireSigningKey() 在启动阶段校验。
+// 生产环境必须显式设置，建议配合 RequireSigningKey() 在 New 阶段校验。
 func WithSigningKey(key string) Option {
 	return func(o *options) {
 		if key == "" {
@@ -84,11 +106,12 @@ func WithSigningKey(key string) Option {
 	}
 }
 
-// RequireSigningKey 要求 Init 时必须已配置非空签名密钥，否则 Init 直接 panic。
+// RequireSigningKey 要求 New/Reload 时必须已配置非空签名密钥，否则直接返回
+// ErrSigningKeyNotConfigured（fail fast，不创建/不更新实例）。
 //
 // 不传本选项时，未配置密钥的问题会推迟到首次签发/解析 token 才返回
 // ErrSigningKeyNotConfigured（fail loud）；生产环境传入本选项可把失败
-// 提前到启动阶段（fail fast），让「配置漏读密钥」在服务对外服务前就暴露。
+// 提前到启动阶段，让「配置漏读密钥」在服务对外服务前就暴露。
 func RequireSigningKey() Option {
 	return func(o *options) {
 		o.requireSigningKey = true
