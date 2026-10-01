@@ -42,6 +42,10 @@ const (
 
 var (
 	// ErrEmptyBaseURL 基础URL为空的错误
+	//
+	// Deprecated: WithBaseURL("") 已改为合法输入（等价于不设置基础 URL，
+	// 由每次请求传入完整地址），validate 不再返回本错误；保留仅为兼容
+	// 既有 errors.Is(ErrEmptyBaseURL) 判断，后续大版本移除。
 	ErrEmptyBaseURL = errors.New("gohttp: base URL cannot be empty")
 	// ErrSSRFBlocked SSRF防护阻断的错误
 	ErrSSRFBlocked = errors.New("gohttp: request blocked due to SSRF protection")

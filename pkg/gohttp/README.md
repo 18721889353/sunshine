@@ -235,7 +235,7 @@ resp, err := client.Request(ctx).Post("/orders", body)
 
 | Option | 说明 | 默认值 | 非法输入的构造期行为 |
 |--------|------|--------|----------------------|
-| `WithBaseURL(string)` | 基础 URL | 空 | 空串 → `ErrEmptyBaseURL`（仅在需要它的场景下报错） |
+| `WithBaseURL(string)` | 基础 URL | 空 | 空串合法（等价于不设置，此时请求必须传完整地址）；非空但解析失败/非 http(s)/缺主机名 → 返回错误 |
 | `WithTimeout(time.Duration)` | 请求超时 | `10s` | 非正数 → 返回错误 |
 | `WithRetry(count, minWait, maxWait)` | 退避重试 | `3, 1s, 5s` | `count<0` 或 `minWait>maxWait` → 返回错误 |
 | `WithCircuitBreaker(threshold)` | 熔断阈值 | 关闭 | 非正数 → 返回错误 |

@@ -14,6 +14,7 @@ import (
 )
 
 // TestValidateBaseURL 校验 WithBaseURL 的空值、非法协议与缺主机名场景
+// （空串合法：等价于不设置基础 URL，请求时传完整地址）
 func TestValidateBaseURL(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -21,7 +22,7 @@ func TestValidateBaseURL(t *testing.T) {
 		wantIs  error // 按 errors.Is 断言的哨兵错误
 		wantErr bool  // 是否期望普通格式错误
 	}{
-		{"空字符串触发哨兵错误", "", ErrEmptyBaseURL, true},
+		{"空字符串合法通过", "", nil, false},
 		{"非法协议被拒绝", "ftp://api.example.com", nil, true},
 		{"缺少主机名被拒绝", "https:///path", nil, true},
 		{"合法 http 通过", "http://api.example.com", nil, false},
@@ -183,10 +184,18 @@ func TestNewInvalidOptionsReturnError(t *testing.T) {
 	client, err := New(WithTimeout(-1))
 	assert.Nil(t, client)
 	require.Error(t, err)
+}
 
-	client, err = New(WithBaseURL(""))
-	assert.Nil(t, client)
-	require.ErrorIs(t, err, ErrEmptyBaseURL)
+// TestNewEmptyBaseURLAllowed 验证 WithBaseURL("") 合法：等价于不设置基础 URL，
+// 客户端可构造且必须由调用方传入完整地址发起请求（与 WithProxy 空串语义一致）
+func TestNewEmptyBaseURLAllowed(t *testing.T) {
+	ts := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	client := mustNew(t, WithBaseURL(""))
+	_, err := client.Request(t.Context()).Get(ts.URL + "/full")
+	require.NoError(t, err, "空 BaseURL 下传完整地址应可正常请求")
 }
 
 // TestNewCertificateErrorsReturnError 验证证书文件缺失在构造期返回错误（原实现打 stderr 后静默继续）

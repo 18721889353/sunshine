@@ -78,13 +78,12 @@ func (o *options) apply(opts ...Option) {
 }
 
 // validate 校验配置的合法性，构造期快速失败。
-// 覆盖四类问题：空/非法 baseURL、越界数值（超时/重试/熔断阈值/大小上限）、
+// 覆盖四类问题：非法 baseURL（空串合法，等价于不设置）、越界数值（超时/重试/熔断阈值/大小上限）、
 // 非法枚举（代理协议）、显式传入非法引用（nil transport）。
 func (o *options) validate() error {
-	if o.baseURLSet {
-		if o.baseURL == "" {
-			return ErrEmptyBaseURL
-		}
+	// 空 baseURL 合法：表示不设置基础 URL，由每次请求传入完整地址
+	//（与不调用 WithBaseURL 等价，resty/resolveRequestURL 对空 BaseURL 均为直通）
+	if o.baseURLSet && o.baseURL != "" {
 		u, err := url.Parse(o.baseURL)
 		if err != nil {
 			return fmt.Errorf("gohttp: WithBaseURL 无法解析 %q: %w", o.baseURL, err)
@@ -142,7 +141,8 @@ func (o *options) validate() error {
 
 // ========== 函数式配置选项（Functional Options） ==========
 
-// WithBaseURL 设置基础URL
+// WithBaseURL 设置基础 URL（非空时校验可解析、协议为 http/https、主机名非空）。
+// 传空字符串等价于不设置基础 URL：不报错，此时每次请求必须传入完整地址。
 func WithBaseURL(baseURL string) Option {
 	return func(o *options) {
 		o.baseURL = baseURL

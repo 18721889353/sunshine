@@ -12,6 +12,15 @@
 
 ### 变更
 
+- **`WithBaseURL("")` 由构造期报错改为合法输入（行为放宽）**：此前空串触发 `ErrEmptyBaseURL`，
+  但「不设基础 URL、每次请求传完整地址」是正常用法（与 `WithProxy("")` = 不用代理的空串语义一致），
+  调用方写 `gohttp.WithBaseURL("")` 会在 `New` 直接失败。现改为：空串等价于不设置基础 URL，
+  非空仍校验可解析、协议 http/https、主机名非空。
+  **影响面**：所有传空串的调用方（如 `internal/mq/rabbitmq/consumers/baseConsumer.go` 注释示例）
+  从「构造失败」变为「构造成功且请求必须传完整地址」；`ErrEmptyBaseURL` 不再被返回，
+  已标记 `Deprecated` 并保留导出以兼容既有 `errors.Is` 判断。
+  守护：`TestValidateBaseURL`（空串用例改为通过）、`TestNewEmptyBaseURLAllowed`（构造 + 完整地址请求）。
+
 - **`New` 签名改为 `New(opts ...Option) (*Client, error)`（破坏性）**：配置非法（负超时、重试区间颠倒、
   熔断阈值非正、`nil` transport、非法代理协议、证书文件缺失等）在**构造期返回错误**，不再被 resty 静默接受后
   在运行期产生不可预期行为。对齐 `pkg/nacoscli` `NewConfigClient`、`pkg/goredis` `Init` 的快速失败模式。
