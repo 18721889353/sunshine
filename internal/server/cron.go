@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/18721889353/sunshine/internal/database"
@@ -15,8 +16,16 @@ import (
 
 var _ app.IServer = (*cronServer)(nil)
 
+var (
+	// globalCronSchedulerOnce 保证仅首个创建的调度器被保存为全局引用（与 HTTP 先例一致）。
+	globalCronSchedulerOnce sync.Once
+	// globalCronScheduler 保存调度器实例，供配置热更新 openCron 使用。
+	globalCronScheduler *gocron.Scheduler
+)
+
 type cronServer struct {
 	tasks     []*gocron.Task
+	scheduler *gocron.Scheduler
 	isRunning bool
 	cancel    context.CancelFunc
 
@@ -43,15 +52,8 @@ func (s *cronServer) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
-	err := gocron.Init(
-		gocron.WithOnlyPrintError(true),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to initialize cron: %v", err)
-	}
 	if len(s.tasks) > 0 {
-		err = gocron.Run(s.tasks...)
-		if err != nil {
+		if err := s.scheduler.Run(s.tasks...); err != nil {
 			return fmt.Errorf("failed to run cron tasks: %v", err)
 		}
 	}
@@ -84,7 +86,7 @@ func (s *cronServer) Stop() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	gocron.Stop()
+	s.scheduler.Stop()
 	redisCli := database.GetRedisCli()
 	for _, task := range s.tasks {
 		// 使用SCAN命令完整遍历所有匹配的键
@@ -124,14 +126,26 @@ func (s *cronServer) String() string {
 	return "cron service"
 }
 
+// GetCronScheduler 获取全局调度器实例（供配置热更新 openCron 使用）。
+// 必须在 NewCronServer() 之后才非 nil。
+func GetCronScheduler() *gocron.Scheduler {
+	return globalCronScheduler
+}
+
 // NewCronServer creates a new cron server
 func NewCronServer(tasks []*gocron.Task, opts ...CronOption) app.IServer {
 	o := defaultCronOptions()
 	o.apply(opts...)
-	return &cronServer{
+	cronSvr := &cronServer{
 		tasks:     tasks,
+		scheduler: gocron.New(gocron.WithOnlyPrintError(true)),
 		isRunning: false,
 		iRegistry: o.iRegistry,
 		instance:  o.instance,
 	}
+	// 保存全局引用，供热更新 openCron 使用（首次创建时保存）
+	globalCronSchedulerOnce.Do(func() {
+		globalCronScheduler = cronSvr.scheduler
+	})
+	return cronSvr
 }

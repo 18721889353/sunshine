@@ -21,6 +21,16 @@ func SetHTTPServerGetter(getter func() *http.Server) {
 	httpServerGetter = getter
 }
 
+// cronScheduler 定时任务调度器实例，用于 openCron 热更新暂停/恢复。
+// 必须通过 SetCronScheduler 注入后才可使用，未注入时热更新会跳过并输出警告日志。
+var cronScheduler *gocron.Scheduler
+
+// SetCronScheduler 注入定时任务调度器实例，用于 openCron 热更新。
+// 必须在 NewCronServer() 之后调用（仓内惯例：与 SetHTTPServerGetter 同处接线）。
+func SetCronScheduler(s *gocron.Scheduler) {
+	cronScheduler = s
+}
+
 // reloadTracingConfig 链路追踪配置热更新回调。
 // 当 Nacos 配置中的 app.enableTrace 或 app.tracingSamplingRate 发生变更时，
 // 动态调整采样率，无需重启服务。
@@ -62,14 +72,26 @@ func reloadOpenCron(oldCfg, newCfg *Config) {
 		return
 	}
 
-	// 2. 根据新配置值暂停或恢复调度器
+	// 2. 调度器未注入时跳过（启动时 openCron=false，不会创建 cronServer）
+	if cronScheduler == nil {
+		logger.WarnWithCtx(ctx, "[config reload] cronScheduler 未注入，跳过 openCron 热更新")
+		return
+	}
+
+	// 3. 根据新配置值暂停或恢复调度器；恢复时必须感知部分任务重挂失败（否则丢任务不可感知）
 	if newCfg.App.OpenCron {
-		gocron.Resume()
+		if err := cronScheduler.Resume(); err != nil {
+			logger.ErrorWithCtx(ctx, "[config reload] 定时任务调度器已恢复，但部分任务重挂失败",
+				logger.Bool("openCron", true),
+				logger.Err(err),
+			)
+			return
+		}
 		logger.InfoWithCtx(ctx, "[config reload] 定时任务调度器已恢复",
 			logger.Bool("openCron", true),
 		)
 	} else {
-		gocron.Pause()
+		cronScheduler.Pause()
 		logger.InfoWithCtx(ctx, "[config reload] 定时任务调度器已暂停",
 			logger.Bool("openCron", false),
 		)

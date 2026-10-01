@@ -79,6 +79,7 @@ func CreateServices() []app.IServer {
 	if cfg.App.OpenCron {
 		// 添加cron服务示例
 		servers = append(servers, server.NewCronServer(cron.GetTasks()))
+		config.SetCronScheduler(server.GetCronScheduler())
 	}
 	if cfg.Rabbitmq.Enable {
 		// 添加mq消费者服务示例
