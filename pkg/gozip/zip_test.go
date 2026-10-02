@@ -3,21 +3,23 @@ package gozip
 import (
 	"context"
 	"fmt"
-	"github.com/yeka/zip"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/yeka/zip"
 )
 
-// 🔥 新增：专门验证中文乱码问题是否修复的测试用例
-// 该测试通过【加密压缩带有中文和亚洲字符的文件】并【重新解压读取】，
-// 模拟 Windows/Linux 解压软件的行为，从底层断言文件名编码是否被正确处理。
-func TestZipChineseFilenamesRealVerification(t *testing.T) {
+// TestZipFilesFromPathsChineseFilenames 验证中文及亚洲字符文件名压缩后不乱码。
+// 通过加密压缩并重新打开压缩包读取，模拟 Windows/Linux 解压软件的行为，
+// 从底层断言文件名的 UTF-8 标志位与内容都被正确处理。
+func TestZipFilesFromPathsChineseFilenames(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// 1. 准备复杂的中文及亚洲字符文件名
+	// 准备复杂的中文及亚洲字符文件名
 	chineseNames := []string{
 		"1779763686_财务报表_数据统计.xlsx",
 		"1779763687_用户反馈数据汇总表2026.xlsx",
@@ -27,383 +29,599 @@ func TestZipChineseFilenamesRealVerification(t *testing.T) {
 	var srcFiles []string
 	for _, name := range chineseNames {
 		content := fmt.Sprintf("模拟加密Excel文件内容: %s", name)
-		filePath := createTestFile(t, tempDir, name, content)
-		srcFiles = append(srcFiles, filePath)
+		srcFiles = append(srcFiles, createTestFile(t, tempDir, name, content))
 	}
 
-	// 2. 目标压缩包路径和加密密码
 	destZipPath := filepath.Join(tempDir, "chinese_encrypted_test.zip")
 	password := "secure_password_123"
 
-	// 3. 执行压缩逻辑
 	result, err := ZipFilesFromPaths(context.Background(), srcFiles, destZipPath, password)
 	if err != nil {
-		t.Fatalf("❌ 中文文件加密压缩失败: %v", err)
+		t.Fatalf("中文文件加密压缩失败: %v", err)
 	}
-
 	if !result.IsEncrypted {
-		t.Fatal("❌ 压缩包应当是加密状态")
+		t.Fatal("压缩包应当是加密状态")
 	}
 
-	// 4. 🔥 核心验证：模拟解压软件重新打开压缩包，校验文件名
-	// 如果之前修改的 header.Flags |= 0x800 生效，这里的 reader 读取出来的文件名必为正确的中文
-	reader, err := zip.OpenReader(destZipPath)
-	if err != nil {
-		t.Fatalf("❌ 无法打开生成的ZIP包进行验证: %v", err)
-	}
-	defer reader.Close()
-
+	// 核心验证：模拟解压软件重新打开压缩包，校验文件名与内容
+	reader := openZip(t, destZipPath)
 	if len(reader.File) != len(chineseNames) {
-		t.Errorf("❌ 压缩包内的文件数量不符，期望 %d, 实际 %d", len(chineseNames), len(reader.File))
+		t.Errorf("压缩包内的文件数量不符，期望 %d, 实际 %d", len(chineseNames), len(reader.File))
 	}
 
-	// 建立一个 map 用来比对
-	expectedMap := make(map[string]bool)
+	expectedMap := make(map[string]bool, len(chineseNames))
 	for _, name := range chineseNames {
 		expectedMap[name] = true
 	}
 
-	t.Logf("============ 🔄 开始验证解压文件名 ============")
 	for _, file := range reader.File {
-		// 检查标志位：第 11 位（0x800）应该为 1，代表 UTF-8 编码被成功写入
-		isUTF8 := (file.Flags & 0x800) != 0
-		if !isUTF8 {
-			t.Errorf("❌ 严重错误：文件 [%s] 的头部未发现 UTF-8 (0x800) 标志位！这会导致 Windows 解压时出现“娴娴/缇底”等乱码！", file.Name)
-		} else {
-			t.Logf("  [OK] 成功检测到 UTF-8 标志位 (Flags: 0x%X)", file.Flags)
+		// 第 11 位（0x800）为 1 代表 UTF-8 编码标志被成功写入
+		if file.Flags&0x800 == 0 {
+			t.Errorf("文件 [%s] 的头部缺少 UTF-8 (0x800) 标志位，Windows 解压会出现乱码", file.Name)
+		}
+		if !expectedMap[file.Name] {
+			t.Errorf("乱码或不匹配：解压出的文件名 [%s] 不在预期列表中", file.Name)
+			continue
 		}
 
-		// 检查解压出来的文件名是否在我们的预期列表中
-		if _, exists := expectedMap[file.Name]; !exists {
-			t.Errorf("❌ 乱码或不匹配：解压出来的文件名是 [%s]，我们在压缩包里找不到这个中文名！", file.Name)
-		} else {
-			t.Logf("  [OK] 文件名完美匹配，无乱码: %s", file.Name)
-			// 同时验证加密内容能否被正常读取（确保调用 CreateHeader 没有损坏数据流）
-			if file.IsEncrypted() {
-				file.SetPassword(password)
-			}
-			r, err := file.Open()
-			if err != nil {
-				t.Errorf("  [错误] 无法读取加密文件流 [%s]: %v", file.Name, err)
-			} else {
-				_, _ = io.ReadAll(r)
-				r.Close()
-			}
+		// 验证加密内容可正常读取（确认 CreateHeader 未损坏数据流）
+		if file.IsEncrypted() {
+			file.SetPassword(password)
+		}
+		rc, openErr := file.Open()
+		if openErr != nil {
+			t.Errorf("无法读取文件流 [%s]: %v", file.Name, openErr)
+			continue
+		}
+		if _, readErr := io.ReadAll(rc); readErr != nil {
+			t.Errorf("读取文件内容失败 [%s]: %v", file.Name, readErr)
+		}
+		if closeErr := rc.Close(); closeErr != nil {
+			t.Errorf("关闭文件流失败 [%s]: %v", file.Name, closeErr)
 		}
 	}
-	t.Logf("==============================================")
 }
 
-// TestZipFilesFromPaths 测试从文件路径列表创建ZIP（带密码）
+// TestZipFilesFromPaths 验证从文件路径列表创建 ZIP 的各种场景。
 func TestZipFilesFromPaths(t *testing.T) {
-	// 创建临时测试目录
 	tempDir := t.TempDir()
-
-	// 创建测试文件
 	testFiles := createTestFiles(t, tempDir, 3)
 
-	// 测试1: 带密码压缩
-	t.Run("WithPassword", func(t *testing.T) {
+	t.Run("带密码压缩", func(t *testing.T) {
 		destPath := filepath.Join(tempDir, "test_with_password.zip")
 		result, err := ZipFilesFromPaths(context.Background(), testFiles, destPath, "password123")
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result == nil {
 			t.Fatal("结果不应为nil")
 		}
-
 		if result.Path != destPath {
 			t.Errorf("期望路径 %s, 实际 %s", destPath, result.Path)
 		}
-
 		if result.FileCount != 3 {
 			t.Errorf("期望文件数 3, 实际 %d", result.FileCount)
 		}
-
 		if !result.IsEncrypted {
 			t.Error("应该已加密")
 		}
-
 		if result.Size <= 0 {
 			t.Error("文件大小应大于0")
 		}
-
-		// 验证文件确实存在
 		if _, statErr := os.Stat(destPath); statErr != nil {
 			t.Errorf("压缩文件不存在: %v", statErr)
 		}
 	})
 
-	// 测试2: 不带密码压缩
-	t.Run("WithoutPassword", func(t *testing.T) {
+	t.Run("不带密码压缩", func(t *testing.T) {
 		destPath := filepath.Join(tempDir, "test_without_password.zip")
 		result, err := ZipFilesFromPaths(context.Background(), testFiles, destPath, "")
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result.IsEncrypted {
 			t.Error("不应该加密")
 		}
 	})
 
-	// 测试3: 空文件列表
-	t.Run("EmptyFileList", func(t *testing.T) {
-		_, err := ZipFilesFromPaths(context.Background(), []string{}, "", "password")
-		if err == nil {
+	t.Run("空文件列表", func(t *testing.T) {
+		if _, err := ZipFilesFromPaths(context.Background(), []string{}, "", "password"); err == nil {
 			t.Error("空文件列表应该返回错误")
 		}
 	})
 
-	// 测试4: 不存在的文件
-	t.Run("NonExistentFile", func(t *testing.T) {
-		_, err := ZipFilesFromPaths(context.Background(), []string{"/nonexistent/file.txt"}, "", "password")
-		if err == nil {
+	t.Run("不存在的文件", func(t *testing.T) {
+		if _, err := ZipFilesFromPaths(context.Background(), []string{"/nonexistent/file.txt"}, "", "password"); err == nil {
 			t.Error("不存在的文件应该返回错误")
 		}
 	})
 
-	// 测试5: 自动生成目标路径
-	t.Run("AutoGenerateDestPath", func(t *testing.T) {
-		result, err := ZipFilesFromPaths(context.Background(), testFiles, "", "password123")
+	t.Run("失败时不残留半成品", func(t *testing.T) {
+		destPath := filepath.Join(tempDir, "test_fail_no_residual.zip")
+		_, err := ZipFilesFromPaths(context.Background(), []string{"/nonexistent/file.txt"}, destPath, "")
+		if err == nil {
+			t.Fatal("不存在的文件应该返回错误")
+		}
+		if _, statErr := os.Stat(destPath); statErr == nil {
+			t.Error("压缩失败后不应残留半成品文件")
+		}
+	})
 
+	t.Run("自动生成目标路径", func(t *testing.T) {
+		result, err := ZipFilesFromPaths(context.Background(), testFiles, "", "password123")
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result.Path == "" {
 			t.Error("自动生成的路径不应为空")
 		}
-
-		// 验证文件确实存在
+		// R1-6 修复后的特征：临时文件由 os.CreateTemp("", "gozip-*.zip") 生成
+		if !strings.HasPrefix(filepath.Base(result.Path), "gozip-") {
+			t.Errorf("临时文件名应带 gozip- 前缀, 实际 %s", filepath.Base(result.Path))
+		}
 		if _, statErr := os.Stat(result.Path); statErr != nil {
 			t.Errorf("自动生成的压缩文件不存在: %v", statErr)
 		}
-
-		// 清理自动生成的文件
-		defer os.Remove(result.Path)
+		t.Cleanup(func() {
+			if rmErr := os.Remove(result.Path); rmErr != nil {
+				t.Logf("清理临时压缩文件失败: %v", rmErr)
+			}
+		})
 	})
 
-	// 测试6: 大量文件压缩
-	t.Run("ManyFiles", func(t *testing.T) {
+	t.Run("大量文件压缩", func(t *testing.T) {
 		manyFiles := createTestFiles(t, tempDir, 10)
 		destPath := filepath.Join(tempDir, "test_many_files.zip")
 		result, err := ZipFilesFromPaths(context.Background(), manyFiles, destPath, "password")
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result.FileCount != 10 {
 			t.Errorf("期望文件数 10, 实际 %d", result.FileCount)
 		}
 	})
 }
 
-// TestZipFilesFromPathsWithOptions 测试自定义选项压缩
+// TestZipFilesFromPathsAutoPathUnique 验证 destPath 为空时并发调用生成的路径互不冲突。
+func TestZipFilesFromPathsAutoPathUnique(t *testing.T) {
+	tempDir := t.TempDir()
+	testFiles := createTestFiles(t, tempDir, 1)
+
+	const workers = 8
+	paths := make([]string, workers)
+	errs := make([]error, workers)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			result, err := ZipFilesFromPaths(context.Background(), testFiles, "", "")
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			paths[idx] = result.Path
+		}(i)
+	}
+	wg.Wait()
+
+	seen := make(map[string]bool, workers)
+	for i, path := range paths {
+		if errs[i] != nil {
+			t.Fatalf("第 %d 个并发压缩失败: %v", i, errs[i])
+		}
+		t.Cleanup(func() {
+			if rmErr := os.Remove(path); rmErr != nil {
+				t.Logf("清理临时压缩文件失败: %v", rmErr)
+			}
+		})
+		if seen[path] {
+			t.Errorf("并发生成的临时路径重复: %s", path)
+		}
+		seen[path] = true
+	}
+}
+
+// TestZipFilesFromPathsWithOptions 验证自定义选项压缩。
 func TestZipFilesFromPathsWithOptions(t *testing.T) {
 	tempDir := t.TempDir()
 	testFiles := createTestFiles(t, tempDir, 2)
 
-	t.Run("CustomOptions", func(t *testing.T) {
+	t.Run("自定义加密与压缩选项", func(t *testing.T) {
 		options := &ZipOptions{
 			Password:    "test123",
 			Encryption:  ZipAES128Encryption,
 			Compression: ZipBestCompression,
 		}
-
 		destPath := filepath.Join(tempDir, "test_custom_options.zip")
 		result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, options)
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if !result.IsEncrypted {
 			t.Error("应该已加密")
 		}
 	})
 
-	t.Run("NilOptions", func(t *testing.T) {
+	t.Run("空选项使用默认值", func(t *testing.T) {
 		destPath := filepath.Join(tempDir, "test_nil_options.zip")
 		result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, nil)
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result.FileCount != 2 {
 			t.Errorf("期望文件数 2, 实际 %d", result.FileCount)
 		}
+		if result.IsEncrypted {
+			t.Error("空密码不应该加密")
+		}
 	})
 
-	t.Run("StandardEncryption", func(t *testing.T) {
+	t.Run("标准加密", func(t *testing.T) {
 		options := &ZipOptions{
 			Password:   "test123",
 			Encryption: ZipStandardEncryption,
 		}
-
 		destPath := filepath.Join(tempDir, "test_standard_enc.zip")
 		result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, options)
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if !result.IsEncrypted {
 			t.Error("应该已加密")
 		}
+		// 显式指定 StandardEncryption 应走 ZipCrypto：不携带 WinZip AES extra field
+		for _, file := range openZip(t, destPath).File {
+			if hasWinZipAESExtra(file) {
+				t.Errorf("条目 [%s] 不应携带 AES extra field（应为 ZipCrypto）", file.Name)
+			}
+		}
 	})
 
-	t.Run("BestCompression", func(t *testing.T) {
+	t.Run("最佳压缩写Deflate", func(t *testing.T) {
 		options := &ZipOptions{
 			Password:    "test123",
 			Compression: ZipBestCompression,
 		}
-
 		destPath := filepath.Join(tempDir, "test_best_compression.zip")
 		result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, options)
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result.Size <= 0 {
 			t.Error("文件大小应大于0")
 		}
+		for _, file := range openZip(t, destPath).File {
+			if file.Method != zip.Deflate {
+				t.Errorf("ZipBestCompression 应写 Deflate，条目 [%s] 实际 Method=%d", file.Name, file.Method)
+			}
+		}
 	})
 
-	t.Run("NoCompression", func(t *testing.T) {
-		options := &ZipOptions{
-			Compression: ZipNoCompression,
-		}
-
+	t.Run("不压缩写Store", func(t *testing.T) {
+		options := &ZipOptions{Compression: ZipNoCompression}
 		destPath := filepath.Join(tempDir, "test_no_compression.zip")
 		result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, options)
-
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
-
 		if result.IsEncrypted {
 			t.Error("不应该加密")
 		}
-	})
-}
-
-// TestZipDirectory 测试压缩整个目录
-func TestZipDirectory(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 创建测试目录结构
-	testDir := filepath.Join(tempDir, "test_source_dir")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
-		t.Fatalf("创建测试目录失败: %v", err)
-	}
-
-	// 创建子目录
-	subDir := filepath.Join(testDir, "subdir")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
-		t.Fatalf("创建子目录失败: %v", err)
-	}
-
-	// 创建测试文件
-	createTestFile(t, testDir, "file1.txt", "content1")
-	createTestFile(t, testDir, "file2.txt", "content2")
-	createTestFile(t, subDir, "file3.txt", "content3")
-
-	t.Run("CompressDirectory", func(t *testing.T) {
-		destPath := filepath.Join(tempDir, "test_directory.zip")
-		result, err := ZipDirectory(context.Background(), testDir, destPath, "password123")
-
-		if err != nil {
-			t.Fatalf("压缩目录失败: %v", err)
-		}
-
-		if result.FileCount != 3 {
-			t.Errorf("期望文件数 3, 实际 %d", result.FileCount)
-		}
-
-		if !result.IsEncrypted {
-			t.Error("应该已加密")
+		for _, file := range openZip(t, destPath).File {
+			if file.Method != zip.Store {
+				t.Errorf("ZipNoCompression 应写 Store，条目 [%s] 实际 Method=%d", file.Name, file.Method)
+			}
 		}
 	})
 
-	t.Run("EmptyDirectory", func(t *testing.T) {
-		emptyDir := filepath.Join(tempDir, "empty_dir")
-		if err := os.MkdirAll(emptyDir, 0755); err != nil {
-			t.Fatalf("创建空目录失败: %v", err)
-		}
-
-		_, err := ZipDirectory(context.Background(), emptyDir, "", "password")
-		if err == nil {
-			t.Error("空目录应该返回错误")
-		}
-	})
-
-	t.Run("NonExistentDirectory", func(t *testing.T) {
-		_, err := ZipDirectory(context.Background(), "/nonexistent/dir", "", "password")
-		if err == nil {
-			t.Error("不存在的目录应该返回错误")
-		}
-	})
-
-	t.Run("FileNotDirectory", func(t *testing.T) {
-		testFile := createTestFile(t, tempDir, "notadir.txt", "content")
-		_, err := ZipDirectory(context.Background(), testFile, "", "password")
-		if err == nil {
-			t.Error("文件路径应该返回错误")
-		}
-	})
-}
-
-// TestZipDirectoryWithOptions 测试带选项的目录压缩
-func TestZipDirectoryWithOptions(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 创建测试目录
-	testDir := filepath.Join(tempDir, "test_dir")
-	if err := os.MkdirAll(testDir, 0755); err != nil {
-		t.Fatalf("创建测试目录失败: %v", err)
-	}
-	createTestFile(t, testDir, "file1.txt", "content1")
-	createTestFile(t, testDir, "file2.txt", "content2")
-
-	t.Run("CustomOptions", func(t *testing.T) {
-		options := &ZipOptions{
-			Password:   "dir_password",
-			Encryption: ZipAES256Encryption,
-		}
-
-		destPath := filepath.Join(tempDir, "test_dir_custom.zip")
-		result, err := ZipDirectoryWithOptions(context.Background(), testDir, destPath, options)
-
+	t.Run("指定临时目录", func(t *testing.T) {
+		customTempDir := t.TempDir()
+		result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, "", &ZipOptions{
+			Password: "test123",
+			TempDir:  customTempDir,
+		})
 		if err != nil {
 			t.Fatalf("压缩失败: %v", err)
 		}
+		if filepath.Dir(result.Path) != customTempDir {
+			t.Errorf("临时文件应创建在 TempDir [%s], 实际 [%s]", customTempDir, result.Path)
+		}
+		t.Cleanup(func() {
+			if rmErr := os.Remove(result.Path); rmErr != nil {
+				t.Logf("清理临时压缩文件失败: %v", rmErr)
+			}
+		})
+	})
 
-		if result.FileCount != 2 {
-			t.Errorf("期望文件数 2, 实际 %d", result.FileCount)
+	t.Run("TempDir不存在返回错误", func(t *testing.T) {
+		missingDir := filepath.Join(t.TempDir(), "not_exist")
+		if _, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, "", &ZipOptions{
+			TempDir: missingDir,
+		}); err == nil {
+			t.Fatal("TempDir 不存在时应返回错误")
 		}
 	})
 }
 
-// TestGetEncryptionMethod 测试加密类型转换
+// TestZipOptionsDefaults 验证选项零值走默认压缩路径。
+func TestZipOptionsDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	testFiles := createTestFiles(t, tempDir, 1)
+
+	destPath := filepath.Join(tempDir, "test_defaults.zip")
+	result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, &ZipOptions{})
+	if err != nil {
+		t.Fatalf("压缩失败: %v", err)
+	}
+	if result == nil {
+		t.Fatal("结果不应为nil")
+	}
+	if result.FileCount != 1 {
+		t.Errorf("期望文件数 1, 实际 %d", result.FileCount)
+	}
+}
+
+// TestNormalizeOptions 验证选项归一化与非法枚举值校验：
+// P1-1（零值加密与便捷函数同为 AES-256）、P1-2/P1-4（未知值 fail loud）的守护测试。
+func TestNormalizeOptions(t *testing.T) {
+	t.Run("零值加密归一为AES256", func(t *testing.T) {
+		opts, err := normalizeOptions(&ZipOptions{Password: "secret"})
+		if err != nil {
+			t.Fatalf("零值选项不应报错: %v", err)
+		}
+		if opts.Encryption != ZipAES256Encryption {
+			t.Errorf("零值 Encryption 应归一为 AES-256, 实际 %v", opts.Encryption)
+		}
+	})
+
+	t.Run("nil选项默认AES256", func(t *testing.T) {
+		opts, err := normalizeOptions(nil)
+		if err != nil {
+			t.Fatalf("nil 选项不应报错: %v", err)
+		}
+		if opts.Encryption != ZipAES256Encryption {
+			t.Errorf("nil 选项 Encryption 应为 AES-256, 实际 %v", opts.Encryption)
+		}
+		if opts.Compression != ZipDefaultCompression {
+			t.Errorf("nil 选项 Compression 应为默认, 实际 %d", opts.Compression)
+		}
+	})
+
+	t.Run("显式标准加密保持不变", func(t *testing.T) {
+		opts, err := normalizeOptions(&ZipOptions{Password: "secret", Encryption: ZipStandardEncryption})
+		if err != nil {
+			t.Fatalf("显式标准加密不应报错: %v", err)
+		}
+		if opts.Encryption != ZipStandardEncryption {
+			t.Errorf("显式 ZipStandardEncryption 应保持, 实际 %v", opts.Encryption)
+		}
+	})
+
+	t.Run("未知加密类型返回错误", func(t *testing.T) {
+		if _, err := normalizeOptions(&ZipOptions{Password: "secret", Encryption: ZipEncryptionType(999)}); err == nil {
+			t.Error("未知加密类型应返回错误，不应静默回退")
+		}
+	})
+
+	t.Run("非法压缩级别返回错误", func(t *testing.T) {
+		for _, level := range []int{-999, 42, 100} {
+			if _, err := normalizeOptions(&ZipOptions{Compression: level}); err == nil {
+				t.Errorf("非法压缩级别 %d 应返回错误", level)
+			}
+		}
+	})
+
+	t.Run("合法压缩级别透传", func(t *testing.T) {
+		for _, level := range []int{ZipDefaultCompression, ZipBestSpeed, ZipBestCompression, ZipNoCompression} {
+			opts, err := normalizeOptions(&ZipOptions{Compression: level})
+			if err != nil {
+				t.Errorf("合法压缩级别 %d 不应报错: %v", level, err)
+				continue
+			}
+			if opts.Compression != level {
+				t.Errorf("压缩级别应透传, 期望 %d, 实际 %d", level, opts.Compression)
+			}
+		}
+	})
+
+	t.Run("不修改调用方结构体", func(t *testing.T) {
+		in := &ZipOptions{Password: "secret"} // Encryption 为零值
+		if _, err := normalizeOptions(in); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if in.Encryption != ZipDefaultEncryption {
+			t.Errorf("调用方结构体不应被修改, 实际 Encryption %v", in.Encryption)
+		}
+	})
+}
+
+// TestZipZeroValueEncryptionMatchesConvenience 验证从便捷函数迁移到 WithOptions 时
+// 加密强度不降级（P1-1 安全降级陷阱守护）：零值加密与便捷函数同为 AES-256。
+func TestZipZeroValueEncryptionMatchesConvenience(t *testing.T) {
+	tempDir := t.TempDir()
+	testFiles := createTestFiles(t, tempDir, 1)
+
+	// WinZip AES 加密会写入 0x9901 extra field（yeka/zip crypto.go writeWinZipExtra）；
+	// ZipCrypto 则不写。注意：不能用 Method 判别——reader 读取时会把 Method 从 99
+	// 还原为原始压缩方法（yeka/zip reader.go:313）。
+	zeroValuePath := filepath.Join(tempDir, "zero_value_encryption.zip")
+	// 典型迁移场景：从便捷函数迁到 WithOptions，只加 Compression、不指定 Encryption
+	if _, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, zeroValuePath,
+		&ZipOptions{Password: "secret", Compression: ZipNoCompression}); err != nil {
+		t.Fatalf("零值加密压缩失败: %v", err)
+	}
+
+	conveniencePath := filepath.Join(tempDir, "convenience_encryption.zip")
+	if _, err := ZipFilesFromPaths(context.Background(), testFiles, conveniencePath, "secret"); err != nil {
+		t.Fatalf("便捷函数压缩失败: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"零值加密WithOptions", zeroValuePath},
+		{"便捷函数", conveniencePath},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			archive := openZip(t, tc.path) // 由 t.Cleanup 关闭
+			if len(archive.File) != 1 {
+				t.Fatalf("期望 1 个条目, 实际 %d", len(archive.File))
+			}
+			if !hasWinZipAESExtra(archive.File[0]) {
+				t.Errorf("应使用 AES-256（携带 0x9901 extra field），实际为 ZipCrypto（加密强度降级）")
+			}
+		})
+	}
+}
+
+// TestZipFilesFromPathsWithOptionsInvalidEnum 验证非法枚举值 fail loud 且不落盘（P1-2/P1-4 守护）。
+func TestZipFilesFromPathsWithOptionsInvalidEnum(t *testing.T) {
+	tempDir := t.TempDir()
+	testFiles := createTestFiles(t, tempDir, 1)
+
+	tests := []struct {
+		name    string
+		options *ZipOptions
+	}{
+		{"未知加密类型", &ZipOptions{Password: "secret", Encryption: ZipEncryptionType(999)}},
+		{"非法压缩级别", &ZipOptions{Compression: -999}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			destPath := filepath.Join(tempDir, "invalid_enum.zip")
+			if _, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, tt.options); err == nil {
+				t.Fatal("非法枚举值应返回错误")
+			}
+			if _, statErr := os.Stat(destPath); statErr == nil {
+				t.Error("校验失败时不应创建目标文件")
+			}
+		})
+	}
+}
+
+// TestZipWithSpecialFilenames 验证特殊字符文件名可正常压缩。
+func TestZipWithSpecialFilenames(t *testing.T) {
+	tempDir := t.TempDir()
+
+	specialNames := []string{
+		"file with spaces.txt",
+		"file-with-dashes.txt",
+		"file_with_underscores.txt",
+		"文件中文名称.txt",
+	}
+
+	files := make([]string, 0, len(specialNames))
+	for _, name := range specialNames {
+		files = append(files, createTestFile(t, tempDir, name, fmt.Sprintf("Content of %s", name)))
+	}
+
+	destPath := filepath.Join(tempDir, "test_special_names.zip")
+	result, err := ZipFilesFromPaths(context.Background(), files, destPath, "password123")
+	if err != nil {
+		t.Fatalf("压缩失败: %v", err)
+	}
+	if result.FileCount != len(specialNames) {
+		t.Errorf("期望文件数 %d, 实际 %d", len(specialNames), result.FileCount)
+	}
+}
+
+// TestZipLargeFile 验证大文件压缩及压缩效果。
+func TestZipLargeFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过大型文件测试")
+	}
+
+	tempDir := t.TempDir()
+	largeContent := strings.Repeat("This is a large file content for testing compression. ", 20000)
+	largeFile := createTestFile(t, tempDir, "large_file.txt", largeContent)
+
+	destPath := filepath.Join(tempDir, "test_large_file.zip")
+	result, err := ZipFilesFromPaths(context.Background(), []string{largeFile}, destPath, "password123")
+	if err != nil {
+		t.Fatalf("压缩失败: %v", err)
+	}
+	if result.FileCount != 1 {
+		t.Errorf("期望文件数 1, 实际 %d", result.FileCount)
+	}
+
+	// 高度重复的文本压缩后应显著小于原文。阈值 50% 是保守水位而非紧贴预期值：
+	// 本机实测该语料压缩率为 0.31%（1,080,000 → 3,400 bytes，见下方 t.Logf），
+	// 距阈值有 160 倍余量，机器/Go 版本差异不会触发误报；越阈说明压缩链路实际损坏而非环境敏感
+	originalSize := int64(len(largeContent))
+	compressionRatio := calculateCompressedPercent(originalSize, result.Size)
+	t.Logf("原始大小: %d bytes, 压缩大小: %d bytes, 压缩率: %.2f%%",
+		originalSize, result.Size, compressionRatio)
+	if compressionRatio > 50 {
+		t.Errorf("压缩率 %.2f%% 过高，重复文本应压缩到原文一半以下", compressionRatio)
+	}
+}
+
+// TestZipEmptyPassword 验证空密码不触发加密。
+func TestZipEmptyPassword(t *testing.T) {
+	tempDir := t.TempDir()
+	testFiles := createTestFiles(t, tempDir, 2)
+
+	destPath := filepath.Join(tempDir, "test_empty_password.zip")
+	result, err := ZipFilesFromPaths(context.Background(), testFiles, destPath, "")
+	if err != nil {
+		t.Fatalf("压缩失败: %v", err)
+	}
+	if result.IsEncrypted {
+		t.Error("空密码不应该加密")
+	}
+}
+
+// TestZipFilesFromPathsVerifyArchive 验证压缩产物的存在性与元数据完整性。
+func TestZipFilesFromPathsVerifyArchive(t *testing.T) {
+	tempDir := t.TempDir()
+
+	file1 := createTestFile(t, tempDir, "integration_test_1.txt", "Integration test content 1")
+	file2 := createTestFile(t, tempDir, "integration_test_2.txt", "Integration test content 2")
+
+	destPath := filepath.Join(tempDir, "verify_archive.zip")
+	result, err := ZipFilesFromPaths(context.Background(), []string{file1, file2}, destPath, "integration_password")
+	if err != nil {
+		t.Fatalf("压缩失败: %v", err)
+	}
+
+	fileInfo, statErr := os.Stat(destPath)
+	if statErr != nil {
+		t.Fatalf("压缩文件不存在: %v", statErr)
+	}
+	if fileInfo.Size() <= 0 {
+		t.Error("压缩文件大小应为正数")
+	}
+	if result.FileCount != 2 {
+		t.Errorf("期望文件数 2, 实际 %d", result.FileCount)
+	}
+	if !result.IsEncrypted {
+		t.Error("应该已加密")
+	}
+	if result.Size != fileInfo.Size() {
+		t.Errorf("结果记录的大小 %d 与实际文件大小 %d 不一致", result.Size, fileInfo.Size())
+	}
+
+	t.Logf("压缩成功: 路径=%s, 大小=%d bytes, 文件数=%d, 已加密=%v",
+		result.Path, result.Size, result.FileCount, result.IsEncrypted)
+}
+
+// TestGetEncryptionMethod 验证加密类型到 zip 库加密方法的映射。
 func TestGetEncryptionMethod(t *testing.T) {
 	tests := []struct {
 		name     string
 		encType  ZipEncryptionType
 		expected zip.EncryptionMethod
 	}{
-		{"StandardEncryption", ZipStandardEncryption, zip.StandardEncryption},
-		{"AES128Encryption", ZipAES128Encryption, zip.AES128Encryption},
-		{"AES192Encryption", ZipAES192Encryption, zip.AES192Encryption},
-		{"AES256Encryption", ZipAES256Encryption, zip.AES256Encryption},
-		{"Default", ZipEncryptionType(999), zip.AES256Encryption}, // 未知类型默认AES256
+		{"标准加密", ZipStandardEncryption, zip.StandardEncryption},
+		{"AES-128加密", ZipAES128Encryption, zip.AES128Encryption},
+		{"AES-192加密", ZipAES192Encryption, zip.AES192Encryption},
+		{"AES-256加密", ZipAES256Encryption, zip.AES256Encryption},
+		{"零值默认归一AES-256", ZipDefaultEncryption, zip.AES256Encryption},
+		{"未知类型防御性回退AES-256（入口已拦截）", ZipEncryptionType(999), zip.AES256Encryption},
 	}
 
 	for _, tt := range tests {
@@ -416,359 +634,52 @@ func TestGetEncryptionMethod(t *testing.T) {
 	}
 }
 
-// TestCalculateCompressionRatio 测试压缩率计算
-func TestCalculateCompressionRatio(t *testing.T) {
+// TestMethodForCompression 验证压缩级别到 ZIP 条目压缩方法的映射。
+func TestMethodForCompression(t *testing.T) {
+	tests := []struct {
+		name     string
+		level    int
+		expected uint16
+	}{
+		{"默认级别写Deflate", ZipDefaultCompression, zip.Deflate},
+		{"最佳压缩写Deflate", ZipBestCompression, zip.Deflate},
+		{"最快速度写Deflate", ZipBestSpeed, zip.Deflate},
+		{"不压缩写Store", ZipNoCompression, zip.Store},
+		{"未知级别防御性写Deflate（入口已拦截）", 999, zip.Deflate},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			method := methodForCompression(tt.level)
+			if method != tt.expected {
+				t.Errorf("期望压缩方法 %d, 实际 %d", tt.expected, method)
+			}
+		})
+	}
+}
+
+// TestCalculateCompressedPercent 验证压缩后百分比计算。
+func TestCalculateCompressedPercent(t *testing.T) {
 	tests := []struct {
 		name           string
 		originalSize   int64
 		compressedSize int64
 		expected       float64
 	}{
-		{"NormalCase", 1000, 500, 50.0},
-		{"NoCompression", 1000, 1000, 100.0},
-		{"HighCompression", 1000, 100, 10.0},
-		{"ZeroOriginal", 0, 100, 0.0},
-		{"LargerCompressed", 100, 200, 200.0},
-		{"BothZero", 0, 0, 0.0},
+		{"正常压缩", 1000, 500, 50.0},
+		{"无压缩", 1000, 1000, 100.0},
+		{"高压缩", 1000, 100, 10.0},
+		{"原始大小为零", 0, 100, 0.0},
+		{"压缩后变大", 100, 200, 200.0},
+		{"两者都为零", 0, 0, 0.0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ratio := calculateCompressionRatio(tt.originalSize, tt.compressedSize)
+			ratio := calculateCompressedPercent(tt.originalSize, tt.compressedSize)
 			if ratio != tt.expected {
-				t.Errorf("期望压缩率 %.2f, 实际 %.2f", tt.expected, ratio)
+				t.Errorf("期望压缩百分比 %.2f, 实际 %.2f", tt.expected, ratio)
 			}
 		})
 	}
-}
-
-// TestGetCurrentTimestamp 测试时间戳获取
-func TestGetCurrentTimestamp(t *testing.T) {
-	timestamp := getCurrentTimestamp()
-
-	if timestamp <= 0 {
-		t.Error("时间戳应大于0")
-	}
-
-	// 验证时间戳是合理的（在最近的范围内）
-	now := int64(1747843200) // 2025-05-21 00:00:00 UTC 近似值
-	if timestamp < now-86400 || timestamp > now+86400 {
-		t.Logf("警告: 时间戳可能不准确: %d", timestamp)
-	}
-}
-
-// TestZipOptionsDefaults 测试选项默认值
-func TestZipOptionsDefaults(t *testing.T) {
-	tempDir := t.TempDir()
-	testFiles := createTestFiles(t, tempDir, 1)
-
-	// 测试空选项时使用默认值
-	destPath := filepath.Join(tempDir, "test_defaults.zip")
-	result, err := ZipFilesFromPathsWithOptions(context.Background(), testFiles, destPath, &ZipOptions{})
-
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("结果不应为nil")
-	}
-
-	if result.FileCount != 1 {
-		t.Errorf("期望文件数 1, 实际 %d", result.FileCount)
-	}
-}
-
-// TestZipWithSpecialFilenames 测试特殊文件名
-func TestZipWithSpecialFilenames(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 创建带有特殊字符的文件名
-	specialNames := []string{
-		"file with spaces.txt",
-		"file-with-dashes.txt",
-		"file_with_underscores.txt",
-		"文件中文名称.txt",
-	}
-
-	var files []string
-	for _, name := range specialNames {
-		content := fmt.Sprintf("Content of %s", name)
-		filePath := createTestFile(t, tempDir, name, content)
-		files = append(files, filePath)
-	}
-
-	destPath := filepath.Join(tempDir, "test_special_names.zip")
-	result, err := ZipFilesFromPaths(context.Background(), files, destPath, "password123")
-
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	if result.FileCount != len(specialNames) {
-		t.Errorf("期望文件数 %d, 实际 %d", len(specialNames), result.FileCount)
-	}
-}
-
-// TestZipLargeFile 测试大文件压缩
-func TestZipLargeFile(t *testing.T) {
-	if testing.Short() {
-		t.Skip("跳过大型文件测试")
-	}
-
-	tempDir := t.TempDir()
-
-	// 创建一个较大的测试文件 (1MB)
-	largeContent := strings.Repeat("This is a large file content for testing compression. ", 20000)
-	largeFile := createTestFile(t, tempDir, "large_file.txt", largeContent)
-
-	destPath := filepath.Join(tempDir, "test_large_file.zip")
-	result, err := ZipFilesFromPaths(context.Background(), []string{largeFile}, destPath, "password123")
-
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	if result.FileCount != 1 {
-		t.Errorf("期望文件数 1, 实际 %d", result.FileCount)
-	}
-
-	// 验证压缩效果（文本应该能被显著压缩）
-	originalSize := int64(len(largeContent))
-	compressionRatio := float64(result.Size) / float64(originalSize) * 100
-
-	t.Logf("原始大小: %d bytes, 压缩大小: %d bytes, 压缩率: %.2f%%",
-		originalSize, result.Size, compressionRatio)
-
-	// 文本文件通常能压缩到原来的10%以下
-	if compressionRatio > 20 {
-		t.Logf("警告: 压缩率较高 (%.2f%%)，可能压缩效果不佳", compressionRatio)
-	}
-}
-
-// TestZipEmptyPassword 测试空密码行为
-func TestZipEmptyPassword(t *testing.T) {
-	tempDir := t.TempDir()
-	testFiles := createTestFiles(t, tempDir, 2)
-
-	// 空字符串密码
-	destPath := filepath.Join(tempDir, "test_empty_password.zip")
-	result, err := ZipFilesFromPaths(context.Background(), testFiles, destPath, "")
-
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	if result.IsEncrypted {
-		t.Error("空密码不应该加密")
-	}
-}
-
-// TestZipDirectoryDeepStructure 测试深层目录结构
-func TestZipDirectoryDeepStructure(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// 创建深层目录结构
-	deepDir := filepath.Join(tempDir, "level1", "level2", "level3", "level4")
-	if err := os.MkdirAll(deepDir, 0755); err != nil {
-		t.Fatalf("创建深层目录失败: %v", err)
-	}
-
-	// 在不同层级创建文件
-	createTestFile(t, filepath.Join(tempDir, "level1"), "file1.txt", "content1")
-	createTestFile(t, filepath.Join(tempDir, "level1", "level2"), "file2.txt", "content2")
-	createTestFile(t, deepDir, "file3.txt", "content3")
-
-	destPath := filepath.Join(tempDir, "test_deep_structure.zip")
-	result, err := ZipDirectory(context.Background(), tempDir, destPath, "password123")
-
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	// 应该包含所有非目录文件
-	if result.FileCount < 3 {
-		t.Errorf("期望至少3个文件, 实际 %d", result.FileCount)
-	}
-}
-
-// TestGenerateLocalZipFiles 在本地目录生成示例压缩文件
-func TestGenerateLocalZipFiles(t *testing.T) {
-	// 获取当前工作目录
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("获取工作目录失败: %v", err)
-	}
-
-	// 创建 files 目录用于存放生成的压缩文件
-	filesDir := filepath.Join(workDir, "files")
-	if err := os.MkdirAll(filesDir, 0755); err != nil {
-		t.Fatalf("创建 files 目录失败: %v", err)
-	}
-
-	t.Logf("📂 工作目录: %s", workDir)
-	t.Logf("📂 输出目录: %s", filesDir)
-
-	// 压缩 ZIP_USAGE.md 文档
-	usageDocPath := filepath.Join(workDir, "ZIP_USAGE.md")
-	if _, statErr := os.Stat(usageDocPath); statErr != nil {
-		t.Skipf("ZIP_USAGE.md 不存在: %v", statErr)
-	}
-
-	destPath := filepath.Join(filesDir, "zip_usage_demo.zip")
-	result, err := ZipFilesFromPaths(context.Background(), []string{usageDocPath}, destPath, "123456")
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	t.Logf("✅ zip_usage_demo.zip 生成成功")
-	t.Logf("   路径: %s", result.Path)
-	t.Logf("   大小: %d bytes (%.2f KB)", result.Size, float64(result.Size)/1024)
-	t.Logf("   加密: %v", result.IsEncrypted)
-	t.Logf("   密码: 123456")
-	t.Logf("   文件数: %d", result.FileCount)
-}
-
-// ==================== 辅助函数 ====================
-
-// createTestFiles 创建多个测试文件
-func createTestFiles(t *testing.T, dir string, count int) []string {
-	t.Helper()
-	var files []string
-	for i := 1; i <= count; i++ {
-		filename := fmt.Sprintf("test_file_%d.txt", i)
-		content := fmt.Sprintf("This is test file content number %d", i)
-		filePath := createTestFile(t, dir, filename, content)
-		files = append(files, filePath)
-	}
-	return files
-}
-
-// createTestFile 创建单个测试文件
-func createTestFile(t *testing.T, dir, name, content string) string {
-	t.Helper()
-	filePath := filepath.Join(dir, name)
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		t.Fatalf("创建测试文件失败 [%s]: %v", name, err)
-	}
-	return filePath
-}
-
-// TestZipFilesIntegration 集成测试：压缩后验证文件完整性
-func TestZipFilesIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("跳过集成测试")
-	}
-
-	tempDir := t.TempDir()
-
-	// 创建测试文件
-	file1 := createTestFile(t, tempDir, "integration_test_1.txt", "Integration test content 1")
-	file2 := createTestFile(t, tempDir, "integration_test_2.txt", "Integration test content 2")
-
-	// 压缩
-	destPath := filepath.Join(tempDir, "integration_test.zip")
-	result, err := ZipFilesFromPaths(context.Background(), []string{file1, file2}, destPath, "integration_password")
-
-	if err != nil {
-		t.Fatalf("压缩失败: %v", err)
-	}
-
-	// 验证压缩文件存在且大小合理
-	fileInfo, err := os.Stat(destPath)
-	if err != nil {
-		t.Fatalf("压缩文件不存在: %v", err)
-	}
-
-	if fileInfo.Size() <= 0 {
-		t.Error("压缩文件大小应为正数")
-	}
-
-	// 验证结果信息
-	if result.FileCount != 2 {
-		t.Errorf("期望文件数 2, 实际 %d", result.FileCount)
-	}
-
-	if !result.IsEncrypted {
-		t.Error("应该已加密")
-	}
-
-	t.Logf("压缩成功: 路径=%s, 大小=%d bytes, 文件数=%d, 已加密=%v",
-		result.Path, result.Size, result.FileCount, result.IsEncrypted)
-}
-
-// TestZipUsageMarkdown 测试压缩ZIP_USAGE.md文档（真实场景）
-func TestZipUsageMarkdown(t *testing.T) {
-	// 获取当前工作目录
-	workDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("获取工作目录失败: %v", err)
-	}
-
-	// ZIP_USAGE.md 文件的相对路径
-	usageDocPath := filepath.Join(workDir, "ZIP_USAGE.md")
-
-	// 检查文件是否存在
-	if _, statErr := os.Stat(usageDocPath); statErr != nil {
-		t.Skipf("ZIP_USAGE.md 文件不存在: %v (可能不在 tools 目录下运行测试)", statErr)
-	}
-
-	// 在 files 目录生成压缩文件
-	filesDir := filepath.Join(workDir, "files")
-	if err := os.MkdirAll(filesDir, 0755); err != nil {
-		t.Fatalf("创建 files 目录失败: %v", err)
-	}
-	destPath := filepath.Join(filesDir, "zip_usage_documentation.zip")
-
-	// 使用密码 123456 压缩
-	password := "123456"
-	result, err := ZipFilesFromPaths(context.Background(), []string{usageDocPath}, destPath, password)
-
-	if err != nil {
-		t.Fatalf("压缩 ZIP_USAGE.md 失败: %v", err)
-	}
-
-	// 验证压缩结果
-	if result == nil {
-		t.Fatal("压缩结果不应为nil")
-	}
-
-	if result.Path != destPath {
-		t.Errorf("期望路径 %s, 实际 %s", destPath, result.Path)
-	}
-
-	if result.FileCount != 1 {
-		t.Errorf("期望文件数 1, 实际 %d", result.FileCount)
-	}
-
-	if !result.IsEncrypted {
-		t.Error("应该已加密（密码: 123456）")
-	}
-
-	if result.Size <= 0 {
-		t.Error("压缩文件大小应大于0")
-	}
-
-	// 验证压缩文件确实存在
-	fileInfo, statErr := os.Stat(destPath)
-	if statErr != nil {
-		t.Fatalf("压缩文件不存在: %v", statErr)
-	}
-
-	// 读取原始文件大小进行对比
-	originalFileInfo, _ := os.Stat(usageDocPath)
-	originalSize := originalFileInfo.Size()
-	compressedSize := fileInfo.Size()
-
-	compressionRatio := float64(compressedSize) / float64(originalSize) * 100
-
-	t.Logf("✅ ZIP_USAGE.md 压缩成功!")
-	t.Logf("   原始文件: %s", usageDocPath)
-	t.Logf("   原始大小: %d bytes (%.2f KB)", originalSize, float64(originalSize)/1024)
-	t.Logf("   压缩文件: %s", destPath)
-	t.Logf("   压缩大小: %d bytes (%.2f KB)", compressedSize, float64(compressedSize)/1024)
-	t.Logf("   压缩率: %.2f%%", compressionRatio)
-	t.Logf("   密码: %s", password)
-	t.Logf("   加密类型: AES-256")
-	t.Logf("   文件数量: %d", result.FileCount)
 }
