@@ -14,6 +14,7 @@ package gozip
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -188,11 +189,14 @@ func ZipFilesFromPathsWithOptions(ctx context.Context, sourceFiles []string, des
 }
 
 // writeZipEntries 把条目列表写入目标 ZIP，是文件列表压缩与目录压缩共用的核心实现。
-// 负责：创建目标文件（含临时文件回填）、写条目、写 central directory、关闭资源、
-// 失败时清理半成品文件。调用方负责创建 span 并在失败时记录错误。
+// 负责：创建目标文件（destPath 非空时先写入同目录临时文件，全部成功后 rename 原子替换）、
+// 写条目、写 central directory、关闭资源、失败时清理半成品。调用方负责创建 span 并在失败时记录错误。
 func writeZipEntries(ctx context.Context, span trace.Span, entries []zipEntry, destPath string, options *ZipOptions, startTime time.Time) (*ZipFileResult, error) {
-	// 生成目标路径（未提供时创建唯一临时文件，避免旧实现秒级时间戳在并发下互相覆盖）
-	destPath, zipFile, err := createDestFile(destPath, options.TempDir)
+	// 用户指定的最终路径（可能为空；非空时实际写入的是同目录临时文件，见 createDestFile）
+	userDestPath := destPath
+	// 生成实际写入路径（未提供时创建唯一临时文件，避免旧实现秒级时间戳在并发下互相覆盖；
+	// 提供时在目标同目录写 .gozip-*.tmp，保证 rename 是同一文件系统的原子操作）
+	actualPath, zipFile, err := createDestFile(destPath, options.TempDir)
 	if err != nil {
 		return nil, err
 	}
@@ -211,11 +215,12 @@ func writeZipEntries(ctx context.Context, span trace.Span, entries []zipEntry, d
 				logger.WarnWithCtx(ctx, "关闭ZIP文件失败", logger.Err(closeErr))
 			}
 		}
-		// 压缩失败时清理半成品，避免残留不完整的 ZIP 文件
+		// 压缩失败时清理半成品（实际写入路径），避免残留不完整的 ZIP 文件；
+		// destPath 非空时临时文件与用户原文件是两个路径，原文件不会被触碰
 		if !completed {
-			if rmErr := os.Remove(destPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			if rmErr := os.Remove(actualPath); rmErr != nil && !os.IsNotExist(rmErr) {
 				logger.WarnWithCtx(ctx, "清理半成品ZIP文件失败",
-					logger.String("dest_path", destPath),
+					logger.String("dest_path", actualPath),
 					logger.Err(rmErr))
 			}
 		}
@@ -223,7 +228,7 @@ func writeZipEntries(ctx context.Context, span trace.Span, entries []zipEntry, d
 
 	// 开始日志降为 Debug：大批量压缩时热路径不应刷 INFO；完成日志仍为 INFO 承载体积/耗时统计
 	logger.DebugWithCtx(ctx, "开始ZIP压缩",
-		logger.String("dest_path", destPath),
+		logger.String("dest_path", actualPath),
 		logger.Int("file_count", len(entries)),
 		logger.Bool("is_encrypted", options.Password != ""))
 
@@ -257,17 +262,28 @@ func writeZipEntries(ctx context.Context, span trace.Span, entries []zipEntry, d
 	if closeErr := zipFile.Close(); closeErr != nil {
 		return nil, fmt.Errorf("关闭ZIP文件失败: %w", closeErr)
 	}
+
+	// 最终路径：destPath 非空时把写完的临时文件原子替换到用户指定位置。
+	// 若此前任一步骤失败，流程已提前返回，原文件完好；rename 失败同样不触碰原文件，
+	// 由 defer 清理临时文件——「要么成功替换，要么保留原状态」
+	finalPath := actualPath
+	if userDestPath != "" && actualPath != userDestPath {
+		if renameErr := os.Rename(actualPath, userDestPath); renameErr != nil {
+			return nil, fmt.Errorf("重命名临时ZIP文件失败: %w", renameErr)
+		}
+		finalPath = userDestPath
+	}
 	completed = true
 
 	result := &ZipFileResult{
-		Path:        destPath,
+		Path:        finalPath,
 		Size:        compressedSize,
 		FileCount:   fileCount,
 		IsEncrypted: options.Password != "",
 	}
 
 	logger.InfoWithCtx(ctx, "ZIP压缩完成",
-		logger.String("dest_path", destPath),
+		logger.String("dest_path", finalPath),
 		logger.Int("file_count", fileCount),
 		logger.Int64("total_original_size", totalSize),
 		logger.Int64("compressed_size", compressedSize),
@@ -331,7 +347,10 @@ func writeZipEntry(ctx context.Context, zipWriter *zip.Writer, entry zipEntry, o
 }
 
 // createDestFile 创建目标 ZIP 文件：destPath 为空时用 os.CreateTemp 在 tempDir（可空，空则系统默认
-// 临时目录）下生成唯一文件，复用其句柄避免二次打开。
+// 临时目录）下生成唯一文件，复用其句柄避免二次打开；destPath 非空时改为在目标同目录下创建临时文件
+// （.gozip-*.tmp），由 writeZipEntries 在全部写入成功后 rename 到 destPath——避免 os.Create 先把
+// 已存在的目标文件截断为 0、后续任一步失败时原内容永久丢失。权限对齐 os.Create 语义：
+// 目标文件已存在则沿用其权限位，否则 0644。
 func createDestFile(destPath, tempDir string) (string, *os.File, error) {
 	if destPath == "" {
 		zipFile, err := os.CreateTemp(tempDir, "gozip-*.zip")
@@ -340,11 +359,27 @@ func createDestFile(destPath, tempDir string) (string, *os.File, error) {
 		}
 		return zipFile.Name(), zipFile, nil
 	}
-	zipFile, err := os.Create(destPath)
+	// 在目标目录下创建临时文件：保证后续 rename 是同一文件系统的原子操作
+	zipFile, err := os.CreateTemp(filepath.Dir(destPath), ".gozip-*.tmp")
 	if err != nil {
-		return destPath, nil, fmt.Errorf("创建ZIP文件失败: %w", err)
+		return "", nil, fmt.Errorf("创建ZIP文件失败: %w", err)
 	}
-	return destPath, zipFile, nil
+	// 对齐原 os.Create 的产物权限：覆盖已存在文件时保留其权限位，新建文件用 0644
+	mode := os.FileMode(0644)
+	if info, statErr := os.Stat(destPath); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	if chmodErr := zipFile.Chmod(mode); chmodErr != nil {
+		name := zipFile.Name()
+		if closeErr := zipFile.Close(); closeErr != nil {
+			chmodErr = errors.Join(chmodErr, closeErr)
+		}
+		if rmErr := os.Remove(name); rmErr != nil {
+			chmodErr = errors.Join(chmodErr, rmErr)
+		}
+		return "", nil, fmt.Errorf("设置ZIP文件权限失败: %w", chmodErr)
+	}
+	return zipFile.Name(), zipFile, nil
 }
 
 // normalizeOptions 归一化并校验压缩选项：返回副本避免修改调用方传入的结构体；

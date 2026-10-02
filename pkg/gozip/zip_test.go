@@ -1,11 +1,13 @@
 package gozip
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -221,6 +223,84 @@ func TestZipFilesFromPathsAutoPathUnique(t *testing.T) {
 		}
 		seen[path] = true
 	}
+}
+
+// TestZipFilesDestPathExisting 验证 destPath 指向已存在文件时的原子替换语义（R2-P1）：
+// 压缩失败不破坏原文件、不留临时文件残留；压缩成功则整体替换且产物可正常打开。
+func TestZipFilesDestPathExisting(t *testing.T) {
+	tempDir := t.TempDir()
+	testFiles := createTestFiles(t, tempDir, 1)
+	original := []byte("original content must survive")
+
+	// assertNoTempResidual 断言目录下没有 .gozip-*.tmp 临时文件残留
+	assertNoTempResidual := func(t *testing.T, dir string) {
+		t.Helper()
+		items, readErr := os.ReadDir(dir)
+		if readErr != nil {
+			t.Fatalf("读取目录失败: %v", readErr)
+		}
+		for _, item := range items {
+			name := item.Name()
+			if strings.HasPrefix(name, ".gozip-") && strings.HasSuffix(name, ".tmp") {
+				t.Errorf("残留临时文件: %s", name)
+			}
+		}
+	}
+
+	t.Run("失败时不破坏已存在的原文件", func(t *testing.T) {
+		destPath := filepath.Join(tempDir, "existing_fail.zip")
+		if err := os.WriteFile(destPath, original, 0644); err != nil {
+			t.Fatalf("预置原文件失败: %v", err)
+		}
+		if _, err := ZipFilesFromPaths(context.Background(), []string{"/nonexistent/file.txt"}, destPath, ""); err == nil {
+			t.Fatal("不存在的文件应该返回错误")
+		}
+		got, readErr := os.ReadFile(destPath)
+		if readErr != nil {
+			t.Fatalf("读取原文件失败: %v", readErr)
+		}
+		if !bytes.Equal(got, original) {
+			t.Errorf("原文件被破坏: 期望 %q, 实际 %q", original, got)
+		}
+		assertNoTempResidual(t, tempDir)
+	})
+
+	t.Run("成功时原子替换原文件", func(t *testing.T) {
+		destPath := filepath.Join(tempDir, "existing_success.zip")
+		if err := os.WriteFile(destPath, original, 0644); err != nil {
+			t.Fatalf("预置原文件失败: %v", err)
+		}
+		result, err := ZipFilesFromPaths(context.Background(), testFiles, destPath, "")
+		if err != nil {
+			t.Fatalf("压缩失败: %v", err)
+		}
+		if result.Path != destPath {
+			t.Errorf("期望路径 %s, 实际 %s", destPath, result.Path)
+		}
+		// 替换后的产物必须是完整可打开的 ZIP，而非残留原内容
+		if reader := openZip(t, destPath); len(reader.File) != 1 {
+			t.Errorf("期望条目数 1, 实际 %d", len(reader.File))
+		}
+		assertNoTempResidual(t, tempDir)
+	})
+
+	t.Run("新路径成功压缩保留0644权限", func(t *testing.T) {
+		// Windows 的权限位由只读属性模拟（可写文件恒报 0666），无法区分 0600/0644
+		if runtime.GOOS == "windows" {
+			t.Skip("跳过：Windows 文件系统不支持 Unix 权限位断言")
+		}
+		destPath := filepath.Join(tempDir, "fresh_permission.zip")
+		if _, err := ZipFilesFromPaths(context.Background(), testFiles, destPath, ""); err != nil {
+			t.Fatalf("压缩失败: %v", err)
+		}
+		info, statErr := os.Stat(destPath)
+		if statErr != nil {
+			t.Fatalf("读取产物信息失败: %v", statErr)
+		}
+		if info.Mode().Perm() != 0644 {
+			t.Errorf("期望权限 0644, 实际 %o", info.Mode().Perm())
+		}
+	})
 }
 
 // TestZipFilesFromPathsWithOptions 验证自定义选项压缩。

@@ -73,6 +73,17 @@
   `zip.Deflate` → 与 P1-2 同路：`normalizeOptions` 校验压缩级别，非法值返回 `未知的压缩级别: <值>`
   - 影响面：传非法 `Compression` 值的调用方（零值与四个合法常量不受影响）
   - 守护：`TestNormalizeOptions/非法压缩级别返回错误`
+- **destPath 指向已存在文件时压缩失败会永久丢失原文件（数据丢失级，R2-P1）**：`os.Create(destPath)`
+  先把目标截断为 0，随后任一步失败时 R1-7 的 defer `os.Remove` 又把（已截断的）原文件删除——
+  「覆盖更新已存在 ZIP」场景下，源文件列表中任一文件不可读（网络挂载抖动/权限变化）即触发，
+  原内容无备份地永久丢失 → 改为「同目录临时文件 + 成功后 `os.Rename` 原子替换」
+  - 影响面：`destPath` 非空的全部调用方；失败时原文件完好（defer 只清理 `.gozip-*.tmp` 临时文件），
+    成功时原子替换、无半成品窗口，与 R1-7「失败不留半成品」语义兼容且更强；产物权限对齐原
+    `os.Create` 语义（覆盖保留原权限位，新建文件 0644）；`destPath` 为空的临时文件行为不变；
+    新增错误 `重命名临时ZIP文件失败: %w`（仅 rename 失败时，原文件未被触碰）
+  - 守护：`TestZipFilesDestPathExisting`（失败不破坏原文件 / 成功原子替换且产物可打开 /
+    无 `.gozip-*.tmp` 残留 / 新建文件 0644 权限——最后一条在 Windows 跳过，该平台权限位
+    由只读属性模拟，无法区分 0600/0644）
 
 ### 变更
 
@@ -136,3 +147,6 @@
   gozip 行一致；Span 名由 `fmt.Sprintf` 改为字面量后字符串内容不变
 - 包结构按 `package-quality-baseline` 收口为「源文件 ↔ 测试文件一对一」，未新增集成测试分层
   （压缩仅依赖本地文件系统，无外部服务）
+- R2-P1 后 `destPath` 非空时内部经 `.gozip-*.tmp` 中转再 rename——临时文件与目标同目录，
+  同一文件系统内原子替换，不存在跨设备 rename 问题；导出 API 签名与 `ZipFileResult.Path` 语义不变
+  （仍返回用户传入的 `destPath`）

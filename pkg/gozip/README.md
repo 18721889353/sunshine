@@ -21,7 +21,7 @@ pkg/gozip/
 
 - **单一压缩核心**：文件列表压缩与目录压缩共用 `writeZipEntries`，两者唯一差异是条目名的计算方式（`zipEntry{srcPath, entryName}`），避免两份写入逻辑漂移。
 - **流式写入不占内存**：`os.Open + io.Copy` 直接把源文件泵进 ZIP 写入器，大文件不会整块驻留内存。
-- **失败不留残骸**：目标文件创建后任一环节失败，defer 统一兜底关闭资源并删除半成品 ZIP。
+- **失败不留残骸，且不破坏原文件**：`destPath` 非空时先在目标同目录写 `.gozip-*.tmp` 临时文件，全部写入成功后 `os.Rename` 原子替换到目标路径——任一环节失败只清理临时文件，已存在的原文件完好无损（「要么成功替换，要么保留原状态」）；`destPath` 为空时临时文件本身就是最终产物。
 - **编码兼容优先**：条目名统一正斜杠（ZIP 规范），并强制置 UTF-8 标志位（`0x800`），中文/亚洲字符文件名在 Windows 解压不乱码。
 - **链路追踪内建**：每个导出 API 创建 OTel Span，从 `ctx` 提取 `request_id` 写入 `gozip.request_id` 属性，日志全部走 `logger.XxxWithCtx`。
 
@@ -70,7 +70,7 @@ log.Printf("压缩完成: %s, 大小 %d bytes, 文件数 %d, 加密 %v",
 2. 条目名取每个源文件的 `filepath.Base`（与历史行为一致）。
 3. 逐个 `os.Open` → `CreateHeader`（置 UTF-8 标志，按需设密码/加密算法）→ `io.Copy` 流式写入。
 4. 显式 `zipWriter.Close()` 写 central directory 并检查错误，再关闭文件、`Stat` 取大小。
-5. 任一步失败：记录 Span 错误、删除已创建的目标文件、返回包装后的中文错误。
+5. 任一步失败：记录 Span 错误、删除临时文件、返回包装后的中文错误——`destPath` 已存在的原文件不受影响；全部成功后 rename 原子替换到 `destPath`。
 
 **注意**：同一批文件中若存在同名文件，条目名会相同（ZIP 允许重复条目但解压时互相覆盖）；需要保留路径结构请用场景二。
 
@@ -188,8 +188,8 @@ func ZipFilesFromPaths(ctx context.Context, sourceFiles []string, destPath strin
 ```
 
 - `password` 非空时使用 AES-256 加密
-- `destPath` 为空时创建唯一临时文件（`os.CreateTemp`，并发安全）
-- **注意**：`sourceFiles` 为空、文件不存在均返回错误，且不残留目标文件
+- `destPath` 为空时创建唯一临时文件（`os.CreateTemp`，并发安全）；非空时先写同目录 `.gozip-*.tmp`，成功后原子替换
+- **注意**：`sourceFiles` 为空、文件不存在均返回错误，且不残留临时文件；`destPath` 已存在时原文件在失败路径下完好
 
 ### ZipFilesFromPathsWithOptions — 压缩文件列表（完整选项）
 
@@ -225,10 +225,11 @@ func ZipDirectoryWithOptions(ctx context.Context, sourceDir string, destPath str
 | `sourceFiles` 为空 | 返回 `源文件列表为空`，不创建任何文件 |
 | 未知加密类型 / 非法压缩级别 | 返回 `未知的加密类型: <值>` / `未知的压缩级别: <值>`，不创建任何文件（校验先于落盘） |
 | `TempDir` 不存在 | 返回 `创建临时ZIP文件失败: %w`（`os.CreateTemp` 失败，不产生任何文件） |
-| 源文件不存在 / 无权限 | 返回 `写入ZIP条目 [名] 失败: ...`（`%w` 包装底层错误），已创建的目标文件被删除 |
+| 源文件不存在 / 无权限 | 返回 `写入ZIP条目 [名] 失败: ...`（`%w` 包装底层错误），临时文件被删除；`destPath` 已存在的原文件完好 |
 | `sourceDir` 为空 / 不存在 / 不是目录 | 分别返回对应中文错误 |
 | 目录为空 | 返回 `目录为空: <path>` |
 | `destPath` 创建失败 | 返回 `创建ZIP文件失败: %w` / `创建临时ZIP文件失败: %w` |
+| 临时文件 rename 到 `destPath` 失败 | 返回 `重命名临时ZIP文件失败: %w`，原文件未被触碰，临时文件被清理 |
 | 写 central directory 失败 | 返回 `关闭ZIP写入器失败: %w`，半成品被删除 |
 | 结果大小 `Stat` 失败 | **不报错**：size 记 0 并输出 `获取压缩文件大小失败` 告警日志 |
 | 关闭文件/写入器失败（defer 兜底路径） | 仅记录 `关闭ZIP写入器失败` / `关闭ZIP文件失败` 告警日志 |
@@ -268,14 +269,15 @@ CGO_ENABLED=1 go test -race -count=1 -short ./pkg/gozip/
 
 | 基准 | 场景 | ns/op | B/op | allocs/op | benchtime |
 |------|------|-------|------|-----------|-----------|
-| `BenchmarkZipFilesFromPathsNoPassword` | 10 个小文件，无密码 Deflate | 816,434 ~ 967,741 | ~360,000 | 222 ~ 223 | 100x |
-| `BenchmarkZipFilesFromPathsWithAES256` | 10 个小文件，AES-256 加密 | 8,333,975 ~ 8,554,650 | ~386,820 ~ 403,163 | 522 ~ 523 | 100x |
-| `BenchmarkZipDirectory` | 3 文件 1 子目录，无密码 | 753,629 ~ 768,653 | ~116,683 ~ 125,512 | 133 | 100x |
+| `BenchmarkZipFilesFromPathsNoPassword` | 10 个小文件，无密码 Deflate | 1,256,347 ~ 1,322,818 | 360,464 ~ 376,719 | 224 | 100x |
+| `BenchmarkZipFilesFromPathsWithAES256` | 10 个小文件，AES-256 加密 | 8,271,493 ~ 8,894,397 | 395,428 ~ 403,676 | 524 | 100x |
+| `BenchmarkZipDirectory` | 3 文件 1 子目录，无密码 | 1,070,397 ~ 1,286,984 | 124,847 ~ 133,681 | 133 | 100x |
 
 **口径与解读（很重要，否则数字会被误读）：**
 
 - 全部在本地磁盘临时目录执行，**不含网络 RTT**；读数量的是本包自身的压缩与文件 I/O 开销。
 - `ns/op` 波动较大（首轮含文件系统缓存冷启），跨轮比较请优先看稳定的 `allocs/op`。
+- R2-P1（临时文件 + rename）后 `allocs/op` 较上轮基线 +1~2（目标目录 `Stat` 取权限位与 `os.Rename` 的分配），`B/op` 与加密路径开销不变。
 - AES-256 比无密码慢约 10 倍，来自每条目密钥派生与 HMAC，属加密固有成本；`allocs/op` 的差值（约 300）即加密路径的分配开销。
 - 每条结论对应上面一次真实重测（3 轮读数已给出区间），**不是**多机器统计。
 
