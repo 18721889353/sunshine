@@ -116,6 +116,9 @@ type Config struct {
 	Region       string       // 区域（云服务商需要）
 	AccessKeyID  string       // Access Key ID / Secret ID
 	SecretKey    string       // Secret Key
+	// BatchConcurrency 批量发送的并发上限（SendBatchSMS 用）：
+	// 0 或负数回落默认 batchConcurrency（10），正值原样生效（见 resolveBatchConcurrency）
+	BatchConcurrency int
 	// 腾讯云专用配置
 	TencentAppID    string // 腾讯云短信应用ID
 	TencentSignName string // 腾讯云默认签名（SendRequest.SignName 为空时兜底）
@@ -129,8 +132,8 @@ type Config struct {
 // 注意：仅影响格式化输出，字段本身仍为明文——不要把 Config 序列化后对外发送。
 func (c Config) String() string {
 	return fmt.Sprintf(
-		"Config{ProviderType:%s, Region:%s, AccessKeyID:%s, SecretKey:%s, TencentAppID:%s, TencentSignName:%s, AliyunSignName:%s}",
-		c.ProviderType, c.Region, maskAccessKey(c.AccessKeyID), maskSecret(c.SecretKey),
+		"Config{ProviderType:%s, Region:%s, AccessKeyID:%s, SecretKey:%s, BatchConcurrency:%d, TencentAppID:%s, TencentSignName:%s, AliyunSignName:%s}",
+		c.ProviderType, c.Region, maskAccessKey(c.AccessKeyID), maskSecret(c.SecretKey), c.BatchConcurrency,
 		c.TencentAppID, c.TencentSignName, c.AliyunSignName)
 }
 
@@ -150,19 +153,30 @@ const (
 // 归一为 ≥1 的值，同时保证阿里云页码换算（Offset/Limit）的除数不为 0。
 const defaultQueryLimit uint64 = 10
 
-// NewSMSClient 创建短信客户端
+// NewSMSClient 创建短信客户端。
+// 出错时返回真正的 nil 接口：具体构造函数返回的是带类型信息的 nil 指针（*TencentSMSClient 等），
+// 若直接透传，接口会变成「非 nil 接口包着 nil 指针」的 typed-nil，调用方 if client != nil 判不出来，
+// 后续方法调用即 panic（与 goemail NewEmailClient R3-2 修复完全同型，跨包同步）。
 func NewSMSClient(cfg *Config) (SMSClient, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("短信配置不能为空")
 	}
 	switch cfg.ProviderType {
 	case ProviderTypeTencentSMS:
-		return newTencentSMSClient(cfg)
+		return asSMSClient(newTencentSMSClient(cfg))
 	case ProviderTypeAliyunSMS:
-		return newAliyunSMSClient(cfg)
+		return asSMSClient(newAliyunSMSClient(cfg))
 	default:
 		return nil, fmt.Errorf("不支持的短信服务商类型: %s", cfg.ProviderType)
 	}
+}
+
+// asSMSClient 把具体构造函数的多返回值转成接口返回：失败时丢弃 typed-nil、只返回 err。
+func asSMSClient(client SMSClient, err error) (SMSClient, error) {
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 // isValidPhoneNumber 纯格式校验：+ 开头、其余全数字、数字部分 7~15 位（E.164 上限 15 位）。
@@ -346,16 +360,28 @@ func maskAccessKey(accessKey string) string {
 	return accessKey[:4] + strings.Repeat("*", len(accessKey)-8) + accessKey[len(accessKey)-4:]
 }
 
-// batchConcurrency 批量发送的单批并发上限：兼顾吞吐与可控性——瞬时并发受控，
+// batchConcurrency 批量发送的单批并发默认上限：兼顾吞吐与可控性——瞬时并发受控，
 // 不会一批把云侧速率限制打满；超出上限的条目在任务队列中排队等待空闲 worker。
+// 调用方可通过 Config.BatchConcurrency 覆盖（见 resolveBatchConcurrency）。
 const batchConcurrency = 10
 
+// resolveBatchConcurrency 解析批量并发上限：Config.BatchConcurrency 非正数时回落默认 batchConcurrency。
+// 不对正值封顶——腾讯/阿里云 API 速率限制差异大，由调用方自行选择（与 goemail 同型）。
+func resolveBatchConcurrency(n int) int {
+	if n <= 0 {
+		return batchConcurrency
+	}
+	return n
+}
+
 // runBatchSMS 批量发送的并发调度骨架（两云 provider 复用，保证语义对称）：
-//   - worker 数取 min(batchConcurrency, len(reqs))，按任务队列消费，单条失败不中断批量；
+//   - worker 数取 min(resolveBatchConcurrency(concurrency), len(reqs))，按任务队列消费，单条失败不中断批量；
 //   - results 按输入下标写入，与串行执行等价（输出顺序恒等于请求顺序，便于逐条定位）；
+//   - ctx 取消后 worker 不再发起后续任务：未执行条目回填 failed + ctx.Err()，
+//     results 仍完整保序，聚合 error 可定位到具体条目（首个取消打一条 Warn）；
 //   - 全部条目跑完后返回 batchErrors 聚合 error，无论成败 results 都是完整逐条结果；
 //   - send 回调负责各自的校验/日志/span，本函数只做调度与聚合。
-func runBatchSMS(ctx context.Context, reqs []*SendRequest, send func(context.Context, *SendRequest) (*SendResult, error)) ([]*SendResult, error) {
+func runBatchSMS(ctx context.Context, reqs []*SendRequest, concurrency int, send func(context.Context, *SendRequest) (*SendResult, error)) ([]*SendResult, error) {
 	results := make([]*SendResult, len(reqs))
 	if len(reqs) == 0 {
 		return results, nil
@@ -368,16 +394,33 @@ func runBatchSMS(ctx context.Context, reqs []*SendRequest, send func(context.Con
 	}
 	close(jobs)
 
-	workers := batchConcurrency
+	workers := resolveBatchConcurrency(concurrency)
 	if len(reqs) < workers {
 		workers = len(reqs)
 	}
 	var wg sync.WaitGroup
+	var cancelLogOnce sync.Once
 	wg.Add(workers)
 	for w := 0; w < workers; w++ {
 		go func() {
 			defer wg.Done()
 			for i := range jobs {
+				// ctx 感知退出：取消后剩余条目不再发起任务，逐条回填失败原因，
+				// 避免明知取消仍把请求逐个送进云 SDK（Done 已关闭，select 每轮必命中）
+				select {
+				case <-ctx.Done():
+					cancelLogOnce.Do(func() {
+						logger.WarnWithCtx(ctx, "批量发送因上下文取消终止，剩余条目标记为失败",
+							logger.Err(ctx.Err()))
+					})
+					results[i] = &SendResult{
+						Status: StatusFailed,
+						Error:  fmt.Errorf("批量任务因上下文取消未执行: %w", ctx.Err()),
+					}
+					continue
+				default:
+				}
+
 				result, err := send(ctx, reqs[i])
 				if err != nil {
 					// 此处不取 req.PhoneNumbers[0]（旧实现在 req 无号码时会 panic），

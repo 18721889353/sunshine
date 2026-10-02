@@ -285,7 +285,7 @@ func parseSendStatusItem(status *tencentSms.SendStatus) *SendResult {
 // 外层 error 为聚合结果：任一条目失败（传输层 err 或业务 Status=failed）时非 nil
 // （errors.Join 拼接带序号），全成功为 nil；无论成败 results 都包含完整的逐条结果。
 func (c *TencentSMSClient) SendBatchSMS(ctx context.Context, reqs []*SendRequest) ([]*SendResult, error) {
-	return runBatchSMS(ctx, reqs, c.SendSMS)
+	return runBatchSMS(ctx, reqs, c.config.BatchConcurrency, c.SendSMS)
 }
 
 // GetSMSStatus 查询短信发送状态
@@ -339,11 +339,16 @@ func (c *TencentSMSClient) GetSMSStatus(ctx context.Context, query *SMSStatusQue
 	}
 
 	// 解析响应；腾讯云的业务错误经 SDK 以 error 返回，
-	// Response 为空是罕见结构异常，按「查询到 0 条」处理（合法结果，不是错误）
-	data := make([]*SMSStatus, 0)
-	if response.Response != nil {
-		data = parsePullSendStatus(response.Response.PullSmsSendStatusSet)
+	// 但 err==nil 时 response 本身或其 Response 字段为 nil 属于结构异常：
+	// 静默返回 0 条会让调用方无法区分「真查到 0 条」与「服务端结构异常」，
+	// 且原实现未先判 response 自身，SDK 返回 (nil, nil) 时直接 panic；
+	// 与阿里侧 resp.Body==nil 返回 error 的语义对称（R6 全仓复核 P1）
+	if response == nil || response.Response == nil {
+		err := fmt.Errorf("腾讯短信查询返回空响应")
+		logger.ErrorWithCtx(ctx, "查询腾讯短信状态返回空响应", logger.Err(err))
+		return failedStatusResult(err), failSpan(span, err)
 	}
+	data := parsePullSendStatus(response.Response.PullSmsSendStatusSet)
 
 	result := &SMSStatusResult{
 		Status: StatusSuccess,

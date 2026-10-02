@@ -316,6 +316,10 @@ func TestParseSendDetailItems(t *testing.T) {
 		if got[2].Status != StatusPending {
 			t.Errorf("SendStatus=1 应映射为 %s, 实际 %s", StatusPending, got[2].Status)
 		}
+		// SendStatus 字段缺失时不能留零值空串——调用方 switch status 会落 default 分支误报（R6 P1）
+		if got[3].Status != StatusPending {
+			t.Errorf("SendStatus==nil 应兔底为 %s, 实际 %q", StatusPending, got[3].Status)
+		}
 	})
 
 	t.Run("回执码映射与时间解析", func(t *testing.T) {

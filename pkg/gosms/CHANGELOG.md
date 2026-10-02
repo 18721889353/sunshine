@@ -315,3 +315,56 @@
 - 实测边界沿用前两轮声明：本轮 37 项单测、7 条 bench 读数、fuzz 两目标 10s 读数已录入 README；
   `-race`（MinGW 限制）与真实云路径仍待 Linux/CI 采集——并发改动后建议在 Linux/CI 补跑
   `-race` 以覆盖 `runBatchSMS` 的并发写入路径
+
+### 第 4 版发布前复核（R6 全仓复核收口）
+
+R6 全仓复核（8.5 分）识别 1 项 P0 + 1 项 P1 + 2 项 P2，核心视角是**跨包对称性**——
+goemail R3-2/R5-3/R5-2 的三项修复 gosms 未同步，本轮全部对齐；另含 R6 报告指出的
+腾讯/阿里查询语义不对称（P1）与本轮顺手补的腾讯空响应 panic 隐患。
+
+#### 新增
+
+- **`asSMSClient` 构造辅助（R6-P0）**：把具体构造函数的多返回值转成接口返回，
+  失败时丢弃 typed-nil、只返回 err——与 goemail `asEmailClient` 完全同型
+- **`Config.BatchConcurrency` 字段与 `resolveBatchConcurrency`（R6-P2）**：批量并发上限
+  由硬编码 const 改为可配（0/负数回落默认 10，正值不封顶）；`Config.String()` 同步输出该字段
+- **守护测试**：`TestNewSMSClient` 新增「腾讯云/阿里云缺密钥时客户端必须为 nil」两条
+  （typed-nil 泄漏守护，走的是旧实现真正会触发的路径）；`TestRunBatchSMS` 新增「自定义并发
+  上限生效」「上下文取消后全部条目标记失败且零发送」「中途取消后不再发起新任务」三个子测试；
+  新增 `TestResolveBatchConcurrency`（4 分支）；`TestParseSendDetailItems/发送状态映射`
+  新增 `SendStatus==nil` 兜底断言（R6 指出原用例只断言长度不断言第 4 条状态）
+
+#### 修复
+
+- **`NewSMSClient` 返回 typed-nil 接口（P0 阻断发布，R6-P0）**：`return newTencentSMSClient(cfg)`
+  把 `(*TencentSMSClient)(nil)` 装箱进接口——缺密钥等失败路径下 `err != nil` 但 `client != nil`
+  恒成立，调用方按非空判定（常见写法）后续方法调用即 panic。与 goemail `NewEmailClient` R3-2
+  完全同型，goemail 已修 gosms 未同步。旧测试只覆盖 nil 配置与未知 provider（均走 default
+  直接 return nil，绕过 typed-nil），真正触发的缺密钥路径无测试
+  - 影响面：全部失败路径的 `NewSMSClient` 调用方；修复后 `err != nil` 时接口必为真 nil
+  - 守护：`TestNewSMSClient` 两条缺密钥子测试（断言 client == nil）
+- **阿里 `parseSendDetailItems` 空状态字符串（P1，R6-P1）**：`SendStatus == nil` 时
+  `smsStatus.Status` 保持零值空串（不属于任何合法状态），调用方 `switch status` 落 default
+  分支误报；腾讯侧 `parsePullSendStatus` 的 default 分支兑底为 `StatusPending`，两云不对称
+  - 影响面：阿里查询边缘返回缺字段时的状态值；修复后统一兜底为 `pending`
+  - 守护：`TestParseSendDetailItems/发送状态映射` 新增 `got[3]` 断言
+- **腾讯 `GetSMSStatus` 空响应静默返回成功（P1，R6 报告遗漏的同段隐患）**：原代码除
+  `response.Response == nil` 按「查到 0 条」返回成功外，`response` 本身为 nil 时
+  `response.Response` 解引用直接 panic（SDK 返回 `(nil, nil)` 即触发）。改为返回中文错误 +
+  `failedStatusResult`，与阿里侧 `resp.Body == nil` 返回 error 的语义对称
+  - 影响面：腾讯查询路径；修复前结构异常伪装成功（或 panic），修复后 fail loud
+  - 守护：**腾讯 SDK 具体类型无注入点，单测无法构造空响应**——依赖代码评审与真实云集成测试
+    （与 goemail R7-3 阿里同型问题同口径）
+- **`runBatchSMS` 缺 ctx 感知退出（P2，R6-P2）**：循环不检查 ctx，取消后剩余条目仍逐个
+  送进云 SDK；与 goemail `runBatchEmail` R5-3 修复对齐——取消后未执行条目回填
+  failed + ctx.Err()，首个取消打一条 Warn（`sync.Once`），results 仍完整保序
+  - 影响面：带取消/超时 ctx 的批量调用方；修复后取消即止，不再空跑调度
+  - 守护：`TestRunBatchSMS` 两条取消子测试（预取消零发送 / 中途取消未全量发出）
+
+#### 兼容性说明
+
+- `runBatchSMS` 为内部骨架（未导出），签名新增 `concurrency` 参数不破坏外部 API；
+  `Config.BatchConcurrency` 新增字段零值即回落默认 10，存量配置行为不变；`Config.String()`
+  打印新增该字段（格式化输出变更）
+- **未实测声明**：本轮无真实云凭据，腾讯空响应 fail loud 路径**未实测**（单测无注入点）；
+  `-race` 仍受 MinGW `exit status 0xc0000139` 限制未跑，并发改动后建议 Linux/CI 补跑

@@ -221,7 +221,7 @@ func parseSendSmsResult(resp *dysmsapi.SendSmsResponse) (*SendResult, error) {
 // 外层 error 为聚合结果：任一条目失败（传输层 err 或业务 Status=failed）时非 nil
 // （errors.Join 拼接带序号），全成功为 nil；无论成败 results 都包含完整的逐条结果。
 func (c *AliyunSMSClient) SendBatchSMS(ctx context.Context, reqs []*SendRequest) ([]*SendResult, error) {
-	return runBatchSMS(ctx, reqs, c.SendSMS)
+	return runBatchSMS(ctx, reqs, c.config.BatchConcurrency, c.SendSMS)
 }
 
 // GetSMSStatus 查询短信发送状态
@@ -374,6 +374,11 @@ func parseSendDetailItems(details []*dysmsapi.QuerySendDetailsResponseBodySmsSen
 			default:
 				smsStatus.Status = StatusPending
 			}
+		} else {
+			// SendStatus 字段缺失（边缘返回）时按「处理中」兜底，与腾讯侧
+			// parsePullSendStatus 的 default 分支一致——不给零值空串，
+			// 避免调用方 switch status 落 default 分支误报（R6 全仓复核 P1）
+			smsStatus.Status = StatusPending
 		}
 
 		// 状态码和消息

@@ -49,6 +49,31 @@ func TestNewSMSClient(t *testing.T) {
 		}
 	})
 
+	// 以下两条守护 typed-nil 泄漏（R6 全仓复核 P0）：缺密钥走的是具体构造函数
+	// 的「return nil, err」路径，typed-nil 指针装箱进接口后 client != nil 恒成立，
+	// 调用方按非空判定即 panic——与 goemail NewEmailClient R3-2 完全同型
+	t.Run("腾讯云缺密钥时客户端必须为nil", func(t *testing.T) {
+		t.Parallel()
+		client, err := NewSMSClient(&Config{ProviderType: ProviderTypeTencentSMS})
+		if err == nil {
+			t.Fatal("缺密钥应返回错误")
+		}
+		if client != nil {
+			t.Errorf("typed-nil 泄漏：出错时接口应为真 nil, 实际 %v（调用方按非空判定会 panic）", client)
+		}
+	})
+
+	t.Run("阿里云缺密钥时客户端必须为nil", func(t *testing.T) {
+		t.Parallel()
+		client, err := NewSMSClient(&Config{ProviderType: ProviderTypeAliyunSMS})
+		if err == nil {
+			t.Fatal("缺密钥应返回错误")
+		}
+		if client != nil {
+			t.Errorf("typed-nil 泄漏：出错时接口应为真 nil, 实际 %v（调用方按非空判定会 panic）", client)
+		}
+	})
+
 	t.Run("腾讯云创建成功", func(t *testing.T) {
 		t.Parallel()
 		client, err := NewSMSClient(tencentTestConfig())
@@ -625,7 +650,7 @@ func TestRunBatchSMS(t *testing.T) {
 
 	t.Run("空列表返回空结果与nilerror", func(t *testing.T) {
 		t.Parallel()
-		results, err := runBatchSMS(ctx, nil, func(context.Context, *SendRequest) (*SendResult, error) {
+		results, err := runBatchSMS(ctx, nil, 0, func(context.Context, *SendRequest) (*SendResult, error) {
 			t.Error("空列表不应调用 send")
 			return nil, nil
 		})
@@ -645,7 +670,7 @@ func TestRunBatchSMS(t *testing.T) {
 		for i := range reqs {
 			reqs[i] = &SendRequest{TemplateID: fmt.Sprintf("req-%d", i)}
 		}
-		results, err := runBatchSMS(ctx, reqs, func(_ context.Context, r *SendRequest) (*SendResult, error) {
+		results, err := runBatchSMS(ctx, reqs, 0, func(_ context.Context, r *SendRequest) (*SendResult, error) {
 			if r.TemplateID == "req-7" {
 				return &SendResult{Status: StatusFailed, Error: errors.New("boom")}, nil
 			}
@@ -684,7 +709,7 @@ func TestRunBatchSMS(t *testing.T) {
 		for i := range reqs {
 			reqs[i] = &SendRequest{}
 		}
-		_, err := runBatchSMS(ctx, reqs, func(context.Context, *SendRequest) (*SendResult, error) {
+		_, err := runBatchSMS(ctx, reqs, 0, func(context.Context, *SendRequest) (*SendResult, error) {
 			n := atomic.AddInt32(&cur, 1)
 			for {
 				old := atomic.LoadInt32(&peak)
@@ -706,4 +731,124 @@ func TestRunBatchSMS(t *testing.T) {
 			t.Errorf("并发峰值 %d，应确实并行执行（退化为串行则失去吞吐意义）", got)
 		}
 	})
+
+	t.Run("自定义并发上限生效", func(t *testing.T) {
+		t.Parallel()
+		var cur, peak int32
+		reqs := make([]*SendRequest, 30)
+		for i := range reqs {
+			reqs[i] = &SendRequest{}
+		}
+		_, err := runBatchSMS(ctx, reqs, 3, func(context.Context, *SendRequest) (*SendResult, error) {
+			n := atomic.AddInt32(&cur, 1)
+			for {
+				old := atomic.LoadInt32(&peak)
+				if n <= old || atomic.CompareAndSwapInt32(&peak, old, n) {
+					break
+				}
+			}
+			time.Sleep(time.Millisecond)
+			atomic.AddInt32(&cur, -1)
+			return &SendResult{Status: StatusSuccess}, nil
+		})
+		if err != nil {
+			t.Fatalf("全部成功时应返回 nil error, 实际 %v", err)
+		}
+		if got := atomic.LoadInt32(&peak); got > 3 {
+			t.Errorf("自定义并发 3 的峰值不应超过 3, 实际 %d", got)
+		}
+		if got := atomic.LoadInt32(&peak); got < 2 {
+			t.Errorf("自定义并发 3 应确实并行, 峰值 %d", got)
+		}
+	})
+
+	t.Run("上下文取消后全部条目标记失败且零发送", func(t *testing.T) {
+		t.Parallel()
+		// 预取消 ctx：worker 在首次 select 即命中 Done，一条都不应发出去（R6 全仓复核 P2）
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		var sent int32
+		reqs := make([]*SendRequest, 15)
+		for i := range reqs {
+			reqs[i] = &SendRequest{}
+		}
+		results, err := runBatchSMS(canceledCtx, reqs, 0, func(context.Context, *SendRequest) (*SendResult, error) {
+			atomic.AddInt32(&sent, 1)
+			return &SendResult{Status: StatusSuccess}, nil
+		})
+		if got := atomic.LoadInt32(&sent); got != 0 {
+			t.Errorf("ctx 已取消时不应发起任何发送, 实际调用 %d 次", got)
+		}
+		if len(results) != len(reqs) {
+			t.Fatalf("取消也必须保序回填完整结果, 期望 %d 条, 实际 %d 条", len(reqs), len(results))
+		}
+		for i, r := range results {
+			if r == nil || r.Status != StatusFailed || r.Error == nil {
+				t.Errorf("第 %d 条应回填 failed + ctx 错误, 实际 %+v", i+1, r)
+			}
+		}
+		if err == nil {
+			t.Fatal("全部取消时应返回聚合 error")
+		}
+		if !strings.Contains(err.Error(), "第 1 条") || !strings.Contains(err.Error(), "上下文取消") {
+			t.Errorf("聚合错误应含条目序号与取消原因, 实际 %q", err.Error())
+		}
+	})
+
+	t.Run("中途取消后不再发起新任务", func(t *testing.T) {
+		t.Parallel()
+		ctx2, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var sent int32
+		reqs := make([]*SendRequest, 30)
+		for i := range reqs {
+			reqs[i] = &SendRequest{}
+		}
+		results, err := runBatchSMS(ctx2, reqs, 0, func(context.Context, *SendRequest) (*SendResult, error) {
+			if atomic.AddInt32(&sent, 1) == 1 {
+				cancel() // 首条执行中取消：已进入 send 的批次允许跑完，后续任务不再发起
+			}
+			return &SendResult{Status: StatusSuccess}, nil
+		})
+		// 不断言具体 send 次数（取消时刻与其他 worker 的 select 存在竞态窗口），
+		// 但必须证明「未全量发出」——取消失效时 30 条会全部进 send
+		if got := atomic.LoadInt32(&sent); got >= int32(len(reqs)) {
+			t.Errorf("取消后不应发起全部任务: send 调用数 %d/%d", got, len(reqs))
+		}
+		if len(results) != len(reqs) {
+			t.Fatalf("取消也必须回填完整结果, 期望 %d 条, 实际 %d 条", len(reqs), len(results))
+		}
+		for i, r := range results {
+			if r == nil {
+				t.Fatalf("第 %d 条结果为空", i+1)
+			}
+		}
+		if err == nil {
+			t.Fatal("存在未执行条目时应返回聚合 error")
+		}
+		if !strings.Contains(err.Error(), "上下文取消") {
+			t.Errorf("聚合错误应含取消原因, 实际 %q", err.Error())
+		}
+	})
+}
+
+// TestResolveBatchConcurrency 验证批量并发上限的解析：零值/负值回落默认 10，正值原样生效。
+func TestResolveBatchConcurrency(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		n    int
+		want int
+	}{
+		{0, batchConcurrency},
+		{-1, batchConcurrency},
+		{1, 1},
+		{64, 64},
+	}
+	for _, tt := range tests {
+		if got := resolveBatchConcurrency(tt.n); got != tt.want {
+			t.Errorf("resolveBatchConcurrency(%d) = %d, 期望 %d", tt.n, got, tt.want)
+		}
+	}
 }

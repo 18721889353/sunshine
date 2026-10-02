@@ -175,7 +175,7 @@ for i, r := range results {
 }
 ```
 
-**内部行为**：以**至多 10 条并发**逐条调用 `SendSMS`（超出上限的条目排队，不会一批打满云侧速率限制）；**输出顺序恒等于 `reqs` 输入顺序**（与串行语义等价，`results[i]` 对应 `reqs[i]`）；单条失败只记 Warn 日志（含序号）并产出失败 result，**不中断批量**；全部条目跑完后聚合失败为外层 `error`（`errors.Join`，含条目序号），全成功为 nil——`results` 无论成败都包含完整的逐条结果，两者可同时使用。
+**内部行为**：以**至多 10 条并发**（可经 `Config.BatchConcurrency` 覆盖，0/负数回落默认）逐条调用 `SendSMS`（超出上限的条目排队，不会一批打满云侧速率限制）；**输出顺序恒等于 `reqs` 输入顺序**（与串行语义等价，`results[i]` 对应 `reqs[i]`）；单条失败只记 Warn 日志（含序号）并产出失败 result，**不中断批量**；全部条目跑完后聚合失败为外层 `error`（`errors.Join`，含条目序号），全成功为 nil——`results` 无论成败都包含完整的逐条结果，两者可同时使用；**ctx 取消后未执行条目不再发起，逐条回填 failed + `ctx.Err()`**（与 goemail `runBatchEmail` 语义对称）。
 
 **注意**：`reqs` 中的 nil 元素或非法请求会产出失败 result（不 panic），并计入外层聚合 error。
 
@@ -239,6 +239,7 @@ phone := gosms.FormatPhoneNumber("13711112222") // +8613711112222
 | TencentAppID | string | 腾讯必填 | 腾讯云短信应用 ID |
 | TencentSignName | string | 否 | 腾讯默认签名：`SendRequest.SignName` 为空时兜底 |
 | AliyunSignName | string | 否 | 阿里默认签名：`SendRequest.SignName` 为空时兜底 |
+| BatchConcurrency | int | 否 | 批量发送并发上限（`SendBatchSMS` 用）；0/负数回落默认 10，正值不封顶 |
 
 ### SendRequest
 
@@ -290,6 +291,8 @@ func NewSMSClient(cfg *Config) (SMSClient, error)
 
 - `cfg == nil` 报「短信配置不能为空」（不 panic）
 - 未知 ProviderType 报错；创建过程不发起网络调用
+- **出错时返回真 nil 接口**：缺密钥等构造失败路径下 `err != nil` 时 `client` 必为 nil，
+  按 `client != nil` 判定安全（typed-nil 防护，与 goemail `NewEmailClient` 同型）
 
 ### SMSClient.SendSMS — 发送短信
 
@@ -309,7 +312,7 @@ SendSMS(ctx context.Context, req *SendRequest) (*SendResult, error)
 SendBatchSMS(ctx context.Context, reqs []*SendRequest) ([]*SendResult, error)
 ```
 
-- 至多 **10 条并发**逐条调用、单条失败**不中断**（`results` 恒为完整逐条结果），**输出顺序恒等于输入顺序**；全部跑完后外层 error 聚合失败（`errors.Join`，含条目序号），全成功为 nil——勿再假设「外层 error 恒为 nil」
+- 至多 **10 条并发**（可经 `Config.BatchConcurrency` 覆盖）逐条调用、单条失败**不中断**（`results` 恒为完整逐条结果），**输出顺序恒等于输入顺序**；全部跑完后外层 error 聚合失败（`errors.Join`，含条目序号），全成功为 nil——勿再假设「外层 error 恒为 nil」；**ctx 取消后未执行条目回填 failed + `ctx.Err()`，不再发起新任务**
 
 ### SMSClient.GetSMSStatus — 查询发送状态
 
@@ -318,6 +321,8 @@ GetSMSStatus(ctx context.Context, query *SMSStatusQuery) (*SMSStatusResult, erro
 ```
 
 - 归一化在发网络前完成；0 条记录是合法成功结果
+- **空响应是错误不是 0 条**：腾讯 `response`/`response.Response` 为 nil、阿里 `resp.Body` 为 nil
+  均返回中文错误 + `StatusFailed`（不伪装成功）——两云语义对称
 
 ### ValidatePhoneNumber / FormatPhoneNumber / SendRequest.Validate / SendResult.IsSuccess
 
@@ -451,18 +456,18 @@ go test ./pkg/gosms/ -bench . -benchtime=100000x -run '^$'
 
 | 基准 | 场景 | ns/op | B/op | allocs/op | benchtime |
 |------|------|-------|------|-----------|-----------|
-| BenchmarkValidatePhoneNumber | E.164 格式校验（纯函数） | 7.940 | 0 | 0 | 100000x |
-| BenchmarkFormatPhoneNumber | 国际前缀补全（纯函数） | 13.25 | 0 | 0 | 100000x |
-| BenchmarkMaskPhone | 手机号脱敏（纯函数） | 68.79 | 24 | 2 | 100000x |
-| BenchmarkParseSendSmsStatus | 腾讯发送响应解析（多号码路径） | 1306 | 1848 | 19 | 100000x |
-| BenchmarkParsePullSendStatus | 腾讯下发状态列表解析 | 818.9 | 1464 | 13 | 100000x |
-| BenchmarkParseSendDetailItems | 阿里发送明细 DTO 解析 | 818.2 | 552 | 7 | 100000x |
-| BenchmarkBatchErrors | 批量失败聚合（errors.Join） | 1209 | 456 | 13 | 100000x |
+| BenchmarkValidatePhoneNumber | E.164 格式校验（纯函数） | 8.039 | 0 | 0 | 100000x |
+| BenchmarkFormatPhoneNumber | 国际前缀补全（纯函数） | 21.39 | 0 | 0 | 100000x |
+| BenchmarkMaskPhone | 手机号脱敏（纯函数） | 70.43 | 24 | 2 | 100000x |
+| BenchmarkParseSendSmsStatus | 腾讯发送响应解析（多号码路径） | 990.4 | 1848 | 19 | 100000x |
+| BenchmarkParsePullSendStatus | 腾讯下发状态列表解析 | 652.7 | 1464 | 13 | 100000x |
+| BenchmarkParseSendDetailItems | 阿里发送明细 DTO 解析 | 748.6 | 552 | 7 | 100000x |
+| BenchmarkBatchErrors | 批量失败聚合（errors.Join） | 913.1 | 456 | 13 | 100000x |
 
 **口径与解读：**
 
 - 七条基准均为无网络 RTT 的纯函数（入口校验/脱敏 + 响应解析/批量聚合两条热路径），量的是 gosms 自身的处理开销；实测环境：本机 Windows / 11th Gen Intel i5-1135G7
-- 上表为 `-benchtime=100000x` 正式基线的代表性单轮读数（与上方命令一致）。同口径多轮实测区间：校验 7.940~16.12 ns、格式化 13.25~17.14 ns、脱敏 68.79~122.4 ns——ns/op 受机器状态影响波动，**跨轮次对比以 allocs/op 为稳定指标**；10x 快速回归波动更大（同机曾读到 40~290 ns）
+- 上表为 `-benchtime=100000x` 正式基线的单轮读数（与上方命令一致）。`ns/op` 受机器状态影响跨轮波动，**跨轮次对比以 allocs/op 与 B/op 为稳定指标**（本轮 7 条读数两者与历史完全一致）；10x 快速回归波动更大（同机曾读到 40~290 ns）
 - 稳定指标（allocs/op）：校验与格式化 0 分配，脱敏 2 分配（`strings.Repeat` 产生）；解析与聚合类基准的分配来自逐条构造结果/错误对象（parse* 每条 1 个结果 + Extra map，batchErrors 每条 1 个包装错误）
 
 ### 模糊测试
@@ -477,7 +482,7 @@ go test ./pkg/gosms/ -fuzz FuzzFormatPhoneNumber -fuzztime=10s -run '^$'
 | FuzzValidatePhoneNumber | 校验不 panic；校验通过 ⇒ 以 `+` 开头且格式化为恒等 |
 | FuzzFormatPhoneNumber | 格式化不 panic；输出恒以 `+` 开头且幂等（`Format(Format(x)) == Format(x)`） |
 
-**实测**（本机 Windows，`-fuzztime=10s`，最终代码状态）：FuzzValidatePhoneNumber 95,832 execs PASS；FuzzFormatPhoneNumber 2,173 execs PASS。种子语料随常规 `go test` 执行。execs 受本地语料库增长与机器状态影响跨轮次波动（同口径另测得 109,100 / 2,174、112,098 / 2,252，早期轮次 92,797 / 96,894），判定标准是 PASS 本身而非 execs 高低。
+**实测**（本机 Windows，`-fuzztime=10s`，最终代码状态）：FuzzValidatePhoneNumber 197,848 execs PASS；FuzzFormatPhoneNumber 3,580 execs PASS。种子语料随常规 `go test` 执行。execs 受本地语料库增长与机器状态影响跨轮次波动（同口径另测得 95,832 / 2,173、109,100 / 2,174、112,098 / 2,252，早期轮次 92,797 / 96,894），判定标准是 PASS 本身而非 execs 高低。
 
 ## 许可证
 
