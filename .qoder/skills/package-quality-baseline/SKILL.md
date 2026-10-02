@@ -51,8 +51,8 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 |----|------|-----------|--------|
 | 单元 | 包内 mock | 是 | 每个导出函数 ≥1 正向 + ≥1 错误/边界；goroutine 测试用 channel/WaitGroup 等待，禁止裸 `time.Sleep` 判定结果 |
 | 集成 | 真实外部服务 | 否（需 `-tags=integration`） | 环境变量缺失即 Skip；不可达即 Skip；**断言不符必须 Fail** |
-| 基准 | mock | 否（需 `-bench`） | 标注 `-benchtime`，并说明口径（是否含 RTT） |
-| 模糊 | mock | 种子跑，挖掘需显式 `-fuzz` | 每条不变量能写成一句可判定的话 |
+| 基准 | mock | 否（需 `-bench`） | 标注 `-benchtime` 并说明口径（是否含 RTT）；正式基线固定 benchtime（本仓惯例 `100000x`），README 给代表性单轮读数 + 多轮区间，**跨轮对比以 allocs/op 为准**（ns/op 受机器状态影响，同机可波动数倍） |
+| 模糊 | mock | 种子跑，挖掘需显式 `-fuzz` | 每条不变量能写成一句可判定的话；**判定标准是 PASS 本身**——execs 受本地语料库与机器状态影响跨轮波动，只登记不作对比依据 |
 
 ## 四、集成测试规范
 
@@ -79,6 +79,7 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 | SDK 返回 `false`（连接处于 `STARTING`） | `t.Skipf` | 基础设施未就绪 |
 | 加密配置无密钥无法解密 | `t.Logf` 记录后通过 | 预期行为 |
 | **断言值不符** | `t.Fatalf` / `assert` | 这才是被测代码的问题 |
+| 产生费用的操作（真实发送/写入）未显式授权 | `t.Skip`（授权开关如 `GOSMS_ALLOW_PAID_SEND=1` 未设置） | 防 CI 误配凭据白花钱；查询类免费操作不受此限制 |
 
 > 反向陷阱：**不要**把基础设施故障归类成「预期失败」。曾出现过把 `config encrypted data key` 当加密特征，
 > 而它实际是「本地缓存文件不存在」的错误文本片段，导致 gRPC 不可达被静默放过。
@@ -154,6 +155,8 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 | `-race` 需 cgo | `exit status 0xc0000139`（本机 gcc 问题） | `CGO_ENABLED=1`；本机跑不通就在文档里声明未取证 |
 | 测试命令入 Makefile | 污染根构建入口 | 一律走原生 `go test`，**不在项目根 Makefile 新增 target** |
 | 排障脚本落进包目录 | `runlist.bat`、`list8.log` 被 git 状态带出 | 收尾必查 `git status --short <pkg>`，临时文件不进包目录 |
+| grep 复杂模式带双引号被 bash 拆解 | `syntax error near unexpected token`、`if [ -f "$f" ]` 引号丢失 | 模式统一单引号；复杂匹配重定向到临时文件再 grep（`... > /tmp/x.txt` 后 `grep ... /tmp/x.txt`） |
+| Git Bash 里用 cmd 语法（`dir /b`） | `command not found` | Git Bash 用 `ls`/`find`；Windows cmd 专用语法不与 bash 混用 |
 
 ## 九、验收清单（改完一个包，逐项打勾）
 
@@ -164,7 +167,7 @@ description: Defines the Sunshine repo's per-package quality baseline - delivera
 - [ ] go test -tags=integration -count=1 全绿或有 Skip 且 Skip 原因已说明
 - [ ] 每个新增/修改的源文件都有同名 _test.go；helper 放 test_helpers_test.go（必须带 _test.go 后缀）
 - [ ] 新测试函数命名符合方案 A（全英文标识符 + 中文 doc）
-- [ ] 集成测试：环境变量缺失→Skip；不可达→Skip 带 error；断言不符→Fail
+- [ ] 集成测试：环境变量缺失→Skip；不可达→Skip 带 error；断言不符→Fail；付费用例有显式授权开关（未授权 Skip）
 - [ ] 等待时长全部是命名常量，注释含「为何固定等待 / 取值依据 / 为何不 flaky」
 - [ ] 文档与注释里每句「实测」都有读数；未验证的显式声明未验证
 - [ ] README 更新（场景、参数表、集成测试章节、实测结果汇总）

@@ -104,9 +104,10 @@ func sendSMS(ctx context.Context, client gosms.SMSClient, cfg *Config) *gosms.Se
 		PhoneNumbers: []string{cfg.PhoneNumber},
 		TemplateID:   cfg.TemplateID,
 		SignName:     cfg.SignName,
-		TemplateParams: map[string]string{
-			"1": verifyCode,
-			"2": time.Now().Format(time.DateTime),
+		TemplateParams: []gosms.TemplateParam{
+			// 腾讯云为位置参数：切片顺序对应模板 %1%、%2%，不能用 map（遍历序随机会错位）
+			{Key: "1", Value: verifyCode},
+			{Key: "2", Value: time.Now().Format(time.DateTime)},
 		},
 	}
 

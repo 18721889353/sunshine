@@ -30,8 +30,8 @@ func ExampleSendTencentSMS() {
 		PhoneNumbers: []string{"+8613711112222"},
 		TemplateID:   "1234567",      // 模板ID（需要在腾讯云控制台审核通过）
 		SignName:     "江苏通卡数字科技有限公司", // 签名名称
-		TemplateParams: map[string]string{
-			"1": "123456", // 验证码
+		TemplateParams: []TemplateParam{
+			{Key: "1", Value: "123456"}, // 验证码（腾讯云为位置参数：顺序对应 %1%）
 		},
 	}
 
@@ -67,8 +67,8 @@ func ExampleSendAliyunSMS() {
 		PhoneNumbers: []string{"+8613711112222"},
 		TemplateID:   "SMS_123456789", // 模板ID（需要在阿里云控制台审核通过）
 		SignName:     "江苏通卡数字科技有限公司",  // 签名名称
-		TemplateParams: map[string]string{
-			"code": "123456", // 验证码
+		TemplateParams: []TemplateParam{
+			{Key: "code", Value: "123456"}, // 验证码（阿里云为命名参数，Key 写入 JSON）
 		},
 	}
 
@@ -143,16 +143,16 @@ func ExampleBatchSendSMS() {
 			PhoneNumbers: []string{"+8613711112222"},
 			TemplateID:   "1234567",
 			SignName:     "江苏通卡数字科技有限公司",
-			TemplateParams: map[string]string{
-				"1": "123456",
+			TemplateParams: []TemplateParam{
+				{Key: "1", Value: "123456"},
 			},
 		},
 		{
 			PhoneNumbers: []string{"+8613711112223"},
 			TemplateID:   "1234567",
 			SignName:     "江苏通卡数字科技有限公司",
-			TemplateParams: map[string]string{
-				"1": "654321",
+			TemplateParams: []TemplateParam{
+				{Key: "1", Value: "654321"},
 			},
 		},
 	}

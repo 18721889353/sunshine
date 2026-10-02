@@ -19,13 +19,13 @@ description: Documents Sunshine framework's shared lint compliance rules, Go dev
 | 二 | revive empty-block — 禁止空 if 块 | |
 | 三 | revive redefines-builtin-id — 禁止覆盖内置标识符 | |
 | 四 | revive unused-parameter — 未使用的参数用 `_` | |
-| 五 | revive var-naming — Go 命名约定 | |
+| 五 | revive var-naming / confusing-naming — Go 命名约定 | 同包标识符禁仅大小写不同 |
 | 六 | revive package-comments — 包注释格式 | |
 | 七 | goimports — 本地包必须单独分组 | |
 | 八 | revive identical-branches — 禁止相同分支 | |
 | 九 | revive context-as-argument — context.Context 必须是第一参数 | |
 | 十 | gocognit — 认知复杂度超限 | 提取子函数 + 条件前置 |
-| 十一 | 经验教训总结 | 闭包递归 / gocognit 修复 / 日志 ctx / 批量不中断 / 条件前置 / 资源清理 / atomic.Pointer / 字符串错误 / 优雅关闭 |
+| 十一 | 经验教训总结 | 闭包递归 / gocognit 修复 / 日志 ctx / 批量不中断 / 条件前置 / 资源清理 / atomic.Pointer / 字符串错误 / 优雅关闭 / 批量错误聚合 / API 判定助手 / 脱敏 Stringer / 并发批量保序 |
 | 十二 | 原子计数器优先使用 atomic.Int32/Int64 | 指针替代 CAS 循环 |
 | 十三 | sync.Map 操作规范 — 计数漂移保护 | Range 内联 I/O 去中间切片 |
 | 十四 | Ctx 变体设计规范 | Ctx 变体 + 构造函数接收 Context |
@@ -224,6 +224,24 @@ var fn = func(_ *http.Request) bool { return true }
 | `parseUrl` | `parseURL` |
 | `userId` | `userID` |
 | `httpAddr` | `HTTPAddr` |
+
+### revive confusing-naming — 同包标识符禁止仅大小写不同
+
+同一文件内，函数、方法、类型之间若名字**仅首字母大小写不同**，revive 的 `confusing-naming` 会报错（即便一个是导出 API、一个是包内纯函数）：
+
+```go
+// ❌ 错误：纯函数 validatePhoneNumber 与导出方法 ValidatePhoneNumber 仅大小写不同，lint exit 1
+func validatePhoneNumber(phone string) bool { ... }
+func ValidatePhoneNumber(ctx context.Context, phoneNumber string) bool { ... }
+
+// ✅ 正确：内部纯函数换语义不同的名字（is 前缀），与导出 API 拉开距离
+func isValidPhoneNumber(phone string) bool { ... }
+func ValidatePhoneNumber(ctx context.Context, phoneNumber string) bool { ... }
+```
+
+**真实案例**：`pkg/gosms` R1——`Validate()` 接入纯函数时新增 `validatePhoneNumber`，与导出版 `ValidatePhoneNumber` 同文件冲突，`golangci-lint run` 报 exit 1（其余全部通过）；改为 `isValidPhoneNumber` 后恢复 exit 0。**禁止用 `//nolint` 绕过**（核心原则）。
+
+**规避**：新增包内纯函数前先 grep 同名标识符（忽略大小写）；内部实现惯用 `is`/`build`/`parse` 等前缀，天然与导出版动词名区分。
 
 ## 六、revive package-comments — 包注释格式
 
@@ -576,6 +594,110 @@ func (c *Client) Close() error {
 ```
 
 **适用场景**：WebSocket 连接、消息队列消费者、任何需保证关闭时数据不丢失的并发写入系统。
+
+### 12.10 批量操作收尾：聚合错误返回，而非只记日志
+
+12.4 的后半：「单条失败不中断」只保了过程，若收尾只记日志，「全部失败」会伪装成成功（调用方只看外层 error 永远以为没事）。批量处理必须在全部条目跑完后把失败**聚合为单个 error 返回**：
+
+```go
+// ✅ 单条失败继续 + 收尾聚合（gosms batchErrors 模式）
+results := make([]*SendResult, len(reqs)) // 按输入下标回填，保序
+for i, req := range reqs {
+    results[i] = process(req) // 失败写入 results[i]，不中断后续条目
+}
+return results, batchErrors(results)
+
+// batchErrors：errors.Join + %w + 「第 N 条」序号，全成功返回 nil
+func batchErrors(results []*SendResult) error {
+    errs := make([]error, 0)
+    for i, r := range results {
+        switch {
+        case r == nil:
+            errs = append(errs, fmt.Errorf("第 %d 条结果为空", i+1))
+        case r.Status == StatusSuccess:
+            // 成功不收集；若 Error 非空属状态矛盾，防御性计入（不静默吞错）
+        case r.Error != nil:
+            errs = append(errs, fmt.Errorf("第 %d 条: %w", i+1, r.Error))
+        default:
+            errs = append(errs, fmt.Errorf("第 %d 条发送失败", i+1))
+        }
+    }
+    return errors.Join(errs...)
+}
+```
+
+要点：`errors.Join` + `%w` 让调用方可用 `errors.Is/As` 逐条展开；带**输入序号**才能定位到是哪一条；`results` 与聚合 error 同时返回，「不中断」与「fail loud」并存。防御分支（nil 结果、success 但 Error 非空）都要显式处理，不静默跳过。
+
+### 12.11 「err == nil ≠ 成功」的 API 用判定助手收口
+
+云 SDK / 第三方 API 常见「业务失败仍返回 `err == nil`」（错误码在响应体里）。若既有语义已定型，**不选破坏性的「业务失败也返回 error」**（改变返回值语义，影响全部调用方），而是提供 nil-safe 判定助手 + 文档警告：
+
+```go
+// ✅ nil-safe 判定助手：可直接对可能为 nil 的 result 调用
+func (r *SendResult) IsSuccess() bool {
+    return r != nil && r.Status == StatusSuccess
+}
+```
+
+要点：
+1. 助手必须 nil-safe（nil receiver 返回 false），调用方无需先判 nil
+2. README「API 速查」同步加醒目的 `**注意**：err == nil 不等于发送成功`，示例代码用助手判定
+3. 拒绝破坏性方案的理由写进 CHANGELOG（影响面 + 迁移方式）
+4. 守护测试覆盖三态：nil receiver / failed / 业务失败（Error 非空但按失败判）
+
+**真实案例**：`pkg/gosms` R2-P1-3，终审评价为「全仓唯一的 API 陷阱防护」。
+
+### 12.12 含密钥结构体用 fmt.Stringer 脱敏（值接收 + 纯函数掩码）
+
+含 SecretKey/Token 的结构体必须实现 `String()`，否则 `fmt.Printf("%+v", cfg)` 会把密钥明文写进日志：
+
+```go
+// ✅ 值接收者：一行覆盖 %v/%+v/%s 与值/指针两形态（打印 *Config 时自动解引用）
+func (c Config) String() string {
+    return fmt.Sprintf("Config{...AccessKeyID:%s, SecretKey:%s...}",
+        maskAccessKey(c.AccessKeyID), maskSecret(c.SecretKey))
+}
+
+// 掩码纯函数：密钥首2尾2、标识首4尾4；短于阈值整体 *（首2尾2 对 4 位串等于没掩码）
+func maskSecret(s string) string {
+    if s == "" { return "" }
+    if len(s) <= 4 { return strings.Repeat("*", len(s)) }
+    return s[:2] + strings.Repeat("*", len(s)-4) + s[len(s)-2:]
+}
+```
+
+要点：值接收者是关键设计（值/指针两形态一并生效）；掩码边界写成纯函数便于单测；doc 注明「仅影响格式化输出，字段仍为明文，勿序列化外发」；守护测试断言 **%v/%+v/%s 三格式 + 指针形态**均不含明文且含掩码串；AccessKeyID 与 SecretKey 组合使用，安全审计通常要求两者都不落明文（保留首4尾4 仍可区分用的哪把密钥）。
+
+**真实案例**：`pkg/gosms` R2-P1-5 + R3-P2-2，与手机号 `maskPhone` 同一安全边界。
+
+### 12.13 批量并发骨架：保序回填 + 并发上限 + 统一聚合
+
+串行批量改并发时，抽公共骨架供多个 provider 复用（保证对称语义），三条硬约束缺一不可：
+
+```go
+// ✅ 骨架：send 回调注入，单测不发网络即可守护
+func runBatch(ctx context.Context, reqs []*Req, send func(context.Context, *Req) (*Result, error)) ([]*Result, error) {
+    results := make([]*Result, len(reqs)) // ① 按输入下标回填 → 输出顺序恒等于输入顺序
+    if len(reqs) == 0 { return results, nil }
+    jobs := make(chan int, len(reqs))     // ② 任务队列一次性灌满，worker 数 = min(上限, len)
+    for i := range reqs { jobs <- i }
+    close(jobs)
+    workers := batchConcurrency; if len(reqs) < workers { workers = len(reqs) }
+    var wg sync.WaitGroup
+    // 启 workers 消费 jobs：results[i] = send(ctx, reqs[i])，失败 Warn（含序号）不中断
+    wg.Wait()
+    return results, batchErrors(results)   // ③ 收尾聚合（见 12.10）
+}
+```
+
+要点：
+- **保序是关键**：`results[i]` 对应 `reqs[i]`，聚合序号「第 N 条」才指得准；并发完成次序不定，靠下标回填保证对齐
+- **上限防打满限流**：超出上限的条目排队，不瞬时洪峰打满云侧速率限制
+- **可测性**：send 回调注入后，单测用 atomic 峰值计数守护「并发峰值 ≤ 上限 且 ≥2（非退化串行）」+ 输入序标记守护保序，全程无网络
+- **语义不变性**：「单条失败不中断」「聚合 error」「results 完整」与串行版完全一致，变的只有执行方式——因此是安全的性能优化而非行为变更
+- **改完补跑 `-race`**：并发写入路径必须用竞态检测覆盖（本机跑不通就在文档声明未取证，证据交 Linux/CI）
+
+**真实案例**：`pkg/gosms` R3-P2-3 `runBatchSMS`（腾讯/阿里两云各一行复用）。
 
 ## 十二、原子计数器优先使用 atomic.Int32/Int64 类型
 
