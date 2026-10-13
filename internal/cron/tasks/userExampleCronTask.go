@@ -11,6 +11,7 @@ package tasks
 //	"strings"
 //	"time"
 //
+//	"go.opentelemetry.io/otel"
 //	"google.golang.org/grpc/metadata"
 //
 //	"github.com/18721889353/sunshine/internal/cache"
@@ -18,7 +19,6 @@ package tasks
 //	"github.com/18721889353/sunshine/internal/dao"
 //	"github.com/18721889353/sunshine/internal/database"
 //	"github.com/18721889353/sunshine/pkg/gocron"
-//	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 //	"github.com/18721889353/sunshine/pkg/logger"
 //)
 //
@@ -104,11 +104,25 @@ package tasks
 //	return fmt.Errorf("%s:%d: error:%w", file, line, err)
 //}
 //
-//// cancelOrderTimeoutTask 订单超时取消任务入口
+//// userExampleTask 示例任务入口
 //func (s *userExampleTaskService) userExampleTask() {
-//	// 先使用本地互斥锁进行快速检查
+//	// 1. 构造本次执行的追踪上下文：request_id 双写（gRPC metadata + context value）。
+//	//    why 双写：ServerCtxRequestIDField 从 metadata 提取，而 logger.*WithCtx 的
+//	//    自动提取只认 context value（ContextKeyRequestID，不读 metadata），两处都设置
+//	//    才能让全部日志无需显式传字段就自动携带 request_id
+//	requestID := database.GetSnowID().String()
+//	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
+//		string(logger.ContextKeyRequestID): requestID,
+//	}))
+//	ctx = context.WithValue(ctx, logger.ContextKeyRequestID, requestID)
+//	// 2. 起 root span：使全部日志自动携带 trace_id/span_id（与 MQ 消费日志链路字段对齐）；
+//	//    tracer 未启用时为 noop span，字段自动缺省，无副作用
+//	ctx, span := otel.Tracer("cron/"+s.String()).Start(ctx, s.String())
+//	defer span.End()
+//
+//	// 3. 先使用本地互斥锁进行快速检查
 //	if s.isRunning {
-//		logger.InfoWithCtx(context.Background(), s.String()+"任务已在运行中，跳过本次执行")
+//		logger.InfoWithCtx(ctx, s.String()+"任务已在运行中，跳过本次执行")
 //		return
 //	}
 //	s.isRunning = true
@@ -117,10 +131,7 @@ package tasks
 //		s.isRunning = false
 //	}()
 //
-//	ctx := metadata.NewIncomingContext(context.Background(), metadata.New(map[string]string{
-//		string(logger.ContextKeyRequestID): database.GetSnowID().String(),
-//	}))
-//	// 超时时间需小于任务周期(1分钟)，避免跨周期占用
+//	// 4. 超时时间需小于任务周期(1分钟)，避免跨周期占用（派生 ctx 保留追踪字段）
 //	timeoutCtx, cancel := context.WithTimeout(ctx, 50*time.Second)
 //	defer cancel()
 //
@@ -132,36 +143,36 @@ package tasks
 //		cache.NewUserExampleCache(database.GetCacheType()),
 //	)
 //
-//	logger.InfoWithCtx(ctx, s.String()+"开始获取分布式锁", interceptor.ServerCtxRequestIDField(ctx))
+//	logger.InfoWithCtx(ctx, s.String()+"开始获取分布式锁")
 //	{
 //		// 获取分布式锁
 //		mutex, err := s.cache.GetLock(ctx, s.String()+"LockKey")
 //		if err != nil {
 //			if strings.Contains(err.Error(), "lock already taken") {
-//				logger.InfoWithCtx(ctx, s.String()+"锁已被占用，跳过本次执行", interceptor.ServerCtxRequestIDField(ctx))
+//				logger.InfoWithCtx(ctx, s.String()+"锁已被占用，跳过本次执行")
 //				return
 //			}
-//			logger.WarnWithCtx(ctx, s.String()+"获取分布式锁失败", logger.Err(err), interceptor.ServerCtxRequestIDField(ctx))
+//			logger.WarnWithCtx(ctx, s.String()+"获取分布式锁失败", logger.Err(err))
 //			// 如果获取锁失败，直接返回，不执行任务
 //			return
 //		}
 //		// 确保在函数结束时释放分布式锁
 //		defer func() {
 //			if _, releaseErr := mutex.UnlockContext(ctx); releaseErr != nil {
-//				logger.WarnWithCtx(ctx, s.String()+"释放分布式锁失败", logger.Err(releaseErr), interceptor.ServerCtxRequestIDField(ctx))
+//				logger.WarnWithCtx(ctx, s.String()+"释放分布式锁失败", logger.Err(releaseErr))
 //			} else {
-//				logger.InfoWithCtx(ctx, s.String()+"分布式锁释放成功", interceptor.ServerCtxRequestIDField(ctx))
+//				logger.InfoWithCtx(ctx, s.String()+"分布式锁释放成功")
 //			}
 //		}()
 //	}
 //
-//	logger.InfoWithCtx(ctx, s.String()+"获取分布式锁成功，开始执行任务", interceptor.ServerCtxRequestIDField(ctx))
+//	logger.InfoWithCtx(ctx, s.String()+"获取分布式锁成功，开始执行任务")
 //	// 执行实际的处理任务
 //
 //	// 失败日志由 logic 内的 trace 输出（带耗时，Warn 上报 SLS），此处不再重复打印
 //	_ = s.logic(ctx) //nolint:errcheck // 错误已由 trace 记录，有意丢弃
 //
-//	logger.InfoWithCtx(ctx, s.String()+"任务执行完成", interceptor.ServerCtxRequestIDField(ctx))
+//	logger.InfoWithCtx(ctx, s.String()+"任务执行完成")
 //}
 //
 //// logic 任务逻辑
