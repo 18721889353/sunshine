@@ -41,8 +41,8 @@ func reloadSignConfig(oldCfg, newCfg *Config) {
 		time.Duration(newCfg.Sign.SignExpiredTime)*time.Second,
 	)
 
+	// 配置值的旧->新由统一审计日志（reload_diff）输出，此处只报动作结果（合并后的忽略列表数量）
 	logger.InfoWithCtx(ctx, "[config reload] 签名配置已更新",
 		logger.Int("ignoreUrlsCount", len(allIgnoreUrls)),
-		logger.Int("signExpiredTime", newCfg.Sign.SignExpiredTime),
 	)
 }

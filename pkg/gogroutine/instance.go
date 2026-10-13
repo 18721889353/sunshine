@@ -303,7 +303,7 @@ func newInstance(name string, capacity int, opts ...Option) (*poolInstance, erro
 		taskCounter: func() *instanceMetrics { return p.metrics },
 		onSuccess:   func() { p.metrics.successCount.Add(1) },
 		onPanic:     func() { p.metrics.panicCount.Add(1) },
-		panicHandler: func(ctx context.Context, r interface{}, d time.Duration) bool {
+		panicHandler: func(ctx context.Context, r interface{}, _ time.Duration) bool {
 			p.mu.RLock()
 			handler := p.panicHandler
 			p.mu.RUnlock()

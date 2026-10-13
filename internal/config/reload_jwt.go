@@ -39,10 +39,8 @@ func reloadJwtConfig(oldCfg, newCfg *Config) {
 	middleware.SetJwtIgnoreMethods(allIgnoreMethods)
 	interceptor.SetJwtIgnoreMethods(allIgnoreMethods)
 
+	// 配置值的旧->新由统一审计日志（reload_diff）输出，此处只报动作结果（合并后的忽略列表数量）
 	logger.InfoWithCtx(ctx, "[config reload] JWT 配置已更新",
-		logger.String("signingMethod", newCfg.Jwt.SigningMethod),
-		logger.Int("expire", newCfg.Jwt.Expire),
-		logger.String("issuer", newCfg.Jwt.Issuer),
 		logger.Int("ignoreMethodsCount", len(allIgnoreMethods)),
 	)
 }

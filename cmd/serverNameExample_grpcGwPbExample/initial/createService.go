@@ -61,8 +61,11 @@ func CreateServices() []app.IServer {
 	servers = append(servers, httpServer)
 
 	//if cfg.App.OpenCron {
-	//	// 添加cron服务示例
-	//	servers = append(servers, server.NewCronServer(cron.GetTasks()))
+	//// 注入全量任务注册表供热更新使用（含启动时被 cron.tasks 停用的任务）
+	//allTasks := cron.GetTasks()
+	//config.SetCronTasks(allTasks)
+	//// 按 cron.tasks 配置过滤/覆盖后交给 cron 服务
+	//servers = append(servers, server.NewCronServer(config.ApplyCronTasks(allTasks)))
 	//}
 	//if cfg.Rabbitmq.Enable {
 	//	// 添加mq消费者服务示例

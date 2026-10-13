@@ -70,12 +70,8 @@ func reloadDatabasePool(oldCfg, newCfg *Config) {
 		sqlDB.SetConnMaxIdleTime(time.Duration(newMysql.MaxIdleTime) * time.Minute)
 	}
 
-	logger.InfoWithCtx(ctx, "[config reload] 数据库连接池配置已更新",
-		logger.Int("maxIdleConns", newMysql.MaxIdleConns),
-		logger.Int("maxOpenConns", newMysql.MaxOpenConns),
-		logger.Int("connMaxLifetime", newMysql.ConnMaxLifetime),
-		logger.Int("maxIdleTime", newMysql.MaxIdleTime),
-	)
+	// 参数值的旧->新由统一审计日志（reload_diff）输出，此处只报动作结果
+	logger.InfoWithCtx(ctx, "[config reload] 数据库连接池配置已更新")
 }
 
 // reloadGormLogger GORM 日志配置热更新回调。
@@ -103,8 +99,6 @@ func reloadGormLogger(oldCfg, newCfg *Config) {
 		glog.DynamicGormLogger.SetSlowThreshold(0)
 	}
 
-	logger.InfoWithCtx(ctx, "[config reload] GORM 日志配置已更新",
-		logger.Bool("enableLog", newMysql.EnableLog),
-		logger.Int("slowQueryThresholdMs", newMysql.SlowQueryThresholdMs),
-	)
+	// 参数值的旧->新由统一审计日志（reload_diff）输出，此处只报动作结果
+	logger.InfoWithCtx(ctx, "[config reload] GORM 日志配置已更新")
 }

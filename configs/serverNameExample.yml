@@ -19,6 +19,16 @@ app:
   openSign: true                  # 是否开启签名认证, true:开启, false:关闭 [热更新]
   openCron: false                 # 是否开启定时任务, true:开启, false:关闭 [热更新: 仅支持运行时暂停/恢复, 启动时false无法热开启]
 
+cron:
+  # 定时任务配置：按任务名精确控制单个任务的启停与执行时间 [热更新]
+  # key 为任务名（internal/cron/tasks 中 RegisterTask 注册的 Name，按大小写不敏感匹配，驼峰原样书写即可）
+  # 未配置的任务使用代码内默认：启用 + 注册时的 TimeSpec
+  tasks:  # @type:map[string]CronTask, key=任务名, CronTask 结构定义在 internal/config/cron.go（手写文件）
+    userExampleTask:       # 订单超时取消任务
+      enable: true                # 是否启用该任务, true:启用, false:停用(从调度器移除), 不写则默认启用 [热更新]
+      timeSpec: "@every 1m"       # 时间表达式, 留空则使用代码默认值(@every 1m); 格式: 秒 分 时 日 月 周, 如 "0 */5 * * * *" 每5分钟 [热更新]
+
+
 # goroutine 协程池设置
 goroutine:
   poolSize: 1000                 # 协程池大小（默认 1000）

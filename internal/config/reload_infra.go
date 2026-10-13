@@ -54,9 +54,8 @@ func reloadTracingConfig(oldCfg, newCfg *Config) {
 
 	tracer.SetSamplingRate(targetRate)
 
+	// 配置值的旧->新由统一审计日志（reload_diff）输出，此处只报生效结果
 	logger.InfoWithCtx(ctx, "[config reload] 链路追踪配置已更新",
-		logger.Bool("enableTrace", newCfg.App.EnableTrace),
-		logger.Float64("tracingSamplingRate", newCfg.App.TracingSamplingRate),
 		logger.Float64("effectiveRate", targetRate),
 	)
 }
@@ -82,19 +81,14 @@ func reloadOpenCron(oldCfg, newCfg *Config) {
 	if newCfg.App.OpenCron {
 		if err := cronScheduler.Resume(); err != nil {
 			logger.ErrorWithCtx(ctx, "[config reload] 定时任务调度器已恢复，但部分任务重挂失败",
-				logger.Bool("openCron", true),
 				logger.Err(err),
 			)
 			return
 		}
-		logger.InfoWithCtx(ctx, "[config reload] 定时任务调度器已恢复",
-			logger.Bool("openCron", true),
-		)
+		logger.InfoWithCtx(ctx, "[config reload] 定时任务调度器已恢复")
 	} else {
 		cronScheduler.Pause()
-		logger.InfoWithCtx(ctx, "[config reload] 定时任务调度器已暂停",
-			logger.Bool("openCron", false),
-		)
+		logger.InfoWithCtx(ctx, "[config reload] 定时任务调度器已暂停")
 	}
 }
 
@@ -159,11 +153,6 @@ func reloadHTTPTimeout(oldCfg, newCfg *Config) {
 		srv.IdleTimeout = time.Duration(newHTTP.IdleTimeout) * time.Second
 	}
 
-	logger.InfoWithCtx(ctx, "[config reload] HTTP 超时配置已更新",
-		logger.Int("timeout", newHTTP.Timeout),
-		logger.Int("readTimeout", newReadTimeout),
-		logger.Int("writeTimeout", newWriteTimeout),
-		logger.Int("readHeaderTimeout", newHTTP.ReadHeaderTimeout),
-		logger.Int("idleTimeout", newHTTP.IdleTimeout),
-	)
+	// 超时值的旧->新由统一审计日志（reload_diff）输出，此处只报动作结果
+	logger.InfoWithCtx(ctx, "[config reload] HTTP 超时配置已更新")
 }

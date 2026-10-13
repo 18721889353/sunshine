@@ -35,9 +35,9 @@ func reloadSentinelFlowRules(oldCfg, newCfg *Config) {
 		)
 		return
 	}
+	// 规则内容与开关的旧->新由统一审计日志（reload_diff）输出，此处只报构建结果
 	logger.InfoWithCtx(ctx, "[config reload] Sentinel 限流规则已更新",
 		logger.Int("ruleCount", len(rules)),
-		logger.Bool("enableLimit", newCfg.App.EnableLimit),
 	)
 }
 
@@ -65,9 +65,9 @@ func reloadSentinelBreakerRules(oldCfg, newCfg *Config) {
 		)
 		return
 	}
+	// 规则内容与开关的旧->新由统一审计日志（reload_diff）输出，此处只报构建结果
 	logger.InfoWithCtx(ctx, "[config reload] Sentinel 熔断规则已更新",
 		logger.Int("ruleCount", len(rules)),
-		logger.Bool("enableCircuitBreaker", newCfg.App.EnableCircuitBreaker),
 	)
 }
 

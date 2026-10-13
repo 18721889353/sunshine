@@ -74,10 +74,14 @@ func RegisterReload(fn ReloadFunc) {
 	reloadManager.Register(fn)
 }
 
-// Reload 执行配置热更新，先执行回调链，再更新全局配置。
+// Reload 执行配置热更新：先输出配置变更审计日志，再执行回调链，最后更新全局配置。
 func Reload(newCfg *Config) {
 	oldCfg := Get()
+	// 1. 审计日志：逐配置段输出字段级变更（回调日志展示"做了什么"，此处展示"改了什么"）
+	logConfigDiff(oldCfg, newCfg)
+	// 2. 执行回调链
 	reloadManager.Reload(oldCfg, newCfg)
+	// 3. 更新全局配置
 	Set(newCfg)
 }
 
@@ -112,5 +116,6 @@ func RegisterBuiltinReloads() {
 	// 基础设施（链路追踪 + 定时任务 + HTTP超时）
 	RegisterReload(reloadTracingConfig)
 	RegisterReload(reloadOpenCron)
+	RegisterReload(reloadCronTasks)
 	RegisterReload(reloadHTTPTimeout)
 }

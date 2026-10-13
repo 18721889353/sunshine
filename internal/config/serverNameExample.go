@@ -40,6 +40,7 @@ func Set(conf *Config) {
 
 type Config struct {
 	App           App           `yaml:"app" json:"app"`
+	Cron          Cron          `yaml:"cron" json:"cron"`
 	Database      Database      `yaml:"database" json:"database"`
 	Elasticsearch Elasticsearch `yaml:"elasticsearch" json:"elasticsearch"`
 	Email         Email         `yaml:"email" json:"email"`
@@ -518,6 +519,10 @@ type Queue struct {
 	WriteMsgType   int `yaml:"writeMsgType" json:"writeMsgType"`
 	WriteQueueSize int `yaml:"writeQueueSize" json:"writeQueueSize"`
 	WriteTimeout   int `yaml:"writeTimeout" json:"writeTimeout"`
+}
+
+type Cron struct {
+	Tasks map[string]CronTask `yaml:"tasks" json:"tasks"`
 }
 
 type Args struct {
