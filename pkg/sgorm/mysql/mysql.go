@@ -55,6 +55,9 @@ func gormConfig(o *options) *gorm.Config {
 	config.Logger = glog.DynamicGormLogger
 
 	// 设置初始配置
+	// logLevel 必须初始化：DynamicGormLogger.logLevel 零值(0)小于 Silent(1)，
+	// 不显式设置会使 Trace 恒短路，enableLog=true 也不输出任何 SQL 日志
+	glog.DynamicGormLogger.SetLogLevel(o.logLevel)
 	glog.DynamicGormLogger.SetEnableLog(o.isLog)
 	if o.slowThreshold > 0 {
 		glog.DynamicGormLogger.SetSlowThreshold(o.slowThreshold)
