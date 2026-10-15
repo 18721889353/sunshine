@@ -65,10 +65,6 @@ func (r *CustomResponse2) Success(c *gin.Context, data interface{}) {
 	r.response(c, http.StatusOK, result.Result, result.ReturnInfo)
 }
 
-// Success2 handles successful response version 2
-func (r *CustomResponse2) Success2(_ *gin.Context, _, _ string, _ interface{}) {
-}
-
 // ParamError handles parameter error response
 func (r *CustomResponse2) ParamError(c *gin.Context, _ error) {
 	r.response(c, http.StatusOK, nil, nil)

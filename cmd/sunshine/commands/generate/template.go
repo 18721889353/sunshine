@@ -144,6 +144,7 @@ import (
 	"sync/atomic"
 
 	"github.com/18721889353/sunshine/pkg/conf"
+	"github.com/18721889353/sunshine/pkg/errcode"
 )
 
 var config atomic.Pointer[Config]
@@ -153,7 +154,8 @@ func Init(configFile string, fs ...func()) error {
 	if err := conf.Parse(configFile, c, fs...); err != nil {
 		return err
 	}
-	config.Store(c)
+	// 统一走 Set, 保证启动与热更新(Nacos watch/Reload)都会同步响应格式等派生状态
+	Set(c)
 	return nil
 }
 
@@ -174,6 +176,19 @@ func Set(conf *Config) {
 		panic("config.Set(nil) 是未定义行为")
 	}
 	config.Store(conf)
+	// 将 response 段同步到 errcode 全局响应格式: 字段名/默认 code-msg/业务码提取模式, 每次响应实时读取, 支持热更新
+	errcode.SetResponseFormat(errcode.ResponseFormat{
+		CodeField:           conf.Response.Fields.Code,
+		MsgField:            conf.Response.Fields.Msg,
+		DataField:           conf.Response.Fields.Data,
+		SuccessCode:         conf.Response.Values.SuccessCode,
+		SuccessMsg:          conf.Response.Values.SuccessMsg,
+		DoingMsg:            conf.Response.Values.DoingMsg,
+		ParamErrorCode:      conf.Response.Values.ParamErrorCode,
+		ParamErrorMsg:       conf.Response.Values.ParamErrorMsg,
+		ExtractCustomCode:   conf.Response.ExtractCustomCode,
+		NilDataAsEmptyArray: conf.Response.NilDataAsEmptyArray,
+	})
 }
 `
 

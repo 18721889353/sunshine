@@ -237,6 +237,8 @@ func {{.LowerName}}Router(
 		iService,
 		{{.ProtoPkgName}}.With{{.Name}}RPCResponse(),
 		{{.ProtoPkgName}}.With{{.Name}}WrapCtx(ctxFn),
+		// 如需自定义响应体字段名(code/msg/data, 例如 msg 改为 message)、默认 code/msg 内容与业务码提取模式,
+		// 直接在配置文件 response 段配置即可生效(热更新免改代码), 实现见 pkg/errcode/response.go 的 ResponseFormat
 		{{.ProtoPkgName}}.With{{.Name}}RPCStatusToHTTPCode(
 			// Set some error codes to standard http return codes,
 			// by default there is already ecode.StatusInternalServerError and ecode.StatusServiceUnavailable

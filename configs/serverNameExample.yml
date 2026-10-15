@@ -177,6 +177,23 @@ redis:
   poolTimeout: 10                 # 连接池超时时间(秒)
   idleTimeout: 30                 # 连接最大空闲时间(秒)
 
+# 自定义响应设置(注入 pkg/errcode 全局 ResponseFormat, 自定义响应体字段名与 code/msg 内容, 无需改代码) [热更新]
+response:
+  extractCustomCode: true         # 是否从 data 中提取 CustomCode(或 map 的 code 键)作为业务响应码, 提取后该字段从 data 中剥离 [热更新]
+  nilDataAsEmptyArray: true       # nil/空 data 序列化为 [] 而非 {} [热更新]
+  # 响应体字段名配置, 留空使用默认值 code/msg/data(未配置字段名时 msg/message 由 WithXXXMessage 旧开关决定) [热更新]
+  fields:
+    code: "code"                  # code 字段名, 可改为 status/resultCode 等
+    msg: "msg"                    # msg 字段名, 可改为 message/errorMsg 等
+    data: "data"                  # data 字段名, 可改为 result/payload 等
+  # code/msg 内容配置, 留空使用内置默认值(成功码 0/提示 ok) [热更新]
+  values:
+    successCode: "0000"           # 成功响应码
+    successMsg: "发放成功"         # 成功响应提示
+    doingMsg: "进行中"             # 业务自定义码(非成功码)时的提示
+    paramErrorCode: "1002"        # 参数错误响应码
+    paramErrorMsg: ""             # 参数错误响应提示, 留空则使用 InvalidParams 默认提示
+
 # OTLP链路追踪设置
 # endpoint 格式决定传输协议：
 #   - 以 http:// 或 https:// 开头 → 自动使用 HTTP 协议

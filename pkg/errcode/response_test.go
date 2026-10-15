@@ -303,6 +303,10 @@ func TestParseCodeAndMsgError(t *testing.T) {
 func TestNilDataAsEmptySlice(t *testing.T) {
 	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
 
+	// 模拟应用侧配置 nilDataAsEmptyArray: true, nil/空 data 序列化为 []
+	SetResponseFormat(ResponseFormat{NilDataAsEmptyArray: true})
+	defer SetResponseFormat(ResponseFormat{})
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
@@ -316,10 +320,6 @@ func TestNilDataAsEmptySlice(t *testing.T) {
 	// 测试 data = 非 nil 字符串
 	r.GET("/success_data", func(c *gin.Context) {
 		resp.Success(c, "hello")
-	})
-	// 测试 Success2 且 data = nil
-	r.GET("/success2_nil", func(c *gin.Context) {
-		resp.Success2(c, "0", "ok", nil)
 	})
 	// 测试错误响应（默认 data 传 nil）
 	r.GET("/error_params", func(c *gin.Context) {
@@ -351,14 +351,6 @@ func TestNilDataAsEmptySlice(t *testing.T) {
 	assert.Contains(t, string(body), `"data":"hello"`)
 	result.Body.Close()
 
-	// 验证 Success2 且 data = nil 时返回 []
-	result, err = http.Get(requestAddr + "/success2_nil")
-	assert.NoError(t, err)
-	body, _ = io.ReadAll(result.Body)
-	t.Log("success2_nil:", string(body))
-	assert.Contains(t, string(body), `"data":[]`)
-	result.Body.Close()
-
 	// 验证错误响应也返回 []
 	result, err = http.Get(requestAddr + "/error_params")
 	assert.NoError(t, err)
@@ -371,6 +363,10 @@ func TestNilDataAsEmptySlice(t *testing.T) {
 
 func TestSuccessUnwrap(t *testing.T) {
 	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
+
+	// nil 指针 data 统一返回 [], 与 TestNilDataAsEmptySlice 同一配置开关
+	SetResponseFormat(ResponseFormat{NilDataAsEmptyArray: true})
+	defer SetResponseFormat(ResponseFormat{})
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -460,6 +456,83 @@ func TestSuccessUnwrap(t *testing.T) {
 	t.Log("unwrap_non_struct:", string(body))
 	assert.Contains(t, string(body), `"data":"plain string"`)
 	result.Body.Close()
+}
+
+// TestResponseFormatCustom 验证全局响应格式能力(字段名自定义/默认 code-msg/业务码提取),
+// 对应原 internal/routers/customResponse.go 合并到 errcode 后的行为
+func TestResponseFormatCustom(t *testing.T) {
+	serverAddr, requestAddr := utils.GetLocalHTTPAddrPairs()
+
+	SetResponseFormat(ResponseFormat{
+		CodeField:           "status",
+		MsgField:            "message",
+		DataField:           "result",
+		SuccessCode:         "0000",
+		SuccessMsg:          "发放成功",
+		DoingMsg:            "进行中",
+		ParamErrorCode:      "1002",
+		ParamErrorMsg:       "参数错误",
+		ExtractCustomCode:   true,
+		NilDataAsEmptyArray: true,
+	})
+	defer SetResponseFormat(ResponseFormat{})
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
+	resp := NewResponser(false, false, nil, nil)
+
+	type reply struct {
+		CustomCode string `json:"customCode"`
+		Name       string `json:"name"`
+	}
+
+	// nil data: 输出默认字段名与成功码, data 为 []
+	r.GET("/fmt_success", func(c *gin.Context) { resp.Success(c, nil) })
+	// 结构体携带 CustomCode: 提取为响应码, 非成功码用 DoingMsg, 字段从 data 剥离
+	r.GET("/fmt_struct_code", func(c *gin.Context) { resp.Success(c, reply{CustomCode: "2001", Name: "a"}) })
+	// map 携带 code 键: 同样提取并剥离
+	r.GET("/fmt_map_code", func(c *gin.Context) { resp.Success(c, map[string]any{"code": "3003", "orderId": "x"}) })
+	// 参数错误: 使用配置的 paramErrorCode/paramErrorMsg
+	r.GET("/fmt_param_error", func(c *gin.Context) { resp.ParamError(c, nil) })
+
+	go func() {
+		err := r.Run(serverAddr)
+		if err != nil {
+			panic(err)
+		}
+	}()
+	time.Sleep(time.Millisecond * 200)
+
+	getBody := func(path string) string {
+		result, err := http.Get(requestAddr + path)
+		assert.NoError(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		body, _ := io.ReadAll(result.Body)
+		result.Body.Close()
+		t.Log(path, ":", string(body))
+		return string(body)
+	}
+
+	body := getBody("/fmt_success")
+	assert.Contains(t, body, `"status":"0000"`)
+	assert.Contains(t, body, `"message":"发放成功"`)
+	assert.Contains(t, body, `"result":[]`)
+
+	body = getBody("/fmt_struct_code")
+	assert.Contains(t, body, `"status":"2001"`)
+	assert.Contains(t, body, `"message":"进行中"`)
+	assert.Contains(t, body, `"name":"a"`)
+	assert.NotContains(t, body, "customCode")
+
+	body = getBody("/fmt_map_code")
+	assert.Contains(t, body, `"status":"3003"`)
+	assert.Contains(t, body, `"orderId":"x"`)
+	// 剥离后 data 不再含 code 键 (响应顶层的 status 已改名, body 中不应出现 "code":)
+	assert.NotContains(t, body, `"code":`)
+
+	body = getBody("/fmt_param_error")
+	assert.Contains(t, body, `"status":"1002"`)
+	assert.Contains(t, body, `"message":"参数错误"`)
 }
 
 var mcReg = regexp.MustCompile(`code\s*=\s*(\d+),\s*msg\s*=\s*(.+)`)
