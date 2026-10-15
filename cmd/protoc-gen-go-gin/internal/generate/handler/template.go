@@ -114,7 +114,6 @@ package routers
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/18721889353/sunshine/pkg/logger"
 	//"github.com/18721889353/sunshine/pkg/middleware"
 
 	// import api service package here

@@ -488,6 +488,8 @@ func TestResponseFormatCustom(t *testing.T) {
 
 	// nil data: 输出默认字段名与成功码, data 为 []
 	r.GET("/fmt_success", func(c *gin.Context) { resp.Success(c, nil) })
+	// 带类型的 nil 指针(业务 handler 常见返回 (nil *Reply)): ExtractCustomCode 模式下也必须输出 [] 而非 null
+	r.GET("/fmt_nil_ptr", func(c *gin.Context) { resp.Success(c, (*reply)(nil)) })
 	// 结构体携带 CustomCode: 提取为响应码, 非成功码用 DoingMsg, 字段从 data 剥离
 	r.GET("/fmt_struct_code", func(c *gin.Context) { resp.Success(c, reply{CustomCode: "2001", Name: "a"}) })
 	// map 携带 code 键: 同样提取并剥离
@@ -517,6 +519,12 @@ func TestResponseFormatCustom(t *testing.T) {
 	assert.Contains(t, body, `"status":"0000"`)
 	assert.Contains(t, body, `"message":"发放成功"`)
 	assert.Contains(t, body, `"result":[]`)
+
+	// 回归: ExtractCustomCode=true 时 typed-nil 指针不应被序列化为 null, 应与 nil data 一致输出 []
+	body = getBody("/fmt_nil_ptr")
+	assert.Contains(t, body, `"status":"0000"`)
+	assert.Contains(t, body, `"result":[]`)
+	assert.NotContains(t, body, `"result":null`)
 
 	body = getBody("/fmt_struct_code")
 	assert.Contains(t, body, `"status":"2001"`)

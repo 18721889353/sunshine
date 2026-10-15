@@ -188,8 +188,8 @@ response:
     data: "data"                  # data 字段名, 可改为 result/payload 等
   # code/msg 内容配置, 留空使用内置默认值(成功码 0/提示 ok) [热更新]
   values:
-    successCode: "0000"           # 成功响应码
-    successMsg: "发放成功"         # 成功响应提示
+    successCode: "0"           # 成功响应码
+    successMsg: "success"         # 成功响应提示
     doingMsg: "进行中"             # 业务自定义码(非成功码)时的提示
     paramErrorCode: "1002"        # 参数错误响应码
     paramErrorMsg: ""             # 参数错误响应提示, 留空则使用 InvalidParams 默认提示

@@ -105,6 +105,21 @@ func emptyData(f ResponseFormat) any {
 	return make(map[string]interface{}, 0)
 }
 
+// isNilData 判断 data 是否为「空数据」: 既包含未类型的 nil, 也包含带类型的 nil
+// (如业务 handler 返回的 (nil *Reply) 装入 interface, 直接 == nil 判断为 false 会被序列化成 null)。
+// 指针/接口/map/slice/func/chan 等引用类型需借 reflect.IsNil 才能识别真正的 nil。
+func isNilData(data any) bool {
+	if data == nil {
+		return true
+	}
+	v := reflect.ValueOf(data)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.UnsafePointer:
+		return v.IsNil()
+	}
+	return false
+}
+
 // defaultResponse 默认实现，支持通过选项配置响应行为
 type defaultResponse struct {
 	isFromRPC  bool               // 错误是否来自 gRPC（影响错误处理分支）
@@ -155,14 +170,12 @@ func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*R
 func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg string, data any) {
 	f := currentFormat()
 
-	// 规范处理：错误响应或未设置数据时，data 按配置输出空对象 {} 或空数组 []
-	if data == nil {
+	// 规范处理：错误响应或未设置数据(含带类型的 nil 指针, 如 handler 返回 (nil *Reply))时, data 按配置输出空对象 {} 或空数组 []
+	if isNilData(data) {
 		data = emptyData(f)
-	} else {
-		v := reflect.ValueOf(data)
-		if v.Kind() == reflect.Slice && v.Len() == 0 && !f.NilDataAsEmptyArray {
-			data = make(map[string]interface{}, 0)
-		}
+	} else if v := reflect.ValueOf(data); v.Kind() == reflect.Slice && v.Len() == 0 && !f.NilDataAsEmptyArray {
+		// 非 nil 的空切片在关闭 NilDataAsEmptyArray 时仍回落为 {}, 保持既有语义
+		data = make(map[string]interface{}, 0)
 	}
 
 	// 构建最终返回的 JSON 对象
