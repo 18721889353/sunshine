@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"testing"
@@ -516,6 +517,7 @@ func TestResponseFormatCustom(t *testing.T) {
 	}
 
 	body := getBody("/fmt_success")
+	// SuccessCode 配置为字符串 "0000", 类型原样透传, 输出带引号
 	assert.Contains(t, body, `"status":"0000"`)
 	assert.Contains(t, body, `"message":"发放成功"`)
 	assert.Contains(t, body, `"result":[]`)
@@ -527,20 +529,69 @@ func TestResponseFormatCustom(t *testing.T) {
 	assert.NotContains(t, body, `"result":null`)
 
 	body = getBody("/fmt_struct_code")
+	// CustomCode 为字符串 "2001", 提取后类型原样透传
 	assert.Contains(t, body, `"status":"2001"`)
 	assert.Contains(t, body, `"message":"进行中"`)
 	assert.Contains(t, body, `"name":"a"`)
 	assert.NotContains(t, body, "customCode")
 
 	body = getBody("/fmt_map_code")
+	// map 的 code 值为字符串 "3003", 提取后类型原样透传
 	assert.Contains(t, body, `"status":"3003"`)
 	assert.Contains(t, body, `"orderId":"x"`)
 	// 剥离后 data 不再含 code 键 (响应顶层的 status 已改名, body 中不应出现 "code":)
 	assert.NotContains(t, body, `"code":`)
 
 	body = getBody("/fmt_param_error")
+	// ParamErrorCode 配置为字符串 "1002", 类型原样透传
 	assert.Contains(t, body, `"status":"1002"`)
 	assert.Contains(t, body, `"message":"参数错误"`)
+}
+
+// intCodeReply 验证数字型 CustomCode 提取与类型透传
+type intCodeReply struct {
+	CustomCode int
+	Name       string
+}
+
+// TestResponseFormatCodeType 守护响应码 JSON 类型透传语义:
+// 配置/业务值不带引号的数字输出 JSON 数字, 带引号的字符串输出 JSON 字符串, 不做任何强制转换
+func TestResponseFormatCodeType(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+
+	cases := []struct {
+		name    string
+		format  ResponseFormat
+		data    any
+		want    string
+		notWant string
+	}{
+		{"未配置默认数字0", ResponseFormat{}, nil, `"code":0`, `"code":"0"`},
+		{"配置裸数字输出数字", ResponseFormat{SuccessCode: 0}, nil, `"code":0`, `"code":"0"`},
+		{"配置字符串输出字符串", ResponseFormat{SuccessCode: "0"}, nil, `"code":"0"`, `"code":0`},
+		{"提取map数字码输出数字", ResponseFormat{ExtractCustomCode: true}, map[string]any{"code": 7}, `"code":7`, ""},
+		{"提取map字符串码输出字符串", ResponseFormat{ExtractCustomCode: true}, map[string]any{"code": "7"}, `"code":"7"`, ""},
+		// 字符串配置 "0" 与数字提取值 0 按字符串化比较等价, 仍用 successMsg; 输出保留提取值的数字类型
+		{"数字提取值等价字符串配置", ResponseFormat{ExtractCustomCode: true, SuccessCode: "0", SuccessMsg: "ok", DoingMsg: "进行中"}, intCodeReply{CustomCode: 0, Name: "a"}, `"code":0`, `"msg":"进行中"`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			SetResponseFormat(tc.format)
+			defer SetResponseFormat(ResponseFormat{})
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			NewResponser(false, false, nil, nil).Success(c, tc.data)
+
+			body := w.Body.String()
+			t.Log(body)
+			assert.Contains(t, body, tc.want)
+			if tc.notWant != "" {
+				assert.NotContains(t, body, tc.notWant)
+			}
+		})
+	}
 }
 
 var mcReg = regexp.MustCompile(`code\s*=\s*(\d+),\s*msg\s*=\s*(.+)`)

@@ -10,7 +10,6 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -53,10 +52,10 @@ type ResponseFormat struct {
 	CodeField           string // 响应体 code 字段名，空则默认 "code"，可配为 status/resultCode 等
 	MsgField            string // 响应体 msg 字段名，空则回退 isMessage 旧逻辑（msg/message），可配为 errorInfo 等
 	DataField           string // 响应体 data 字段名，空则默认 "data"，可配为 result/payload 等
-	SuccessCode         string // 成功响应码，空则默认 "0"
+	SuccessCode         any    // 成功响应码，空则默认数字 0；类型跟随配置写法原样透传：YAML 不带引号(0)输出 JSON 数字，带引号("0")输出 JSON 字符串
 	SuccessMsg          string // 成功响应提示，空则默认 "ok"
 	DoingMsg            string // 业务自定义码（非成功码）时的提示，空则回落 SuccessMsg，仅 ExtractCustomCode=true 时生效
-	ParamErrorCode      string // 参数错误响应码，空则使用 InvalidParams 错误码
+	ParamErrorCode      any    // 参数错误响应码，空则使用 InvalidParams 错误码（数字，类型透传规则同 SuccessCode）
 	ParamErrorMsg       string // 参数错误响应提示，空则使用 InvalidParams 提示
 	ExtractCustomCode   bool   // 是否从 data 中提取 CustomCode（或 map 的 code 键）作为业务响应码，并从 data 中剥离该字段
 	NilDataAsEmptyArray bool   // nil/空 data 序列化为 [] 而非 {}
@@ -81,6 +80,18 @@ func currentFormat() ResponseFormat {
 // orDefault 配置项空值回落到默认值
 func orDefault(v, def string) string {
 	if v == "" {
+		return def
+	}
+	return v
+}
+
+// orDefaultCode 响应码配置空值（nil 或空字符串）回落到默认值；
+// 有值时原样返回，保留配置里的 JSON 类型（不带引号的数字→数字，带引号的字符串→字符串）
+func orDefaultCode(v any, def any) any {
+	if v == nil {
+		return def
+	}
+	if s, ok := v.(string); ok && s == "" {
 		return def
 	}
 	return v
@@ -163,11 +174,18 @@ func NewResponser(isMessage, isFromRPC bool, httpErrors []*Error, rpcStatus []*R
 	}
 }
 
+// Respond 按全局 ResponseFormat 输出响应（字段名/空数据规范化实时生效），code 原样保留类型，
+// 供 pkg/gin/response 等适配层复用统一格式，避免维护第二套不读配置的出口
+func Respond(c *gin.Context, respStatus int, code any, msg string, data any) {
+	(&defaultResponse{}).response(c, respStatus, code, msg, data)
+}
+
 // response 核心响应构建方法，所有响应最终汇聚至此
 // 功能：
 //   - 按全局 ResponseFormat 解析响应体字段名（code/msg/data 均可自定义）
+//   - code 为 any，原样序列化，类型跟随配置或业务数据的写法
 //   - 将 data=nil 或空切片按配置转为 {} 或 []，保证数据结构一致性
-func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg string, data any) {
+func (resp *defaultResponse) response(c *gin.Context, respStatus int, code any, msg string, data any) {
 	f := currentFormat()
 
 	// 规范处理：错误响应或未设置数据(含带类型的 nil 指针, 如 handler 返回 (nil *Reply))时, data 按配置输出空对象 {} 或空数组 []
@@ -192,7 +210,7 @@ func (resp *defaultResponse) response(c *gin.Context, respStatus int, code, msg 
 // ExtractCustomCode=true 时从 data 中提取业务码，非成功码时使用 DoingMsg
 func (resp *defaultResponse) Success(c *gin.Context, data any) {
 	f := currentFormat()
-	successCode := orDefault(f.SuccessCode, "0")
+	successCode := orDefaultCode(f.SuccessCode, 0)
 	successMsg := orDefault(f.SuccessMsg, "ok")
 
 	if f.ExtractCustomCode {
@@ -204,8 +222,9 @@ func (resp *defaultResponse) Success(c *gin.Context, data any) {
 }
 
 // successWithCustomCode 业务码提取模式：从结构体 CustomCode 字段或 map 的 code/CustomCode 键中提取响应码，
-// 提取后该字段从 data 中剥离；码与 SuccessCode 一致时用 SuccessMsg，否则用 DoingMsg
-func (resp *defaultResponse) successWithCustomCode(c *gin.Context, f ResponseFormat, data any, successCode, successMsg string) {
+// 提取后该字段从 data 中剥离；码与 SuccessCode 一致（按字符串化比较，2001 与 "2001" 等价）时用 SuccessMsg，否则用 DoingMsg；
+// 输出的码保留提取值的原始类型（数字→JSON 数字，字符串→JSON 字符串）
+func (resp *defaultResponse) successWithCustomCode(c *gin.Context, f ResponseFormat, data any, successCode any, successMsg string) {
 	customCode := successCode
 	processedData := data
 
@@ -227,24 +246,24 @@ func (resp *defaultResponse) successWithCustomCode(c *gin.Context, f ResponseFor
 	} else if v.Kind() == reflect.Map {
 		if newData, code, ok := processMapData(v); ok {
 			processedData = newData
-			if code != "" {
+			if code != nil {
 				customCode = code
 			}
 		}
 	}
 
 	msg := successMsg
-	if customCode != successCode {
+	if cast.ToString(customCode) != cast.ToString(successCode) {
 		msg = orDefault(f.DoingMsg, successMsg)
 	}
 	resp.response(c, http.StatusOK, customCode, msg, processedData)
 }
 
-// extractCodeFromStruct 从结构体中提取 CustomCode 字段
-func extractCodeFromStruct(v reflect.Value) (string, bool) {
+// extractCodeFromStruct 从结构体中提取 CustomCode 字段，返回值保留字段声明类型（string/int/uint 原样透传）
+func extractCodeFromStruct(v reflect.Value) (any, bool) {
 	codeField := v.FieldByName("CustomCode")
 	if !codeField.IsValid() || !codeField.CanInterface() {
-		return "", false
+		return nil, false
 	}
 
 	switch codeField.Kind() {
@@ -253,11 +272,11 @@ func extractCodeFromStruct(v reflect.Value) (string, bool) {
 			return code, true
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(codeField.Int(), 10), true
+		return codeField.Int(), true
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return strconv.FormatUint(codeField.Uint(), 10), true
+		return codeField.Uint(), true
 	}
-	return "", false
+	return nil, false
 }
 
 // structToMapWithoutCode 将结构体转换为 map，排除 CustomCode 字段
@@ -279,14 +298,14 @@ func structToMapWithoutCode(v reflect.Value) map[string]interface{} {
 	return resultMap
 }
 
-// processMapData 处理 map 类型的数据，提取 code/CustomCode 键
-func processMapData(v reflect.Value) (interface{}, string, bool) {
+// processMapData 处理 map 类型的数据，提取 code/CustomCode 键，提取值保留原始类型（字符串/数字原样透传）
+func processMapData(v reflect.Value) (interface{}, any, bool) {
 	if v.Type().Key().Kind() != reflect.String {
-		return nil, "", false
+		return nil, nil, false
 	}
 
 	newMap := reflect.MakeMap(v.Type())
-	customCode := ""
+	var customCode any
 	iter := v.MapRange()
 
 	for iter.Next() {
@@ -308,23 +327,23 @@ func processMapData(v reflect.Value) (interface{}, string, bool) {
 				customCode = code
 			}
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-			customCode = strconv.FormatInt(value.Int(), 10)
+			customCode = value.Int()
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			customCode = strconv.FormatUint(value.Uint(), 10)
+			customCode = value.Uint()
 		}
 	}
 	return newMap.Interface(), customCode, true
 }
 
-// respondWithHTTPCode 根据 HTTP 状态码生成标准响应（主要用于非 200 错误）
+// respondWithHTTPCode 根据 HTTP 状态码生成标准响应（主要用于非 200 错误），body code 为 HTTP 状态码数字
 func (resp *defaultResponse) respondWithHTTPCode(c *gin.Context, httpCode int) {
-	resp.response(c, httpCode, cast.ToString(httpCode), getStatusTextOrDefault(httpCode), nil)
+	resp.response(c, httpCode, httpCode, getStatusTextOrDefault(httpCode), nil)
 }
 
 // ParamError 参数错误响应，默认使用 errcode.InvalidParams 的错误码和消息，可通过 ResponseFormat 覆盖
 func (resp *defaultResponse) ParamError(c *gin.Context, _ error) {
 	f := currentFormat()
-	code := orDefault(f.ParamErrorCode, cast.ToString(InvalidParams.Code()))
+	code := orDefaultCode(f.ParamErrorCode, InvalidParams.Code())
 	msg := orDefault(f.ParamErrorMsg, InvalidParams.Msg())
 	resp.response(c, http.StatusOK, code, msg, nil)
 }
@@ -423,9 +442,9 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	if stCode == codes.Unknown {
 		code, msg := parseCodeAndMsg(st.String())
 		if code == -1 {
-			resp.response(c, http.StatusOK, "-1", "unknown error", nil)
+			resp.response(c, http.StatusOK, -1, "unknown error", nil)
 		} else {
-			resp.response(c, http.StatusOK, cast.ToString(code), msg, nil)
+			resp.response(c, http.StatusOK, code, msg, nil)
 		}
 		return false
 	}
@@ -444,7 +463,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	if strings.Contains(st.Message(), ToHTTPCodeLabel) {
 		httpCode := convertToHTTPCode(stCode)
 		msg := strings.ReplaceAll(st.Message(), ToHTTPCodeLabel, "")
-		resp.response(c, httpCode, cast.ToString(int(stCode)), msg, nil)
+		resp.response(c, httpCode, int(stCode), msg, nil)
 		return true
 	}
 
@@ -454,7 +473,7 @@ func (resp *defaultResponse) handleRPCError(c *gin.Context, err error) bool {
 	}
 
 	// 默认：返回 200 OK，body 中包含业务错误码
-	resp.response(c, http.StatusOK, cast.ToString(int(stCode)), st.Message(), nil)
+	resp.response(c, http.StatusOK, int(stCode), st.Message(), nil)
 	return false
 }
 
@@ -475,7 +494,7 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	// 若用户设置需要返回标准 HTTP 状态码
 	if e.needHTTPCode {
 		msg := strings.ReplaceAll(e.msg, ToHTTPCodeLabel, "")
-		resp.response(c, e.ToHTTPCode(), cast.ToString(e.code), msg, nil)
+		resp.response(c, e.ToHTTPCode(), e.code, msg, nil)
 		return true
 	}
 
@@ -485,7 +504,7 @@ func (resp *defaultResponse) handleHTTPError(c *gin.Context, err error) bool {
 	}
 
 	// 默认：返回 200 OK，body 中包含业务错误码
-	resp.response(c, http.StatusOK, cast.ToString(e.code), e.msg, nil)
+	resp.response(c, http.StatusOK, e.code, e.msg, nil)
 	return false
 }
 

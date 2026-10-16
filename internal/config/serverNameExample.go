@@ -406,9 +406,9 @@ type Websocket struct {
 
 type Values struct {
 	DoingMsg       string `yaml:"doingMsg" json:"doingMsg"`
-	ParamErrorCode string `yaml:"paramErrorCode" json:"paramErrorCode"`
+	ParamErrorCode any    `yaml:"paramErrorCode" json:"paramErrorCode"`
 	ParamErrorMsg  string `yaml:"paramErrorMsg" json:"paramErrorMsg"`
-	SuccessCode    string `yaml:"successCode" json:"successCode"`
+	SuccessCode    any    `yaml:"successCode" json:"successCode"`
 	SuccessMsg     string `yaml:"successMsg" json:"successMsg"`
 }
 
