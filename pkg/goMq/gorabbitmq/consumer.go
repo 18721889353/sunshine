@@ -2,7 +2,10 @@ package gorabbitmq
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"hash/fnv"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +32,45 @@ type Consumer struct {
 	wg               sync.WaitGroup // 等待组，用于等待正在处理的消息完成
 	tracer           trace.Tracer   // OpenTelemetry tracer for reuse
 	closeOnce        sync.Once      // 确保关闭操作只执行一次
+
+	panicRetryMu sync.Mutex     // 保护 panicRetries
+	panicRetries map[string]int // handler panic 重试计数(key=队列名+body哈希)，防无限重投
+}
+
+// handlerPanicError handler panic 转换后的错误类型。
+// 与 handler 显式返回的 error 区分：显式 error = 业务判定不可恢复，直接进死信；
+// panic = 意外崩溃(可能是瞬时故障)，允许有限次 requeue 重试。
+type handlerPanicError struct {
+	val any
+}
+
+func (e *handlerPanicError) Error() string { return fmt.Sprintf("handler panic: %v", e.val) }
+
+const panicRetryLimit = 3 // handler panic 单条消息最大重试次数，超限进死信
+
+// panicRetryKey 计算重试计数 key（队列名 + 消息体 FNV-32a 哈希）。
+func panicRetryKey(queueName string, body []byte) string {
+	h := fnv.New32a()
+	_, _ = h.Write(body)
+	return queueName + ":" + strconv.FormatUint(uint64(h.Sum32()), 36)
+}
+
+// incrPanicRetry 记录一次 panic 并返回累计次数。
+func (c *Consumer) incrPanicRetry(key string) int {
+	c.panicRetryMu.Lock()
+	defer c.panicRetryMu.Unlock()
+	if c.panicRetries == nil {
+		c.panicRetries = make(map[string]int)
+	}
+	c.panicRetries[key]++
+	return c.panicRetries[key]
+}
+
+// clearPanicRetry 清除计数（消息到达终态时调用）。
+func (c *Consumer) clearPanicRetry(key string) {
+	c.panicRetryMu.Lock()
+	defer c.panicRetryMu.Unlock()
+	delete(c.panicRetries, key)
 }
 
 // Handler 消息处理函数类型
@@ -241,76 +283,109 @@ func (c *Consumer) subscribe(ctx context.Context) (<-chan amqp.Delivery, error) 
 //   - 连接未就绪或初始化失败时自动重试（间隔 2 秒）
 //   - subscribe 失败时关闭当前 channel 后重试
 //   - processMessages 返回 false 时退出循环（如 ctx 取消或连接关闭）
+//   - 消费会话发生 panic 时会被捕获并自动重启消费循环（间隔 2 秒），
+//     避免协程退出后无人重建队列（AutoDelete 队列会随最后一条消费者消失）；
+//     handler 的 panic 已在 handleSingleMessage→safeHandle 逐条隔离，不会上升到本层
 func (c *Consumer) Consume(ctx context.Context, handler Handler) {
 	go func() {
-		// panic 保护，防止单个消费者崩溃导致整个进程退出
-		defer func() {
-			if r := recover(); r != nil {
-				logger.ErrorWithCtx(ctx, "[rabbitmq consumer] consumer goroutine panicked",
-					logger.Any("panic", r),
-					logger.String("queue", c.QueueName))
-			}
-		}()
-
-		ticker := time.NewTicker(time.Second * 2) // 2秒重试间隔
-		defer ticker.Stop()
-
-		// 消费主循环：初始化 → 消费 → 处理消息 → 清理
 		for {
+			// panic 保护：单次会话 panic 不应终止消费；捕获后由外层循环重启会话，
+			// 同时防止 panic 逃逸终止整个进程
+			var panicVal any
+			var panicStack string
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						panicVal = r
+						panicStack = string(debug.Stack())
+					}
+				}()
+				c.consumeLoop(ctx, handler)
+			}()
+
+			if panicVal == nil {
+				return // 消费循环正常退出(ctx取消/连接关闭/无需重试)
+			}
+
+			logger.ErrorWithCtx(ctx, "[rabbitmq consumer] consumer goroutine panicked, restarting consume loop",
+				logger.Any("panic", panicVal),
+				logger.String("stack", panicStack),
+				logger.String("queue", c.QueueName))
+
+			// panic 后与异常会话同样等待重试间隔后重建会话(含重新声明队列/绑定)
 			select {
 			case <-ctx.Done():
 				return
-			default:
-			}
-
-			// 检查连接是否就绪
-			if !c.conn.CheckConnected(ctx) {
-				logger.WarnWithCtx(ctx, "[rabbitmq consumer] connection not ready, retrying...",
-					logger.String("queue", c.QueueName))
-				if !c.waitRetry(ctx, ticker) {
-					return
-				}
-				continue
-			}
-
-			// 初始化消费者会话（创建 channel、设置 QoS、声明队列）
-			if err := c.setupChannel(ctx); err != nil {
-				logger.WarnWithCtx(ctx, "[rabbitmq consumer] setupChannel consumer error",
-					logger.Err(err),
-					logger.String("queue", c.QueueName))
-				if !c.waitRetry(ctx, ticker) {
-					return
-				}
-				continue
-			}
-
-			// 订阅队列获取消息投递通道
-			delivery, err := c.subscribe(ctx)
-			if err != nil {
-				logger.WarnWithCtx(ctx, "[rabbitmq consumer] subscribe error",
-					logger.Err(err),
-					logger.String("queue", c.QueueName))
-				c.safeChannelClose()
-				if !c.waitRetry(ctx, ticker) {
-					return
-				}
-				continue
-			}
-
-			// 持续处理消息流直到结束或出错
-			shouldRetry := c.processMessages(ctx, delivery, handler)
-			c.safeChannelClose()
-
-			if !shouldRetry {
+			case <-c.conn.Done():
+				c.Close()
 				return
-			}
-
-			// delivery 通道关闭，等待重试间隔后重新消费
-			if !c.waitRetry(ctx, ticker) {
-				return
+			case <-time.After(time.Second * 2):
 			}
 		}
 	}()
+}
+
+// consumeLoop 消费主循环：初始化 → 订阅 → 处理消息 → 清理，异常时按 2 秒间隔重试。
+// 正常退出(ctx取消/连接关闭/会话结束不再重试)；panic 会向上抛给 Consume 的重启包装。
+func (c *Consumer) consumeLoop(ctx context.Context, handler Handler) {
+	ticker := time.NewTicker(time.Second * 2) // 2秒重试间隔
+	defer ticker.Stop()
+
+	// 消费主循环：初始化 → 消费 → 处理消息 → 清理
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// 检查连接是否就绪
+		if !c.conn.CheckConnected(ctx) {
+			logger.WarnWithCtx(ctx, "[rabbitmq consumer] connection not ready, retrying...",
+				logger.String("queue", c.QueueName))
+			if !c.waitRetry(ctx, ticker) {
+				return
+			}
+			continue
+		}
+
+		// 初始化消费者会话（创建 channel、设置 QoS、声明队列）
+		if err := c.setupChannel(ctx); err != nil {
+			logger.WarnWithCtx(ctx, "[rabbitmq consumer] setupChannel consumer error",
+				logger.Err(err),
+				logger.String("queue", c.QueueName))
+			if !c.waitRetry(ctx, ticker) {
+				return
+			}
+			continue
+		}
+
+		// 订阅队列获取消息投递通道
+		delivery, err := c.subscribe(ctx)
+		if err != nil {
+			logger.WarnWithCtx(ctx, "[rabbitmq consumer] subscribe error",
+				logger.Err(err),
+				logger.String("queue", c.QueueName))
+			c.safeChannelClose()
+			if !c.waitRetry(ctx, ticker) {
+				return
+			}
+			continue
+		}
+
+		// 持续处理消息流直到结束或出错
+		shouldRetry := c.processMessages(ctx, delivery, handler)
+		c.safeChannelClose()
+
+		if !shouldRetry {
+			return
+		}
+
+		// delivery 通道关闭，等待重试间隔后重新消费
+		if !c.waitRetry(ctx, ticker) {
+			return
+		}
+	}
 }
 
 // waitRetry 等待重试间隔或退出信号。
@@ -434,7 +509,9 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	// 标记消息已到达消费者，开始正式处理
 	span.AddEvent("message received")
 
-	err := handler(msgCtx, d.Body, d.MessageId, tagID)
+	// 逐条 panic 隔离：handler panic 转为处理失败，走下方既有确认语义。
+	// panic 型错误允许有限次 requeue 重试（防瞬时故障误杀），显式 error 保持不重试。
+	err := c.safeHandle(msgCtx, d.Body, d.MessageId, tagID, handler)
 
 	// 自动确认模式：仅记录处理结果，不执行消息确认（由 RabbitMQ 自动 Ack）
 	if c.isAutoAck {
@@ -446,14 +523,56 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 				),
 			)
 			span.SetStatus(codes.Error, fmt.Sprintf("handler execution failed: %v", err))
-			span.AddEvent("handler error occurred")
 		} else {
-			span.AddEvent("message processed successfully (auto-ack)")
+			c.clearPanicRetry(panicRetryKey(c.QueueName, d.Body))
 		}
 		return
 	}
 
-	// 手动确认模式 - handler 执行失败：Reject 消息（不重新入队），记录完整错误信息
+	// 手动确认模式 - handler panic：允许有限次 requeue 重试，超限后进死信
+	var pErr *handlerPanicError
+	if errors.As(err, &pErr) {
+		key := panicRetryKey(c.QueueName, d.Body)
+		attempt := c.incrPanicRetry(key)
+		requeue := attempt <= panicRetryLimit
+		if !requeue {
+			c.clearPanicRetry(key)
+		}
+		span.RecordError(err,
+			trace.WithAttributes(
+				attribute.String("error.type", "handler-panic"),
+				attribute.Int("retry_attempt", attempt),
+				attribute.Bool("requeue", requeue),
+			),
+		)
+		span.SetStatus(codes.Error, err.Error())
+		if rejectErr := d.Reject(requeue); rejectErr != nil {
+			logger.WarnWithCtx(ctx, "[rabbitmq consumer] panic retry Reject error",
+				logger.Err(rejectErr),
+				logger.Int("attempt", attempt),
+				logger.Bool("requeue", requeue),
+				logger.String("tagID", tagID),
+				logger.String("queue", c.QueueName),
+				logger.String("message_id", d.MessageId))
+			c.safeChannelClose()
+		} else if requeue {
+			span.AddEvent(fmt.Sprintf("handler panic, requeued for retry (attempt=%d/%d)", attempt, panicRetryLimit))
+			logger.WarnWithCtx(ctx, "[rabbitmq consumer] handler panic, requeued for retry",
+				logger.Int("attempt", attempt),
+				logger.Int("limit", panicRetryLimit),
+				logger.String("queue", c.QueueName),
+				logger.String("tagID", tagID))
+		} else {
+			span.AddEvent("handler panic exceeded retry limit, rejected to DLQ")
+			logger.WarnWithCtx(ctx, "[rabbitmq consumer] handler panic exceeded retry limit, sending to DLQ",
+				logger.Int("limit", panicRetryLimit),
+				logger.String("queue", c.QueueName),
+				logger.String("tagID", tagID))
+		}
+		return
+	}
+
+	// 手动确认模式 - handler 显式返回错误（业务判定不可恢复）：Reject 不重新入队，进死信
 	if err != nil {
 		span.RecordError(err,
 			trace.WithAttributes(
@@ -488,8 +607,6 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	}
 
 	// 手动确认模式 - handler 执行成功：确认消息已处理，确认失败时记录告警
-	//false	仅确认当前消息	逐条处理、精确控制、需要死信/重试的场景
-	//true	批量确认当前及之前所有未确认消息	批量消费、高吞吐、允许批量确认的场景
 	if ackErr := d.Ack(false); ackErr != nil {
 		span.RecordError(ackErr,
 			trace.WithAttributes(
@@ -504,11 +621,30 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 			logger.String("tagID", tagID),
 			logger.String("queue", c.QueueName),
 			logger.String("message_id", d.MessageId))
-		// Ack 失败说明 channel 可能已损坏，关闭 channel 触发 RabbitMQ 重投递该消息
 		c.safeChannelClose()
 	} else {
+		// 消息终态：成功消费，清除历史 panic 计数（前次 panic requeue 后本次成功）
+		c.clearPanicRetry(panicRetryKey(c.QueueName, d.Body))
 		span.AddEvent("message acknowledged successfully")
 	}
+}
+
+// safeHandle 执行 handler 并做逐条 panic 隔离。
+// panic 被捕获后转为 handlerPanicError 返回（与显式 error 区分，调用方据此决定是否重试），
+// 不中断消费循环。
+func (c *Consumer) safeHandle(ctx context.Context, body []byte, messageId, tagID string, handler Handler) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = &handlerPanicError{val: r}
+			logger.ErrorWithCtx(ctx, "[rabbitmq consumer] handler panicked, treated as retryable failure",
+				logger.Any("panic", r),
+				logger.String("stack", string(debug.Stack())),
+				logger.String("queue", c.QueueName),
+				logger.String("message_id", messageId),
+				logger.String("tagID", tagID))
+		}
+	}()
+	return handler(ctx, body, messageId, tagID)
 }
 
 // safeChannelClose 安全关闭当前 AMQP 通道并清空引用。
