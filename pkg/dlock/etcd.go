@@ -63,7 +63,11 @@ func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 // 返回值：
 // - error: 如果获取锁失败则返回错误
 func (l *EtcdLock) Lock(ctx context.Context) error {
-	return l.mutex.Lock(ctx)
+	ctx, span := startLockSpan(ctx, "lock", l.mutex.Key())
+	defer span.End()
+	err := l.mutex.Lock(ctx)
+	markLock(span, err)
+	return err
 }
 
 // Unlock 释放锁
@@ -72,7 +76,11 @@ func (l *EtcdLock) Lock(ctx context.Context) error {
 // 返回值：
 // - error: 如果释放锁失败则返回错误
 func (l *EtcdLock) Unlock(ctx context.Context) error {
-	return l.mutex.Unlock(ctx)
+	ctx, span := startLockSpan(ctx, "unlock", l.mutex.Key())
+	defer span.End()
+	err := l.mutex.Unlock(ctx)
+	markLock(span, err)
+	return err
 }
 
 // TryLock 尝试获取锁而不阻塞
@@ -82,13 +90,19 @@ func (l *EtcdLock) Unlock(ctx context.Context) error {
 // - bool: 如果成功获取锁则返回 true，否则返回 false
 // - error: 如果发生错误则返回错误
 func (l *EtcdLock) TryLock(ctx context.Context) (bool, error) {
+	ctx, span := startLockSpan(ctx, "trylock", l.mutex.Key())
+	defer span.End()
 	err := l.mutex.TryLock(ctx)
 	if err == nil {
+		markTryLock(span, true, nil)
 		return true, nil
 	}
 	if err == concurrency.ErrLocked {
+		// 锁已被占用属正常竞争结果（非故障），标 OK。
+		markTryLock(span, false, nil)
 		return false, nil
 	}
+	markTryLock(span, false, err)
 	return false, err
 }
 

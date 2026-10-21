@@ -524,6 +524,8 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 			)
 			span.SetStatus(codes.Error, fmt.Sprintf("handler execution failed: %v", err))
 		} else {
+			// 统一状态口径：自动确认模式下处理成功标记 OK。
+			span.SetStatus(codes.Ok, "")
 			c.clearPanicRetry(panicRetryKey(c.QueueName, d.Body))
 		}
 		return
@@ -615,6 +617,8 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 				attribute.String("error.impact", "message-will-be-requeued-by-rabbitmq"),
 			),
 		)
+		// 统一状态口径：ack 失败属会导致重投的真实失败，补齐 Error（已有 RecordError 却缺 SetStatus）。
+		span.SetStatus(codes.Error, ackErr.Error())
 		span.AddEvent("acknowledgment failed")
 		logger.WarnWithCtx(ctx, "[rabbitmq consumer] manual ack error",
 			logger.Err(ackErr),
@@ -625,6 +629,8 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 	} else {
 		// 消息终态：成功消费，清除历史 panic 计数（前次 panic requeue 后本次成功）
 		c.clearPanicRetry(panicRetryKey(c.QueueName, d.Body))
+		// 统一状态口径：手动确认完全成功标记 OK。
+		span.SetStatus(codes.Ok, "")
 		span.AddEvent("message acknowledged successfully")
 	}
 }

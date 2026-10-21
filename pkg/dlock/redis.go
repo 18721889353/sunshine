@@ -74,10 +74,14 @@ func newLocker(delegate redis.UniversalClient, key string, options ...redsync.Op
 // - bool: 如果成功获取锁则返回 true，否则返回 false
 // - error: 如果发生错误则返回错误
 func (l *RedisLock) TryLock(ctx context.Context) (bool, error) {
+	ctx, span := startLockSpan(ctx, "trylock", l.mutex.Name())
+	defer span.End()
 	err := l.mutex.TryLockContext(ctx)
 	if err == nil {
+		markTryLock(span, true, nil)
 		return true, nil
 	}
+	markTryLock(span, false, err)
 	return false, err
 }
 
@@ -87,7 +91,11 @@ func (l *RedisLock) TryLock(ctx context.Context) (bool, error) {
 // 返回值：
 // - error: 如果获取锁失败则返回错误
 func (l *RedisLock) Lock(ctx context.Context) error {
-	return l.mutex.LockContext(ctx)
+	ctx, span := startLockSpan(ctx, "lock", l.mutex.Name())
+	defer span.End()
+	err := l.mutex.LockContext(ctx)
+	markLock(span, err)
+	return err
 }
 
 // Unlock 释放锁，如果解锁成功，键将被自动删除
@@ -96,7 +104,10 @@ func (l *RedisLock) Lock(ctx context.Context) error {
 // 返回值：
 // - error: 如果释放锁失败则返回错误
 func (l *RedisLock) Unlock(ctx context.Context) error {
+	ctx, span := startLockSpan(ctx, "unlock", l.mutex.Name())
+	defer span.End()
 	_, err := l.mutex.UnlockContext(ctx)
+	markLock(span, err)
 	return err
 }
 

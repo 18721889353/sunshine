@@ -49,7 +49,7 @@ func newSMTPClient(cfg *Config) (*SMTPClient, error) {
 // SendEmail 发送邮件
 func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.smtp")
+	tracer := otel.Tracer("goemail")
 	ctx, span := tracer.Start(ctx, "smtp.send.email", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
@@ -263,7 +263,7 @@ func (c *SMTPClient) GetProviderType() ProviderType {
 // 邮件发送成功后即认为已送达SMTP服务器，后续投递由邮件服务器处理
 func (c *SMTPClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.smtp")
+	tracer := otel.Tracer("goemail")
 	spanName := "smtp.get_email_status"
 	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()

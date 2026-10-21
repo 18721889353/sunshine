@@ -321,6 +321,8 @@ func (p *Producer) publish(ctx context.Context, exchangeType, routingKey string,
 			logger.String("message_id", messageID),
 			logger.Float64("duration_ms", float64(duration.Milliseconds())))
 	} else {
+		// 统一状态口径：发布成功标记 OK（规范见 pkg/tracer/status.go）。
+		span.SetStatus(codes.Ok, "")
 		span.AddEvent("message published successfully",
 			trace.WithAttributes(
 				attribute.String("exchange", p.Exchange.name),

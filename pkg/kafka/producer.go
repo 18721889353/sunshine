@@ -7,8 +7,10 @@ import (
 	"fmt"
 
 	"github.com/IBM/sarama"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/18721889353/sunshine/pkg/logger"
+	"github.com/18721889353/sunshine/pkg/tracer"
 )
 
 // ProducerMessage is sarama ProducerMessage
@@ -52,7 +54,20 @@ func InitSyncProducer(addrs []string, opts ...SyncProducerOption) (*SyncProducer
 
 // SendMessage sends a message to a topic.
 func (p *SyncProducer) SendMessage(msg *sarama.ProducerMessage) (int32, int64, error) {
-	return p.Producer.SendMessage(msg)
+	ctx, span := startProducerSpan(msg)
+	defer span.End()
+	injectProducerTrace(ctx, msg)
+	partition, offset, err := p.Producer.SendMessage(msg)
+	if err != nil {
+		tracer.MarkErr(span, err)
+		return partition, offset, err
+	}
+	span.SetAttributes(
+		attribute.Int("messaging.kafka.partition", int(partition)),
+		attribute.Int64("messaging.kafka.offset", offset),
+	)
+	tracer.MarkOK(span)
+	return partition, offset, err
 }
 
 // SendData sends a message to a topic with multiple types of data.
@@ -75,7 +90,7 @@ func (p *SyncProducer) SendData(topic string, data interface{}) (int32, int64, e
 		msg = &sarama.ProducerMessage{Topic: topic, Value: sarama.ByteEncoder(buf)}
 	}
 
-	return p.Producer.SendMessage(msg)
+	return p.SendMessage(msg)
 }
 
 // Close closes the producer.
@@ -143,14 +158,30 @@ func InitAsyncProducer(addrs []string, opts ...AsyncProducerOption) (*AsyncProdu
 // SendMessage sends messages to a topic.
 func (p *AsyncProducer) SendMessage(messages ...*sarama.ProducerMessage) error {
 	for _, msg := range messages {
-		select {
-		case p.Producer.Input() <- msg:
-		case <-p.exit:
-			return fmt.Errorf("async produce message had exited")
+		if err := p.enqueue(msg); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// enqueue 将单条消息投入异步生产者输入通道，并为“入队”动作起一个生产 span。
+// 限制：异步发送的真实结果经 Successes()/Errors() 通道异步回收，无法同步归属到本条
+// span，故此 span 仅覆盖入队动作（成功=已提交到本地缓冲），不代表 broker 已确认落盘。
+func (p *AsyncProducer) enqueue(msg *sarama.ProducerMessage) error {
+	ctx, span := startProducerSpan(msg)
+	defer span.End()
+	injectProducerTrace(ctx, msg)
+	select {
+	case p.Producer.Input() <- msg:
+		tracer.MarkOK(span)
+		return nil
+	case <-p.exit:
+		err := fmt.Errorf("async produce message had exited")
+		tracer.MarkErr(span, err)
+		return err
+	}
 }
 
 // SendData sends messages to a topic with multiple types of data.

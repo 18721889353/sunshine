@@ -178,6 +178,8 @@ func (client *TkAPIClient) RequestWithContext(ctx context.Context, request TkAPI
 		attribute.Int("http.response.body.size", len(httpResponse.Body)),
 	)
 
+	// 统一状态口径：请求成功标记 OK（规范见 pkg/tracer/status.go）。
+	span.SetStatus(codes.Ok, "")
 	span.AddEvent("API request completed successfully",
 		trace.WithAttributes(
 			attribute.String("url", fullURL),

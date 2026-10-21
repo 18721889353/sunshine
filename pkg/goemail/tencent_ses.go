@@ -82,7 +82,7 @@ func newTencentSESClient(cfg *Config) (*TencentSESClient, error) {
 // SendEmail 发送邮件
 func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.tencent_ses")
+	tracer := otel.Tracer("goemail")
 	ctx, span := tracer.Start(ctx, "tencent_ses.send.email", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
@@ -231,7 +231,7 @@ func (c *TencentSESClient) GetProviderType() ProviderType {
 // GetEmailStatus 查询邮件发送状态
 func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.tencent_ses")
+	tracer := otel.Tracer("goemail")
 	spanName := "tencent_ses.get_email_status"
 	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
@@ -509,7 +509,7 @@ func (c *TencentSESClient) validateRequest(ctx context.Context, req *SendRequest
 // SendTemplateEmail 发送模板邮件（参考PHP案例实现）
 func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, to []string, templateID uint64, templateData map[string]interface{}, subject string) (*SendResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.tencent_ses")
+	tracer := otel.Tracer("goemail")
 	spanName := "tencent_ses.send_template_email"
 	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()

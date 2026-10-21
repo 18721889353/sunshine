@@ -62,7 +62,7 @@ func newAliyunDMClient(cfg *Config) (*AliyunDMClient, error) {
 // SendEmail 发送邮件
 func (c *AliyunDMClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.aliyun_dm")
+	tracer := otel.Tracer("goemail")
 	ctx, span := tracer.Start(ctx, "aliyun_dm.send.email", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
@@ -190,7 +190,7 @@ func (c *AliyunDMClient) GetProviderType() ProviderType {
 // 这里实现一个基于TagName追踪的查询方法
 func (c *AliyunDMClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery) (*EmailStatusResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.aliyun_dm")
+	tracer := otel.Tracer("goemail")
 	spanName := "aliyun_dm.get_email_status"
 	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
@@ -250,7 +250,7 @@ func (c *AliyunDMClient) GetEmailStatus(ctx context.Context, query *EmailStatusQ
 // 注：这是阿里云DM提供的主要查询方式，但返回的是统计数据而非单封邮件状态
 func (c *AliyunDMClient) GetTrackList(ctx context.Context, accountName, tagName string, startTime, endTime time.Time) (*EmailStatusResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.aliyun_dm")
+	tracer := otel.Tracer("goemail")
 	spanName := "aliyun_dm.get_track_list"
 	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
@@ -371,7 +371,7 @@ func (c *AliyunDMClient) validateRequest(ctx context.Context, req *SendRequest) 
 // 语义按阿里云官方 API 文档修正；本轮无凭据未实测，仅静态检查通过。
 func (c *AliyunDMClient) SendTemplateEmail(ctx context.Context, from, receiversName, templateName string) (*SendResult, error) {
 	// 链路追踪
-	tracer := otel.Tracer("goemail.aliyun_dm")
+	tracer := otel.Tracer("goemail")
 	spanName := "aliyun_dm.send_template_email"
 	ctx, span := tracer.Start(ctx, spanName, trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()

@@ -127,16 +127,27 @@ func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, 
 			if !ok {
 				return nil
 			}
-			err := h.handleMessageFn(msg)
-			if err != nil {
-				logger.ErrorWithCtx(h.ctx, "failed to handle message", logger.Err(err))
-				continue
-			}
-			sess.MarkMessage(msg, "")
-			if !h.autoCommitEnable {
-				sess.Commit()
-			}
+			h.handleOne(sess, msg)
 		}
+	}
+}
+
+// handleOne 处理单条消息：从消息头恢复上游链路起消费 span，按 handler 结果统一收尾状态。
+// 说明：HandleMessageFn 签名不接收 context（既有 API，不改动），故消费 span 只能覆盖
+// “调用 handler”这一层并在消息维度串联生产-消费链路，无法把 span 注入 handler 内部子调用。
+func (h *defaultConsumerHandler) handleOne(sess sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
+	_, span := startConsumerSpan(h.ctx, msg)
+	defer span.End()
+
+	err := h.handleMessageFn(msg)
+	markConsumeResult(span, err)
+	if err != nil {
+		logger.ErrorWithCtx(h.ctx, "failed to handle message", logger.Err(err))
+		return
+	}
+	sess.MarkMessage(msg, "")
+	if !h.autoCommitEnable {
+		sess.Commit()
 	}
 }
 
@@ -202,7 +213,10 @@ func (c *Consumer) ConsumePartition(ctx context.Context, topic string, partition
 	for {
 		select {
 		case msg := <-pc.Messages():
+			_, span := startConsumerSpan(ctx, msg)
 			err = handleFn(msg)
+			markConsumeResult(span, err)
+			span.End()
 			if err != nil {
 				logger.WarnWithCtx(ctx, "failed to handle message",
 					logger.Err(err),
