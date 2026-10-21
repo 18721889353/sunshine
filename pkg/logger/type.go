@@ -90,11 +90,12 @@ func Skip() Field {
 }
 
 // Err 创建错误类型字段，err 为 nil 时自动跳过
+// 平铺为字符串输出(error:"...")，避免 zap.Error 的嵌套对象格式在 SLS 采集后显示为 error:{} 丢失错误信息
 func Err(err error) Field {
 	if err == nil {
 		return zap.Skip()
 	}
-	return zap.Error(err)
+	return zap.String("error", err.Error())
 }
 
 // Any 创建任意类型字段，适用于对象、切片、映射等复合类型

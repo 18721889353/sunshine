@@ -375,8 +375,19 @@ func slsFieldValue(field Field) string {
 		return strconv.FormatFloat(math.Float64frombits(uint64(field.Integer)), 'f', -1, 64)
 	case zapcore.Float32Type:
 		return strconv.FormatFloat(float64(math.Float32frombits(uint32(field.Integer))), 'f', -1, 32)
+	case zapcore.ErrorType:
+		// zap.Error(err) 为 ErrorType：error 结构体无导出字段，json.Marshal 只会得到 "{}"，
+		// 必须取 err.Error() 才能保留真实错误描述
+		if err, ok := field.Interface.(error); ok && err != nil {
+			return err.Error()
+		}
+		return ""
 	default:
 		if field.Interface != nil {
+			// zap.Any(key, err) 等反射类型同样命中此分支，优先按 error 取描述再兜底 JSON
+			if err, ok := field.Interface.(error); ok {
+				return err.Error()
+			}
 			jsonBytes, marshalErr := json.Marshal(field.Interface)
 			if marshalErr != nil {
 				return fmt.Sprintf("序列化错误: %v", marshalErr)
