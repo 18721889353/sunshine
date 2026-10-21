@@ -176,6 +176,7 @@ func (p *Pool) GetConn(ctx context.Context) (*Connection, error) {
 						attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
 					)
 					span.AddEvent(fmt.Sprintf("connection acquired from pool (%s path)", verifyType))
+					span.SetStatus(codes.Ok, "")
 				}
 				return pConn.connInfo, nil
 			}
@@ -210,6 +211,7 @@ func (p *Pool) GetConn(ctx context.Context) (*Connection, error) {
 					attribute.Float64("rabbitmq.pool.get_duration_ms", float64(time.Since(startTime).Milliseconds())),
 				)
 				span.AddEvent("new connection created")
+				span.SetStatus(codes.Ok, "")
 			}
 			return conn, nil
 		}
@@ -351,6 +353,15 @@ func (p *Pool) GetConnWithRetry(ctx context.Context, maxRetries int) (*Connectio
 
 		conn, shouldContinue, err := p.handleGetConnRetry(ctx, i, maxRetries, span)
 		if !shouldContinue {
+			if span != nil {
+				// 成功标 OK；失败标 Error（ErrPoolClosed/ctx 取消等路径内部已设过 Error 时，
+				// SetStatus 仅首次生效，重复调用无副作用）
+				if err == nil {
+					span.SetStatus(codes.Ok, "")
+				} else {
+					span.SetStatus(codes.Error, err.Error())
+				}
+			}
 			return conn, err
 		}
 		lastErr = err
@@ -407,6 +418,7 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 			attribute.Bool("rabbitmq.pool.connection_returned", true),
 		)
 		span.AddEvent("connection returned to pool")
+		span.SetStatus(codes.Ok, "")
 	}
 	// 唤醒等待的 Get
 	select {
@@ -549,6 +561,7 @@ func (p *Pool) Close(ctx context.Context) error {
 			attribute.Int("rabbitmq.pool.closed_connections", closedCount),
 		)
 		span.AddEvent("pool closed")
+		span.SetStatus(codes.Ok, "")
 	}
 
 	return nil
