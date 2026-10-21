@@ -361,7 +361,7 @@ func TestRequestIDHookProcessPipelineHookRecordsError(t *testing.T) {
 	assertAttr(t, span.Attributes, "request_id", "pipeline-req-001")
 }
 
-// TestRequestIDHookProcessPipelineHookSuccess 验证成功时不设置错误状态
+// TestRequestIDHookProcessPipelineHookSuccess 验证成功时标记 OK（统一规则），不置错误状态
 func TestRequestIDHookProcessPipelineHookSuccess(t *testing.T) {
 	hook := &requestIDHook{}
 
@@ -380,7 +380,7 @@ func TestRequestIDHookProcessPipelineHookSuccess(t *testing.T) {
 	})
 
 	require.Len(t, stubs, 1)
-	assert.Equal(t, "Unset", stubs[0].Status.Code.String())
+	assert.Equal(t, "Ok", stubs[0].Status.Code.String())
 	assertAttr(t, stubs[0].Attributes, "request_id", "pipeline-req-002")
 }
 
@@ -450,7 +450,8 @@ func TestRequestIDHookProcessPipelineHookNoFailureEvents(t *testing.T) {
 // ============================================================================
 
 // TestRequestIDHookProcessHookNilNotRecorded 验证 GET 不存在 key 返回 redis.Nil 时
-// Span 状态保持 Unset 且不产生 Error Event（生产上 miss 率高，计入错误会打满错误率）
+// Span 标记 OK（miss 属正常命令结果，统一规则）而非 Error，且不产生 Error Event
+// （生产上 miss 率高，计入错误会打满错误率）
 func TestRequestIDHookProcessHookNilNotRecorded(t *testing.T) {
 	hook := &requestIDHook{}
 
@@ -467,14 +468,14 @@ func TestRequestIDHookProcessHookNilNotRecorded(t *testing.T) {
 
 	require.Len(t, stubs, 1)
 	span := stubs[0]
-	assert.Equal(t, "Unset", span.Status.Code.String(), "缓存 miss 不应把 Span 置为 Error")
+	assert.Equal(t, "Ok", span.Status.Code.String(), "缓存 miss 属正常结果，应标 OK 而非 Error")
 	for _, e := range span.Events {
 		assert.NotEqual(t, "exception", e.Name, "redis.Nil 不应记录异常事件")
 	}
 }
 
 // TestRequestIDHookProcessPipelineHookNilNotFailure 验证全 miss 的 Pipeline
-// （逐命令与整体错误均为 redis.Nil）不产生失败事件且状态保持 Unset
+// （逐命令与整体错误均为 redis.Nil）不产生失败事件且状态标记 OK（全 miss 属正常）
 func TestRequestIDHookProcessPipelineHookNilNotFailure(t *testing.T) {
 	hook := &requestIDHook{}
 
@@ -496,7 +497,7 @@ func TestRequestIDHookProcessPipelineHookNilNotFailure(t *testing.T) {
 	})
 
 	require.Len(t, stubs, 1)
-	assert.Equal(t, "Unset", stubs[0].Status.Code.String(), "全 miss 不应置 Error")
+	assert.Equal(t, "Ok", stubs[0].Status.Code.String(), "全 miss 属正常，应标 OK 而非 Error")
 	assert.Empty(t, stubs[0].Events, "全 miss 不应记录失败事件")
 }
 

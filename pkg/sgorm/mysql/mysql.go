@@ -8,6 +8,7 @@ import (
 
 	"github.com/uptrace/opentelemetry-go-extra/otelgorm"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	mysqlDriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -220,7 +221,7 @@ func enhanceSpanWithQueryInfo(ctx context.Context, db *gorm.DB, operation string
 		attribute.Int64("db.rows_affected", db.Statement.RowsAffected),
 	)
 
-	// 5. 如果有错误，记录错误信息
+	// 5. 如果有错误，记录错误信息（状态 codes.Error 由 otelgorm after 回调统一设置）
 	if db.Error != nil {
 		span.RecordError(db.Error,
 			trace.WithAttributes(
@@ -229,6 +230,11 @@ func enhanceSpanWithQueryInfo(ctx context.Context, db *gorm.DB, operation string
 				attribute.String("db.table", tableName),
 			),
 		)
+	} else {
+		// 统一规则：成功查询显式标记 OK，使 DB span 状态口径与业务 span 一致，消除 ARMS「未设置」噪声。
+		// 本回调在 otelgorm after 之前执行；若 SQL 实际失败，otelgorm after 会以 codes.Error 覆盖
+		// （OTel 状态优先级 Error>Ok>Unset，低优先级无法覆盖高优先级），故提前设 OK 不会洗白真实 DB 错误。
+		span.SetStatus(codes.Ok, "db operation completed")
 	}
 }
 

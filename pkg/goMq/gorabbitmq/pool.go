@@ -372,8 +372,10 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 	}
 
 	if conn == nil {
+		// 归还 nil 连接属无操作（可能来自 Get 失败的兜底归还），并非“成功归还”，
+		// 不标记 OK 以免监控里显示成绿色成功；仅记事件保留可观测性。
 		if span != nil {
-			span.SetStatus(codes.Ok, "nil connection")
+			span.AddEvent("put skipped: nil connection")
 		}
 		return nil
 	}
@@ -384,8 +386,10 @@ func (p *Pool) Put(ctx context.Context, conn *Connection) error {
 		p.totalConns.Add(-1)
 		conn.Close()
 		if span != nil {
+			// 连接在使用期间已断开被丢弃，属真实异常，标记 Error 以便监控暴露连接不稳定，
+			// 而非误标 OK 显示成成功。
 			span.SetAttributes(attribute.Bool("rabbitmq.pool.connection_returned", false))
-			span.SetStatus(codes.Ok, "connection invalid, closed")
+			span.SetStatus(codes.Error, "connection invalid on put, discarded")
 		}
 		return nil
 	}
@@ -518,8 +522,9 @@ func (p *Pool) Close(ctx context.Context) error {
 	defer p.poolMu.Unlock()
 
 	if p.isClosed.Load() {
+		// 重复关闭是幂等空操作，并未真正执行关闭，不标记 OK；仅记事件。
 		if span != nil {
-			span.SetStatus(codes.Ok, "already closed")
+			span.AddEvent("close skipped: already closed")
 		}
 		return nil
 	}

@@ -49,6 +49,10 @@ func (h *requestIDHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 				)
 				span.SetStatus(codes.Error, fmt.Sprintf("redis %s failed: %v", cmd.Name(), err))
 			}
+		} else if span := trace.SpanFromContext(ctx); span.IsRecording() {
+			// 统一规则：成功命令（含 redis.Nil 缓存 miss，属正常命令结果）显式标记 OK，
+			// 使 Redis span 状态口径与业务 span 一致，消除 ARMS「未设置」噪声。
+			span.SetStatus(codes.Ok, "redis command completed")
 		}
 
 		return err
@@ -88,6 +92,9 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 				} else {
 					span.SetStatus(codes.Error, "redis pipeline command failed")
 				}
+			} else {
+				// 统一规则：整个 Pipeline 无失败命令时标记 OK（含全 miss 的正常 Pipeline）。
+				span.SetStatus(codes.Ok, "redis pipeline completed")
 			}
 		}
 
