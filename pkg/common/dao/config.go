@@ -11,11 +11,12 @@ import "time"
 type CacheConfig struct {
 	// ==================== 1. 过期时间相关 ====================
 
-	// DefaultExpireTime 正常缓存过期时间，默认 30 分钟
+	// DefaultExpireTime 正常缓存过期时间，默认 10 分钟
 	// 作用：当数据被成功写入缓存后，多久自动失效。
-	// 为什么是 30 分钟？这是一个经验值：太短（如 1 分钟）会导致缓存命中率低，频繁查数据库；
-	// 太长（如 24 小时）会导致数据更新不及时。
-	// 注意：实际过期时间会在此基础上随机浮动 ±5 分钟（见 GetRandomExpireTime），防止缓存雪崩。
+	// 为什么是 10 分钟？写失效已改为版本号（generation）机制，旧版本 key 不再被删而是滞留到 TTL 自然过期，
+	// TTL 越长旧版本占用的 Redis 内存越多（最坏共存代数 ≈ TTL ÷ 失效频率），10 分钟在命中率与内存间取得平衡；
+	// 数据变更后由 INCR 立即逻辑作废，短 TTL 不会导致读到旧数据。
+	// 注意：实际过期时间会在此基础上随机浮动 ±5 分钟（见 GetRandomExpireTime，即 5~15 分钟），防止缓存雪崩。
 	DefaultExpireTime time.Duration
 
 	// DefaultNotFoundExpireTime 占位符缓存过期时间，默认 1 分钟
@@ -80,8 +81,8 @@ type CacheConfig struct {
 // 如果某个业务有特殊需求（比如数据变更频繁需要更短的过期时间），可以创建 CacheConfig 覆盖对应字段。
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
-		// 正常缓存 30 分钟
-		DefaultExpireTime: 30 * time.Minute,
+		// 正常缓存 10 分钟（版本号失效机制下，TTL 决定旧版本 key 的最大滞留时长）
+		DefaultExpireTime: 10 * time.Minute,
 
 		// 占位符 1 分钟（因为“不存在”的状态可能很快改变）
 		DefaultNotFoundExpireTime: 1 * time.Minute,

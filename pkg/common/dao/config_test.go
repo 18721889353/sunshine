@@ -14,8 +14,8 @@ func TestDefaultCacheConfig(t *testing.T) {
 	cfg := DefaultCacheConfig()
 
 	// 验证默认过期时间
-	if cfg.DefaultExpireTime != 30*time.Minute {
-		t.Errorf("DefaultExpireTime should be 30 minutes, got %v", cfg.DefaultExpireTime)
+	if cfg.DefaultExpireTime != 10*time.Minute {
+		t.Errorf("DefaultExpireTime should be 10 minutes, got %v", cfg.DefaultExpireTime)
 	}
 
 	// 验证默认占位符过期时间
@@ -144,12 +144,12 @@ func TestCacheConfigPartialUpdate(t *testing.T) {
 	cfg := DefaultCacheConfig()
 
 	// 只更新部分字段
-	cfg.DefaultExpireTime = 10 * time.Minute
+	cfg.DefaultExpireTime = 20 * time.Minute
 	cfg.MaxBatchSize = 500
 
 	// 验证更新的字段
-	if cfg.DefaultExpireTime != 10*time.Minute {
-		t.Errorf("DefaultExpireTime should be 10 minutes, got %v", cfg.DefaultExpireTime)
+	if cfg.DefaultExpireTime != 20*time.Minute {
+		t.Errorf("DefaultExpireTime should be 20 minutes, got %v", cfg.DefaultExpireTime)
 	}
 
 	if cfg.MaxBatchSize != 500 {
@@ -175,12 +175,12 @@ func TestCacheConfigCopy(t *testing.T) {
 	copy := original
 
 	// 修改副本
-	copy.DefaultExpireTime = 10 * time.Minute
+	copy.DefaultExpireTime = 5 * time.Minute
 	copy.MaxBatchSize = 500
 
 	// 验证原始配置未被修改
-	if original.DefaultExpireTime != 30*time.Minute {
-		t.Errorf("Original DefaultExpireTime should still be 30 minutes, got %v", original.DefaultExpireTime)
+	if original.DefaultExpireTime != 10*time.Minute {
+		t.Errorf("Original DefaultExpireTime should still be 10 minutes, got %v", original.DefaultExpireTime)
 	}
 
 	if original.MaxBatchSize != 1000 {
@@ -188,8 +188,8 @@ func TestCacheConfigCopy(t *testing.T) {
 	}
 
 	// 验证副本已修改
-	if copy.DefaultExpireTime != 10*time.Minute {
-		t.Errorf("Copy DefaultExpireTime should be 10 minutes, got %v", copy.DefaultExpireTime)
+	if copy.DefaultExpireTime != 5*time.Minute {
+		t.Errorf("Copy DefaultExpireTime should be 5 minutes, got %v", copy.DefaultExpireTime)
 	}
 
 	if copy.MaxBatchSize != 500 {

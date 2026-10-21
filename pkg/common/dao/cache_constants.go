@@ -26,6 +26,16 @@ const (
 	// 适用场景：CountByCondition，缓存的是“条件 -> 总条数”。
 	// 例如："count:jkl012" -> 1234（总记录数）。
 	CacheKeyPrefixCount = "count:"
+
+	// CacheKeyGen 查询缓存版本游标（generation）的相对 key。
+	// 完整 key 示例："data:Users:gen"，值由 Redis INCR 维护，无 TTL。
+	// 四类查询缓存（condition/columns/count/exists）的 key 均带 "v{版本}:" 段，
+	// 写失效只需 INCR 一次即可让全部旧版本查询缓存逻辑作废（靠 TTL 自然过期），
+	// 替代原来 DelByPrefix 全键空间 SCAN 遍历。
+	CacheKeyGen = "gen"
+
+	// CacheKeyVersionPrefixFmt 查询缓存 key 的版本段格式，完整形如 "v7:condition:xxx"。
+	CacheKeyVersionPrefixFmt = "v%d:"
 )
 
 // ==================== 第二组：Singleflight 去重键前缀（内存中合并请求） ====================
@@ -93,9 +103,10 @@ const (
 	// 适用场景：更新或删除了一条 ID=123 的记录，只需删除 Redis 里 key 为 "123" 的那条缓存。
 	DeleteDaoTypeSingle = "single"
 
-	// DeleteDaoTypeCondition 删除所有条件查询相关的缓存
+	// DeleteDaoTypeCondition 失效所有条件查询相关的缓存
 	// 适用场景：新增或更新了数据后，所有“条件查询”、“分页查询”、“计数”、“存在性”的缓存都可能失效。
-	// 例如：新增了一个用户后，之前缓存的“状态为1的用户列表”就过期了，需要批量删除 condition/columns/count/exists 前缀下的所有 Key。
+	// 例如：新增了一个用户后，之前缓存的“状态为1的用户列表”就过期了。
+	// 实现：INCR 版本游标（CacheKeyGen）一次，旧版本查询缓存 key 立即逻辑作废，无需 SCAN 遍历删除。
 	DeleteDaoTypeCondition = "condition"
 
 	// DeleteDaoTypeAll 删除该表的所有缓存（最彻底）

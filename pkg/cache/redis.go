@@ -413,6 +413,25 @@ func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error)
 	return nil
 }
 
+// Incr 对 key 中的整数值原子加一并返回加后的值（key 不存在时从 0 开始）。
+// 用于查询缓存版本游标（generation）失效：INCR 后旧版本 key 不再被任何人读到，靠 TTL 自然过期。
+func (c *redisCache) Incr(ctx context.Context, key string) (val int64, err error) {
+	start := time.Now()
+	defer func() {
+		c.logOperation(ctx, "Incr", start, err, logger.String("key", key))
+	}()
+
+	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
+	if err != nil {
+		return 0, fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
+	}
+	val, err = c.client.Incr(ctx, cacheKey).Result()
+	if err != nil {
+		return 0, fmt.Errorf("c.client.Incr error: %v, cacheKey=%s", err, cacheKey)
+	}
+	return val, nil
+}
+
 // SetCacheWithNotFound 为指定的 key 设置占位符（NotFoundPlaceholder），过期时间为 DefaultNotFoundExpireTime（1分钟）。
 // 用于防止缓存穿透：当查询结果为空时，设置占位符以短时间阻挡后续相同请求。
 func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) (err error) {

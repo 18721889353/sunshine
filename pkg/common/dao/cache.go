@@ -48,6 +48,11 @@ type CacheDriver[T any] interface {
 
 	// --- 前缀批量删除（SCAN 遍历） ---
 	DelByPrefix(ctx context.Context, prefix string) error
+
+	// --- 版本游标（generation）失效 ---
+	// IncrByKey 对自定义 key 的整数值原子加一并返回加后的值（key 不存在时从 0 开始）。
+	// 用于查询缓存的版本号失效：INCR 后旧版本 key 逻辑上全部作废，替代 DelByPrefix 全键空间 SCAN。
+	IncrByKey(ctx context.Context, key string) (int64, error)
 }
 
 // PlaceholderDriver 占位符驱动接口（防缓存穿透）

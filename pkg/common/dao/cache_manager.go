@@ -69,6 +69,40 @@ func (m *cacheManager[T]) getSingleCachePrefix() string {
 }
 
 // ============================================================================
+// 第一点五部分：查询缓存版本号（generation）失效
+// ============================================================================
+
+// getGenVersion 读取当前查询缓存版本号（gen key 不存在时视为 0 版本，即从未失效过）。
+// 读取失败（如 Redis 不可用）时同样按 0 处理并记日志：
+// Redis 不可用时后续查询缓存读写也会失败并自然穿透到 DB，行为一致，不会读到脏数据。
+func (m *cacheManager[T]) getGenVersion(ctx context.Context) uint64 {
+	version, err := m.cache.GetIDByKey(ctx, CacheKeyGen)
+	if err != nil {
+		if !errors.Is(err, database.ErrCacheNotFound) {
+			logger.WarnWithCtx(ctx, "cache: get gen version failed, fallback to v0", logger.Err(err))
+		}
+		return 0
+	}
+	return version
+}
+
+// versionedKey 为查询缓存（condition/columns/count/exists）的相对 key 添加 "v{N}:" 版本段。
+// 失效时只需 INCR 版本游标，旧版本 key 不再被任何人拼出，靠 TTL 自然过期，
+// 替代原来 DelByPrefix 全键空间 SCAN 遍历；并发旧读的回填只会写进旧版本 key，自动作废（免疫脏回填）。
+func (m *cacheManager[T]) versionedKey(ctx context.Context, relKey string) string {
+	return fmt.Sprintf(CacheKeyVersionPrefixFmt, m.getGenVersion(ctx)) + relKey
+}
+
+// incrGenVersion 推进查询缓存版本游标，一次 INCR 即让该表全部旧版本查询缓存逻辑作废。
+// 失败时记告警：旧缓存仍有人读，但会靠 TTL 自然过期（与原来 DelByPrefix 失败的影响一致）。
+func (m *cacheManager[T]) incrGenVersion(ctx context.Context) {
+	if _, err := m.cache.IncrByKey(ctx, CacheKeyGen); err != nil {
+		logger.WarnWithCtx(ctx, "cache: incr gen version failed, stale query caches will expire by TTL",
+			logger.Err(err), logger.String("prefix", m.basePrefix))
+	}
+}
+
+// ============================================================================
 // 第二部分：单条缓存 get（最核心的流程）
 // ============================================================================
 
@@ -268,8 +302,8 @@ func (m *cacheManager[T]) handleFallback(ctx context.Context, id uint64, err err
 // 缓存策略：缓存 key -> ID，ID 再通过 get() 方法获取完整对象。
 // 这样做的好处是：如果对象更新了，只需更新 ID 对应的对象缓存，条件缓存的 key->ID 依然有效。
 func (m *cacheManager[T]) getCondition(ctx context.Context, key string, queryFunc func() (*T, error)) (*T, error) {
-	// 【步骤1】构建完整的缓存 Key，格式："condition:MD5(条件)"
-	cacheKey := CacheKeyPrefixCondition + key
+	// 【步骤1】构建带版本段的完整缓存 Key，格式："v{版本}:condition:MD5(条件)"，失效靠 INCR 版本游标
+	cacheKey := m.versionedKey(ctx, CacheKeyPrefixCondition+key)
 
 	// 【步骤2】从缓存获取缓存的 ID
 	cachedID, err := m.cache.GetIDByKey(ctx, cacheKey)
@@ -406,7 +440,7 @@ func (m *cacheManager[T]) cacheConditionResult(ctx context.Context, cacheKey str
 // 缓存策略：key -> []uint64（ID 列表）
 // 例如：状态为 1 的所有用户 ID 列表
 func (m *cacheManager[T]) getByCondition(ctx context.Context, key string, queryFunc func() ([]uint64, error)) ([]uint64, error) {
-	cacheKey := CacheKeyPrefixCondition + key
+	cacheKey := m.versionedKey(ctx, CacheKeyPrefixCondition+key)
 
 	// 【步骤1】尝试从缓存读取 ID 列表
 	ids, err := m.cache.GetIDsByKey(ctx, cacheKey)
@@ -717,7 +751,7 @@ func (m *cacheManager[T]) setPlaceholdersForMissing(ctx context.Context, records
 //
 // 读取时：先读 total 和 ids，然后通过 getByIDs 获取完整记录
 func (m *cacheManager[T]) getColumns(ctx context.Context, queryFunc func() ([]*T, int64, error), idsQueryFunc func([]uint64) ([]*T, error), cacheKey string) ([]*T, int64, error) {
-	fullKey := CacheKeyPrefixColumns + cacheKey
+	fullKey := m.versionedKey(ctx, CacheKeyPrefixColumns+cacheKey)
 
 	// 【步骤1】尝试从缓存获取（无锁）
 	if total, ids, ok := m.tryGetColumnsFromCache(ctx, fullKey, idsQueryFunc); ok {
@@ -877,7 +911,7 @@ func (m *cacheManager[T]) cacheColumnsResult(ctx context.Context, fullKey string
 // getCount 缓存计数查询结果
 // 缓存策略：key -> uint64(计数)
 func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc func() (int64, error)) (int64, error) {
-	cacheKey := CacheKeyPrefixCount + key
+	cacheKey := m.versionedKey(ctx, CacheKeyPrefixCount+key)
 
 	// 尝试从缓存读取
 	cached, err := m.cache.GetIDByKey(ctx, cacheKey)
@@ -948,7 +982,7 @@ func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc fu
 // getExists 缓存存在性查询结果
 // 缓存策略：key -> 0（不存在）或 1（存在）
 func (m *cacheManager[T]) getExists(ctx context.Context, key string, queryFunc func() (bool, error)) (bool, error) {
-	cacheKey := CacheKeyPrefixExists + key
+	cacheKey := m.versionedKey(ctx, CacheKeyPrefixExists+key)
 
 	cached, err := m.cache.GetIDByKey(ctx, cacheKey)
 	if err == nil {
@@ -1042,33 +1076,15 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, ids []uint
 		}
 
 	case DeleteDaoTypeCondition:
-		// 删除所有条件相关的缓存（condition、columns、count、exists）
-		prefixes := []string{
-			singlePrefix + CacheKeyPrefixCondition,
-			singlePrefix + CacheKeyPrefixColumns,
-			singlePrefix + CacheKeyPrefixCount,
-			singlePrefix + CacheKeyPrefixExists,
-		}
-		for _, p := range prefixes {
-			if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
-				logger.WarnWithCtx(ctx, "cache DelByPrefix failed", logger.Err(delErr), logger.String("prefix", p))
-			}
-		}
+		// 版本号失效：INCR 推进版本游标，旧版本下 condition/columns/count/exists 的全部查询缓存立即逻辑作废，
+		// 替代原来 4 轮 DelByPrefix 全键空间 SCAN 遍历；旧 key 靠 TTL 自然过期。
+		m.incrGenVersion(ctx)
 
 	case DeleteDaoTypeAll:
-		// 删除所有缓存（最彻底）
-		prefixes := []string{
-			singlePrefix + CacheKeyPrefixCondition,
-			singlePrefix + CacheKeyPrefixColumns,
-			singlePrefix + CacheKeyPrefixCount,
-			singlePrefix + CacheKeyPrefixExists,
-		}
-		for _, p := range prefixes {
-			if delErr := m.cache.DelByPrefix(ctx, p); delErr != nil {
-				logger.WarnWithCtx(ctx, "cache DelByPrefix failed", logger.Err(delErr), logger.String("prefix", p))
-			}
-		}
-		// 额外删除所有单条缓存
+		// 查询缓存（condition/columns/count/exists）：INCR 版本游标一次失效，无需 SCAN
+		m.incrGenVersion(ctx)
+		// 单条记录缓存（key 无版本段，避免更新一行作废全表单条缓存引发回源风暴）仍需物理遍历删除；
+		// All 仅用于批量导入/表结构变更等低频重操作，保留 SCAN 语义。
 		if delErr := m.cache.DelByPrefix(ctx, singlePrefix); delErr != nil {
 			logger.WarnWithCtx(ctx, "cache DelByPrefix failed for singlePrefix", logger.Err(delErr), logger.String("prefix", singlePrefix))
 		}
@@ -1081,11 +1097,19 @@ func (m *cacheManager[T]) deleteCache(ctx context.Context, id uint64, ids []uint
 	}
 }
 
-// delayedDoubleDelete 延迟双删
+// delayedDoubleDelete 延迟双删（仅针对单条记录缓存）
 // 在数据变更后，先立即删除缓存（deleteCache），过一段时间（DelayedDeleteInterval）再删一次
-// 目的：防止在第一次删除后到第二次删除之间，有其他读请求把旧数据写回缓存
+// 目的：防止在第一次删除后到第二次删除之间，有其他读请求把旧数据写回缓存。
+// 注意：查询缓存（condition/columns/count/exists）的前缀双删已退役——
+// 版本号（generation）失效机制下并发旧读的回填只会写进旧版本 key，天然免疫脏回填，无需二次删除。
 func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, ids []uint64, deleteType string) {
 	if m.cache == nil {
+		return
+	}
+
+	// 短路守卫：Condition 类型的前缀双删已退役，若又无单条 id 需要二次删除，
+	// 则整个双删无事可做，不起空转 goroutine（Create 类写入只带 Condition，无具体 id）。
+	if deleteType == DeleteDaoTypeCondition && id == 0 && len(ids) == 0 {
 		return
 	}
 
@@ -1119,32 +1143,14 @@ func (m *cacheManager[T]) delayedDoubleDelete(ctx context.Context, id uint64, id
 			}
 		}
 
-		// 按类型删除前缀
+		// 按类型删除前缀（查询缓存已退役，见函数头注释）。
+		// 注意：Case DeleteDaoTypeCondition 是安全闸门，不得删除——
+		// 若 Condition 落入 default 分支会触发 DelByPrefix("") 全库扫描删除。
 		switch deleteType {
 		case DeleteDaoTypeCondition:
-			prefixes := []string{
-				singlePrefix + CacheKeyPrefixCondition,
-				singlePrefix + CacheKeyPrefixColumns,
-				singlePrefix + CacheKeyPrefixCount,
-				singlePrefix + CacheKeyPrefixExists,
-			}
-			for _, p := range prefixes {
-				if delErr := m.cache.DelByPrefix(bgCtx, p); delErr != nil {
-					logger.WarnWithCtx(bgCtx, "delayed delete prefix failed", logger.Err(delErr), logger.String("prefix", p))
-				}
-			}
+			// 版本号机制已免疫脏回填，无需任何前缀二次删除
 		case DeleteDaoTypeAll:
-			prefixes := []string{
-				singlePrefix + CacheKeyPrefixCondition,
-				singlePrefix + CacheKeyPrefixColumns,
-				singlePrefix + CacheKeyPrefixCount,
-				singlePrefix + CacheKeyPrefixExists,
-			}
-			for _, p := range prefixes {
-				if delErr := m.cache.DelByPrefix(bgCtx, p); delErr != nil {
-					logger.WarnWithCtx(bgCtx, "delayed delete prefix failed", logger.Err(delErr), logger.String("prefix", p))
-				}
-			}
+			// 仅保留单条缓存的前缀二次删除（与首次删除同一语义）
 			if delErr := m.cache.DelByPrefix(bgCtx, singlePrefix); delErr != nil {
 				logger.WarnWithCtx(bgCtx, "delayed delete singlePrefix failed", logger.Err(delErr), logger.String("prefix", singlePrefix))
 			}

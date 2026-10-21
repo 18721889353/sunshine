@@ -161,6 +161,14 @@ func (a *CacheAdapter[T]) DelByKey(ctx context.Context, key string) error {
 	return a.driver.Del(ctx, a.buildKeyString(key))
 }
 
+// IncrByKey 对自定义 key 的整数值原子加一并返回加后的值（用于查询缓存版本游标失效）。
+func (a *CacheAdapter[T]) IncrByKey(ctx context.Context, key string) (int64, error) {
+	if key == "" {
+		return 0, errors.New("dao: IncrByKey key should not be empty")
+	}
+	return a.driver.Incr(ctx, a.buildKeyString(key))
+}
+
 // ----- 批量操作实现 -----
 
 // MultiSet 批量设置对象缓存，key 由每个对象的 ID 生成。

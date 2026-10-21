@@ -44,6 +44,10 @@ type Cache interface {
 	// DelByPrefix 根据前缀批量删除缓存（使用 SCAN 遍历）。
 	DelByPrefix(ctx context.Context, prefix string) error
 
+	// Incr 对 key 中的整数值原子加一并返回加后的值（key 不存在时从 0 开始）。
+	// 主要用于查询缓存的版本游标（generation）失效，替代全键空间 SCAN 遍历。
+	Incr(ctx context.Context, key string) (int64, error)
+
 	// SetCacheWithNotFound 为指定 key 设置占位符，防止缓存穿透。
 	SetCacheWithNotFound(ctx context.Context, key string) error
 }

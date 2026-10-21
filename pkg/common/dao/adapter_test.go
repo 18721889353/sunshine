@@ -159,6 +159,21 @@ func (m *mockCache) SetCacheWithNotFound(ctx context.Context, key string) error 
 	return nil
 }
 
+// Incr 模拟 Redis INCR：与 GetIDByKey 的 *uint64 存储格式保持兼容
+func (m *mockCache) Incr(ctx context.Context, key string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var cur uint64
+	if v, ok := m.data[key]; ok {
+		if p, ok := v.(*uint64); ok && p != nil {
+			cur = *p
+		}
+	}
+	cur++
+	m.data[key] = &cur
+	return int64(cur), nil
+}
+
 // ============================================================================
 // 测试用例
 // ============================================================================
