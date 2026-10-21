@@ -11,6 +11,7 @@ import (
 
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9/maintnotifications"
 
 	"github.com/18721889353/sunshine/pkg/logger"
 )
@@ -286,7 +287,19 @@ func getRedisOpt(dsn string, opts *options) (*redis.Options, error) {
 	// 4. With* 显式设置的字段覆盖 DSN 解析值
 	applyExplicitRedisOptions(redisOpts, opts)
 
+	// 5. 默认禁用维护通知握手（原因见 disableMaintNotificationsConfig 注释）
+	disableMaintNotificationsConfig(redisOpts)
+
 	return redisOpts, nil
+}
+
+// disableMaintNotificationsConfig 禁用 go-redis v9.17+ 的 CLIENT MAINT_NOTIFICATIONS 握手命令。
+// 该命令是 Redis Cloud 8.x 维护通知扩展，go-redis 默认 auto 模式会在每个新连接握手时发送；
+// 自建/低版本服务端不认识该子命令，返回 ERR unknown subcommand（go-redis 容错不影响功能，
+// 但会被 redisotel 记为 error span 污染链路监控，且每次握手多浪费一个 RTT）。
+// 每个客户端独立 new 实例，避免跨客户端共享指针被 ApplyDefaults 原地修改的风险。
+func disableMaintNotificationsConfig(opt *redis.Options) {
+	opt.MaintNotificationsConfig = &maintnotifications.Config{Mode: maintnotifications.ModeDisabled}
 }
 
 // ensureDSNPath 在 DSN 缺少 /db 路径时补全为 /0
@@ -464,6 +477,8 @@ func buildRedisBaseOptions(addr, password string, db int, o *options) *redis.Opt
 		Protocol:        o.protocol,
 		OnConnect:       o.onConnect,
 		Dialer:          o.dialer,
+		// 自建/低版本 Redis 不支持 CLIENT MAINT_NOTIFICATIONS，默认禁用避免握手错误 span（见 getRedisOpt 内注释）
+		MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled},
 	}
 }
 
@@ -493,6 +508,8 @@ func buildFailoverBaseOptions(masterName string, addrs []string, username, passw
 		Protocol:                o.protocol,
 		OnConnect:               o.onConnect,
 		Dialer:                  o.dialer,
+		// 哨兵模式无需禁用 maintnotifications：FailoverOptions 无该字段，
+		// go-redis 内部转 Options 时已强制 ModeDisabled（见 sentinel.go）
 	}
 }
 
@@ -522,6 +539,8 @@ func buildClusterBaseOptions(addrs []string, username, password string, o *optio
 		Protocol:        o.protocol,
 		OnConnect:       o.onConnect,
 		Dialer:          o.dialer,
+		// 自建/低版本 Redis 不支持 CLIENT MAINT_NOTIFICATIONS，默认禁用避免握手错误 span（见 getRedisOpt 内注释）
+		MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled},
 	}
 }
 

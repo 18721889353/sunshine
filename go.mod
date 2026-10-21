@@ -51,8 +51,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rabbitmq/amqp091-go v1.13.0
-	github.com/redis/go-redis/extra/redisotel/v9 v9.12.1
-	github.com/redis/go-redis/v9 v9.12.1
+	github.com/redis/go-redis/extra/redisotel/v9 v9.17.2
+	github.com/redis/go-redis/v9 v9.17.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sashabaranov/go-openai v1.42.1
 	github.com/shopspring/decimal v1.4.0
@@ -252,7 +252,7 @@ require (
 	// 均需暴露 Prometheus HTTP 端点才可被利用，本项目不启动 Prometheus 服务
 	github.com/prometheus/prometheus v0.40.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
-	github.com/redis/go-redis/extra/rediscmd/v9 v9.12.1 // indirect
+	github.com/redis/go-redis/extra/rediscmd/v9 v9.17.2 // indirect
 	github.com/richardlehane/mscfb v1.0.7 // indirect
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect
