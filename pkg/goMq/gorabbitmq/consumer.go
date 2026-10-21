@@ -638,7 +638,7 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 // safeHandle 执行 handler 并做逐条 panic 隔离。
 // panic 被捕获后转为 handlerPanicError 返回（与显式 error 区分，调用方据此决定是否重试），
 // 不中断消费循环。
-func (c *Consumer) safeHandle(ctx context.Context, body []byte, messageId, tagID string, handler Handler) (err error) {
+func (c *Consumer) safeHandle(ctx context.Context, body []byte, messageID, tagID string, handler Handler) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = &handlerPanicError{val: r}
@@ -646,11 +646,11 @@ func (c *Consumer) safeHandle(ctx context.Context, body []byte, messageId, tagID
 				logger.Any("panic", r),
 				logger.String("stack", string(debug.Stack())),
 				logger.String("queue", c.QueueName),
-				logger.String("message_id", messageId),
+				logger.String("message_id", messageID),
 				logger.String("tagID", tagID))
 		}
 	}()
-	return handler(ctx, body, messageId, tagID)
+	return handler(ctx, body, messageID, tagID)
 }
 
 // safeChannelClose 安全关闭当前 AMQP 通道并清空引用。
