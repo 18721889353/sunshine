@@ -147,15 +147,27 @@ func (m *cacheManager[T]) get(ctx context.Context, id uint64, queryFunc func() (
 // interval: 每次轮询间隔（默认 50ms）
 // maxWait:  最大等待时间（默认 5s）
 // queryCache: 每轮调用的缓存读取函数，返回 (*T, error)，缓存命中时 err == nil
-func (m *cacheManager[T]) waitForCachePoll(_ context.Context, interval, maxWait time.Duration, queryCache func() (*T, error)) (*T, bool) {
+//
+// 轮询循环会响应调用方 ctx 取消：一旦 ctx 被取消立即返回 (nil, false)，
+// 由调用方走 DB fallback（通常也会因 ctx 快速失败），而不是最多空跑满 maxWait。
+func (m *cacheManager[T]) waitForCachePoll(ctx context.Context, interval, maxWait time.Duration, queryCache func() (*T, error)) (*T, bool) {
 	deadline := time.Now().Add(maxWait)
-	for time.Now().Before(deadline) {
-		time.Sleep(interval)
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, false
+		case <-timer.C:
+		}
 		if record, cacheErr := queryCache(); cacheErr == nil {
 			return record, true
 		}
+		if !time.Now().Before(deadline) {
+			return nil, false
+		}
+		timer.Reset(interval)
 	}
-	return nil, false
 }
 
 // executeSingleflight 执行 singleflight 流程，把针对同一个 ID 的并发请求合并成一个
@@ -538,14 +550,25 @@ func (m *cacheManager[T]) fetchConditionIDsFromDB(ctx context.Context, cacheKey,
 			return cachedIDs, nil
 		}
 	} else {
-		// 未拿到锁，轮询等待
+		// 未拿到锁，轮询等待其他实例写入缓存；轮询循环响应调用方 ctx 取消
 		interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
 		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			time.Sleep(interval)
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
+	pollIDs:
+		for {
+			select {
+			case <-ctx.Done():
+				break pollIDs // 调用方已取消，不再空跑最多 5s，落到后续 DB 查询（会因 ctx 快速失败）
+			case <-timer.C:
+			}
 			if cachedIDs, cacheErr := m.cache.GetIDsByKey(ctx, cacheKey); cacheErr == nil && len(cachedIDs) <= m.config.MaxCacheableIDs {
 				return cachedIDs, nil
 			}
+			if !time.Now().Before(deadline) {
+				break pollIDs
+			}
+			timer.Reset(interval)
 		}
 	}
 
@@ -959,14 +982,25 @@ func (m *cacheManager[T]) getCount(ctx context.Context, key string, queryFunc fu
 				return int64(cached), nil
 			}
 		} else {
-			// 未拿到锁，轮询等待其他实例写入缓存
+			// 未拿到锁，轮询等待其他实例写入缓存；轮询循环响应调用方 ctx 取消
 			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
 			deadline := time.Now().Add(5 * time.Second)
-			for time.Now().Before(deadline) {
-				time.Sleep(interval)
+			timer := time.NewTimer(interval)
+			defer timer.Stop()
+		pollCount:
+			for {
+				select {
+				case <-ctx.Done():
+					break pollCount // 调用方已取消，不再空跑最多 5s，落到后续 DB 查询（会因 ctx 快速失败）
+				case <-timer.C:
+				}
 				if cached, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil {
 					return int64(cached), nil
 				}
+				if !time.Now().Before(deadline) {
+					break pollCount
+				}
+				timer.Reset(interval)
 			}
 		}
 
@@ -1027,14 +1061,25 @@ func (m *cacheManager[T]) getExists(ctx context.Context, key string, queryFunc f
 				return cached > 0, nil
 			}
 		} else {
-			// 未拿到锁，轮询等待其他实例写入缓存
+			// 未拿到锁，轮询等待其他实例写入缓存；轮询循环响应调用方 ctx 取消
 			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
 			deadline := time.Now().Add(5 * time.Second)
-			for time.Now().Before(deadline) {
-				time.Sleep(interval)
+			timer := time.NewTimer(interval)
+			defer timer.Stop()
+		pollExists:
+			for {
+				select {
+				case <-ctx.Done():
+					break pollExists // 调用方已取消，不再空跑最多 5s，落到后续 DB 查询（会因 ctx 快速失败）
+				case <-timer.C:
+				}
 				if cached, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil {
 					return cached > 0, nil
 				}
+				if !time.Now().Before(deadline) {
+					break pollExists
+				}
+				timer.Reset(interval)
 			}
 		}
 
