@@ -25,7 +25,12 @@ import (
 )
 
 const (
-	defaultGoModVersion = "go 1.25"
+	// defaultGoModVersion 模板 go.mod 中 go 指令的替换标记。
+	// 必须与仓库根目录 go.mod 的 go 行逐字一致（含 patch 位）：
+	// 替换是纯文本 ReplaceAll，若标记是前缀（如 "go 1.25" 对上模板的 "go 1.25.0"），
+	// 替换后会残留尾缀得到 "go 1.27.3.0" 这种非法指令；若标记与模板不一致则整条替换静默失效。
+	// 根 go.mod 升级 Go 版本时，此处必须同步修改。
+	defaultGoModVersion = "go 1.27.3"
 
 	// TplNameSunshine name of the template
 	TplNameSunshine = "sunshine"
@@ -1258,7 +1263,7 @@ func setReadmeTitle(moduleName string, serverName string, serverType string, sui
 //   - moduleName: 目标项目的 Go 模块名称，用于替换默认的 sunshine 包路径。
 //
 // 返回值:
-//   - 包含两个替换字段：sunshine 包路径替换为 moduleName，默认 Go 版本替换为本地版本。
+//   - 包含两个替换字段：sunshine 包路径替换为 moduleName，模板的 go 指令替换为本地版本。
 func GetGoModFields(moduleName string) []replacer.Field {
 	return []replacer.Field{
 		{

@@ -2,7 +2,9 @@
 sunshine
 安装sunshine之前先安装依赖go和protoc，如果安装过可以跳过这个步骤。
 
-建议使用go 1.20以上版本： https://studygolang.com/dl
+建议使用 go 1.27.3 及以上版本（与 go.mod 的 go 指令一致，低版本标准库存在已知安全漏洞）： https://studygolang.com/dl
+
+本机 Go 低于 go.mod 声明版本时，GOTOOLCHAIN=auto 会自动下载并使用匹配的 Go；若已关闭自动切换，请先升级本机 Go 或设置 GOTOOLCHAIN=auto。
 
 注：如果不能科学上网，获取github的库可能会遇到超时失败问题，建议设置为国内代理，执行命令 go env -w GOPROXY=https://goproxy.cn,direct
 

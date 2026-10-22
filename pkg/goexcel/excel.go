@@ -108,7 +108,7 @@ func ExportExcel(ctx context.Context, sheetName string, headers []string, rows [
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
-	if headers == nil || len(headers) == 0 {
+	if len(headers) == 0 {
 		err := fmt.Errorf("表头不能为空")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -376,7 +376,7 @@ func ExportLargeDataset(
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err
 	}
-	if headers == nil || len(headers) == 0 {
+	if len(headers) == 0 {
 		err := fmt.Errorf("表头不能为空")
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -414,7 +414,7 @@ func ExportLargeDataset(
 		if err != nil {
 			return nil, fmt.Errorf("生成数据失败: %w", err)
 		}
-		if rows == nil || len(rows) == 0 {
+		if len(rows) == 0 {
 			break // 数据生成完毕
 		}
 
@@ -531,7 +531,7 @@ func validateSheetData(sheet SheetData) error {
 	if sheet.SheetName == "" {
 		return fmt.Errorf("工作表名称不能为空")
 	}
-	if sheet.Headers == nil || len(sheet.Headers) == 0 {
+	if len(sheet.Headers) == 0 {
 		return fmt.Errorf("表头不能为空")
 	}
 	return nil

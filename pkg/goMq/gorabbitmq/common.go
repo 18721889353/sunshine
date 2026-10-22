@@ -24,6 +24,11 @@ const (
 	HeadersTypeAll HeadersType = "all" // HeadersTypeAll 匹配headers中所有键值对
 	// HeadersTypeAny any
 	HeadersTypeAny HeadersType = "any" // HeadersTypeAny 匹配headers中任意键值对
+
+	// ArgKeyDeadLetterExchange 死信参数：死信投递的目标交换机，AMQP 协议固定 Key，供本包及子包（gorabbitmqconsumer）共用
+	ArgKeyDeadLetterExchange = "x-dead-letter-exchange"
+	// ArgKeyDeadLetterRoutingKey 死信参数：死信投递的目标路由键，AMQP 协议固定 Key，供本包及子包共用
+	ArgKeyDeadLetterRoutingKey = "x-dead-letter-routing-key"
 )
 
 // HeadersType 头交换机匹配类型
@@ -735,9 +740,9 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	// 声明死信队列（正常/重试队列消费失败后转入，TTL超时后转至重试队列）并绑定到交换机
 	if opts.deadQueueDeclare.args == nil {
 		opts.deadQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchangeName,
-			"x-dead-letter-routing-key": opts.errRoutingKey,
-			"x-message-ttl":             int32(600000),
+			ArgKeyDeadLetterExchange:   exchangeName,
+			ArgKeyDeadLetterRoutingKey: opts.errRoutingKey,
+			"x-message-ttl":            int32(600000),
 		}
 	}
 	dlq, err := channel.QueueDeclare(
@@ -764,8 +769,8 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	// 声明重试队列（死信TTL超时后重新投递到此处，再次消费失败则回到死信队列）并绑定到交换机
 	if opts.errQueueDeclare.args == nil {
 		opts.errQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchangeName,
-			"x-dead-letter-routing-key": opts.deadRoutingKey,
+			ArgKeyDeadLetterExchange:   exchangeName,
+			ArgKeyDeadLetterRoutingKey: opts.deadRoutingKey,
 		}
 	}
 	elq, err := channel.QueueDeclare(
@@ -792,8 +797,8 @@ func setupCustomerDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	// 声明普通队列（正常消费消息入队）并绑定到交换机
 	if opts.normalQueueDeclare.args == nil {
 		opts.normalQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchangeName,
-			"x-dead-letter-routing-key": opts.deadRoutingKey,
+			ArgKeyDeadLetterExchange:   exchangeName,
+			ArgKeyDeadLetterRoutingKey: opts.deadRoutingKey,
 		}
 	}
 	nlq, err := channel.QueueDeclare(
@@ -842,9 +847,9 @@ func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	// 声明死信队列（正常队列消费失败后转入，TTL超时后重新投递到普通队列）并绑定到交换机
 	if opts.deadQueueDeclare.args == nil {
 		opts.deadQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchangeName,
-			"x-dead-letter-routing-key": opts.normalRoutingKey,
-			"x-message-ttl":             int32(600000),
+			ArgKeyDeadLetterExchange:   exchangeName,
+			ArgKeyDeadLetterRoutingKey: opts.normalRoutingKey,
+			"x-message-ttl":            int32(600000),
 		}
 	}
 	dlq, err := channel.QueueDeclare(
@@ -871,8 +876,8 @@ func setupStandardDeadLetterDeclare(channel *amqp.Channel, exchangeName, exchang
 	// 声明普通队列（正常消费/死信TTL超时后重试消息入队）并绑定到交换机
 	if opts.normalQueueDeclare.args == nil {
 		opts.normalQueueDeclare.args = amqp.Table{
-			"x-dead-letter-exchange":    exchangeName,
-			"x-dead-letter-routing-key": opts.deadRoutingKey,
+			ArgKeyDeadLetterExchange:   exchangeName,
+			ArgKeyDeadLetterRoutingKey: opts.deadRoutingKey,
 		}
 	}
 	nlq, err := channel.QueueDeclare(

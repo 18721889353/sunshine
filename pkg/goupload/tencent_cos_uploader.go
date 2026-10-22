@@ -66,7 +66,7 @@ func (t *TencentCOSUploader) Upload(ctx context.Context, fileName string, reader
 	span.SetAttributes(
 		attribute.String("file.name", fileName),
 		attribute.Int64("file.size", size),
-		attribute.String("bucket", t.bucket),
+		attribute.String(bucketKey, t.bucket),
 		attribute.String("region", t.region),
 	)
 
@@ -101,8 +101,8 @@ func (t *TencentCOSUploader) Upload(ctx context.Context, fileName string, reader
 		Size:     size,
 		MimeType: "",
 		ExtraData: map[string]string{
-			"bucket": t.bucket,
-			"region": t.region,
+			bucketKey: t.bucket,
+			"region":  t.region,
 		},
 	}, nil
 }
@@ -153,8 +153,8 @@ func (t *TencentCOSUploader) GetPresignedURL(ctx context.Context, fileName strin
 			"method": http.MethodPut,
 		},
 		ExtraData: map[string]string{
-			"bucket": t.bucket,
-			"region": t.region,
+			bucketKey: t.bucket,
+			"region":  t.region,
 		},
 	}, nil
 }
@@ -166,7 +166,7 @@ func (t *TencentCOSUploader) Delete(ctx context.Context, path string) error {
 
 	span.SetAttributes(
 		attribute.String("object.key", path),
-		attribute.String("bucket", t.bucket),
+		attribute.String(bucketKey, t.bucket),
 	)
 
 	_, err := t.client.Object.Delete(ctx, path)

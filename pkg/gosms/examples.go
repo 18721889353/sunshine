@@ -6,12 +6,15 @@ import (
 	"time"
 )
 
+// exampleSignName 示例签名名称：演示用数据，接入时需替换为自己在云厂商审核通过的签名。
+const exampleSignName = "江苏通卡数字科技有限公司"
+
 // ExampleSendTencentSMS 发送腾讯短信示例
 func ExampleSendTencentSMS() {
 	// 创建配置
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSMS,
-		Region:       "ap-shanghai",
+		Region:       tencentDefaultRegion,
 		AccessKeyID:  "your-secret-id",  // 从环境变量或配置中心获取
 		SecretKey:    "your-secret-key", // 从环境变量或配置中心获取
 		TencentAppID: "1400282665",      // 腾讯云短信应用ID
@@ -28,8 +31,8 @@ func ExampleSendTencentSMS() {
 	ctx := context.Background()
 	req := &SendRequest{
 		PhoneNumbers: []string{"+8613711112222"},
-		TemplateID:   "1234567",      // 模板ID（需要在腾讯云控制台审核通过）
-		SignName:     "江苏通卡数字科技有限公司", // 签名名称
+		TemplateID:   "1234567",       // 模板ID（需要在腾讯云控制台审核通过）
+		SignName:     exampleSignName, // 签名名称
 		TemplateParams: []TemplateParam{
 			{Key: "1", Value: "123456"}, // 验证码（腾讯云为位置参数：顺序对应 %1%）
 		},
@@ -66,7 +69,7 @@ func ExampleSendAliyunSMS() {
 	req := &SendRequest{
 		PhoneNumbers: []string{"+8613711112222"},
 		TemplateID:   "SMS_123456789", // 模板ID（需要在阿里云控制台审核通过）
-		SignName:     "江苏通卡数字科技有限公司",  // 签名名称
+		SignName:     exampleSignName, // 签名名称
 		TemplateParams: []TemplateParam{
 			{Key: "code", Value: "123456"}, // 验证码（阿里云为命名参数，Key 写入 JSON）
 		},
@@ -86,7 +89,7 @@ func ExampleQuerySMSStatus() {
 	// 创建配置
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSMS,
-		Region:       "ap-shanghai",
+		Region:       tencentDefaultRegion,
 		AccessKeyID:  "your-secret-id",
 		SecretKey:    "your-secret-key",
 		TencentAppID: "1400282665",
@@ -123,7 +126,7 @@ func ExampleBatchSendSMS() {
 	// 创建配置
 	cfg := &Config{
 		ProviderType: ProviderTypeTencentSMS,
-		Region:       "ap-shanghai",
+		Region:       tencentDefaultRegion,
 		AccessKeyID:  "your-secret-id",
 		SecretKey:    "your-secret-key",
 		TencentAppID: "1400282665",
@@ -142,7 +145,7 @@ func ExampleBatchSendSMS() {
 		{
 			PhoneNumbers: []string{"+8613711112222"},
 			TemplateID:   "1234567",
-			SignName:     "江苏通卡数字科技有限公司",
+			SignName:     exampleSignName,
 			TemplateParams: []TemplateParam{
 				{Key: "1", Value: "123456"},
 			},
@@ -150,7 +153,7 @@ func ExampleBatchSendSMS() {
 		{
 			PhoneNumbers: []string{"+8613711112223"},
 			TemplateID:   "1234567",
-			SignName:     "江苏通卡数字科技有限公司",
+			SignName:     exampleSignName,
 			TemplateParams: []TemplateParam{
 				{Key: "1", Value: "654321"},
 			},

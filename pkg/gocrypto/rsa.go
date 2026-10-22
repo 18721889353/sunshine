@@ -13,6 +13,8 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+
+	"github.com/18721889353/sunshine/pkg/gocrypto/rsaes"
 )
 
 const (
@@ -110,6 +112,7 @@ func RsaVerifyBase64(publicKey []byte, rawData []byte, signBase64 string, opts .
 }
 
 // encrypt with public key
+// 填充方案为 PKCS#1 v1.5（对接方多为 Java RSA/ECB/PKCS1Padding），实现见 pkg/gocrypto/rsaes。
 func rsaEncryptWithPublicKey(publicKey []byte, rawData []byte) ([]byte, error) {
 	block, _ := pem.Decode(publicKey)
 	if block == nil {
@@ -125,10 +128,11 @@ func rsaEncryptWithPublicKey(publicKey []byte, rawData []byte) ([]byte, error) {
 		return nil, errors.New("it's not a public key")
 	}
 
-	return rsa.EncryptPKCS1v15(rand.Reader, prk, rawData)
+	return rsaes.Encrypt(prk, rawData)
 }
 
 // decrypt with private key
+// 与 rsaEncryptWithPublicKey 同一套 PKCS#1 v1.5 兼容层，见 pkg/gocrypto/rsaes。
 func rsaDecryptWithPrivateKey(privateKey []byte, cipherData []byte, format string) ([]byte, error) {
 	block, _ := pem.Decode(privateKey)
 	if block == nil {
@@ -140,7 +144,7 @@ func rsaDecryptWithPrivateKey(privateKey []byte, cipherData []byte, format strin
 		return nil, err
 	}
 
-	return rsa.DecryptPKCS1v15(rand.Reader, prk, cipherData)
+	return rsaes.Decrypt(prk, cipherData)
 }
 
 // sign with private key

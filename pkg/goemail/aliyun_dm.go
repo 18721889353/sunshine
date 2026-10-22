@@ -157,8 +157,8 @@ func (c *AliyunDMClient) SendEmail(ctx context.Context, req *SendRequest) (*Send
 		MessageID: tea.StringValue(response.Body.EnvId), // 使用EnvId作为MessageID
 		Status:    StatusSuccess,
 		Extra: map[string]interface{}{
-			"env_id":    tea.StringValue(response.Body.EnvId),
-			"timestamp": time.Now().Unix(),
+			"env_id":            tea.StringValue(response.Body.EnvId),
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}
 
@@ -239,9 +239,9 @@ func (c *AliyunDMClient) GetEmailStatus(ctx context.Context, query *EmailStatusQ
 		Status: StatusSuccess,
 		Data:   nil,
 		Extra: map[string]interface{}{
-			"note":       "阿里云DM暂不支持直接查询单封邮件状态，请使用GetTrackListByMailFromAndTagName查询发送记录",
-			"message_id": query.MessageID,
-			"timestamp":  time.Now().Unix(),
+			"note":              "阿里云DM暂不支持直接查询单封邮件状态，请使用GetTrackListByMailFromAndTagName查询发送记录",
+			"message_id":        query.MessageID,
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}, nil
 }
@@ -317,12 +317,12 @@ func (c *AliyunDMClient) GetTrackList(ctx context.Context, accountName, tagName 
 		Status: StatusSuccess,
 		Data:   nil,
 		Extra: map[string]interface{}{
-			"note":       "阿里云DM的TrackList API返回的是统计数据，建议使用控制台查看详细发送记录",
-			"total":      tea.Int32Value(response.Body.Total),
-			"page_no":    tea.Int32Value(response.Body.PageNo),
-			"page_size":  tea.Int32Value(response.Body.PageSize),
-			"request_id": tea.StringValue(response.Body.RequestId),
-			"timestamp":  time.Now().Unix(),
+			"note":              "阿里云DM的TrackList API返回的是统计数据，建议使用控制台查看详细发送记录",
+			"total":             tea.Int32Value(response.Body.Total),
+			"page_no":           tea.Int32Value(response.Body.PageNo),
+			"page_size":         tea.Int32Value(response.Body.PageSize),
+			extraFieldRequestID: tea.StringValue(response.Body.RequestId),
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}, nil
 }
@@ -474,9 +474,9 @@ func (c *AliyunDMClient) SendTemplateEmail(ctx context.Context, from, receiversN
 		MessageID: "",
 		Status:    StatusSuccess,
 		Extra: map[string]interface{}{
-			"env_id":        tea.StringValue(response.Body.EnvId),
-			"template_name": templateName,
-			"timestamp":     time.Now().Unix(),
+			"env_id":            tea.StringValue(response.Body.EnvId),
+			"template_name":     templateName,
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}
 

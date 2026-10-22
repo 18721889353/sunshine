@@ -134,9 +134,19 @@ func TestDlockTryLockRealFailureIsError(t *testing.T) {
 func TestIsLockContention(t *testing.T) {
 	assert.True(t, isLockContention(&redsync.ErrTaken{Nodes: []int{0, 1}}), "quorum 争用 *ErrTaken")
 	assert.True(t, isLockContention(&redsync.ErrNodeTaken{Node: 0}), "单节点占用 *ErrNodeTaken")
+
+	// 包装链透传：redsync 实际会将 *ErrTaken 逐层包裹（multierror / fmt.Errorf）后返回。
+	// ErrTaken 的 Error() 为值接收器，%w 直接接 *ErrTaken 具名指针会被 printf 校验提醒会削弱
+	// errors.Is 的值语义；本函数走 errors.As 匹配指针类型，与 redsync 返回的 *ErrTaken 一致，
+	// 因此先用 error 接口承载再包装，行为不变且不触告警。
+	var contention error = &redsync.ErrTaken{Nodes: []int{0}}
 	assert.True(t,
-		isLockContention(fmt.Errorf("wrap: %w", &redsync.ErrTaken{Nodes: []int{0}})),
+		isLockContention(fmt.Errorf("wrap: %w", contention)),
 		"包装后的 *ErrTaken 应经 errors.As 透传命中")
+	assert.True(t,
+		isLockContention(errors.Join(contention, errors.New("node #1: lock already taken"))),
+		"多错误链中的 *ErrTaken 也应被 errors.As 命中")
+
 	assert.False(t, isLockContention(errors.New("network timeout")), "普通错误非竞争")
 	assert.False(t, isLockContention(&redsync.RedisError{Node: 0, Err: errors.New("io")}), "节点通信故障非竞争")
 }

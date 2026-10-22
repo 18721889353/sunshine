@@ -23,7 +23,7 @@ install:
 	go install github.com/18721889353/sunshine/cmd/protoc-gen-go-rpc-tmpl@latest  # RPC 模板生成器
 	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest  # OpenAPI v2 生成器
 	go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest  # Protobuf 文档生成器
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest  # Go 代码检查工具
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest  # Go 代码检查工具（v2 模块路径，v1 无法解析 Go 1.27 标准库导出数据）
 	go install github.com/swaggo/swag/cmd/swag@v1.8.12               # Swagger 文档生成器
 	go install github.com/ofabry/go-callvis@latest                   # Go 调用关系可视化
 	go install golang.org/x/pkgsite/cmd/pkgsite@latest               # Go 包文档查看器

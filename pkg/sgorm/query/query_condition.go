@@ -36,6 +36,19 @@ const (
 	OR string = "or"
 )
 
+// SQL 片段常量：expMap/logicMap 的取值与 checkValid/convert 里的判定共用同一份定义，
+// 避免同一个片段在映射表和 switch/if 里各写一遍而漂移。
+const (
+	sqlExpLike      = " LIKE "
+	sqlExpIn        = " IN "
+	sqlExpNotIn     = " NOT IN "
+	sqlExpIsNull    = " IS NULL "
+	sqlExpIsNotNull = " IS NOT NULL "
+
+	sqlLogicAnd = " AND "
+	sqlLogicOr  = " OR "
+)
+
 var expMap = map[string]string{
 	Eq:        " = ",
 	Neq:       " <> ",
@@ -43,11 +56,11 @@ var expMap = map[string]string{
 	Gte:       " >= ",
 	Lt:        " < ",
 	Lte:       " <= ",
-	Like:      " LIKE ",
-	In:        " IN ",
-	NotIN:     " NOT IN ",
-	IsNull:    " IS NULL ",
-	IsNotNull: " IS NOT NULL ",
+	Like:      sqlExpLike,
+	In:        sqlExpIn,
+	NotIN:     sqlExpNotIn,
+	IsNull:    sqlExpIsNull,
+	IsNotNull: sqlExpIsNotNull,
 
 	"=":           " = ",
 	"!=":          " <> ",
@@ -55,26 +68,26 @@ var expMap = map[string]string{
 	">=":          " >= ",
 	"<":           " < ",
 	"<=":          " <= ",
-	"not in":      " NOT IN ",
-	"is null":     " IS NULL ",
-	"is not null": " IS NOT NULL ",
+	"not in":      sqlExpNotIn,
+	"is null":     sqlExpIsNull,
+	"is not null": sqlExpIsNotNull,
 }
 
 var logicMap = map[string]string{
-	AND: " AND ",
-	OR:  " OR ",
+	AND: sqlLogicAnd,
+	OR:  sqlLogicOr,
 
-	"&":   " AND ",
-	"&&":  " AND ",
-	"|":   " OR ",
-	"||":  " OR ",
-	"AND": " AND ",
-	"OR":  " OR ",
+	"&":   sqlLogicAnd,
+	"&&":  sqlLogicAnd,
+	"|":   sqlLogicOr,
+	"||":  sqlLogicOr,
+	"AND": sqlLogicAnd,
+	"OR":  sqlLogicOr,
 
-	"and:(": " AND ",
-	"and:)": " AND ",
-	"or:(":  " OR ",
-	"or:)":  " OR ",
+	"and:(": sqlLogicAnd,
+	"and:)": sqlLogicAnd,
+	"or:(":  sqlLogicOr,
+	"or:)":  sqlLogicOr,
 }
 
 // Params query parameters
@@ -103,7 +116,7 @@ func (c *Column) checkValid() error {
 	}
 	if c.Value == nil {
 		v := expMap[strings.ToLower(c.Exp)]
-		if v == " IS NULL " || v == " IS NOT NULL " {
+		if v == sqlExpIsNull || v == sqlExpIsNotNull {
 			return nil
 		}
 		return fmt.Errorf("field 'value' cannot be nil")
@@ -120,7 +133,7 @@ func (c *Column) convert() (string, error) {
 	if v, ok := expMap[strings.ToLower(c.Exp)]; ok { //nolint
 		c.Exp = v
 		switch c.Exp {
-		case " LIKE ":
+		case sqlExpLike:
 			val, ok1 := c.Value.(string)
 			if !ok1 {
 				return symbol, fmt.Errorf("invalid value type '%s'", c.Value)
@@ -145,7 +158,7 @@ func (c *Column) convert() (string, error) {
 				val = "%" + val + "%"
 			}
 			c.Value = val
-		case " IN ", " NOT IN ":
+		case sqlExpIn, sqlExpNotIn:
 			val, ok1 := c.Value.(string)
 			if !ok1 {
 				return symbol, fmt.Errorf("invalid value type '%s'", c.Value)
@@ -157,7 +170,7 @@ func (c *Column) convert() (string, error) {
 			}
 			c.Value = iVal
 			symbol = "(?)"
-		case " IS NULL ", " IS NOT NULL ":
+		case sqlExpIsNull, sqlExpIsNotNull:
 			c.Value = nil
 			symbol = ""
 		}

@@ -275,9 +275,9 @@ func (bc *BaseConsumer) buildDeadLetterOptions(
 				gorabbitmq.WithQueueDeclareAutoDelete(cfg.DeadQueueDeclareOption.AutoDelete),
 				gorabbitmq.WithQueueDeclareNoWait(cfg.DeadQueueDeclareOption.NoWait),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
-					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": normalRoutineKey,
-					"x-message-ttl":             cfg.DeadQueueDeclareOption.Args.XMessageTTL,
+					gorabbitmq.ArgKeyDeadLetterExchange:   exchange.Name(),
+					gorabbitmq.ArgKeyDeadLetterRoutingKey: normalRoutineKey,
+					"x-message-ttl":                       cfg.DeadQueueDeclareOption.Args.XMessageTTL,
 				})),
 			gorabbitmq.WithDeadLetterDeadQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(cfg.DeadQueueBindOption.NoWait),
@@ -289,8 +289,8 @@ func (bc *BaseConsumer) buildDeadLetterOptions(
 				gorabbitmq.WithQueueDeclareAutoDelete(cfg.NormalQueueDeclareOption.AutoDelete),
 				gorabbitmq.WithQueueDeclareNoWait(cfg.NormalQueueDeclareOption.NoWait),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
-					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": deadRoutingKey,
+					gorabbitmq.ArgKeyDeadLetterExchange:   exchange.Name(),
+					gorabbitmq.ArgKeyDeadLetterRoutingKey: deadRoutingKey,
 				})),
 			gorabbitmq.WithDeadLetterNormalQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(cfg.NormalQueueBindOption.NoWait),
@@ -348,9 +348,9 @@ func (bc *BaseConsumer) buildCustomerDeadLetterOptions(
 				gorabbitmq.WithQueueDeclareAutoDelete(cfg.DeadQueueDeclareOption.AutoDelete),
 				gorabbitmq.WithQueueDeclareNoWait(cfg.DeadQueueDeclareOption.NoWait),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
-					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": errRoutingKey,
-					"x-message-ttl":             cfg.DeadQueueDeclareOption.Args.XMessageTTL,
+					gorabbitmq.ArgKeyDeadLetterExchange:   exchange.Name(),
+					gorabbitmq.ArgKeyDeadLetterRoutingKey: errRoutingKey,
+					"x-message-ttl":                       cfg.DeadQueueDeclareOption.Args.XMessageTTL,
 				})),
 			gorabbitmq.WithCustomerDeadLetterDeadQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(cfg.DeadQueueBindOption.NoWait),
@@ -362,8 +362,8 @@ func (bc *BaseConsumer) buildCustomerDeadLetterOptions(
 				gorabbitmq.WithQueueDeclareAutoDelete(cfg.ErrQueueDeclareOption.AutoDelete),
 				gorabbitmq.WithQueueDeclareNoWait(cfg.ErrQueueDeclareOption.NoWait),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
-					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": deadRoutingKey,
+					gorabbitmq.ArgKeyDeadLetterExchange:   exchange.Name(),
+					gorabbitmq.ArgKeyDeadLetterRoutingKey: deadRoutingKey,
 				})),
 			gorabbitmq.WithCustomerDeadLetterErrQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(cfg.ErrQueueBindOption.NoWait),
@@ -375,8 +375,8 @@ func (bc *BaseConsumer) buildCustomerDeadLetterOptions(
 				gorabbitmq.WithQueueDeclareAutoDelete(cfg.NormalQueueDeclareOption.AutoDelete),
 				gorabbitmq.WithQueueDeclareNoWait(cfg.NormalQueueDeclareOption.NoWait),
 				gorabbitmq.WithQueueDeclareArgs(map[string]interface{}{
-					"x-dead-letter-exchange":    exchange.Name(),
-					"x-dead-letter-routing-key": deadRoutingKey,
+					gorabbitmq.ArgKeyDeadLetterExchange:   exchange.Name(),
+					gorabbitmq.ArgKeyDeadLetterRoutingKey: deadRoutingKey,
 				})),
 			gorabbitmq.WithCustomerDeadLetterNormalQueueBindOptions(
 				gorabbitmq.WithQueueBindNoWait(cfg.NormalQueueBindOption.NoWait),

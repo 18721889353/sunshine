@@ -23,6 +23,9 @@ import (
 // 截断查询范围更可诊断（README 已记录该限制）。
 const tencentMaxPageSize uint64 = 100
 
+// tencentDefaultRegion 未配置 Region 时的默认区域（上海），与腾讯短信默认开通地域一致。
+const tencentDefaultRegion = "ap-shanghai"
+
 // TencentSMSClient 腾讯云短信客户端
 type TencentSMSClient struct {
 	config *Config
@@ -41,7 +44,7 @@ func newTencentSMSClient(cfg *Config) (*TencentSMSClient, error) {
 	// 旧实现直接 cfg.Region = "ap-shanghai"，复用同一 *Config 的调用方会被意外写入默认值）
 	region := cfg.Region
 	if region == "" {
-		region = "ap-shanghai" // 默认上海区域
+		region = tencentDefaultRegion // 默认上海区域
 	}
 	effectiveCfg := *cfg
 	effectiveCfg.Region = region

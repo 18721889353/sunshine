@@ -843,21 +843,25 @@ const (
 	listTableByLastIDRequestFieldCodeMark = "// listTableByLastIDRequestFieldCode"
 )
 
+// repeatedIDsFieldCode 批量接口（按 IDs 删除/查询）的 proto 字段定义：
+// grpc 与 web 两套默认模板共用同一份，min_items=1 保证空 IDs 在参数校验阶段就被拦下。
+const repeatedIDsFieldCode = "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];"
+
 var grpcDefaultProtoMessageFieldCodes = map[string]string{
 	createTableReplyFieldCodeMark:         "uint64 id = 1;",
 	deleteTableByIDRequestFieldCodeMark:   "uint64 id = 1 [(validate.rules).uint64.gt = 0];",
-	deleteTableByIDsRequestFieldCodeMark:  "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
+	deleteTableByIDsRequestFieldCodeMark:  repeatedIDsFieldCode,
 	getTableByIDRequestFieldCodeMark:      "uint64 id = 1 [(validate.rules).uint64.gt = 0];",
-	getTableByIDsRequestFieldCodeMark:     "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
+	getTableByIDsRequestFieldCodeMark:     repeatedIDsFieldCode,
 	listTableByLastIDRequestFieldCodeMark: `uint64 lastID = 1 [(tagger.tags) = "form:\"lastID\""]; // last id`,
 }
 
 var webDefaultProtoMessageFieldCodes = map[string]string{
 	createTableReplyFieldCodeMark:         "uint64 id = 1;",
 	deleteTableByIDRequestFieldCodeMark:   `uint64 id =1 [(validate.rules).uint64.gt = 0, (tagger.tags) = "uri:\"id\""];`,
-	deleteTableByIDsRequestFieldCodeMark:  "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
+	deleteTableByIDsRequestFieldCodeMark:  repeatedIDsFieldCode,
 	getTableByIDRequestFieldCodeMark:      `uint64 id =1 [(validate.rules).uint64.gt = 0, (tagger.tags) = "uri:\"id\"" ];`,
-	getTableByIDsRequestFieldCodeMark:     "repeated uint64 ids = 1 [(validate.rules).repeated.min_items = 1];",
+	getTableByIDsRequestFieldCodeMark:     repeatedIDsFieldCode,
 	listTableByLastIDRequestFieldCodeMark: `uint64 lastID = 1 [(tagger.tags) = "form:\"lastID\""]; // last id`,
 }
 

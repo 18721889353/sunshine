@@ -184,8 +184,8 @@ func (c *TencentSESClient) SendEmail(ctx context.Context, req *SendRequest) (*Se
 		MessageID: derefString(response.Response.MessageId),
 		Status:    StatusSuccess,
 		Extra: map[string]interface{}{
-			"request_id": derefString(response.Response.RequestId),
-			"timestamp":  time.Now().Unix(),
+			extraFieldRequestID: derefString(response.Response.RequestId),
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}
 
@@ -321,9 +321,9 @@ func (c *TencentSESClient) GetEmailStatus(ctx context.Context, query *EmailStatu
 		Status: StatusSuccess,
 		Data:   emailStatuses,
 		Extra: map[string]interface{}{
-			"request_id":  derefString(response.Response.RequestId),
-			"total_count": len(emailStatuses),
-			"timestamp":   time.Now().Unix(),
+			extraFieldRequestID: derefString(response.Response.RequestId),
+			"total_count":       len(emailStatuses),
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}, nil
 }
@@ -660,9 +660,9 @@ func (c *TencentSESClient) SendTemplateEmail(ctx context.Context, from string, t
 		MessageID: derefString(response.Response.MessageId),
 		Status:    StatusSuccess,
 		Extra: map[string]interface{}{
-			"request_id":  derefString(response.Response.RequestId),
-			"template_id": templateID,
-			"timestamp":   time.Now().Unix(),
+			extraFieldRequestID: derefString(response.Response.RequestId),
+			"template_id":       templateID,
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}
 

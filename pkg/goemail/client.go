@@ -72,6 +72,13 @@ type SendResult struct {
 	Extra     map[string]interface{} // 额外信息（不同提供商返回的数据）
 }
 
+// Extra 字段的 Key 常量：三家 provider（SMTP / 阿里云 DM / 腾讯云 SES）写入同一批 Key，
+// 抽成常量避免字面量在多个文件间漂移。
+const (
+	extraFieldRequestID = "request_id" // 云侧返回的请求 ID，用于与云工单、云日志交叉核对
+	extraFieldTimestamp = "timestamp"  // 发送动作完成时间，Unix 秒
+)
+
 // IsSuccess 判断发送结果是否成功。
 // 提醒：SendEmail 返回 err == nil 不等于发送成功——云业务失败是 err == nil + Status=failed；
 // 建议调用方统一以本方法（或 result.Status == StatusSuccess）判定最终结果。

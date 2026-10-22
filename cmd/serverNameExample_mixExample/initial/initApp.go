@@ -227,13 +227,18 @@ func InitApp() {
 	logger.InfoWithCtx(initCtx, "[gogroutine] was initialized")
 }
 
-func initConfig() {
+// init 登记命令行参数，参数解析交给 main 函数（本服务 cmd 目录下的 main.go）。
+// flag.Parse 在 -h 或参数非法时会直接结束进程，放在 main 让退出路径停在进程入口；
+// 注册写成 init 而非导出函数，避免调用方漏调注册导致 -c 参数静默失效。
+func init() {
 	flag.StringVar(&version, "version", "", "service Version Number")
 	flag.BoolVar(&enableConfigCenter, "enable-cc", false, "whether to get from the configuration center, "+
 		"if true, the '-c' parameter indicates the configuration center")
 	flag.StringVar(&configFile, "c", "", "configuration file")
-	flag.Parse()
+}
 
+// initConfig 依据已解析的命令行参数装载配置。
+func initConfig() {
 	if enableConfigCenter {
 		if configFile == "" {
 			configFile = configs.Path("serverNameExample_cc.yml")

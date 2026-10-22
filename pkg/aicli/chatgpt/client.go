@@ -31,6 +31,8 @@ const (
 	// DefaultModel 默认模型
 	DefaultModel     = ModelO1Mini
 	defaultMaxTokens = 4096
+	// minMaxTokens 输出 token 下限，低于此值判定为误传（模型来不及产出任何内容）
+	minMaxTokens = 256
 
 	// RoleTypeGopher Go语言代码助手角色
 	RoleTypeGopher = "You are a Go Language Coder Assistant, an AI specialized in writing, debugging, " +
@@ -58,11 +60,13 @@ func (c *Client) apply(opts ...ClientOption) {
 	}
 }
 
-// WithMaxTokens sets the maximum number of tokens
+// WithMaxTokens sets the maximum number of tokens.
+// 写入的是请求体的 max_completion_tokens 字段（max_tokens 已弃用且与其互斥），详见 newRequest 注释。
+// 小于 minMaxTokens 的取值视为误传，回退到 DefaultMaxTokens，避免输出上限被截成空回复。
 func WithMaxTokens(maxTokens int) ClientOption {
 	return func(c *Client) {
-		if maxTokens < 256 {
-			c.maxTokens = defaultMaxTokens
+		if maxTokens < minMaxTokens {
+			maxTokens = defaultMaxTokens
 		}
 		c.maxTokens = maxTokens
 	}
@@ -141,22 +145,30 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	return c, nil
 }
 
+// newRequest 组装聊天补全请求，同步与流式两条调用路径共用同一字段口径，避免两处各写一份而漂移。
+//
+// 输出上限只写 max_completion_tokens，不再写 max_tokens：
+//   - max_tokens 已被 OpenAI 标记弃用，o 系列与 GPT-5 只接受 max_completion_tokens（传 max_tokens 报 unsupported_parameter）；
+//   - 两个字段互斥，同时发送会被 OpenAI 判为 400（实测旧版本同时下发两者，对 o 系列/GPT-5 直接失败）。
+//
+// 仅支持旧名 max_tokens 的网关（如部分自建兼容层）需在自己一侧做字段映射。
+func (c *Client) newRequest(prompt string, stream bool) openai.ChatCompletionRequest {
+	return openai.ChatCompletionRequest{
+		Model:               c.ModelName,
+		Messages:            c.getMessages(prompt),
+		Temperature:         c.temperature,
+		MaxCompletionTokens: c.maxTokens,
+		Stream:              stream,
+	}
+}
+
 // Send sends a prompt to the chat gpt and returns the response.
 func (c *Client) Send(ctx context.Context, prompt string) (string, error) {
 	if prompt == "" {
 		return "", errors.New("prompt cannot be empty")
 	}
 
-	reply, err := c.Cli.CreateChatCompletion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Model:               c.ModelName,
-			Messages:            c.getMessages(prompt),
-			Temperature:         c.temperature,
-			MaxCompletionTokens: c.maxTokens,
-			MaxTokens:           c.maxTokens, // Deprecated
-		},
-	)
+	reply, err := c.Cli.CreateChatCompletion(ctx, c.newRequest(prompt, false))
 	if err != nil {
 		return "", err
 	}
@@ -184,14 +196,7 @@ func (c *Client) SendStream(ctx context.Context, prompt string) *StreamReply {
 	go func() {
 		defer func() { close(response.Content) }()
 
-		req := openai.ChatCompletionRequest{
-			Model:               c.ModelName,
-			Messages:            c.getMessages(prompt),
-			Stream:              true,
-			Temperature:         c.temperature,
-			MaxCompletionTokens: c.maxTokens,
-			MaxTokens:           c.maxTokens, // Deprecated
-		}
+		req := c.newRequest(prompt, true)
 		stream, err := c.Cli.CreateChatCompletionStream(ctx, req)
 		if err != nil {
 			response.Err = err

@@ -60,7 +60,7 @@ func (a *AliyunOSSUploader) Upload(ctx context.Context, fileName string, reader 
 	span.SetAttributes(
 		attribute.String("file.name", fileName),
 		attribute.Int64("file.size", size),
-		attribute.String("bucket", a.bucket.BucketName),
+		attribute.String(bucketKey, a.bucket.BucketName),
 	)
 
 	// 生成文件路径
@@ -88,7 +88,7 @@ func (a *AliyunOSSUploader) Upload(ctx context.Context, fileName string, reader 
 		Size:     size,
 		MimeType: "",
 		ExtraData: map[string]string{
-			"bucket":   a.bucket.BucketName,
+			bucketKey:  a.bucket.BucketName,
 			"endpoint": a.client.Config.Endpoint,
 		},
 	}, nil
@@ -132,7 +132,7 @@ func (a *AliyunOSSUploader) GetPresignedURL(ctx context.Context, fileName string
 			"method": "PUT",
 		},
 		ExtraData: map[string]string{
-			"bucket":   a.bucket.BucketName,
+			bucketKey:  a.bucket.BucketName,
 			"endpoint": a.client.Config.Endpoint,
 		},
 	}, nil
@@ -145,7 +145,7 @@ func (a *AliyunOSSUploader) Delete(ctx context.Context, path string) error {
 
 	span.SetAttributes(
 		attribute.String("object.key", path),
-		attribute.String("bucket", a.bucket.BucketName),
+		attribute.String(bucketKey, a.bucket.BucketName),
 	)
 
 	err := a.bucket.DeleteObject(path)

@@ -229,9 +229,9 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 		MessageID: messageID,
 		Status:    StatusSuccess,
 		Extra: map[string]interface{}{
-			"host":      c.config.SMTPHost,
-			"port":      c.port,
-			"timestamp": time.Now().Unix(),
+			"host":              c.config.SMTPHost,
+			"port":              c.port,
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}
 
@@ -305,9 +305,9 @@ func (c *SMTPClient) GetEmailStatus(ctx context.Context, query *EmailStatusQuery
 		Status: StatusSuccess,
 		Data:   nil,
 		Extra: map[string]interface{}{
-			"note":       "SMTP协议不支持查询邮件发送状态，邮件发送成功后即认为已送达SMTP服务器",
-			"message_id": query.MessageID,
-			"timestamp":  time.Now().Unix(),
+			"note":              "SMTP协议不支持查询邮件发送状态，邮件发送成功后即认为已送达SMTP服务器",
+			"message_id":        query.MessageID,
+			extraFieldTimestamp: time.Now().Unix(),
 		},
 	}, nil
 }

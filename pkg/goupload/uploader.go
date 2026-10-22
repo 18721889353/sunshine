@@ -39,6 +39,10 @@ const (
 	StorageTypeAliyunOSS StorageType = "aliyun_oss"
 )
 
+// bucketKey 存储桶在 span 属性与 UploadResult.ExtraData 里的统一 Key，
+// 两个上传后端（阿里云 OSS / 腾讯云 COS）共用，避免同一含义的 Key 各自拼写。
+const bucketKey = "bucket"
+
 // UploadResult 上传结果
 type UploadResult struct {
 	URL       string            // 文件访问URL

@@ -339,60 +339,12 @@ func (m *cacheManager[T]) getByCachedID(ctx context.Context, cachedID uint64, _ 
 	return nil, false, nil
 }
 
-// executeConditionSingleflight 执行条件单条查询的 singleflight 流程
+// executeConditionSingleflight 执行条件单条查询的 singleflight 流程。
+// 与 executeConditionIDsSingleflight 保持同一范式：本函数只做请求合并与结果转换，
+// 真正的锁保护、双检、轮询、回源逻辑全部下沉到 fetchConditionFromDB。
 func (m *cacheManager[T]) executeConditionSingleflight(ctx context.Context, key, cacheKey string, queryFunc func() (*T, error)) (*T, error) {
 	val, sfErr, _ := m.sfg.Do(SFKeyPrefixOneCondition+key, func() (interface{}, error) {
-		// 构建分布式锁 Key： "lock:refresh:condition:xxx"
-		lockKey := BuildLockKey(LockKeyPrefixRefresh, cacheKey)
-		lock, lockErr := m.cache.GetLock(ctx, lockKey)
-
-		if lock != nil {
-			defer func() {
-				unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-				defer cancel()
-				if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
-					logger.WarnWithCtx(ctx, "unlock failed in executeConditionSingleflight", logger.Err(unlockErr))
-				}
-			}()
-		}
-
-		// 双检：拿到锁后再检查一次缓存
-		if lockErr == nil {
-			if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-				if record, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
-					return record, nil
-				}
-			}
-		} else {
-			// 未拿到锁，轮询等待其他实例写入缓存
-			interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
-			if record, ok := m.waitForCachePoll(ctx, interval, 5*time.Second, func() (*T, error) {
-				if cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey); cacheErr == nil && cachedID != 0 {
-					if r, hit, getErr := m.getByCachedID(ctx, cachedID, nil); hit && getErr == nil {
-						return r, nil
-					}
-				}
-				return nil, database.ErrCacheNotFound
-			}); ok {
-				return record, nil
-			}
-		}
-
-		// 查数据库
-		record, dbErr := queryFunc()
-		if dbErr != nil {
-			if errors.Is(dbErr, gorm.ErrRecordNotFound) {
-				if setErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); setErr != nil {
-					logger.WarnWithCtx(ctx, "set placeholder by key failed", logger.Err(setErr))
-				}
-				return nil, database.ErrRecordNotFound
-			}
-			return nil, dbErr
-		}
-
-		// 缓存结果：key -> ID，同时缓存 ID -> 对象
-		m.cacheConditionResult(ctx, cacheKey, record)
-		return record, nil
+		return m.fetchConditionFromDB(ctx, cacheKey, queryFunc)
 	})
 
 	if sfErr != nil {
@@ -403,6 +355,73 @@ func (m *cacheManager[T]) executeConditionSingleflight(ctx context.Context, key,
 		return nil, database.ErrRecordNotFound
 	}
 	return record, nil
+}
+
+// fetchConditionFromDB 在分布式锁保护下回源查询单条记录并处理缓存。
+// 拿到锁则双检缓存后回源；未拿到锁则轮询等待其他实例回填，超时后再回源，保证同一时刻只有一个请求打库。
+func (m *cacheManager[T]) fetchConditionFromDB(ctx context.Context, cacheKey string, queryFunc func() (*T, error)) (*T, error) {
+	// 构建分布式锁 Key： "lock:refresh:condition:xxx"
+	lockKey := BuildLockKey(LockKeyPrefixRefresh, cacheKey)
+	lock, lockErr := m.cache.GetLock(ctx, lockKey)
+
+	if lock != nil {
+		defer func() {
+			unlockCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			if _, unlockErr := lock.UnlockContext(unlockCtx); unlockErr != nil {
+				logger.WarnWithCtx(ctx, "unlock failed in fetchConditionFromDB", logger.Err(unlockErr))
+			}
+		}()
+	}
+
+	// 双检：拿到锁后再检查一次缓存
+	if lockErr == nil {
+		if record, hit := m.lookupConditionByCacheKey(ctx, cacheKey); hit {
+			return record, nil
+		}
+	} else {
+		// 未拿到锁，轮询等待其他实例写入缓存
+		interval := time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond
+		record, ok := m.waitForCachePoll(ctx, interval, 5*time.Second, func() (*T, error) {
+			if cached, hit := m.lookupConditionByCacheKey(ctx, cacheKey); hit {
+				return cached, nil
+			}
+			return nil, database.ErrCacheNotFound
+		})
+		if ok {
+			return record, nil
+		}
+	}
+
+	// 查数据库
+	record, dbErr := queryFunc()
+	if dbErr != nil {
+		if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+			if setErr := m.cache.SetPlaceholderByKey(ctx, cacheKey); setErr != nil {
+				logger.WarnWithCtx(ctx, "set placeholder by key failed", logger.Err(setErr))
+			}
+			return nil, database.ErrRecordNotFound
+		}
+		return nil, dbErr
+	}
+
+	// 缓存结果：key -> ID，同时缓存 ID -> 对象
+	m.cacheConditionResult(ctx, cacheKey, record)
+	return record, nil
+}
+
+// lookupConditionByCacheKey 按条件缓存 Key 读取缓存的 ID，并用该 ID 取回完整对象。
+// 返回 hit=false 表示缓存里没有 ID（未命中/为 0）或 ID 对应的对象取不到，调用方应继续回源。
+func (m *cacheManager[T]) lookupConditionByCacheKey(ctx context.Context, cacheKey string) (*T, bool) {
+	cachedID, cacheErr := m.cache.GetIDByKey(ctx, cacheKey)
+	if cacheErr != nil || cachedID == 0 {
+		return nil, false
+	}
+	record, hit, getErr := m.getByCachedID(ctx, cachedID, nil)
+	if !hit || getErr != nil {
+		return nil, false
+	}
+	return record, true
 }
 
 // cacheConditionResult 缓存条件查询的结果

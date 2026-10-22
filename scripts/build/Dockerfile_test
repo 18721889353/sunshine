@@ -1,6 +1,6 @@
 # 需先将代码打包为 `tar zcf serverNameExample.tar.gz $(ls)`，并移动到与 Dockerfile 相同的目录
 # rpc 服务源码，用于测试 rpc 方法
-FROM golang:1.21-alpine
+FROM golang:1.27-alpine
 MAINTAINER 18721889353 "g.18721889353@gmail.com"
 
 # go test 依赖包

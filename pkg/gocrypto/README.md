@@ -155,6 +155,14 @@ The public key is used for encryption, and the private key is used for decryptio
 
 There are four functions: `RsaEncrypt`, `RsaDecrypt`, `RsaEncryptHex`, `RsaDecryptHex`.
 
+> Padding: `RSAES-PKCS1-v1_5` (the same as Java's `RSA/ECB/PKCS1Padding`), provided by the
+> in-repo compatibility layer [`pkg/gocrypto/rsaes`](rsaes/README.md) because `crypto/rsa`
+> deprecated its own PKCS #1 v1.5 entry points in Go 1.26. Consequences you must know:
+> the plaintext must be no longer than `keySize/8 - 11` bytes (117 for 1024-bit, 245 for 2048-bit),
+> the ciphertext is always exactly `keySize/8` bytes, and encrypting the same plaintext twice
+> gives different ciphertext, so never compare or index ciphertext.
+> New integrations should use OAEP instead — see the `rsaes` README for why this layer exists.
+
 ```go
     import "github.com/18721889353/sunshine/pkg/gocrypto"
 

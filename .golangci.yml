@@ -1,280 +1,221 @@
-# golangci-lint 配置文件 - 生产级标准配置
-# 参考: https://golangci-lint.run/usage/configuration/
-
+# golangci-lint v2 配置：由 v1 配置经 `golangci-lint migrate` 转换而来。
+# 必须使用 v2（模块路径 github.com/golangci/golangci-lint/v2/...）：v1.64.8 无法解析
+# Go 1.27 标准库的导出数据（export data version 5 > maximum supported 2），会整仓报 typechecking error。
+# v2 默认新开了 v1 基线中不存在的判定项（govet 的 inline、staticcheck 的 QF*/ST*），
+# 下方逐项显式关闭以保持升级前后的判定基线等价；如需采纳新规则，请单独提改动。
+version: "2"
 run:
-  # 分析超时时间，根据项目规模调整
-  timeout: 10m
-  # 并发数，默认为可用 CPU 核心数
   concurrency: 4
-  # 是否包含测试文件（false = 不检查测试文件）
-  tests: false
-  # 退出码：发现至少一个问题时返回的退出码
-  issues-exit-code: 1
-  # 构建标签，所有 linter 都会使用
   build-tags:
     - mytag
-
-
+  issues-exit-code: 1
+  tests: false
 linters:
   # 禁用所有默认 linter，手动启用需要的
-  disable-all: true
+  default: none
   enable:
-    # ========== 基础代码质量 ==========
-    - govet              # Go 官方静态分析工具
-    - staticcheck        # 高级静态检查（包含 gosimple）
-    - errcheck           # 检查未处理的错误
-    - unused             # 检查未使用的代码
-    
-    # ========== 代码风格 ==========
-    - gofmt              # 代码格式化
-    - goimports          # import 管理和格式化
-    - revive             # 更快的 golint 替代品
-    - whitespace         # 检查多余的空行
-    
-    # ========== 复杂度控制 ==========
-    - gocyclo            # 圈复杂度检查
-    - gocognit           # 认知复杂度检查
-    
-    # ========== 最佳实践 ==========
-    - dogsled            # 检查过多的空白标识符
-    - goconst            # 检查重复的字符串常量
-    - misspell           # 检查拼写错误
-    - unconvert          # 检查不必要的类型转换
-    - lll                # 检查行长度
-    
-    # ========== 可选但推荐（按需启用）==========
-    #- bodyclose         # 检查 HTTP 响应体是否关闭
-    #- dupl              # 检查重复代码
-    #- gosec             # 安全检查
-    #- ineffassign       # 检查无效赋值
-    #- unparam           # 检查未使用的函数参数
-    #- prealloc          # 检查切片预分配机会
-
-
-linters-settings:
-  # ========== revive 配置 ==========
-  revive:
-    # 最大失败率，超过此比例则 lint 失败
-    max-open-files: 2048
+    - dogsled
+    - errcheck
+    - gocognit
+    - goconst
+    - gocyclo
+    - govet
+    - lll
+    - misspell
+    - revive
+    - staticcheck
+    - unconvert
+    - unused
+    - whitespace
+  settings:
+    dogsled:
+      max-blank-identifiers: 2
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - fmt:.*
+        - io/ioutil:^Read.*
+        - (*bytes.Buffer).Write
+        - (*strings.Builder).WriteString
+        - (*os.File).Close
+        - (net/http.ResponseWriter).Write
+        - (net/http.ResponseWriter).WriteString
+    gocognit:
+      min-complexity: 40
+    goconst:
+      min-len: 4
+      min-occurrences: 4
+    gocyclo:
+      min-complexity: 40
+    govet:
+      enable:
+        - atomicalign
+        - shadow
+        - nilness
+        - unusedwrite
+      # inline 为 v2 默认新开的分析器（v1 基线无），命中项均为“常量/构造调用可内联”的风格建议
+      disable:
+        - inline
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+            - (github.com/18721889353/sunshine/pkg/logger).Infof
+            - (github.com/18721889353/sunshine/pkg/logger).Warnf
+            - (github.com/18721889353/sunshine/pkg/logger).Errorf
+    lll:
+      line-length: 260
+      tab-width: 4
+    revive:
+      max-open-files: 2048
+      rules:
+        - name: atomic
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: argument-limit
+          arguments:
+            - 8
+        - name: function-result-limit
+          arguments:
+            - 3
+        - name: cyclomatic
+          arguments:
+            - 40
+        - name: bare-return
+        - name: bool-literal-in-expr
+        - name: call-to-gc
+        - name: confusing-naming
+        - name: confusing-results
+        - name: constant-logical-expr
+        - name: deep-exit
+        - name: defer
+          arguments:
+            - - call-chain
+              - loop
+        - name: duplicated-imports
+        - name: early-return
+        - name: identical-branches
+        - name: import-shadowing
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: range-val-address
+        - name: range-val-in-closure
+        - name: string-of-int
+        - name: struct-tag
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unnecessary-stmt
+        - name: waitgroup-by-value
+    staticcheck:
+      # QF*（quickfix 自动改写建议）与 ST*（stylecheck 风格规则）在 v1 配置中未启用，
+      # v2 将它们归入 staticcheck 默认开启；此处关闭，保留 SA*（真实缺陷/弃用 API）与 S*/SF*
+      checks: [ "all", "-QF*", "-ST*" ]
+    whitespace:
+      multi-if: false
+      multi-func: false
+  exclusions:
+    generated: lax
     rules:
-      # 基础规则
-      - name: atomic
-      - name: blank-imports
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: dot-imports
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: exported
-      - name: if-return
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: package-comments
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: errorf
-      - name: empty-block
-      - name: superfluous-else
-      - name: unused-parameter
-      - name: unreachable-code
-      - name: redefines-builtin-id
-      
-      # 限制类规则（带参数）
-      - name: argument-limit
-        arguments: [8]
-      - name: function-result-limit
-        arguments: [3]
-      - name: cyclomatic
-        arguments: [40]
-      
-      # 高级规则
-      - name: bare-return
-      - name: bool-literal-in-expr
-      - name: call-to-gc
-      - name: confusing-naming
-      - name: confusing-results
-      - name: constant-logical-expr
-      - name: deep-exit
-      - name: defer
-        arguments:
-          - ["call-chain", "loop"]
-      - name: duplicated-imports
-      - name: early-return
-      - name: identical-branches
-      - name: import-shadowing
-      - name: modifies-parameter
-      - name: modifies-value-receiver
-      - name: range-val-address
-      - name: range-val-in-closure
-      - name: string-of-int
-      - name: struct-tag
-      - name: unconditional-recursion
-      - name: unexported-naming
-      - name: unnecessary-stmt
-      - name: waitgroup-by-value
-
-  dogsled:
-    # 允许的空白标识符最大数量
-    max-blank-identifiers: 2
-
-  # ========== errcheck 配置 ==========
-  errcheck:
-    # 检查类型断言中的错误：a := b.(MyStruct)
-    check-type-assertions: true
-    # 检查赋值给空白标识符的错误：num, _ := strconv.Atoi(numStr)
-    check-blank: true
-    # 排除某些函数的错误检查（这些函数的错误通常可以安全忽略）
-    exclude-functions:
-      - fmt:.*
-      - io/ioutil:^Read.*
-      - (*bytes.Buffer).Write
-      - (*strings.Builder).WriteString
-      - (*os.File).Close  # defer 中关闭文件
-      - (net/http.ResponseWriter).Write  # HTTP 响应写入
-      - (net/http.ResponseWriter).WriteString  # HTTP 响应写入
-
-  # ========== gocyclo 配置 ==========
-  gocyclo:
-    # 最小圈复杂度阈值，建议 10-20
-    min-complexity: 40
-
-  # ========== gocognit 配置 ==========
-  gocognit:
-    # 最小认知复杂度阈值，建议 10-20
-    min-complexity: 40
-
-  # ========== goconst 配置 ==========
-  goconst:
-    # 最小字符串长度
-    min-len: 4
-    # 最小出现次数
-    min-occurrences: 4
-    # 忽略测试文件
-    ignore-tests: true
-
-  # ========== gofmt/goimports 配置 ==========
-  gofmt:
-    # 简化代码：使用 gofmt -s 选项
-    simplify: true
-
-  goimports:
-    # 本地包前缀，将本地包与第三方包分开
-    local-prefixes: github.com/18721889353/sunshine
-
-  # ========== govet 配置 ==========
-  govet:
-    # 启用额外的 analyzer
-    enable:
-      - atomicalign
-      - shadow
-      - nilness
-      - unusedwrite
-
-    # 自定义 printf 系列函数
-    settings:
-      printf:
-        funcs:
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
-          - (github.com/18721889353/sunshine/pkg/logger).Infof
-          - (github.com/18721889353/sunshine/pkg/logger).Warnf
-          - (github.com/18721889353/sunshine/pkg/logger).Errorf
-
-  # ========== lll (line length limit) 配置 ==========
-  lll:
-    # 最大行长度（Go 代码中长注释、URL、日志消息很常见，250 更宽松）
-    line-length: 260
-    # Tab 宽度（按空格计算）
-    tab-width: 4
-
-  # ========== whitespace 配置 ==========
-  whitespace:
-    # 多行 if 语句后强制换行
-    multi-if: false
-    # 多行函数签名后强制换行
-    multi-func: false
-
-# ========== Issues 配置 ==========
+      # 代码生成器包本体就是由待替换的字面量模板构成（占位符标记、configmap 模板串），
+      # 抽成常量会与 replacer 的纯文本替换设计冲突，故不纳入 goconst 判定
+      - linters:
+          - goconst
+        path: cmd/sunshine/commands/generate/.*
+      - linters:
+          - dupl
+          - errcheck
+          - funlen
+          - gocognit
+          - gocyclo
+          - gosec
+        path: _test\.go
+      - linters:
+          - revive
+        path: internal/dao/.*
+        text: bool-literal-in-expr
+      - linters:
+          - all
+        path: .*\.pb\.go$
+      - linters:
+          - revive
+        path: main\.go
+        text: deep exit
+      - linters:
+          - gosec
+        path: internal/hmac/
+        text: weak cryptographic primitive
+      - linters:
+          - lll
+        source: '^//go:generate '
+      - path: (.+)\.go$
+        text: G601
+      - linters:
+          - goconst
+        path: (.+)_test\.go
+    paths:
+      - .*\.pb\.go$
+      - .*\_test\.go$
+      - ^docs/.*
+      - ^docs$
+      - ^api$
+      - ^vendor$
+      - ^third_party$
+      - ^\\.git$
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  # 排除的问题文本（正则表达式）
-  exclude:
-    - "G601"  # 排除 gosec 的 G601 警告
-
-  # 排除的文件（正则表达式）
-  exclude-files:
-    - ".*\\.pb\\.go$"        # Protocol Buffer 生成的文件
-    - ".*\\_test\\.go$"      # 测试文件
-    - "^docs/.*"              # 文档目录
-
-  # 排除的目录（正则表达式）
-  exclude-dirs:
-    - ^docs$
-    - ^api$
-    - ^vendor$
-    - ^third_party$
-    - ^\\.git$
-
-  # 针对特定路径/文件的排除规则
-  exclude-rules:
-    # 测试文件放宽要求
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - dupl
-        - gosec
-        - funlen
-        - gocognit
-    - path: internal/dao/.*
-      linters:
-        - revive
-      text: "bool-literal-in-expr"
-
-    # 生成的代码文件跳过检查
-    - path: ".*\\.pb\\.go$"
-      linters:
-        - all
-    
-    # main 函数允许深度退出
-    - path: main\.go
-      text: "deep exit"
-      linters:
-        - revive
-    
-    # 排除加密相关的弱密码警告（如果是故意使用）
-    - path: internal/hmac/
-      text: "weak cryptographic primitive"
-      linters:
-        - gosec
-    
-    # 排除 go:generate 注释的行长度检查
-    - linters:
-        - lll
-      source: "^//go:generate "
-
-  # 不使用默认的排除模式
-  exclude-use-default: false
-  
-  # 每个 linter 的最大问题数（0 表示不限制）
   max-issues-per-linter: 0
-  
-  # 相同问题的最大出现次数（0 表示不限制）
   max-same-issues: 0
-  
-  # 只显示新问题（基于 git 变化）
-  new: false
-  
-  # 从指定 git revision 开始显示新问题
   new-from-rev: ""
-
-# ========== Service 配置 ==========
-service:
-  # 固定 golangci-lint 版本，避免引入新的 linter
-  golangci-lint-version: 1.55.2
+  new: false
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+    goimports:
+      local-prefixes:
+        - github.com/18721889353/sunshine
+  exclusions:
+    generated: lax
+    paths:
+      - .*\.pb\.go$
+      - .*\_test\.go$
+      - ^docs/.*
+      - ^docs$
+      - ^api$
+      - ^vendor$
+      - ^third_party$
+      - ^\\.git$
+      - third_party$
+      - builtin$
+      - examples$
