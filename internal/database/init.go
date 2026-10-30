@@ -19,22 +19,24 @@ var (
 )
 
 // InitDB connect database
+// 幂等：显式调用 InitDB() 与惰性调用 GetDB() 共用同一个 once，
+// 重复初始化会让上一套连接池失去引用，既无人使用也无人关闭
 func InitDB() {
-	dbDriver := config.Get().Database.Driver
-	switch strings.ToLower(dbDriver) {
-	case sgorm.DBDriverMysql:
-		gdb = InitMysql()
-	default:
-		panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
-			"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
-	}
+	gdbOnce.Do(func() {
+		dbDriver := config.Get().Database.Driver
+		switch strings.ToLower(dbDriver) {
+		case sgorm.DBDriverMysql:
+			gdb = InitMysql()
+		default:
+			panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
+				"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
+		}
+	})
 }
 
 // GetDB get db
 func GetDB() *sgorm.DB {
-	gdbOnce.Do(func() {
-		InitDB()
-	})
+	InitDB()
 	return gdb
 }
 

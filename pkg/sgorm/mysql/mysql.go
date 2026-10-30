@@ -31,12 +31,16 @@ func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 	}
 	// register read-write separation plugin
 	if len(o.slavesDsn) > 0 {
-		plugin, err := rwSeparationPlugin(o)
+		plugin, extraPools, err := rwSeparationPlugin(o)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize read-write separation: %w", err)
 		}
 		err = db.Use(plugin)
 		if err != nil {
+			return nil, err
+		}
+		// 读写分离连接池由 dbresolver 私有持有，登记后 dbclose.Close 才能连同主池一起关闭
+		if err = dbclose.RegisterPools(db, extraPools...); err != nil {
 			return nil, err
 		}
 	}
@@ -104,42 +108,47 @@ func getDb(dsn string, o *options) (*gorm.DB, error) {
 	return db, nil
 }
 
-func rwSeparationPlugin(o *options) (gorm.Plugin, error) {
+// rwSeparationPlugin 构建读写分离插件，并返回插件与为各 DSN 新建的连接池。
+// 额外连接池必须一并返回：dbresolver 私有持有它们，调用方不登记就无法在退出时关闭。
+func rwSeparationPlugin(o *options) (gorm.Plugin, []*sql.DB, error) {
 	slaves := []gorm.Dialector{}
+	pools := []*sql.DB{}
 	for _, dsn := range o.slavesDsn {
 		db, err := getDb(dsn, o)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize slave database with DSN %s: %w", dsn, err)
+			return nil, nil, fmt.Errorf("failed to initialize slave database with DSN %s: %w", dsn, err)
 		}
 		conn, err := db.DB()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get underlying sql.DB for slave with DSN %s: %w", dsn, err)
+			return nil, nil, fmt.Errorf("failed to get underlying sql.DB for slave with DSN %s: %w", dsn, err)
 		}
 		slaves = append(slaves, mysqlDriver.New(mysqlDriver.Config{
 			Conn: conn,
 		}))
+		pools = append(pools, conn)
 	}
 
 	masters := []gorm.Dialector{}
 	for _, dsn := range o.mastersDsn {
 		db, err := getDb(dsn, o)
 		if err != nil {
-			return nil, fmt.Errorf("failed to initialize master database with DSN %s: %w", dsn, err)
+			return nil, nil, fmt.Errorf("failed to initialize master database with DSN %s: %w", dsn, err)
 		}
 		conn, err := db.DB()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get underlying sql.DB for master with DSN %s: %w", dsn, err)
+			return nil, nil, fmt.Errorf("failed to get underlying sql.DB for master with DSN %s: %w", dsn, err)
 		}
 		masters = append(masters, mysqlDriver.New(mysqlDriver.Config{
 			Conn: conn,
 		}))
+		pools = append(pools, conn)
 	}
 
 	return dbresolver.Register(dbresolver.Config{
 		Sources:  masters,
 		Replicas: slaves,
 		Policy:   dbresolver.RandomPolicy{},
-	}), nil
+	}), pools, nil
 }
 
 // registerEnhancedTraceCallback 注册增强的 Trace Callback，优化 Span 名称和属性
