@@ -83,11 +83,14 @@ func (c *ConsumerGroup) ConsumeCustom(ctx context.Context, topics []string, hand
 }
 
 // Close 关闭消费者组
+// 守卫方向必须是"非空才关"：写成 if c == nil || c.Group == nil { return c.Group.Close() } 会同时踩中两个坑——
+// 正常路径直接 return nil 什么也没关（broker 连接与心跳/重平衡协程永久残留），
+// 而空路径去解引用 nil 接口必 panic。
 func (c *ConsumerGroup) Close() error {
 	if c == nil || c.Group == nil {
-		return c.Group.Close()
+		return nil
 	}
-	return nil
+	return c.Group.Close()
 }
 
 type defaultConsumerHandler struct {
@@ -204,6 +207,16 @@ func (c *Consumer) ConsumePartition(ctx context.Context, topic string, partition
 			logger.Int32("partition", partition))
 		return
 	}
+	// 分区消费者自带后台拉取协程，必须由调用方关闭：本函数无论正常退出(ctx 取消)、
+	// 还是 panic 后重试，都要先把 pc 关掉，否则每个分区每轮重试都会多漏一个
+	defer func() {
+		if cerr := pc.Close(); cerr != nil {
+			logger.WarnWithCtx(ctx, "failed to close partition consumer",
+				logger.Err(cerr),
+				logger.String("topic", topic),
+				logger.Int32("partition", partition))
+		}
+	}()
 
 	logger.InfoWithCtx(ctx, "start consuming partition",
 		logger.String("topic", topic),
@@ -248,9 +261,10 @@ func (c *Consumer) ConsumeAllPartition(ctx context.Context, topic string, offset
 }
 
 // Close the consumer
+// 与 ConsumerGroup.Close 同一处守卫修正：非空时才真正关闭，空实例返回 nil 而非解引用。
 func (c *Consumer) Close() error {
 	if c == nil || c.C == nil {
-		return c.C.Close()
+		return nil
 	}
-	return nil
+	return c.C.Close()
 }

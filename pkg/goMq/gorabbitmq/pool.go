@@ -481,45 +481,89 @@ func logPoolStats(ctx context.Context, stats map[string]interface{}) {
 	)
 }
 
-// cleanup 清理空闲和无效连接（一次加锁完成两件事）
+// cleanup 清理空闲和无效连接。
+// 拆成"锁外探测 + 锁内摘除"两步，临界区内不含任何外部调用：
+// 深度验证会对闲置超过 fastVerifyThreshold 的连接发起 AMQP 往返，而 Channel()/Close() 均无超时，
+// broker 半开(TCP 未断但不可用)时会一直阻塞；healthCheckPeriod 内池里每只连接都要走一遍，
+// 放在持锁期间执行就会长期占用 poolMu，冻结 GetConn/Put/Stats，
+// 连 Close 也拿不到锁，优雅退出随之卡死。
 func (p *Pool) cleanup(ctx context.Context) {
+	dead := p.probePoolConns(ctx)
+	removed, remaining := p.reapPoolConns(ctx, dead)
+
+	// 摘下的连接在锁外关闭：Connection.Close 是 CAS + close(chan) 本身不阻塞，
+	// 挪出临界区是为了让"锁内不做外部调用"成为无条件约束，不必依赖对下游实现的信任
+	for _, pc := range removed {
+		pc.connInfo.Close()
+	}
+
+	if len(removed) > 0 {
+		logger.InfoWithCtx(ctx, "[rabbitmq pool] cleanup removed idle/invalid connections",
+			logger.Int("removed_count", len(removed)),
+			logger.Int("remaining_pool_size", remaining))
+	}
+}
+
+// probePoolConns 锁外对池内连接做深度可用性探测，返回探测失败的连接。
+// 快照在锁内取、验证在锁外做，结果可能滞后（期间连接可能被取走或归还），
+// 因此只作为 reapPoolConns 的辅助判据；池已关闭时直接返回空集。
+func (p *Pool) probePoolConns(ctx context.Context) map[*Connection]struct{} {
+	p.poolMu.Lock()
+	snapshot := make([]*poolConn, len(p.poolConns))
+	copy(snapshot, p.poolConns)
+	closed := p.isClosed.Load()
+	p.poolMu.Unlock()
+
+	dead := make(map[*Connection]struct{}, len(snapshot))
+	if closed {
+		return dead
+	}
+	for _, pc := range snapshot {
+		if !checkConnected(ctx, pc) {
+			dead[pc.connInfo] = struct{}{}
+		}
+	}
+
+	return dead
+}
+
+// reapPoolConns 在锁内完成连接的实际摘除，只做本地状态判断与切片重建。
+// dead 按 *Connection 匹配，因此期间被归还的同一条连接(新建的 poolConn 包装)同样能被识别。
+// 返回被摘下的连接与摘除后的池大小，关闭由调用方在锁外执行。
+func (p *Pool) reapPoolConns(ctx context.Context, dead map[*Connection]struct{}) ([]*poolConn, int) {
 	p.poolMu.Lock()
 	defer p.poolMu.Unlock()
 
 	if p.isClosed.Load() {
-		return
+		return nil, len(p.poolConns)
 	}
 
 	now := time.Now()
 	minKeep := p.poolOpts.initialCap
-	removedCount := 0
+	removed := make([]*poolConn, 0, len(p.poolConns))
+	// 原地过滤：写游标始终不越过读游标，range 的切片头在循环开始前已固定
+	kept := p.poolConns[:0]
 
-	for i := 0; i < len(p.poolConns); {
-		pc := p.poolConns[i]
-		// 优先移除不可用连接，不受 minKeep 限制
-		if !checkConnected(ctx, pc) {
-			pc.connInfo.Close()
+	for _, pc := range p.poolConns {
+		_, probedDead := dead[pc.connInfo]
+		// 优先移除不可用连接，不受 minKeep 限制：本地状态已失效，或锁外探测判死
+		if probedDead || !pc.connInfo.CheckConnected(ctx) {
+			removed = append(removed, pc)
 			p.totalConns.Add(-1)
-			p.poolConns = append(p.poolConns[:i], p.poolConns[i+1:]...)
-			removedCount++
 			continue
 		}
-		// 再移除超时空闲连接，受 minKeep 限制
-		if len(p.poolConns) > minKeep && now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
-			pc.connInfo.Close()
+		// 再移除超时空闲连接，受 minKeep 限制；len(p.poolConns)-len(removed) 即当前仍留在池里的数量
+		if len(p.poolConns)-len(removed) > minKeep && now.Sub(pc.lastUsed) > p.poolOpts.maxIdle {
+			removed = append(removed, pc)
 			p.totalConns.Add(-1)
-			p.poolConns = append(p.poolConns[:i], p.poolConns[i+1:]...)
-			removedCount++
 			continue
 		}
-		i++
+		kept = append(kept, pc)
 	}
 
-	if removedCount > 0 {
-		logger.InfoWithCtx(ctx, "[rabbitmq pool] cleanup removed idle/invalid connections",
-			logger.Int("removed_count", removedCount),
-			logger.Int("remaining_pool_size", len(p.poolConns)))
-	}
+	p.poolConns = kept
+
+	return removed, len(kept)
 }
 
 // Close 关闭连接池

@@ -375,11 +375,18 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) (err error) {
 // DelByPrefix 根据前缀批量删除 Redis key。
 // 使用 SCAN 命令遍历所有匹配 prefix* 的 key，每扫描 batchSize 个后立即执行 Pipeline 删除，避免内存堆积。
 // 注意：该操作可能耗时较长，且会遍历整个 Redis 键空间，请谨慎使用。
+// prefix 为空时一律拒绝：此时匹配模式退化为 "*"，会删掉整个实例/库里的所有 key。
 func (c *redisCache) DelByPrefix(ctx context.Context, prefix string) (err error) {
 	start := time.Now()
 	defer func() {
 		c.logOperation(ctx, "DelByPrefix", start, err, logger.String("prefix", prefix))
 	}()
+
+	// 拒绝而非容忍：生产环境多个服务共用同一 Redis 实例同库，一次空前缀删除的爆炸半径
+	// 远超本服务自己的缓存，宁可让调用方拿到错误并进告警日志，也不能真的执行
+	if prefix == "" {
+		return errors.New("[cache] DelByPrefix: prefix should not be empty, refuse to scan the whole keyspace")
+	}
 
 	var cursor uint64
 	const scanBatch = 100 // SCAN 每次扫描的 key 数量

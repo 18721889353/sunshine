@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/attribute"
@@ -112,8 +113,9 @@ type Message struct {
 
 // AsyncProducer is async producer.
 type AsyncProducer struct {
-	Producer sarama.AsyncProducer
-	exit     chan struct{}
+	Producer  sarama.AsyncProducer
+	exit      chan struct{}
+	closeOnce sync.Once // 保证重复 Close 不会在 close(exit) 上 panic 并吞掉真正的 producer 关闭
 }
 
 // InitAsyncProducer init async producer.
@@ -243,15 +245,22 @@ func (p *AsyncProducer) handleResponse(handleFn AsyncSendFailedHandlerFn) {
 }
 
 // Close closes the producer.
+// 必须幂等：退出链路常有 defer Close + 显式 Close 叠加，而重复 close(p.exit) 会 panic，
+// 该 panic 被下方 recover 吞掉后函数直接返回 nil——调用方以为关成功了，
+// 而 p.Producer.Close() 从未执行，异步 producer 的 socket 与后台协程全部泄漏。
 func (p *AsyncProducer) Close() error {
 	defer func() {
 		if r := recover(); r != nil {
 			logger.WarnWithCtx(context.Background(), "关闭producer时发生panic", logger.Any("panic", r))
 		}
 	}()
-	close(p.exit)
-	if p.Producer != nil {
-		return p.Producer.Close()
-	}
-	return nil
+
+	var closeErr error
+	p.closeOnce.Do(func() {
+		close(p.exit)
+		if p.Producer != nil {
+			closeErr = p.Producer.Close()
+		}
+	})
+	return closeErr
 }

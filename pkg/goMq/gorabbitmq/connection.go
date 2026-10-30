@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -27,6 +28,7 @@ type Connection struct {
 
 	url         string        // 连接 URL
 	connCloseCh chan struct{} // 连接关闭信号通道
+	closeOnce   sync.Once     // 保证关闭信号只发一次（与 isConnected 解耦，见 Close）
 
 	mqConn      atomic.Pointer[amqp.Connection] // AMQP 连接对象（原子指针，无锁读）
 	mqBlockChan chan amqp.Blocking              // 阻塞通知通道
@@ -286,12 +288,18 @@ func (c *Connection) monitor(ctx context.Context) {
 	}
 }
 
-// Close 关闭 RabbitMQ 连接
+// Close 关闭 RabbitMQ 连接，可并发重复调用，只有首次生效。
+// “只关一次”的守卫必须用 closeOnce，不能拿 CAS(isConnected) 代偿：
+// 断线时 handleCloseAndReconnect 会先把 isConnected 置 false 再重连，此时 CAS 失败，
+// Close 整体退化为空操作、connCloseCh 永不关闭——而 monitor 唯一的退出入口就是这个 channel，
+// 默认 maxRetries=0(无限重试)下它会永久存活并持续拨号，监听 Done() 的消费方也永远收不到停止信号。
 func (c *Connection) Close() {
-	// 原子 CAS 确保只关闭一次，无需外部锁
-	if c.isConnected.CompareAndSwap(true, false) {
-		close(c.connCloseCh)
-	}
+	c.closeOnce.Do(func() {
+		c.isConnected.Store(false)
+		if c.connCloseCh != nil {
+			close(c.connCloseCh)
+		}
+	})
 }
 
 // closeConn 关闭 AMQP 连接

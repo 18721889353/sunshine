@@ -189,6 +189,9 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	// 异步健康检查：验证 Producer 是否正常启动
 	// EnableHealthCheck 为 true 时开启，false 时关闭（默认关闭）
 	if config.EnableHealthCheck {
+		// Add 必须在 go 之前：协程内才 Add 会与 Close 里的 Wait 构成 happens-before 竞态，
+		// 计数为 0 时 Wait 会直接通过，使健康检查协程存活越过 producer.Close 并把状态覆盖为 Failed
+		hook.healthCheckWg.Add(1)
 		go hook.startHealthCheck()
 	}
 
@@ -496,9 +499,8 @@ func isValidEndpoint(endpoint string) bool {
 
 // ==================== 健康检查 ====================
 
-// startHealthCheck 启动健康检查协程
+// startHealthCheck 健康检查协程主体；调用方必须先执行 healthCheckWg.Add(1) 再启动本函数
 func (h *SLSHook) startHealthCheck() {
-	h.healthCheckWg.Add(1)
 	defer h.healthCheckWg.Done()
 
 	// HealthCheckInterval 单位为秒，需要转换为 time.Duration

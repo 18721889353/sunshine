@@ -740,14 +740,29 @@ func (m *cacheManager[T]) getByIDsBatch(ctx context.Context, ids []uint64, query
 	return itemMap, nil
 }
 
-// tryGetAllFromCache 尝试从缓存获取所有缺失 ID
-// 注意：missed 参数未使用，保留是为了接口清晰
-func (m *cacheManager[T]) tryGetAllFromCache(_ context.Context, lockErr error) bool {
+// waitLockHolderRefresh 给锁持有者一个回填缓存的时间窗口，期间响应 ctx 取消。
+// 返回 false 表示调用方已取消：此时不必空等，也不必再发那次注定失败的缓存读。
+func waitLockHolderRefresh(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+// tryGetAllFromCache 判断是否可以重读缓存（未拿到锁时先等锁持有者回填）。
+// 返回 false 表示调用方 ctx 已取消，调用方应跳过那次重读。
+func (m *cacheManager[T]) tryGetAllFromCache(ctx context.Context, lockErr error) bool {
 	if lockErr == nil {
 		return true
 	}
-	time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
-	return true
+	return waitLockHolderRefresh(ctx, time.Duration(m.config.LockRefreshSleepMs)*time.Millisecond)
 }
 
 // findMissedIDs 找出 itemMap 中没有的 ID
@@ -909,7 +924,10 @@ func (m *cacheManager[T]) tryGetColumnsFromCacheWithLock(ctx context.Context, fu
 	if lockErr == nil {
 		return m.tryGetColumnsFromCache(ctx, fullKey, idsQueryFunc)
 	}
-	time.Sleep(time.Duration(m.config.LockRefreshSleepMs) * time.Millisecond)
+	// 未拿到锁：等锁持有者回填后再读一次；ctx 已取消则不再等待，直接未命中返回
+	if !waitLockHolderRefresh(ctx, time.Duration(m.config.LockRefreshSleepMs)*time.Millisecond) {
+		return 0, nil, false
+	}
 	return m.tryGetColumnsFromCache(ctx, fullKey, idsQueryFunc)
 }
 

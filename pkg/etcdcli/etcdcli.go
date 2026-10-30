@@ -114,13 +114,6 @@ func startTokenRefresh(cli *clientv3.Client, username, password string, cfg Auth
 	refreshCancels.Store(cli, cancel)
 
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				// 防止 panic 导致进程崩溃，记录后静默退出
-				logger.WarnWithCtx(ctx, fmt.Sprintf("etcd token refresh panic: %v", r))
-			}
-		}()
-
 		ticker := time.NewTicker(refreshInterval)
 		defer ticker.Stop()
 
@@ -129,21 +122,35 @@ func startTokenRefresh(cli *clientv3.Client, username, password string, cfg Auth
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				resp, err := cli.Authenticate(ctx, username, password)
-				if err != nil {
-					logger.WarnWithCtx(ctx, "etcd token refresh failed", logger.String("error", err.Error()))
-					continue
-				}
-				// Authenticate 只返回新 token，不会更新 SDK 内部的 authTokenBundle。
-				// SDK 在初始化时通过 getToken() 将 token 存入 authTokenBundle，
-				// 后续 gRPC 请求通过 authTokenBundle.PerRPCCredentials() 携带 token。
-				// 必须手动调用 UpdateAuthToken 将新 token 写入 SDK 内部，否则请求仍然使用旧 token。
-				if !updateClientAuthToken(cli, resp.Token) {
-					logger.WarnWithCtx(ctx, "etcd token refresh: failed to update internal auth token bundle")
-				}
+				// panic 隔离放在 ticker 分支内：单次刷新 panic 只损失本轮，
+				// 不能在 recover 后让整条刷新循环永久停摆（否则 token 过期后鉴权会静默失效且无人重启）
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.WarnWithCtx(ctx, fmt.Sprintf("etcd token refresh panic: %v", r))
+						}
+					}()
+					refreshToken(ctx, cli, username, password)
+				}()
 			}
 		}
 	}()
+}
+
+// refreshToken 执行一次鉴权刷新：向 etcd 重新 Authenticate 并将新 token 写回 SDK 内部凭证。
+func refreshToken(ctx context.Context, cli *clientv3.Client, username, password string) {
+	resp, err := cli.Authenticate(ctx, username, password)
+	if err != nil {
+		logger.WarnWithCtx(ctx, "etcd token refresh failed", logger.String("error", err.Error()))
+		return
+	}
+	// Authenticate 只返回新 token，不会更新 SDK 内部的 authTokenBundle。
+	// SDK 在初始化时通过 getToken() 将 token 存入 authTokenBundle，
+	// 后续 gRPC 请求通过 authTokenBundle.PerRPCCredentials() 携带 token。
+	// 必须手动调用 UpdateAuthToken 将新 token 写入 SDK 内部，否则请求仍然使用旧 token。
+	if !updateClientAuthToken(cli, resp.Token) {
+		logger.WarnWithCtx(ctx, "etcd token refresh: failed to update internal auth token bundle")
+	}
 }
 
 // resolveRefreshInterval 根据 AuthConfig 计算最终的刷新间隔。
@@ -170,7 +177,7 @@ func resolveRefreshInterval(cfg AuthConfig) time.Duration {
 //
 // 为什么不用 reflect：authTokenBundle 是未导出字段，reflect.Value.Interface()
 // 在 Go 1.17+ 会对未导出字段 panic，而该 panic 会被 startTokenRefresh 的
-// recover() 吞掉，导致 token 刷新静默失败。
+// recover() 捕获，使本轮 token 写入丢失、客户端继续持旧 token 请求。
 //
 // 返回 true 表示更新成功，false 表示字段不存在或类型不匹配。
 func updateClientAuthToken(cli *clientv3.Client, token string) bool {

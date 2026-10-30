@@ -245,6 +245,25 @@ func TestDelByPrefix(t *testing.T) {
 	}
 }
 
+// TestDelByPrefixEmptyPrefix 验证空前缀被拒绝：SCAN "*" 会删光整个实例/库，
+// 必须报错而不是执行，且已有 key 不能被波及。
+func TestDelByPrefixEmptyPrefix(t *testing.T) {
+	c, mr := newTestCache(t)
+	defer mr.Close()
+
+	ctx := context.Background()
+	_ = c.Set(ctx, "user:1", &testUser{ID: 1}, time.Minute)
+
+	if err := c.DelByPrefix(ctx, ""); err == nil {
+		t.Fatal("DelByPrefix with empty prefix should be refused")
+	}
+
+	var got testUser
+	if err := c.Get(ctx, "user:1", &got); err != nil {
+		t.Errorf("user:1 should survive the refused call, got %v", err)
+	}
+}
+
 // ============================================================================
 // 占位符测试
 // ============================================================================
