@@ -21,6 +21,18 @@ function checkResult() {
     fi
 }
 
+# 等待进程退出，最多 30s；返回 0=已退出，1=仍在运行
+function waitExit(){
+    local pid=$1
+    local waited=0
+    while ps -p "${pid}" > /dev/null 2>&1 && [ ${waited} -lt 30 ]; do
+        sleep 1
+        waited=$((waited+1))
+    done
+    ps -p "${pid}" > /dev/null 2>&1 && return 1
+    return 0
+}
+
 stopService(){
     local NAME=$1
 
@@ -28,8 +40,14 @@ stopService(){
     if [ -n "$ID" ]; then
         for id in $ID
         do
-           kill -9 $id
-           echo "Stopped ${NAME} service successfully, process ID=${ID}"
+           # 先 SIGTERM 触发进程内优雅退出（排空在途请求、停 MQ 消费者），超时才 SIGKILL
+           kill -TERM $id
+           if waitExit ${id}; then
+               echo "Stopped ${NAME} service gracefully, process ID=${id}"
+           else
+               kill -9 ${id}
+               echo "Stopped ${NAME} service by SIGKILL after 30s timeout, process ID=${id}"
+           fi
         done
     fi
 }
