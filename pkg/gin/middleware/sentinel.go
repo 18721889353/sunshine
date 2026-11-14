@@ -53,6 +53,9 @@ type sentinelOptions struct {
 	resourceExtractor func(*gin.Context) string
 	flowRules         []*flow.Rule
 	breakerRules      []*circuitbreaker.Rule
+	// requestFields 拦截时的入参取证扩展点（由业务方注入）。
+	// 框架不假定任何请求格式，仅在【拦截发生时】调用，正常放行请求零开销。
+	requestFields func(*gin.Context) []logger.Field
 }
 
 // defaultSentinelOptions 创建默认的 Sentinel 选项配置。
@@ -90,6 +93,22 @@ func WithSentinelResourceExtractor(fn func(*gin.Context) string) SentinelOptions
 	return func(o *sentinelOptions) {
 		if fn != nil {
 			o.resourceExtractor = fn
+		}
+	}
+}
+
+// WithSentinelRequestFields 设置「拦截入参取证」扩展点。
+//
+// 被限流/熔断的请求不会进入下游业务，若不记录入参，事后无法复现与排查。
+// 由业务方注入提取函数（例如从密文信封取 data/sign/ts/nonce），框架只负责
+// 在拦截日志中追加这些字段，不解析、不假定任何请求格式。
+//
+// 注意：该函数只在【拦截发生时】调用，正常放行的请求不会有额外开销。
+// 提取函数应自行保证不记录明文口令、密钥、敏感 header，并限制超长内容。
+func WithSentinelRequestFields(fn func(*gin.Context) []logger.Field) SentinelOptions {
+	return func(o *sentinelOptions) {
+		if fn != nil {
+			o.requestFields = fn
 		}
 	}
 }
@@ -253,7 +272,7 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 			}
 			// 结构化日志：让 oncall 能从日志分辨「被限流 / 被熔断」及来源 IP，满足可观测底线
 			// reason 用中文人话解释「为什么被拦」（阈值/窗口/当前值/熔断恢复），而非笼统的 block 提示
-			logger.WarnWithCtx(c.Request.Context(), "sentinel block",
+			fields := []logger.Field{
 				logger.String("resource", resource),
 				logger.String("block_type", blockType),
 				logger.String("reason", sentinelBlockReason(blockErr)),
@@ -261,7 +280,12 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 				logger.String("method", c.Request.Method),
 				logger.String("path", c.Request.URL.Path),
 				logger.Int64("cost_ms", time.Since(start).Milliseconds()),
-			)
+			}
+			// 入参取证：仅拦截时调用，供事后复现被拦请求；字段由业务方注入。
+			if o.requestFields != nil {
+				fields = append(fields, o.requestFields(c)...)
+			}
+			logger.WarnWithCtx(c.Request.Context(), "sentinel block", fields...)
 			c.Abort()
 			return
 		}
@@ -290,6 +314,8 @@ type CircuitBreakerOption func(*circuitBreakerOptions)
 type circuitBreakerOptions struct {
 	degradeHandler func(c *gin.Context)
 	rules          []*circuitbreaker.Rule
+	// requestFields 拦截时的入参取证扩展点（由业务方注入），仅在拦截发生时调用。
+	requestFields func(*gin.Context) []logger.Field
 }
 
 // defaultCircuitBreakerOptions 创建默认的断路器选项配置。
@@ -347,6 +373,16 @@ func WithDegradeHandler(handler func(c *gin.Context)) CircuitBreakerOption {
 	}
 }
 
+// WithCircuitBreakerRequestFields 设置熔断中间件的「拦截入参取证」扩展点，
+// 语义与 WithSentinelRequestFields 一致，仅在拦截发生时调用。
+func WithCircuitBreakerRequestFields(fn func(*gin.Context) []logger.Field) CircuitBreakerOption {
+	return func(o *circuitBreakerOptions) {
+		if fn != nil {
+			o.requestFields = fn
+		}
+	}
+}
+
 // CircuitBreaker 返回一个断路器中间件，用于保护后端服务不被过载。
 //
 // 当错误比例超过阈值时，断路器打开并拒绝请求，支持自定义降级处理。
@@ -374,7 +410,7 @@ func CircuitBreaker(opts ...CircuitBreakerOption) gin.HandlerFunc {
 				response.Output(c, http.StatusServiceUnavailable, "circuit breaker triggered")
 			}
 			// 结构化日志：记录熔断拦截，便于区分「被熔断器拒绝」与下游真实故障
-			logger.WarnWithCtx(c.Request.Context(), "sentinel circuit breaker block",
+			fields := []logger.Field{
 				logger.String("resource", resource),
 				logger.String("block_type", "circuit_breaking"),
 				logger.String("reason", sentinelBlockReason(blockErr)),
@@ -382,7 +418,11 @@ func CircuitBreaker(opts ...CircuitBreakerOption) gin.HandlerFunc {
 				logger.String("method", c.Request.Method),
 				logger.String("path", c.Request.URL.Path),
 				logger.Int64("cost_ms", time.Since(start).Milliseconds()),
-			)
+			}
+			if o.requestFields != nil {
+				fields = append(fields, o.requestFields(c)...)
+			}
+			logger.WarnWithCtx(c.Request.Context(), "sentinel circuit breaker block", fields...)
 			c.Abort()
 			return
 		}

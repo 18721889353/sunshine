@@ -25,6 +25,9 @@ const (
 type traceConfig struct {
 	TracerProvider oteltrace.TracerProvider
 	Propagators    propagation.TextMapPropagator
+	// RouteExtractor 自定义 http.route / spanName 提取器（由业务方注入）。
+	// 默认为 c.FullPath()，即 Gin 路由模板。
+	RouteExtractor func(*gin.Context) string
 }
 
 // TraceOption specifies instrumentation configuration options.
@@ -36,6 +39,23 @@ type TraceOption func(*traceConfig)
 func WithPropagators(propagators propagation.TextMapPropagator) TraceOption {
 	return func(cfg *traceConfig) {
 		cfg.Propagators = propagators
+	}
+}
+
+// WithRouteExtractor 自定义 http.route 与 spanName 的提取函数。
+//
+// 默认用 c.FullPath()（Gin 路由模板，低基数，符合 OTel 语义约定）。
+// 但通配路由（如 /Api/*innerPath）会返回模板而非真实接口，导致多个业务接口
+// 在链路追踪里聚成一条、失去排查价值。业务方可注入真实路径，例如
+// c.Request.URL.Path —— 前提是路径集合基数可控（如固定白名单，无动态 ID）。
+//
+// 注意：若路径含高基数动态段（用户ID/订单号），请勿注入真实路径，
+// 否则会造成 span 基数爆炸、链路追踪存储与查询成本剧增。
+func WithRouteExtractor(fn func(*gin.Context) string) TraceOption {
+	return func(cfg *traceConfig) {
+		if fn != nil {
+			cfg.RouteExtractor = fn
+		}
 	}
 }
 
@@ -90,7 +110,14 @@ func Tracing(serviceName string, opts ...TraceOption) gin.HandlerFunc {
 
 		// 2. 从 HTTP Header 提取 Trace Context（支持跨服务链路传递）
 		ctx := cfg.Propagators.Extract(savedCtx, propagation.HeaderCarrier(c.Request.Header))
+		// http.route / spanName：默认用 Gin 路由模板；业务方可通过
+		// WithRouteExtractor 注入真实路径（限固定白名单等低基数场景）。
 		route := c.FullPath()
+		if cfg.RouteExtractor != nil {
+			if extracted := cfg.RouteExtractor(c); extracted != "" {
+				route = extracted
+			}
+		}
 
 		// 获取客户端 IP（Gin 内置方法，支持反向代理）
 		clientIP := c.ClientIP()
