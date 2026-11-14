@@ -6,7 +6,6 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/IBM/sarama v1.45.2
 	github.com/alibaba/sentinel-golang v1.0.4
-	github.com/alibaba/sentinel-golang/pkg/adapters/gin v0.0.0-20250702131350-f7a7f9575711
 	github.com/alibabacloud-go/darabonba-openapi v0.1.18
 	github.com/alibabacloud-go/darabonba-openapi/v2 v2.0.11
 	github.com/alibabacloud-go/dm-20151123 v1.0.4
@@ -33,7 +32,6 @@ require (
 	github.com/gogf/gf/v2 v2.9.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/golang/snappy v1.0.0
-	github.com/google/uuid v1.6.0
 	github.com/gookit/color v1.5.4
 	github.com/gookit/goutil v0.7.1
 	github.com/gorilla/websocket v1.5.3
@@ -187,6 +185,7 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
