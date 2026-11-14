@@ -95,7 +95,12 @@ func handleExec(ctx context.Context, cmd *exec.Cmd, result *Result) {
 	}
 
 	// 使用 cmd.Process.Wait() 替代 cmd.Wait()，避免继承的文件句柄导致无限阻塞
-	_, err = cmd.Process.Wait()
+	// 注意: os.Process.Wait() 对非零退出码不返回 error，须显式判断退出状态，
+	// 否则 go install、cp 等命令失败会被静默吞掉，调用方误判成功
+	state, err := cmd.Process.Wait()
+	if err == nil && !state.Success() {
+		err = fmt.Errorf("exit status %d", state.ExitCode())
+	}
 	if err != nil {
 		if len(stderrData) != 0 {
 			result.Err = errors.New(string(stderrData))
@@ -141,7 +146,11 @@ func getResult(cmd *exec.Cmd) ([]byte, error) {
 	}
 
 	// 使用 cmd.Process.Wait() 替代 cmd.Wait()，避免继承的文件句柄导致无限阻塞
-	_, err = cmd.Process.Wait()
+	// 注意: os.Process.Wait() 对非零退出码不返回 error，须显式判断退出状态
+	state, err := cmd.Process.Wait()
+	if err == nil && !state.Success() {
+		err = fmt.Errorf("exit status %d", state.ExitCode())
+	}
 	if err != nil {
 		if len(bytesErr) != 0 {
 			return nil, errors.New(string(bytesErr))
