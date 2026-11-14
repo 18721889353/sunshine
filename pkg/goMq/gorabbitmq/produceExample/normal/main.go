@@ -8,7 +8,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/18721889353/sunshine/pkg/goMq/gorabbitmq"
 )

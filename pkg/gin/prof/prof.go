@@ -102,6 +102,7 @@ func SetPprofAuth(mw gin.HandlerFunc) {
 //   - /debug/pprof/heap        - 堆内存
 //   - /debug/pprof/mutex       - 互斥锁
 //   - /debug/pprof/threadcreate - 线程创建
+//   - /debug/pprof/goroutineleak - 协程泄漏分析（Go 1.27 新增，需 Go 1.27+，旧版本该路由返回 404）
 //   - /debug/pprof/profile-io  - IO 等待时间（需 WithIOWaitTime）
 //
 // 如果设置了 WithAuth，所有 pprof 路由都经过鉴权中间件检查。
@@ -148,6 +149,9 @@ func Register(r *gin.Engine, opts ...Option) {
 	group.GET("/heap", gin.WrapH(pprof.Handler("heap")))
 	group.GET("/mutex", gin.WrapH(pprof.Handler("mutex")))
 	group.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
+	// Go 1.27 新增的 goroutineleak profile：诊断泄漏的常驻 goroutine。
+	// 旧版本 Go 未注册该 profile 时，pprof.Handler 安全返回 404。
+	group.GET("/goroutineleak", gin.WrapH(pprof.Handler("goroutineleak")))
 
 	if o.enableIOWaitTime {
 		// Similar to /profile, add IO wait time, https://github.com/felixge/fgprof

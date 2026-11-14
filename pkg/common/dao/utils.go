@@ -3,14 +3,14 @@
 package dao
 
 import (
-	"context"   // 上下文，用于传递请求超时、取消信号等（这里主要为了函数签名兼容，实际未使用）
-	"errors"    // 标准错误库，用于创建和判断错误
-	"fmt"       // 格式化字符串，用于拼接错误信息
-	"math/rand" // 随机数生成器，用来生成随机偏移量，防止缓存雪崩
-	"reflect"   // 反射包，允许程序在运行时动态地查看和操作变量的类型和字段（这里用来抓取结构体的 ID）
-	"strings"   // 字符串操作库，用来 Trim（去空格）、Builder（高效拼接）
-	"sync"      // 同步原语，提供了互斥锁（Mutex）和对象池（Pool）
-	"time"      // 时间库，用来获取纳秒时间戳作为随机种子，以及处理时间间隔
+	"context"      // 上下文，用于传递请求超时、取消信号等（这里主要为了函数签名兼容，实际未使用）
+	"errors"       // 标准错误库，用于创建和判断错误
+	"fmt"          // 格式化字符串，用于拼接错误信息
+	"math/rand/v2" // 随机数生成器，用来生成随机偏移量，防止缓存雪崩（v2 顶层函数并发安全，无需加锁）
+	"reflect"      // 反射包，允许程序在运行时动态地查看和操作变量的类型和字段（这里用来抓取结构体的 ID）
+	"strings"      // 字符串操作库，用来 Trim（去空格）、Builder（高效拼接）
+	"sync"         // 同步原语，提供了互斥锁（Mutex）和对象池（Pool）
+	"time"         // 时间库，用来获取纳秒时间戳作为随机种子，以及处理时间间隔
 
 	"github.com/pingcap/tidb/pkg/parser"        // TiDB 的 SQL 解析器，能把 SQL 字符串变成 AST 语法树
 	"github.com/pingcap/tidb/pkg/parser/ast"    // AST（抽象语法树）的节点定义，比如 SelectStmt、AggregateFuncExpr
@@ -39,17 +39,12 @@ const (
 // 第二部分：全局随机数生成器（防缓存雪崩）
 // ============================================================================
 
-var (
-	// globalRand：全局随机数生成器。
-	// 这里用 time.Now().UnixNano()（当前时间的纳秒数）作为种子，确保每次程序启动，摇出的随机数序列都不同。
-	// 注意：math/rand 包默认不是并发安全的。多个协程同时调用 globalRand.Int63n() 会数据竞争。
-	globalRand = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// globalRandMutex：一把互斥锁，专门用来保护 globalRand。
-	// 任何协程要使用 globalRand 之前，都必须先调用 globalRandMutex.Lock()，用完再 Unlock()。
-	// 这保证了同一时刻只有一个协程在摇号，其他协程乖乖排队。
-	globalRandMutex sync.Mutex
-)
+// 防缓存雪崩的随机偏移使用 math/rand/v2 的顶层函数。
+// v2 的全局生成器本身就是并发安全的（内部已加锁），无需像 v1 那样再额外包一层全局互斥锁，
+// 因此在高并发缓存写路径上消除了锁竞争；同时 v2 的算法与 API 也经过重新设计，性能更佳。
+//
+// 历史说明：此前的实现使用 math/rand v1 的 *rand.Rand 配合一把全局 sync.Mutex 保护，
+// 在高并发 GetRandomExpireTime 调用下会形成锁竞争瓶颈；迁移到 v2 后该锁已移除。
 
 // GetRandomExpireTime 生成随机化的缓存过期时间，防止缓存雪崩。
 // 参数 base 是基础过期时间（比如 30 分钟）。
@@ -59,14 +54,10 @@ var (
 // 如果 1000 个 key 的过期时间都是 30 分钟整，它们会在同一时刻集体失效，
 // 数据库瞬间被海量请求打崩。加一个随机偏移（±5分钟），让过期时间分散开。
 func GetRandomExpireTime(base time.Duration) time.Duration {
-	// 第一步：加锁，防止多个协程同时操作 globalRand 导致数据错乱
-	globalRandMutex.Lock()
-	// 第二步：摇号。Int63n(600) 生成 0~599 之间的随机整数，减去 300 后得到 -300 ~ +299。
-	// RandomOffsetMaxSeconds=600, RandomOffsetMinSeconds=300（定义在 cache_constants.go 里）
-	offsetSeconds := globalRand.Int63n(RandomOffsetMaxSeconds) - RandomOffsetMinSeconds
-	// 第三步：解锁，让下一个排队的协程进来摇号
-	globalRandMutex.Unlock()
-	// 第四步：把秒数转换成 time.Duration 类型，加到基础时间上，返回结果
+	// 摇号：Int64N(600) 生成 0~599 之间的随机整数，减去 300 后得到 -300 ~ +299。
+	// RandomOffsetMaxSeconds=600, RandomOffsetMinSeconds=300（定义在 cache_constants.go 里）。
+	// math/rand/v2 的顶层函数并发安全，无需加锁即可在缓存写热路径上并发调用。
+	offsetSeconds := rand.Int64N(RandomOffsetMaxSeconds) - RandomOffsetMinSeconds
 	offset := time.Duration(offsetSeconds) * time.Second
 	return base + offset
 }

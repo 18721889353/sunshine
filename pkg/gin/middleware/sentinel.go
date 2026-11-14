@@ -6,18 +6,21 @@ package middleware
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	sentinel "github.com/alibaba/sentinel-golang/api"
+	"github.com/alibaba/sentinel-golang/core/base"
 	"github.com/alibaba/sentinel-golang/core/circuitbreaker"
 	"github.com/alibaba/sentinel-golang/core/flow"
-	SentinelGin "github.com/alibaba/sentinel-golang/pkg/adapters/gin"
 	"github.com/gin-gonic/gin"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
+	"github.com/18721889353/sunshine/pkg/logger"
 )
 
 var (
@@ -226,21 +229,53 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 	sentinelLimitEnabled.Store(true)
 	sentinelBreakerEnabled.Store(true)
 
-	inner := SentinelGin.SentinelMiddleware(
-		SentinelGin.WithResourceExtractor(o.resourceExtractor),
-		SentinelGin.WithBlockFallback(func(ctx *gin.Context) {
-			response.Out(ctx, errcode.TooManyRequests.WithDetails("请求被限流/熔断"))
-			ctx.Abort()
-		}),
-	)
-
 	return func(c *gin.Context) {
 		// 热更新开关检查：限流与熔断均关闭时直接放行，避免无效的 Entry 开销
 		if !sentinelLimitEnabled.Load() && !sentinelBreakerEnabled.Load() {
 			c.Next()
 			return
 		}
-		inner(c)
+
+		start := time.Now()
+		resource := o.resourceExtractor(c)
+		entry, blockErr := sentinel.Entry(resource,
+			sentinel.WithResourceType(base.ResTypeWeb),
+			sentinel.WithTrafficType(base.Inbound),
+		)
+		if blockErr != nil {
+			// 被限流或熔断：直接拒绝（reject，不排队），避免协程堆积
+			blockType := "flow"
+			if blockErr.BlockType() == base.BlockTypeCircuitBreaking {
+				blockType = "circuit_breaking"
+				response.Output(c, http.StatusServiceUnavailable, "服务熔断中，请稍后重试")
+			} else {
+				response.Out(c, errcode.TooManyRequests.WithDetails("请求被限流"))
+			}
+			// 结构化日志：让 oncall 能从日志分辨「被限流 / 被熔断」及来源 IP，满足可观测底线
+			// reason 用中文人话解释「为什么被拦」（阈值/窗口/当前值/熔断恢复），而非笼统的 block 提示
+			logger.WarnWithCtx(c.Request.Context(), "sentinel block",
+				logger.String("resource", resource),
+				logger.String("block_type", blockType),
+				logger.String("reason", sentinelBlockReason(blockErr)),
+				logger.String("client_ip", c.ClientIP()),
+				logger.String("method", c.Request.Method),
+				logger.String("path", c.Request.URL.Path),
+				logger.Int64("cost_ms", time.Since(start).Milliseconds()),
+			)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+
+		// 关键修复：5xx（网关/内网故障）视为失败上报熔断；4xx 属客户端问题不计入，
+		// 避免误伤健康下游。原实现委托 sentinel-golang 的 gin 适配器，其 entry.Exit()
+		// 从不带错误，导致 errorRatio 熔断永远统计不到失败（上游 5xx 不会触发熔断）。
+		if c.Writer.Status() >= http.StatusInternalServerError {
+			entry.Exit(base.WithError(fmt.Errorf("upstream/server 5xx status=%d", c.Writer.Status())))
+		} else {
+			entry.Exit()
+		}
 	}
 }
 
@@ -329,20 +364,37 @@ func CircuitBreaker(opts ...CircuitBreakerOption) gin.HandlerFunc {
 	initSentinel(nil, o.rules)
 
 	return func(c *gin.Context) {
+		start := time.Now()
 		resource := c.FullPath()
-		entry, err := sentinel.Entry(resource)
-		if err != nil {
+		entry, blockErr := sentinel.Entry(resource)
+		if blockErr != nil {
 			if o.degradeHandler != nil {
 				o.degradeHandler(c)
 			} else {
 				response.Output(c, http.StatusServiceUnavailable, "circuit breaker triggered")
 			}
+			// 结构化日志：记录熔断拦截，便于区分「被熔断器拒绝」与下游真实故障
+			logger.WarnWithCtx(c.Request.Context(), "sentinel circuit breaker block",
+				logger.String("resource", resource),
+				logger.String("block_type", "circuit_breaking"),
+				logger.String("reason", sentinelBlockReason(blockErr)),
+				logger.String("client_ip", c.ClientIP()),
+				logger.String("method", c.Request.Method),
+				logger.String("path", c.Request.URL.Path),
+				logger.Int64("cost_ms", time.Since(start).Milliseconds()),
+			)
 			c.Abort()
 			return
 		}
 
 		c.Next()
-		entry.Exit()
+
+		// 5xx（下游故障）视为失败上报熔断；4xx 不计入，避免误伤健康下游。
+		if c.Writer.Status() >= http.StatusInternalServerError {
+			entry.Exit(base.WithError(fmt.Errorf("circuit breaker: 5xx status=%d", c.Writer.Status())))
+		} else {
+			entry.Exit()
+		}
 	}
 }
 
@@ -376,4 +428,31 @@ func ReloadBreakerRules(rules []*circuitbreaker.Rule) error {
 	}
 	_, err := circuitbreaker.LoadRules(rules)
 	return err
+}
+
+// sentinelBlockReason 把 Sentinel 的 BlockError 转成中文人话异常描述，说明「为什么被拦」
+// （阈值 / 统计窗口 / 当前触发值 / 熔断恢复时长），而非笼统的 block 提示。
+// 这样 oncall 不用翻配置就能定位：是哪个接口、超了多少被限流，或熔断器为何开启、多久恢复。
+func sentinelBlockReason(blockErr *base.BlockError) string {
+	if blockErr == nil {
+		return "未知拦截"
+	}
+	switch blockErr.BlockType() {
+	case base.BlockTypeFlow:
+		if rule, ok := blockErr.TriggeredRule().(*flow.Rule); ok && rule != nil {
+			return fmt.Sprintf(
+				"触发限流：接口 %s 在 %dms 统计窗口内已通过 %v 次，达到阈值 %.0f，直接拒绝（reject，不排队）",
+				rule.Resource, rule.StatIntervalInMs, blockErr.TriggeredValue(), rule.Threshold)
+		}
+		return fmt.Sprintf("触发限流：当前值 %v 已达阈值，直接拒绝", blockErr.TriggeredValue())
+	case base.BlockTypeCircuitBreaking:
+		if rule, ok := blockErr.TriggeredRule().(*circuitbreaker.Rule); ok && rule != nil {
+			return fmt.Sprintf(
+				"触发熔断：接口 %s 熔断器已开启（%s 策略，%dms 窗口内错误率超阈值 %.2f，最小请求量 %d），熔断 %dms 后半开探测恢复",
+				rule.Resource, rule.Strategy.String(), rule.StatIntervalMs, rule.Threshold, rule.MinRequestAmount, rule.RetryTimeoutMs)
+		}
+		return "触发熔断：熔断器已开启，稍后重试"
+	default:
+		return fmt.Sprintf("被 Sentinel 拦截（%s）：%s", blockErr.BlockType().String(), blockErr.BlockMsg())
+	}
 }
