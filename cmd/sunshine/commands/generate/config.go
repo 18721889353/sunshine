@@ -210,13 +210,24 @@ func getYAMLFile(serverDir string) (map[string]configType, error) {
 // 返回值:
 //   - 如果文件写入失败，返回对应的错误。
 func saveFile(inputFile string, outputFile string, code string) error {
-	err := os.WriteFile(outputFile, []byte(code), 0666)
+	err := os.WriteFile(outputFile, []byte(ensureTrailingNewline(code)), 0666)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("    %s  -->  %s\n", cutPath(inputFile), cutPath(outputFile))
 	return nil
+}
+
+// ensureTrailingNewline 保证生成的 Go 代码以单个换行结尾。
+// 生成器拼接的模板常量与结构体代码不带尾换行，直接写入会让文件末尾
+// 缺 \n，git 每次都报 "\ No newline at end of file"，破坏 make update-config
+// 幂等（跑一次就产生脏 diff）。修在写文件这一收口，所有生成路径受益。
+func ensureTrailingNewline(code string) string {
+	if strings.HasSuffix(code, "\n") {
+		return code
+	}
+	return code + "\n"
 }
 
 // convertToGoFile 将单个 YAML 文件转换为 Go 结构体代码并写入指定输出目录。
@@ -252,7 +263,7 @@ func convertToGoFile(ysArgs jy2struct.Args, outPath string) error {
 
 	outPath = filepath.Join(outPath, name+".go")
 
-	err = os.WriteFile(outPath, []byte(configFileCode+data), 0666)
+	err = os.WriteFile(outPath, []byte(ensureTrailingNewline(configFileCode+data)), 0666)
 	if err != nil {
 		return err
 	}
