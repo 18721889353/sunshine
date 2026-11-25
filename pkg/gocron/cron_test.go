@@ -739,3 +739,23 @@ func TestConcurrentOperations(t *testing.T) {
 		t.Fatalf("部分任务已被删除，注册数不应为满额 %d", got)
 	}
 }
+
+// TestRunOncePanicStillDeletes 单次任务 panic 后仍必须注销（一次性语义）。
+// 历史缺陷：DeleteTask 在 job() 之后，panic 会跳过它 → 任务留在调度器反复触发。
+// 修复用 defer 保证注销；panic 本身仍交由 cron.Recover 记录（不吞）。
+func TestRunOncePanicStillDeletes(t *testing.T) {
+	s := newTestScheduler(t)
+	var count atomic.Int64
+	mustRun(t, s, &Task{
+		Name:      "panic-once",
+		TimeSpec:  fastSpec,
+		IsRunOnce: true,
+		Fn: func() {
+			count.Add(1)
+			panic("boom")
+		},
+	})
+	waitForCondition(t, conditionTimeout, "panic 单次任务也应自动注销", func() bool {
+		return !s.IsRunningTask("panic-once")
+	})
+}

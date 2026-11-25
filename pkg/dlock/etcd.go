@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"time"
+
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 )
@@ -65,7 +67,9 @@ func NewEtcd(client *clientv3.Client, key string, ttl int) (Locker, error) {
 func (l *EtcdLock) Lock(ctx context.Context) error {
 	ctx, span := startLockSpan(ctx, "lock", l.mutex.Key())
 	defer span.End()
+	start := time.Now()
 	err := l.mutex.Lock(ctx)
+	observeLockAcquire("etcd", err, time.Since(start))
 	markLock(span, err)
 	return err
 }
@@ -92,13 +96,19 @@ func (l *EtcdLock) Unlock(ctx context.Context) error {
 func (l *EtcdLock) TryLock(ctx context.Context) (bool, error) {
 	ctx, span := startLockSpan(ctx, "trylock", l.mutex.Key())
 	defer span.End()
+	start := time.Now()
 	err := l.mutex.TryLock(ctx)
+	// 锁已被占用属正常竞争结果（非故障），result 记 ok 而非 error
+	if err == nil || err == concurrency.ErrLocked {
+		observeLockAcquire("etcd", nil, time.Since(start))
+	} else {
+		observeLockAcquire("etcd", err, time.Since(start))
+	}
 	if err == nil {
 		markTryLock(span, true, nil)
 		return true, nil
 	}
 	if err == concurrency.ErrLocked {
-		// 锁已被占用属正常竞争结果（非故障），标 OK。
 		markTryLock(span, false, nil)
 		return false, nil
 	}

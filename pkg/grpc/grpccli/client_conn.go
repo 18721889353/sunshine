@@ -10,6 +10,7 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/grpc/gtls"
 	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
+	grpcmetrics "github.com/18721889353/sunshine/pkg/grpc/metrics"
 	"github.com/18721889353/sunshine/pkg/servicerd/discovery"
 )
 
@@ -53,6 +54,12 @@ func NewClient(endpoint string, opts ...Option) (*grpc.ClientConn, error) {
 	if o.enableTrace {
 		statsHandler := interceptor.NewClientStatsHandler()
 		clientOptions = append(clientOptions, grpc.WithStatsHandler(statsHandler))
+	}
+
+	// 指标：添加连接计数 StatsHandler（grpc_client_active_connections），
+	// 与 server 侧 CustomListener 计数对称；gRPC 支持多 handler，与 otel 并存不覆盖。
+	if o.enableMetrics {
+		clientOptions = append(clientOptions, grpc.WithStatsHandler(grpcmetrics.NewClientConnCountingHandler()))
 	}
 
 	// Token 认证：在请求头中添加应用凭证
@@ -145,9 +152,7 @@ func unaryClientOptions(o *options) grpc.DialOption {
 	// 熔断器（默认关闭）：开启后对连续失败的 RPC 进行快速失败，保护下游
 	// 取消下面注释即可启用，默认已包含 codes.Internal 和 codes.Unavailable
 	//if o.enableCircuitBreaker {
-	//	unaryClientInterceptors = append(unaryClientInterceptors, interceptor.UnaryClientCircuitBreaker(
-	//	//interceptor.WithValidCode(codes.PermissionDenied),
-	//	))
+	//	unaryClientInterceptors = append(unaryClientInterceptors, interceptor.UnaryClientCircuitBreaker())
 	//}
 
 	// 重试机制：对可恢复错误自动重试，提高调用成功率
@@ -187,9 +192,7 @@ func streamClientOptions(o *options) grpc.DialOption {
 
 	// 熔断器（默认关闭）
 	//if o.enableCircuitBreaker {
-	//	streamClientInterceptors = append(streamClientInterceptors, interceptor.StreamClientCircuitBreaker(
-	//	//interceptor.WithValidCode(codes.PermissionDenied),
-	//	))
+	//	streamClientInterceptors = append(streamClientInterceptors, interceptor.StreamClientCircuitBreaker())
 	//}
 
 	// 重试机制

@@ -215,9 +215,9 @@ func getDialOptions() []grpc.DialOption {
 	// use insecure transfer
 	options = append(options, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
-	// use tracing
-	options = append(options, grpc.WithUnaryInterceptor(
-		interceptor.UnaryClientTracing(),
+	// use tracing（v0.62.0+ 用 StatsHandler，旧 UnaryClientTracing 已移除）
+	options = append(options, grpc.WithStatsHandler(
+		interceptor.NewClientStatsHandler(),
 	))
 
 	return options
@@ -227,9 +227,9 @@ func getDialOptions() []grpc.DialOption {
 func getServerOptions() []grpc.ServerOption {
 	var options []grpc.ServerOption
 
-	// use tracing
-	options = append(options, grpc.UnaryInterceptor(
-		interceptor.UnaryServerTracing(),
+	// use tracing（v0.62.0+ 用 StatsHandler，旧 UnaryServerTracing 已移除）
+	options = append(options, grpc.StatsHandler(
+		interceptor.NewServerStatsHandler(),
 	))
 
 	return options

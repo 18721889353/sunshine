@@ -5,28 +5,29 @@ import (
 	"sync"
 
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 var (
 	// client side default router
 	clientPattern = "/rpc_client/metrics"
 
-	// create a Registry
-	cliReg = prometheus.NewRegistry()
-
 	// initialize the client's default metrics
-	grpcClientMetrics = grpc_prometheus.NewClientMetrics()
+	// 与 server 侧对称：启用 handling time histogram（grpc_client_handling_seconds），
+	// 客户端调用耗时分布与服务端一致可查（componentSpecs 有对应展示条目）。
+	grpcClientMetrics = grpc_prometheus.NewClientMetrics(grpc_prometheus.WithClientHandlingTimeHistogram())
 
 	cliOnce sync.Once
 )
 
 func cliRegisterMetrics() {
 	cliOnce.Do(func() {
-		// register metrics, including custom metrics
-		cliReg.MustRegister(grpcClientMetrics)
+		// 统一注册中心（删除旧的 cliReg 独立 registry）
+		// grpcClientConnectionGauge：客户端活跃连接数（与 server 侧对称，
+		// 值由 NewClientConnCountingHandler 的 stats 回调维护）
+		pkgmetrics.MustRegister(grpcClientMetrics, grpcClientConnectionGauge)
 	})
 }
 
@@ -40,14 +41,14 @@ func SetClientPattern(pattern string) {
 // ClientRegister for http routing and grpc methods
 func ClientRegister(mux *http.ServeMux) {
 	// register for http routing
-	mux.Handle(clientPattern, promhttp.HandlerFor(cliReg, promhttp.HandlerOpts{}))
+	mux.Handle(clientPattern, pkgmetrics.Handler())
 }
 
 // ClientHTTPService initialize the client's prometheus exporter service and use http://ip:port/metrics to fetch data
 func ClientHTTPService(addr string) *http.Server {
 	httpServer := &http.Server{
 		Addr:    addr,
-		Handler: promhttp.HandlerFor(cliReg, promhttp.HandlerOpts{}),
+		Handler: pkgmetrics.Handler(),
 	}
 
 	// run http server

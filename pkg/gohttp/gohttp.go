@@ -41,12 +41,6 @@ const (
 )
 
 var (
-	// ErrEmptyBaseURL 基础URL为空的错误
-	//
-	// Deprecated: WithBaseURL("") 已改为合法输入（等价于不设置基础 URL，
-	// 由每次请求传入完整地址），validate 不再返回本错误；保留仅为兼容
-	// 既有 errors.Is(ErrEmptyBaseURL) 判断，后续大版本移除。
-	ErrEmptyBaseURL = errors.New("gohttp: base URL cannot be empty")
 	// ErrSSRFBlocked SSRF防护阻断的错误
 	ErrSSRFBlocked = errors.New("gohttp: request blocked due to SSRF protection")
 	// ErrCircuitBreakerOpen 熔断器打开的错误
@@ -347,7 +341,15 @@ func (r *Request) Patch(requestURL string) (*Response, error) { return r.do("PAT
 // 收尾顺序（defer LIFO）：recover 先于 finish 执行，保证 panic 被转成错误后
 // finish 仍能看到最终错误并把 Span 标记为 Error，不会留下永不 End 的 Span。
 func (r *Request) do(method, requestURL string) (resp *Response, err error) {
+	start := time.Now()
 	defer func() {
+		// 指标埋点先记录（早于 finish），避免 finish 内异常导致指标丢失。
+		// transport 失败时 resp 为 nil，status 记 0（与状态码区分）。
+		status := 0
+		if resp != nil && resp.resp != nil {
+			status = resp.resp.StatusCode()
+		}
+		observeHTTPClient(method, status, time.Since(start))
 		r.finish(err)
 	}()
 

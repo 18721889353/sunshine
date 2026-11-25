@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
@@ -32,8 +33,13 @@ func (h *requestIDHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 		// 增强当前 Redis Span 的诊断属性
 		enhanceRedisSpan(ctx, cmd)
 
+		// 指标埋点：记录命令耗时（op=命令名，result=ok/error）
+		start := time.Now()
+
 		// 执行底层 Redis 命令
 		err := next(ctx, cmd)
+
+		observeRedisOperation(cmd.Name(), err, time.Since(start))
 
 		// 大厂标准：记录错误到 Span（关键！）
 		// 但 redis.Nil（GET 不存在的 key）是正常缓存 miss，不是错误：

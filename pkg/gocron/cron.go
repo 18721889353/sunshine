@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/robfig/cron/v3"
 
@@ -259,14 +260,46 @@ func (s *Scheduler) addTaskLocked(task *Task) error {
 // 包装不修改入参 task.Fn，调用方结构体保持原样。
 func (s *Scheduler) buildTaskFn(task *Task) func() {
 	job := task.Fn
-	if !task.IsRunOnce {
-		return job
+	name := task.Name
+
+	// 指标埋点包装：记录任务耗时与 panic（result=ok/error，与全仓统一）。
+	// 定时任务失败是静默故障，只有指标能暴露"任务没跑/跑挂了"。
+	// observe 在 recover 之后执行（defer 内已拿到 panicked 信号），随后 re-panic
+	// 交由外层 cron.Recover 记录框架日志并继续调度——与未包装时行为一致，
+	// 不吞 panic（吞掉会让 cron.Recover 永不触发，链路断裂）。
+	wrap := func(run func()) func() {
+		return func() {
+			start := time.Now()
+			panicked := false
+			var rec interface{}
+			defer func() {
+				if r := recover(); r != nil {
+					panicked = true
+					rec = r
+					logger.ErrorWithCtx(context.Background(),
+						"cron task panicked",
+						logger.String("task", name),
+						logger.Any("panic", r))
+				}
+				observeCronTask(name, panicked, time.Since(start))
+				if panicked {
+					panic(rec) // 信号已记录，重新抛给 cron.Recover
+				}
+			}()
+			run()
+		}
 	}
 
-	name := task.Name
+	if !task.IsRunOnce {
+		return wrap(job)
+	}
+
 	return func() {
-		job()
-		s.DeleteTask(name)
+		// defer 保证一次性任务无论成功还是 panic 都注销——
+		// 否则 panic 时 DeleteTask 被跳过，任务留在调度器里反复触发（违背只执行一次）。
+		// 顺序：wrap 的 defer（observe+re-panic）先执行 → DeleteTask → panic 继续传给 cron.Recover。
+		defer s.DeleteTask(name)
+		wrap(job)()
 	}
 }
 

@@ -1,6 +1,10 @@
 package logger
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"github.com/prometheus/client_golang/prometheus"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
+)
 
 // loggerCollector 实现 prometheus.Collector 接口
 // 每次 Prometheus scrape 时自动调用 GetMetrics() 获取最新值
@@ -10,9 +14,9 @@ type loggerCollector struct {
 }
 
 // NewLoggerCollector 创建 logger Prometheus Collector
-// 用法:
+// 用法（统一注册中心，Default + Fast 双注册）:
 //
-//	prometheus.MustRegister(logger.NewLoggerCollector())
+//	pkgmetrics.MustRegister(logger.NewLoggerCollector())
 func NewLoggerCollector() prometheus.Collector {
 	return &loggerCollector{
 		droppedDesc: prometheus.NewDesc(
@@ -51,10 +55,14 @@ func (c *loggerCollector) Collect(ch chan<- prometheus.Metric) {
 	)
 }
 
-// RegisterPrometheus 注册 logger 指标到 Prometheus
-// 在 initApp.go 中调用一次即可，之后 /metrics 端点自动包含 logger 指标
+// loggerCollectorInstance 包级单例：init 与兼容入口共用，避免创建被幂等丢弃的重复实例。
+var loggerCollectorInstance = NewLoggerCollector()
+
+// init 自动注册 logger 指标到统一中心（Default + Fast）。
 //
-//	logger.RegisterPrometheus()
-func RegisterPrometheus() {
-	prometheus.MustRegister(NewLoggerCollector())
+// 历史问题：原实现只暴露 RegisterPrometheus() 供业务手动调用，但全仓无调用点——
+// logger_dropped_entries_total / logger_router_active_loggers 实际从未被注册。
+// 改为 init 自动注册，与其他 12 个组件的指标行为一致，5s 巡检也能采到。
+func init() {
+	pkgmetrics.MustRegister(loggerCollectorInstance)
 }

@@ -639,6 +639,7 @@ func (c *Consumer) handleSingleMessage(ctx context.Context, d amqp.Delivery, han
 // panic 被捕获后转为 handlerPanicError 返回（与显式 error 区分，调用方据此决定是否重试），
 // 不中断消费循环。
 func (c *Consumer) safeHandle(ctx context.Context, body []byte, messageID, tagID string, handler Handler) (err error) {
+	start := time.Now()
 	defer func() {
 		if r := recover(); r != nil {
 			err = &handlerPanicError{val: r}
@@ -649,6 +650,8 @@ func (c *Consumer) safeHandle(ctx context.Context, body []byte, messageID, tagID
 				logger.String("message_id", messageID),
 				logger.String("tagID", tagID))
 		}
+		// 指标埋点：消费处理耗时（queue, result）
+		observeRabbitmqConsume(c.QueueName, err, time.Since(start))
 	}()
 	return handler(ctx, body, messageID, tagID)
 }

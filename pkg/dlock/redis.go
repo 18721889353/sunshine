@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"time"
+
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/redis/go-redis/v9"
@@ -76,7 +78,14 @@ func newLocker(delegate redis.UniversalClient, key string, options ...redsync.Op
 func (l *RedisLock) TryLock(ctx context.Context) (bool, error) {
 	ctx, span := startLockSpan(ctx, "trylock", l.mutex.Name())
 	defer span.End()
+	start := time.Now()
 	err := l.mutex.TryLockContext(ctx)
+	// 锁被占用属正常竞争结果（与 etcd.ErrLocked 同义），记 ok 不打满错误率
+	if errors.Is(err, redsync.ErrFailed) {
+		observeLockAcquire("redis", nil, time.Since(start))
+	} else {
+		observeLockAcquire("redis", err, time.Since(start))
+	}
 	if err == nil {
 		markTryLock(span, true, nil)
 		return true, nil
@@ -93,7 +102,12 @@ func (l *RedisLock) TryLock(ctx context.Context) (bool, error) {
 func (l *RedisLock) Lock(ctx context.Context) error {
 	ctx, span := startLockSpan(ctx, "lock", l.mutex.Name())
 	defer span.End()
+	start := time.Now()
 	err := l.mutex.LockContext(ctx)
+	// 口径与 etcd Lock 对齐：阻塞锁拿不到（ErrFailed=重试耗尽）记 error。
+	// 只有 TryLock 的竞争失败才是正常结果——阻塞锁失败说明锁被长期占用/
+	// 重试耗尽，必须可见，否则 lock_acquire 错误率恒为 0、诊断失效。
+	observeLockAcquire("redis", err, time.Since(start))
 	markLock(span, err)
 	return err
 }

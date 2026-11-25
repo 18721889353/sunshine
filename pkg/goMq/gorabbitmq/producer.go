@@ -207,6 +207,9 @@ func (p *Producer) publish(ctx context.Context, exchangeType, routingKey string,
 	defer span.End()
 
 	startTime := time.Now()
+	// 指标埋点：发布耗时（exchange, result）。defer 覆盖全部 return 路径
+	// （含 exchange 校验失败等提前返回）——只在 Publish 后埋会漏掉前置失败。
+	defer func() { observeRabbitmqPublish(p.Exchange.name, err, time.Since(startTime)) }()
 
 	// 提取 Context 中的 RequestID，关联业务日志和 Trace
 	if reqID := ctx.Value(logger.ContextKeyRequestID); reqID != nil {

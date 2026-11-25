@@ -138,9 +138,15 @@ func startTokenRefresh(cli *clientv3.Client, username, password string, cfg Auth
 }
 
 // refreshToken 执行一次鉴权刷新：向 etcd 重新 Authenticate 并将新 token 写回 SDK 内部凭证。
+// 指标口径：一次刷新只计一次 result——Authenticate 或 Update 任一失败即 error，
+// 与 etcd_token_refresh_total（attempts）语义一致。
 func refreshToken(ctx context.Context, cli *clientv3.Client, username, password string) {
+	result := "ok"
+	defer func() { observeEtcdTokenRefreshResult(result) }()
+
 	resp, err := cli.Authenticate(ctx, username, password)
 	if err != nil {
+		result = "error"
 		logger.WarnWithCtx(ctx, "etcd token refresh failed", logger.String("error", err.Error()))
 		return
 	}
@@ -149,6 +155,7 @@ func refreshToken(ctx context.Context, cli *clientv3.Client, username, password 
 	// 后续 gRPC 请求通过 authTokenBundle.PerRPCCredentials() 携带 token。
 	// 必须手动调用 UpdateAuthToken 将新 token 写入 SDK 内部，否则请求仍然使用旧 token。
 	if !updateClientAuthToken(cli, resp.Token) {
+		result = "error"
 		logger.WarnWithCtx(ctx, "etcd token refresh: failed to update internal auth token bundle")
 	}
 }

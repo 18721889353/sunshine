@@ -127,8 +127,8 @@ defer logger.Shutdown(context.Background())
 ### Prometheus 指标
 
 ```go
-// 注册后 /metrics 端点自动包含 logger 指标
-logger.RegisterPrometheus()
+// 指标由包 init 自动注册到统一注册中心，无需手动调用
+// /metrics 端点自动包含 logger 指标
 ```
 
 暴露的指标：
@@ -199,7 +199,6 @@ logger.RegisterPrometheus()
 | `IsInfoEnabled()` | 检查 INFO 是否开启 |
 | `GetMetrics()` | 获取运行时指标快照 |
 | `RecordDrop()` | 记录一次日志丢弃 |
-| `RegisterPrometheus()` | 注册 Prometheus 指标 |
 | `RegisterCloser(c)` | 注册 Shutdown 时关闭的资源 |
 | `Shutdown(ctx)` | 优雅关闭日志系统 |
 | `Sync()` | 刷新缓冲区 |

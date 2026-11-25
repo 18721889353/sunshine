@@ -162,6 +162,12 @@ func (c *redisCache) executeWithWatchdog(ctx context.Context, key string, expiry
 func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expireTime time.Duration) (err error) {
 	start := time.Now()
 	defer func() {
+		// 指标埋点：Set 的 result 为 ok/error
+		setResult := "ok"
+		if err != nil {
+			setResult = "error"
+		}
+		observeCache("Set", setResult, time.Since(start))
 		c.logOperation(ctx, "Set", start, err, logger.String("key", key), logger.Any("expireTime", expireTime))
 	}()
 
@@ -191,6 +197,9 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err error) {
 	start := time.Now()
 	defer func() {
+		// 指标埋点：耗时 result 统一 ok/error；命中率走独立 counter
+		observeCache("Get", cacheGetResult(err), time.Since(start))
+		observeCacheRead("Get", err)
 		c.logOperation(ctx, "Get", start, err, logger.String("key", key), logger.Any("val", val))
 	}()
 

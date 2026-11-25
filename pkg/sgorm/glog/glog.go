@@ -90,12 +90,16 @@ func (l *gLogger) Error(ctx context.Context, msg string, data ...interface{}) {
 
 // Trace print sql message
 func (l *gLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
+	// 指标埋点：DB 查询耗时（op, result）。
+	// 必须在日志级别检查之前——指标采集不应依赖日志开关（Silent 时也要记录）。
+	// fc 只调用一次（结果给埋点和日志复用）——闭包可能含副作用，双调用有不一致风险。
+	elapsed := time.Since(begin)
+	sql, rows := fc()
+	observeDBQuery(sql, err, elapsed)
+
 	if l.logLevel <= gormLogger.Silent {
 		return
 	}
-
-	elapsed := time.Since(begin)
-	sql, rows := fc()
 
 	var rowsField logger.Field
 	if rows == -1 {

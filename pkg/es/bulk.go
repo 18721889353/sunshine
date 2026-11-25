@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 
@@ -29,7 +30,11 @@ func (c *Client) Bulk() *Bulk {
 }
 
 // BulkExecute 执行批量操作
-func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) error {
+func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) (err error) {
+	// 指标埋点：ES 批量操作耗时（op, result）
+	start := time.Now()
+	defer func() { observeES("bulk", err, time.Since(start)) }()
+
 	// 添加追踪支持
 	ctx, endSpan := b.client.withSpan(ctx, "bulk_execute")
 	defer endSpan(nil)
@@ -52,20 +57,21 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) erro
 			op.Action: meta,
 		}
 
-		actionLine, err := json.Marshal(action)
-		if err != nil {
-			endSpan(err)
-			return fmt.Errorf("marshal action error: %w", err)
+		// return fmt.Errorf 会先把值赋给命名返回值 err 再执行 defer，埋点可记到 error
+		actionLine, marshalErr := json.Marshal(action)
+		if marshalErr != nil {
+			endSpan(marshalErr)
+			return fmt.Errorf("marshal action error: %w", marshalErr)
 		}
 
 		buf.Write(actionLine)
 		buf.WriteByte('\n')
 
 		if op.Payload != nil && op.Action != "delete" {
-			payload, err := json.Marshal(op.Payload)
-			if err != nil {
-				endSpan(err)
-				return fmt.Errorf("marshal payload error: %w", err)
+			payload, marshalErr := json.Marshal(op.Payload)
+			if marshalErr != nil {
+				endSpan(marshalErr)
+				return fmt.Errorf("marshal payload error: %w", marshalErr)
 			}
 			buf.Write(payload)
 			buf.WriteByte('\n')

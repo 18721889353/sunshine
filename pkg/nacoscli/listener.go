@@ -141,13 +141,17 @@ func (c *ListenClient) buildOnChange(ctx context.Context) vo.Listener {
 
 // safeCallHandler 安全执行配置变更回调，recover 保护防止 panic 影响监听。
 func (c *ListenClient) safeCallHandler(ctx context.Context, namespace, group, dataID, data string) {
+	panicked := false
 	defer func() {
 		if r := recover(); r != nil {
+			panicked = true
 			logWarn(ctx, "[nacos listener] 配置变更回调 panic",
 				logger.String("dataId", dataID),
 				logger.Any("panic", r),
 			)
 		}
+		// 指标埋点：回调 panic 是静默故障（配置已变但业务没生效）
+		observeNacosConfigCallback(panicked)
 	}()
 
 	c.handler(namespace, group, dataID, data)

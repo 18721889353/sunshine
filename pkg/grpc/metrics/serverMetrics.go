@@ -5,34 +5,27 @@ import (
 	"net/http"
 	"sync"
 
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"google.golang.org/grpc"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
-// https://github.com/grpc-ecosystem/go-grpc-prometheus/tree/master/examples/grpc-server-with-prometheus
+// https://github.com/grpc-ecosystem/go-grpc-middleware/tree/master/providers/prometheus
 
 var (
 	// server side default router
 	serverPattern = "/metrics"
 
-	// create a Registry
-	srvReg = prometheus.NewRegistry()
-
 	// initialize server-side default metrics
-	grpcServerMetrics = grpc_prometheus.NewServerMetrics()
+	grpcServerMetrics = grpc_prometheus.NewServerMetrics(grpc_prometheus.WithServerHandlingTimeHistogram())
 
 	// go metrics
 	goMetrics = collectors.NewGoCollector()
 
-	// user-defined metrics https://prometheus.io/docs/concepts/metric_types/#histogram
-	customizedCounterMetrics   = []*prometheus.CounterVec{}
-	customizedSummaryMetrics   = []*prometheus.SummaryVec{}
-	customizedGaugeMetrics     = []*prometheus.GaugeVec{}
-	customizedHistogramMetrics = []*prometheus.HistogramVec{}
-	grpcConnectionGauge        = prometheus.NewGauge(
+	grpcConnectionGauge = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "grpc_server_active_connections",
 			Help: "Current number of active gRPC client connections",
@@ -45,7 +38,14 @@ var (
 // Option set metrics
 type Option func(*options)
 
-type options struct{}
+// options 承载业务扩展指标（Option 纯函数写入此处，不做包级全局副作用——
+// 包级 slice 无锁 append 在并发 UnaryServerMetrics 时会 race）。
+type options struct {
+	counterMetrics   []*prometheus.CounterVec
+	summaryMetrics   []*prometheus.SummaryVec
+	gaugeMetrics     []*prometheus.GaugeVec
+	histogramMetrics []*prometheus.HistogramVec
+}
 
 func defaultMetricsOptions() *options {
 	return &options{}
@@ -59,57 +59,54 @@ func (o *options) apply(opts ...Option) {
 
 // WithCounterMetrics add Counter type indicator
 func WithCounterMetrics(metrics ...*prometheus.CounterVec) Option {
-	return func(_ *options) {
-		customizedCounterMetrics = append(customizedCounterMetrics, metrics...)
+	return func(o *options) {
+		o.counterMetrics = append(o.counterMetrics, metrics...)
 	}
 }
 
 // WithSummaryMetrics add Summary type indicator
 func WithSummaryMetrics(metrics ...*prometheus.SummaryVec) Option {
-	return func(_ *options) {
-		customizedSummaryMetrics = append(customizedSummaryMetrics, metrics...)
+	return func(o *options) {
+		o.summaryMetrics = append(o.summaryMetrics, metrics...)
 	}
 }
 
 // WithGaugeMetrics add Gauge type indicator
 func WithGaugeMetrics(metrics ...*prometheus.GaugeVec) Option {
-	return func(_ *options) {
-		customizedGaugeMetrics = append(customizedGaugeMetrics, metrics...)
+	return func(o *options) {
+		o.gaugeMetrics = append(o.gaugeMetrics, metrics...)
 	}
 }
 
 // WithHistogramMetrics adding Histogram type indicators
 func WithHistogramMetrics(metrics ...*prometheus.HistogramVec) Option {
-	return func(_ *options) {
-		customizedHistogramMetrics = append(customizedHistogramMetrics, metrics...)
+	return func(o *options) {
+		o.histogramMetrics = append(o.histogramMetrics, metrics...)
 	}
 }
 
-func srvRegisterMetrics() {
+// srvRegisterMetrics 注册基础指标与业务扩展指标（sync.Once 保证幂等）。
+func srvRegisterMetrics(o *options) {
 	srvOnce.Do(func() {
-		// enable time record
-		grpcServerMetrics.EnableHandlingTimeHistogram()
-
-		// register go metrics
-		srvReg.MustRegister(goMetrics)
-
-		// register metrics to capture, custom metrics also need to be registered
-		srvReg.MustRegister(grpcServerMetrics)
-
-		// register custom Counter metrics
-		for _, metric := range customizedCounterMetrics {
-			srvReg.MustRegister(metric)
+		// 统一注册中心（删除旧的 srvReg 独立 registry）：
+		//   - goMetrics（GoCollector）只进 Default——巡检读 go_memstats 会触发
+		//     runtime STW 停顿，不能进 Fast。注意 prometheus 默认注册器 init 时
+		//     已自动注册 GoCollector，此处显式注册是防御性表达意图，幂等保证无害；
+		//   - 其余 gRPC 指标进 Default + Fast，/metrics 与 5s 巡检都能采到。
+		pkgmetrics.MustRegisterDefaultOnly(goMetrics)
+		pkgmetrics.MustRegister(grpcServerMetrics, grpcConnectionGauge)
+		for _, metric := range o.counterMetrics {
+			pkgmetrics.MustRegister(metric)
 		}
-		for _, metric := range customizedSummaryMetrics {
-			srvReg.MustRegister(metric)
+		for _, metric := range o.summaryMetrics {
+			pkgmetrics.MustRegister(metric)
 		}
-		for _, metric := range customizedGaugeMetrics {
-			srvReg.MustRegister(metric)
+		for _, metric := range o.gaugeMetrics {
+			pkgmetrics.MustRegister(metric)
 		}
-		for _, metric := range customizedHistogramMetrics {
-			srvReg.MustRegister(metric)
+		for _, metric := range o.histogramMetrics {
+			pkgmetrics.MustRegister(metric)
 		}
-		srvReg.MustRegister(grpcConnectionGauge)
 	})
 }
 
@@ -122,8 +119,8 @@ func SetServerPattern(pattern string) {
 
 // Register for http routing and grpc methods
 func Register(mux *http.ServeMux, grpcServer *grpc.Server) {
-	// register for http routing
-	mux.Handle(serverPattern, promhttp.HandlerFor(srvReg, promhttp.HandlerOpts{}))
+	// 统一从 Default Registry 暴露（gRPC 指标已注册进去，/metrics 端点可拉到）
+	mux.Handle(serverPattern, pkgmetrics.Handler())
 
 	// register all gRPC methods to metrics
 	grpcServerMetrics.InitializeMetrics(grpcServer)
@@ -133,7 +130,7 @@ func Register(mux *http.ServeMux, grpcServer *grpc.Server) {
 func ServerHTTPService(addr string, grpcServer *grpc.Server) *http.Server {
 	httpServer := &http.Server{
 		Addr:    addr,
-		Handler: promhttp.HandlerFor(srvReg, promhttp.HandlerOpts{}),
+		Handler: pkgmetrics.Handler(),
 	}
 
 	// run http server
@@ -155,7 +152,7 @@ func ServerHTTPService(addr string, grpcServer *grpc.Server) *http.Server {
 func UnaryServerMetrics(opts ...Option) grpc.UnaryServerInterceptor {
 	o := defaultMetricsOptions()
 	o.apply(opts...)
-	srvRegisterMetrics()
+	srvRegisterMetrics(o)
 	return grpcServerMetrics.UnaryServerInterceptor()
 }
 
@@ -163,6 +160,6 @@ func UnaryServerMetrics(opts ...Option) grpc.UnaryServerInterceptor {
 func StreamServerMetrics(opts ...Option) grpc.StreamServerInterceptor {
 	o := defaultMetricsOptions()
 	o.apply(opts...)
-	srvRegisterMetrics()
+	srvRegisterMetrics(o)
 	return grpcServerMetrics.StreamServerInterceptor()
 }

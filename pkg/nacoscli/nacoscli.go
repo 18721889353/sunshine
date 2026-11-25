@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
@@ -180,7 +181,13 @@ func newClientFromOptions(o *options) (*Client, error) {
 // 再通过 select 等待 ctx 或结果：ctx 取消/超时时立即返回 ctx.Err()。
 // 注意 trade-off：超时返回后，后台 goroutine 仍会运行至 SDK 自身超时（WithTimeoutMs，
 // 默认 5000ms）才退出，期间无法被取消；结果写入带缓冲 channel，不会阻塞泄漏。
-func (c *Client) GetConfig(ctx context.Context, params *Params) (string, []byte, error) {
+func (c *Client) GetConfig(ctx context.Context, params *Params) (format string, content []byte, err error) {
+	// 指标埋点：配置拉取耗时（result=ok/error）。
+	// 配置拉取失败是静默故障——服务会继续用旧配置跑，必须有指标才能发现。
+	// 命名返回值 + defer，覆盖本函数全部 return 路径。
+	start := time.Now()
+	defer func() { observeNacosConfigFetch(err, time.Since(start)) }()
+
 	if params == nil {
 		return "", nil, ErrNilParams
 	}
@@ -201,7 +208,7 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (string, []byte,
 	// 先检查 ctx 再校验参数，避免已取消时做无意义校验
 	select {
 	case <-ctx.Done():
-		err := ctx.Err()
+		err = ctx.Err()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return "", nil, err
@@ -241,7 +248,7 @@ func (c *Client) GetConfig(ctx context.Context, params *Params) (string, []byte,
 
 	select {
 	case <-ctx.Done():
-		err := ctx.Err()
+		err = ctx.Err()
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return "", nil, err
