@@ -3,6 +3,7 @@ package conf
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,4 +85,26 @@ func TestParseConfigData(t *testing.T) {
 		return
 	}
 	t.Log(Show(conf))
+}
+
+// TestShow_WebhookURLRedacted 守护：webhookURL 含企微机器人 key，
+// /config 端点暴露配置时必须脱敏（新增默认敏感字段，防 key 泄露被劫持）。
+func TestShow_WebhookURLRedacted(t *testing.T) {
+	cfg := struct {
+		WebhookURL string `json:"webhookURL"`
+		Interval   int    `json:"intervalSec"`
+	}{
+		WebhookURL: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=SECRET_KEY_123",
+		Interval:   60,
+	}
+	out := Show(cfg)
+	if strings.Contains(out, "SECRET_KEY_123") {
+		t.Errorf("webhookURL 的 key 必须脱敏, got %q", out)
+	}
+	if !strings.Contains(out, "******") {
+		t.Errorf("脱敏后应有 ****** 标记, got %q", out)
+	}
+	if !strings.Contains(out, "60") {
+		t.Errorf("非敏感字段应保留, got %q", out)
+	}
 }

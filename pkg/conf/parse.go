@@ -107,7 +107,9 @@ func Show(obj interface{}, fields ...string) string {
 			break
 		}
 		// 添加默认的敏感字段
-		fields = append(fields, `"dsn"`, `"password"`, `"pwd"`)
+		// webhookURL 含企微机器人 key（?key=xxx），必须脱敏——
+		// /config 端点在非 prod 环境暴露完整配置，key 泄露等于机器人被劫持
+		fields = append(fields, `"dsn"`, `"password"`, `"pwd"`, `"webhookURL"`)
 
 		out += hideSensitiveFields(line, fields...)
 	}
