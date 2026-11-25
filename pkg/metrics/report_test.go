@@ -218,3 +218,39 @@ func TestReporterSelfMetrics(t *testing.T) {
 		}
 	}
 }
+
+// TestReporter_Diagnose_Hook Hook 三态：生效、nil 回落、panic 保护。
+func TestReporter_Diagnose_Hook(t *testing.T) {
+	s := NewMetricSnapshot()
+
+	// 1. hook 生效：返回定制诊断
+	r := &Reporter{thresholds: DiagnosisThresholds{}, hook: func(*MetricSnapshot, DiagnosisThresholds) *Diagnosis {
+		return &Diagnosis{Level: DiagnosisCritical, Code: "biz:502", Desc: "下游异常", Evidence: []string{"502=9"}}
+	}}
+	d := r.diagnose(s)
+	if d.Code != "biz:502" || len(d.Evidence) != 1 {
+		t.Errorf("hook 应生效, got %+v", d)
+	}
+
+	// 2. nil 回落：走框架通用诊断（无样本 → OK）
+	r2 := &Reporter{thresholds: DiagnosisThresholds{}, hook: func(*MetricSnapshot, DiagnosisThresholds) *Diagnosis {
+		return nil
+	}}
+	if d := r2.diagnose(s); d.Level != DiagnosisOK {
+		t.Errorf("nil hook 应回落通用诊断, got %+v", d)
+	}
+
+	// 3. panic 保护：hook panic 不打挂报告链，回落通用诊断
+	r3 := &Reporter{thresholds: DiagnosisThresholds{}, hook: func(*MetricSnapshot, DiagnosisThresholds) *Diagnosis {
+		panic("hook bug")
+	}}
+	if d := r3.diagnose(s); d.Level != DiagnosisOK {
+		t.Errorf("panic 应保护并回落, got %+v", d)
+	}
+
+	// 4. 无 hook：直接通用诊断
+	r4 := &Reporter{thresholds: DiagnosisThresholds{}}
+	if d := r4.diagnose(s); d.Level != DiagnosisOK {
+		t.Errorf("无 hook 应走通用诊断, got %+v", d)
+	}
+}

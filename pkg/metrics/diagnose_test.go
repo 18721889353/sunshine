@@ -211,3 +211,47 @@ func TestDiagnose_MultipleDetails(t *testing.T) {
 		t.Errorf("报告应含 etcd 异常, got %q", text)
 	}
 }
+
+// TestRenderDiagnosis_Evidence Evidence 渲染：OK 带证据也要展示，异常时信号跟在明细后。
+func TestRenderDiagnosis_Evidence(t *testing.T) {
+	// OK + Evidence：业务 hook 正常摘要
+	ok := Diagnosis{Level: DiagnosisOK, Evidence: []string{"502=0", "副本=3"}}
+	line := RenderDiagnosis(ok)
+	if !strings.Contains(line, "502=0") || !strings.Contains(line, "副本=3") {
+		t.Errorf("OK+Evidence 应渲染信号, got %q", line)
+	}
+
+	// 无 Evidence 的 OK：返回空（框架默认行为不变）
+	if got := RenderDiagnosis(Diagnosis{Level: DiagnosisOK}); got != "" {
+		t.Errorf("空 OK 应返回空, got %q", got)
+	}
+
+	// 异常 + Evidence：明细 + 信号都渲染
+	crit := Diagnosis{
+		Level: DiagnosisCritical, Code: "downstream_down", Desc: "下游异常",
+		Details: []string{"502=180"}, Evidence: []string{"502=180", "摘除=2"},
+	}
+	line = RenderDiagnosis(crit)
+	if !strings.Contains(line, "502=180") || !strings.Contains(line, "摘除=2") {
+		t.Errorf("异常应渲染明细+信号, got %q", line)
+	}
+}
+
+// TestDiagnosisHook Hook 类型契约：返回 nil 表示不接管。
+func TestDiagnosisHook(t *testing.T) {
+	var h DiagnosisHook = func(s *MetricSnapshot, th DiagnosisThresholds) *Diagnosis {
+		if s == nil {
+			t.Error("hook 应收到快照")
+		}
+		return &Diagnosis{Level: DiagnosisCritical, Code: "biz:custom", Desc: "业务定制", Evidence: []string{"x=1"}}
+	}
+	d := h(NewMetricSnapshot(), DiagnosisThresholds{})
+	if d == nil || d.Code != "biz:custom" || len(d.Evidence) != 1 {
+		t.Errorf("hook 返回契约不符: %+v", d)
+	}
+	// nil 回落语义
+	var nilHook DiagnosisHook = func(*MetricSnapshot, DiagnosisThresholds) *Diagnosis { return nil }
+	if nilHook(NewMetricSnapshot(), DiagnosisThresholds{}) != nil {
+		t.Error("nil hook 应回落")
+	}
+}

@@ -49,19 +49,25 @@ type DurationAgg struct {
 //     sum 单位由指标决定（字节等），绝不能混入 Durations——否则字节被当秒渲染成
 //     ms、并按错误率/P99 误诊。与 Durations 物理隔离，诊断只看 Durations。
 type MetricSnapshot struct {
-	Durations map[string]*DurationAgg       // 指标名 -> 累计聚合（秒）
+	Durations map[string]*DurationAgg       // 指标名 -> 累计聚合（秒，所有 label 合并）
 	Counters  map[string]map[string]float64 // 指标名 -> labelKey -> 累计值
 	Gauges    map[string]map[string]float64 // 指标名 -> labelKey -> 当前值
 	Summaries map[string]*DurationAgg       // 指标名 -> 累计聚合（单位由指标名决定）
+	// DurationsByLabel 指标名 -> labelKey -> 累计聚合（秒）。
+	// Durations 是全 label 合并值（报告主口径），本字段保留 label 维度
+	// 供业务诊断下钻（如按 entry 区分 api/notify 链、按 replica 找最慢副本）——
+	// 聚合口径会把多条链的 P99 混在一起，改变判定语义。
+	DurationsByLabel map[string]map[string]*DurationAgg
 }
 
 // NewMetricSnapshot 构造空快照（所有 map 已初始化）。
 func NewMetricSnapshot() *MetricSnapshot {
 	return &MetricSnapshot{
-		Durations: make(map[string]*DurationAgg),
-		Counters:  make(map[string]map[string]float64),
-		Gauges:    make(map[string]map[string]float64),
-		Summaries: make(map[string]*DurationAgg),
+		Durations:        make(map[string]*DurationAgg),
+		Counters:         make(map[string]map[string]float64),
+		Gauges:           make(map[string]map[string]float64),
+		Summaries:        make(map[string]*DurationAgg),
+		DurationsByLabel: make(map[string]map[string]*DurationAgg),
 	}
 }
 
@@ -100,34 +106,53 @@ func (s *MetricSnapshot) fillHistogram(name string, f *dto.MetricFamily) {
 		agg = &DurationAgg{Result: make(map[string]uint64)}
 		s.Durations[name] = agg
 	}
+	byLabel := s.DurationsByLabel[name]
+	if byLabel == nil {
+		byLabel = make(map[string]*DurationAgg)
+		s.DurationsByLabel[name] = byLabel
+	}
 	for _, m := range f.Metric {
 		if m.Histogram == nil {
 			continue
 		}
 		h := m.Histogram
-		agg.Count += h.GetSampleCount()
-		agg.SumSec += h.GetSampleSum()
-		// 按统一 result 口径拆分（兼容 grpc_code 归一化；无 result 的不进 Result）
-		if r := resultOfMetric(m); r != "" {
-			agg.Result[r] += h.GetSampleCount()
+		// 聚合（报告主口径）+ 按 label（诊断下钻）双写
+		accumulateHistogram(agg, m, h)
+		lk := labelsKey(m)
+		lagg := byLabel[lk]
+		if lagg == nil {
+			lagg = &DurationAgg{Result: make(map[string]uint64)}
+			byLabel[lk] = lagg
 		}
-		// 累加 bucket：bounds 首次记录，counts 按桶索引累加
-		bounds := h.GetBucket()
-		if len(bounds) == 0 {
-			continue
+		accumulateHistogram(lagg, m, h)
+	}
+}
+
+// accumulateHistogram 把单条 histogram 样本累加进 agg（count/sum/result/bucket）。
+// 聚合与按 label 两条路径复用，避免口径漂移。
+func accumulateHistogram(agg *DurationAgg, m *dto.Metric, h *dto.Histogram) {
+	agg.Count += h.GetSampleCount()
+	agg.SumSec += h.GetSampleSum()
+	// 按统一 result 口径拆分（兼容 grpc_code 归一化；无 result 的不进 Result）
+	if r := resultOfMetric(m); r != "" {
+		agg.Result[r] += h.GetSampleCount()
+	}
+	// 累加 bucket：bounds 首次记录，counts 按桶索引累加
+	bounds := h.GetBucket()
+	if len(bounds) == 0 {
+		return
+	}
+	if len(agg.Bounds) == 0 {
+		agg.Bounds = make([]float64, 0, len(bounds))
+		agg.Counts = make([]uint64, len(bounds))
+		for _, b := range bounds {
+			agg.Bounds = append(agg.Bounds, b.GetUpperBound())
 		}
-		if len(agg.Bounds) == 0 {
-			agg.Bounds = make([]float64, 0, len(bounds))
-			agg.Counts = make([]uint64, len(bounds))
-			for _, b := range bounds {
-				agg.Bounds = append(agg.Bounds, b.GetUpperBound())
-			}
-		}
-		// counts 是累计值（+Inf 桶含全部样本），逐桶累加
-		for i, b := range bounds {
-			if i < len(agg.Counts) {
-				agg.Counts[i] += b.GetCumulativeCount()
-			}
+	}
+	// counts 是累计值（+Inf 桶含全部样本），逐桶累加
+	for i, b := range bounds {
+		if i < len(agg.Counts) {
+			agg.Counts[i] += b.GetCumulativeCount()
 		}
 	}
 }

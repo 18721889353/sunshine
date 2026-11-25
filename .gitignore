@@ -40,3 +40,4 @@ pkg/goexcel/files/
 cmd/sunshine/commands/generate/testdata/
 frontend/node_modules/
 pkg/logger/logs/
+sun.txt

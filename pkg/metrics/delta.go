@@ -24,41 +24,22 @@ func WindowDeltaMetric(prev, cur *MetricSnapshot) *MetricSnapshot {
 
 	delta := NewMetricSnapshot()
 
-	// Durations：逐指标逐 result 差分
+	// Durations：逐指标差分（helper 与 DurationsByLabel 复用，避免口径漂移）
 	for name, c := range cur.Durations {
-		p := prev.Durations[name]
-		if p == nil {
-			// prev 无此指标（新注册），整段是窗口增量
-			delta.Durations[name] = c.Clone()
-			continue
-		}
-		d := &DurationAgg{Result: make(map[string]uint64)}
-		d.Count = subCount(c.Count, p.Count)
-		d.SumSec = subFloat(c.SumSec, p.SumSec)
-		// result 维度差分
-		for r, cc := range c.Result {
-			d.Result[r] = subCount(cc, p.Result[r])
-		}
-		// prev 有而 cur 无的 result（如本窗口无 error）：补 0，保持 key 存在
-		for r := range p.Result {
-			if _, ok := d.Result[r]; !ok {
-				d.Result[r] = 0
+		delta.Durations[name] = deltaDurationAgg(c, prev.Durations[name])
+	}
+	// DurationsByLabel：同款差分（label 维度下钻用，业务诊断按 entry/replica 取窗口 P99）
+	for name, cm := range cur.DurationsByLabel {
+		pm := prev.DurationsByLabel[name]
+		dm := make(map[string]*DurationAgg, len(cm))
+		for lk, c := range cm {
+			var p *DurationAgg
+			if pm != nil {
+				p = pm[lk]
 			}
+			dm[lk] = deltaDurationAgg(c, p)
 		}
-		// bucket：bounds 不差分（同指标固定），counts 逐桶差分（累计→窗口）
-		if len(c.Bounds) > 0 {
-			// 独立拷贝，避免与 cur 共享底层数组
-			d.Bounds = append([]float64(nil), c.Bounds...)
-			d.Counts = make([]uint64, len(c.Counts))
-			for i, cc := range c.Counts {
-				var pc uint64
-				if i < len(p.Counts) {
-					pc = p.Counts[i]
-				}
-				d.Counts[i] = subCount(cc, pc)
-			}
-		}
-		delta.Durations[name] = d
+		delta.DurationsByLabel[name] = dm
 	}
 	// cur 没有但 prev 有（指标消失）：跳过，无窗口数据
 
@@ -104,6 +85,41 @@ func WindowDeltaMetric(prev, cur *MetricSnapshot) *MetricSnapshot {
 	return delta
 }
 
+// deltaDurationAgg 单个 DurationAgg 的窗口差分（累计→窗口）。
+// prev 为 nil（新注册）时整段是窗口增量。
+func deltaDurationAgg(c, p *DurationAgg) *DurationAgg {
+	if p == nil {
+		return c.Clone()
+	}
+	d := &DurationAgg{Result: make(map[string]uint64)}
+	d.Count = subCount(c.Count, p.Count)
+	d.SumSec = subFloat(c.SumSec, p.SumSec)
+	// result 维度差分
+	for r, cc := range c.Result {
+		d.Result[r] = subCount(cc, p.Result[r])
+	}
+	// prev 有而 cur 无的 result（如本窗口无 error）：补 0，保持 key 存在
+	for r := range p.Result {
+		if _, ok := d.Result[r]; !ok {
+			d.Result[r] = 0
+		}
+	}
+	// bucket：bounds 不差分（同指标固定），counts 逐桶差分（累计→窗口）
+	if len(c.Bounds) > 0 {
+		// 独立拷贝，避免与 cur 共享底层数组
+		d.Bounds = append([]float64(nil), c.Bounds...)
+		d.Counts = make([]uint64, len(c.Counts))
+		for i, cc := range c.Counts {
+			var pc uint64
+			if i < len(p.Counts) {
+				pc = p.Counts[i]
+			}
+			d.Counts[i] = subCount(cc, pc)
+		}
+	}
+	return d
+}
+
 // subCount 无符号差分：cur >= prev 时 cur-prev，否则（重置）取 cur 兜底。
 func subCount(cur, prev uint64) uint64 {
 	if cur < prev {
@@ -145,6 +161,13 @@ func (s *MetricSnapshot) Clone() *MetricSnapshot {
 	}
 	for name, d := range s.Summaries {
 		c.Summaries[name] = d.Clone()
+	}
+	for name, m := range s.DurationsByLabel {
+		d := make(map[string]*DurationAgg, len(m))
+		for k, v := range m {
+			d[k] = v.Clone()
+		}
+		c.DurationsByLabel[name] = d
 	}
 	return c
 }

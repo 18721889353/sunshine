@@ -173,3 +173,37 @@ func TestWindowDeltaMetric_FirstWindowP99(t *testing.T) {
 		t.Error("首窗（prev=nil）应能算 P99")
 	}
 }
+
+// TestWindowDelta_DurationsByLabel 按 label 的直方图也要逐桶差分
+// （hook 拿到的必须是窗口增量，不是累计值）。
+func TestWindowDelta_DurationsByLabel(t *testing.T) {
+	bounds := []float64{1, 10}
+	prev := NewMetricSnapshot()
+	prev.DurationsByLabel["demo"] = map[string]*DurationAgg{
+		"entry=api": {Count: 100, SumSec: 100, Bounds: bounds, Counts: []uint64{80, 100}},
+	}
+	cur := NewMetricSnapshot()
+	cur.DurationsByLabel["demo"] = map[string]*DurationAgg{
+		"entry=api":    {Count: 150, SumSec: 200, Bounds: bounds, Counts: []uint64{110, 150}},
+		"entry=notify": {Count: 10, SumSec: 20, Bounds: bounds, Counts: []uint64{5, 10}}, // 新 label
+	}
+
+	d := WindowDeltaMetric(prev, cur)
+	api := d.DurationsByLabel["demo"]["entry=api"]
+	if api == nil || api.Count != 50 || api.SumSec != 100 {
+		t.Fatalf("api 窗口差分不符: %+v", api)
+	}
+	if len(api.Counts) != 2 || api.Counts[0] != 30 || api.Counts[1] != 50 {
+		t.Errorf("api 桶差分不符: %v", api.Counts)
+	}
+	// 新出现的 label：整段作为窗口增量
+	n := d.DurationsByLabel["demo"]["entry=notify"]
+	if n == nil || n.Count != 10 || n.SumSec != 20 {
+		t.Errorf("新 label 应整段计入: %+v", n)
+	}
+	// 深拷贝：改 delta 不影响 cur
+	api.Counts[0] = 999
+	if cur.DurationsByLabel["demo"]["entry=api"].Counts[0] != 110 {
+		t.Error("delta 桶应深拷贝，不能与 cur 共享底层数组")
+	}
+}

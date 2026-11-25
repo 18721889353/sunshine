@@ -54,7 +54,20 @@ type Diagnosis struct {
 	// 注意：不参与 Code 计算——fastCheck 只对"最严重项变化"做即时推送，
 	// 避免某次要异常恢复也触发推送（刷屏）。
 	Details []string
+	// Evidence 支撑信号列表（如 "502=180, 副本摘除=2"）。
+	// 只做解释展示、不参与 Code/Level 判定——结论解释"怎么了"，
+	// evidence 给出"凭什么这么判"的原始信号（业务 hook 常用）。
+	Evidence []string
 }
+
+// DiagnosisHook 业务定制诊断钩子。
+// 输入框架快照（含业务注册进统一中心的全部指标），返回定制诊断；
+// 返回 nil 表示不接管，继续走框架通用诊断（错误率/慢请求阈值）。
+//
+// 平台给能力、业务给规则：框架不掺业务语义（如网关的 502 下游异常、
+// 三段耗时归因），业务用 hook 注入自己的判定，报告链/推送/防抖/巡检
+// 全部复用框架。
+type DiagnosisHook func(s *MetricSnapshot, th DiagnosisThresholds) *Diagnosis
 
 // DiagnosisThresholds 诊断阈值（大厂标准：默认基线 + 可按业务覆盖）。
 // 不同业务容忍度差异大——支付接口 P99 1s 即严重、静态资源 5s 仍正常，
@@ -237,21 +250,32 @@ func componentLabel(base string) string {
 
 // RenderDiagnosis 把诊断结论渲染成报告头部（正常不输出，异常输出告警行）。
 func RenderDiagnosis(d Diagnosis) string {
-	if d.Level == DiagnosisOK {
+	// OK 但带 Evidence：业务 hook 的正常摘要（如"全部信号正常：502=0"）也要展示；
+	// 框架默认诊断 OK 时 Evidence 为空，行为不变。
+	if d.Level == DiagnosisOK && len(d.Evidence) == 0 {
 		return ""
 	}
 	icon := "⚠️"
-	if d.Level == DiagnosisCritical {
+	switch d.Level {
+	case DiagnosisCritical:
 		icon = "🔴"
+	case DiagnosisOK:
+		icon = "✅"
 	}
 	items := d.Details
-	if len(items) == 0 {
+	if len(items) == 0 && d.Level != DiagnosisOK {
 		items = []string{d.Desc}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s（%d 项）：\n", icon, d.Level.String(), len(items))
-	for _, item := range items {
-		b.WriteString("  · " + item + "\n")
+	if len(items) > 0 {
+		fmt.Fprintf(&b, "%s %s（%d 项）：\n", icon, d.Level.String(), len(items))
+		for _, item := range items {
+			b.WriteString("  · " + item + "\n")
+		}
+	}
+	// Evidence 支撑信号：只展示、不参与判定
+	if len(d.Evidence) > 0 {
+		fmt.Fprintf(&b, "%s 信号：%s\n", icon, strings.Join(d.Evidence, "，"))
 	}
 	return b.String()
 }

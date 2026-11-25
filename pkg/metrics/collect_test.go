@@ -206,3 +206,63 @@ func TestCollectGRPCCodeNormalized(t *testing.T) {
 		t.Error("原生 result=error 应优先")
 	}
 }
+
+// TestCollectFromFamilies_DurationsByLabel Histogram 按 label 维度保留快照
+// （业务诊断按 entry/replica 下钻 P99 的基础设施）。
+func TestCollectFromFamilies_DurationsByLabel(t *testing.T) {
+	// 同指标两条 label 组合：entry=api / entry=notify，各 10 样本
+	fams := []*dto.MetricFamily{
+		{
+			Name: strp("demo_request_duration_seconds"),
+			Type: dto.MetricType_HISTOGRAM.Enum(),
+			Metric: []*dto.Metric{
+				{
+					Label: []*dto.LabelPair{{Name: strp("entry"), Value: strp("api")}},
+					Histogram: &dto.Histogram{
+						SampleCount: u64p(10), SampleSum: f64p(5),
+						Bucket: []*dto.Bucket{
+							{UpperBound: f64p(1), CumulativeCount: u64p(8)},
+							{UpperBound: f64p(10), CumulativeCount: u64p(10)},
+						},
+					},
+				},
+				{
+					Label: []*dto.LabelPair{{Name: strp("entry"), Value: strp("notify")}},
+					Histogram: &dto.Histogram{
+						SampleCount: u64p(10), SampleSum: f64p(50),
+						Bucket: []*dto.Bucket{
+							{UpperBound: f64p(1), CumulativeCount: u64p(1)},
+							{UpperBound: f64p(10), CumulativeCount: u64p(10)},
+						},
+					},
+				},
+			},
+		},
+	}
+	s := CollectFromFamilies(fams)
+
+	// 聚合口径：20 样本、sum=55
+	agg := s.Durations["demo_request_duration_seconds"]
+	if agg == nil || agg.Count != 20 || agg.SumSec != 55 {
+		t.Fatalf("聚合口径 count/sum 不符: %+v", agg)
+	}
+	// label 口径：两条独立记录，各自 count/sum 不同
+	byLabel := s.DurationsByLabel["demo_request_duration_seconds"]
+	if len(byLabel) != 2 {
+		t.Fatalf("应有 2 个 label 组合, got %d", len(byLabel))
+	}
+	api := byLabel["entry=api"]
+	notify := byLabel["entry=notify"]
+	if api == nil || api.Count != 10 || api.SumSec != 5 {
+		t.Errorf("entry=api 数据不符: %+v", api)
+	}
+	if notify == nil || notify.Count != 10 || notify.SumSec != 50 {
+		t.Errorf("entry=notify 数据不符: %+v", notify)
+	}
+	// 关键：两条链的 P99 必须不同（证明 label 维度没被合并）
+	apiP, _ := api.P99Sec()
+	notifyP, _ := notify.P99Sec()
+	if apiP >= notifyP {
+		t.Errorf("notify 链 P99 应远高于 api 链: api=%v notify=%v", apiP, notifyP)
+	}
+}

@@ -102,6 +102,10 @@ metrics:
 ```
 
 - **开关语义**：`enabled` 是唯一总开关，启动时装配、**无热更新**——false 时 gin 中间件/gRPC 拦截器/`/metrics` 路由都不装配，报告器也不启动
+- **定制诊断扩展点**：`metrics.WithDiagnosisHook(func(s *MetricSnapshot, th DiagnosisThresholds) *Diagnosis)` 注入业务诊断
+  （如网关的 502 下游异常、三段耗时归因）；返回 nil 回落框架通用诊断，hook panic 自动保护回落。
+  `Diagnosis.Evidence` 字段承载支撑信号（如 `"502=180, 摘除=2"`），只展示不参与判定。
+  平台给能力（报告链/推送/防抖/巡检），业务给规则——业务定制诊断无需自建报告器
 - 配置结构由 `make update-config` 从 yml 生成（**改配置先改 yml 再跑生成**，不要手写结构体字段）
 
 ### 直接调用（非框架应用）

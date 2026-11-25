@@ -23,7 +23,10 @@ import (
 // 用法（initApp，logger 初始化之后）：
 //
 //	config.StartMetricsReporter()
-func StartMetricsReporter() {
+//
+// opts 可追加业务扩展（如 WithDiagnosisHook 注入定制诊断），
+// 会与 yml 阈值转换出的 options 合并（业务 opts 在后，可覆盖）。
+func StartMetricsReporter(opts ...pkgmetrics.ReporterOption) {
 	cfg := Get()
 
 	// 总开关关闭：不启动报告器（与采集端装配行为一致，避免残缺报告外发）
@@ -32,8 +35,9 @@ func StartMetricsReporter() {
 		return
 	}
 
-	opts := buildReporterOptions(cfg.Metrics)
-	pkgmetrics.StartReporter(cfg.Metrics.WebhookURL, cfg.Metrics.IntervalSec, opts...)
+	all := buildReporterOptions(cfg.Metrics)
+	all = append(all, opts...)
+	pkgmetrics.StartReporter(cfg.Metrics.WebhookURL, cfg.Metrics.IntervalSec, all...)
 }
 
 // logReportDisabled 记录报告器未启动原因（logger 可能未就绪，直接用标准 log 留痕）。

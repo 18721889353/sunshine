@@ -93,6 +93,7 @@ type Reporter struct {
 	lastFailAt          time.Time                       // 上次推送失败时间（失败退避）
 	instance            string                          // 实例标识
 	thresholds          DiagnosisThresholds             // 诊断阈值（零值 → 用默认）
+	hook                DiagnosisHook                   // 业务定制诊断钩子（nil → 走框架通用诊断）
 	gatherFn            func() (*MetricSnapshot, error) // 测试注入；nil 走 GatherFast
 	done                chan struct{}
 	wg                  sync.WaitGroup
@@ -142,6 +143,54 @@ func WithDiagnosisThresholds(th DiagnosisThresholds) ReporterOption {
 	return func(r *Reporter) {
 		r.thresholds = th
 	}
+}
+
+// WithDiagnosisHook 注入业务定制诊断钩子。
+// 返回 nil 表示不接管（继续框架通用诊断）；hook panic 会被保护并回落通用诊断，
+// 业务诊断 bug 不应打挂整个报告链。
+func WithDiagnosisHook(h DiagnosisHook) ReporterOption {
+	return func(r *Reporter) {
+		r.hook = h
+	}
+}
+
+// diagnose 先跑业务 hook，nil 或 panic 则回落框架通用诊断。
+func (r *Reporter) diagnose(s *MetricSnapshot) (d Diagnosis) {
+	if r.hook != nil {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("[metrics-report] WARN: diagnosis hook panic, fallback to default: %v", rec)
+				d = DiagnoseWithThresholds(s, r.thresholds)
+			}
+		}()
+		if custom := r.hook(s, r.thresholds); custom != nil {
+			return *custom
+		}
+	}
+	return DiagnoseWithThresholds(s, r.thresholds)
+}
+
+// ReporterSettings 报告器启动设置（业务配置 → 框架的映射）。
+// 业务侧（如网关）无法 import 框架 internal/config（Go internal 限制），
+// 用本结构体传配置，避免业务复制"总开关 + webhook 校验 + 阈值回落"逻辑。
+type ReporterSettings struct {
+	Enabled     bool                // 指标体系总开关（false → 不启动，与采集端装配语义一致）
+	WebhookURL  string              // 企业微信群机器人地址（空 → no-op 留 WARN）
+	IntervalSec int                 // 周期报告间隔（<=0 默认 60s，<10s 钳到 10s）
+	Thresholds  DiagnosisThresholds // 诊断阈值（零值字段自动回落框架默认，见 normalize）
+}
+
+// StartWithSettings 按设置启动报告器（幂等）。
+// 与框架 internal/config.StartMetricsReporter 同语义——后者供框架模板用，
+// 本函数供无法 import internal 的业务模块用；业务 opts 追加在后（可覆盖设置）。
+func StartWithSettings(st ReporterSettings, opts ...ReporterOption) {
+	if !st.Enabled {
+		log.Println("[metrics-report] WARN: 指标体系总开关关闭（enabled=false），报告器不启动")
+		return
+	}
+	all := []ReporterOption{WithDiagnosisThresholds(st.Thresholds)}
+	all = append(all, opts...)
+	StartReporter(st.WebhookURL, st.IntervalSec, all...)
 }
 
 // StartReporter 按配置启动指标报告器（幂等，重复调用只生效一次）。
@@ -236,7 +285,7 @@ func (r *Reporter) pushReportOnce() {
 	}
 	delta := WindowDeltaMetric(r.prev, cur)
 	window := r.windowSinceLastPush()
-	diag := DiagnoseWithThresholds(delta, r.thresholds)
+	diag := r.diagnose(delta)
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
 
 	if err := r.push(text); err != nil {
@@ -267,7 +316,7 @@ func (r *Reporter) fastCheck() {
 		return
 	}
 	delta := WindowDeltaMetric(r.prev, cur)
-	diag := DiagnoseWithThresholds(delta, r.thresholds)
+	diag := r.diagnose(delta)
 	if diag.Code == r.lastCode {
 		return // 结论没变
 	}
