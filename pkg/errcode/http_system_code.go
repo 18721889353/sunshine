@@ -117,10 +117,8 @@ var (
 	// 描述: 服务器作为网关或代理，从上游服务器收到无效响应
 	StatusBadGateway = NewError(100023, "Bad Gateway")
 
-	// AlreadyExists 已存在
-	// 错误码: 100005
-	// 描述: 资源已存在
-	// 注意: 已弃用，建议使用 Conflict 替代
+	// AlreadyExists 已存在（错误码 100005，兼容别名：新代码建议用 Conflict）
+	// 注：仍被 http_error.go 的状态码映射表引用（100005→409），非死代码
 	AlreadyExists = NewError(100005, "Already Exists")
 
 	// Conflict 冲突

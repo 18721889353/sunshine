@@ -84,7 +84,7 @@ func XSSCrossMiddleware(opts ...XSSOptions) gin.HandlerFunc {
 			return
 		}
 		if err := xssCross(ctx); err != nil {
-			response.Out(ctx, errcode.InvalidParams.WithOutMsg(err.Error()))
+			response.Out(ctx, errcode.InvalidParams.RewriteMsg(err.Error()))
 			ctx.Abort()
 			return
 		}

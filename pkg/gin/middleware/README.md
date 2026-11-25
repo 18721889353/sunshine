@@ -21,10 +21,8 @@ You can set the maximum length for printing, add a request id field, ignore prin
     // --- or ---
 
     // custom
-    r.Use(middleware.Logging(    // simplified logging using middleware.SimpleLog(WithRequestIDFromHeader())
+    r.Use(middleware.Logging(    // simplified logging using middleware.SimpleLog()
         middleware.WithMaxLen(400),
-        WithRequestIDFromHeader(),
-        //WithRequestIDFromContext(),
         //middleware.WithIgnoreRoutes("/hello"),
     ))
 ```

@@ -571,8 +571,3 @@ func TestCtxRequestID(t *testing.T) {
 	assert.NotNil(t, field)
 }
 
-func TestSetContextRequestIDKey(t *testing.T) {
-	SetContextRequestIDKey("my_request_id")
-	SetContextRequestIDKey("foo_bar") // invalid key, sync.Once
-	SetContextRequestIDKey("xx")      // invalid key
-}

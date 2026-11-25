@@ -71,13 +71,6 @@ func WithConnOptions(connOpts ...ConnectionOption) PoolOption {
 	}
 }
 
-// WithAntsPoolSize 设置ants协程池大小（已弃用，无操作）
-func WithAntsPoolSize(antsCap int) PoolOption {
-	return func(_ *poolOptions) {
-		_ = antsCap
-	}
-}
-
 // WithHealthCheckPeriod 设置健康检查周期
 func WithHealthCheckPeriod(d time.Duration) PoolOption {
 	return func(o *poolOptions) {

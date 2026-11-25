@@ -54,8 +54,7 @@ func TestNewError(t *testing.T) {
 
 	errorsCodes = append(errorsCodes,
 		DataLoss.WithDetails("foo", "bar"),
-		DataLoss.WithOutMsg("foobar"),
-		DataLoss.RewriteMsg("foobar2"),
+		DataLoss.RewriteMsg("foobar"),
 		NewError(1010, "unknown"),
 	)
 

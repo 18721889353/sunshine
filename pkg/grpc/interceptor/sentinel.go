@@ -212,24 +212,6 @@ func initSentinel(flowRules []*flow.Rule, breakerRules []*circuitbreaker.Rule) {
 	}
 }
 
-// WithValidCode 不再生效, Sentinel 通过规则配置熔断条件。
-// Deprecated: 请直接调用熔断拦截器, 无需额外配置。
-func WithValidCode(_ ...codes.Code) SentinelOption {
-	return func(_ *sentinelOptions) {}
-}
-
-// WithUnaryServerDegradeHandler 不再生效, Sentinel 通过规则配置降级策略。
-// Deprecated: 请直接调用熔断拦截器, 无需额外配置。
-func WithUnaryServerDegradeHandler(_ func(ctx context.Context, req interface{}) (reply interface{}, err error)) SentinelOption {
-	return func(_ *sentinelOptions) {}
-}
-
-// WithGroup 不再需要, Sentinel 使用资源名称隔离。
-// Deprecated: 请直接调用熔断拦截器, 无需额外配置。
-func WithGroup(_ interface{}) SentinelOption {
-	return func(_ *sentinelOptions) {}
-}
-
 // ErrNotAllowed 熔断错误（保持向后兼容）
 var ErrNotAllowed = errcode.StatusServiceUnavailable.ToRPCErr("circuit breaker triggered")
 

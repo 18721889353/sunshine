@@ -36,7 +36,6 @@ func main() {
 		gorabbitmq.WithInitialCap(1),           // 初始连接数
 		gorabbitmq.WithMaxCap(1000),            // 最大连接数
 		gorabbitmq.WithMaxIdle(time.Second*10), // 最大空闲时间
-		gorabbitmq.WithAntsPoolSize(1),         // 配置 ants 协程池大小为 10
 		gorabbitmq.WithConnOptions( // 连接选项
 			gorabbitmq.WithReconnectTime(time.Second*3),
 			gorabbitmq.WithDialTimeout(time.Second*5),

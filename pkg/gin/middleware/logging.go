@@ -36,7 +36,6 @@ func defaultOptions() *options {
 	return &options{
 		maxLength:     defaultMaxLength,
 		ignoreRoutes:  defaultIgnoreRoutes,
-		requestIDFrom: 1, // 默认从 context 获取 request_id
 		logFrom:       defaultLogFrom,
 		logHeaders:    false,
 	}
@@ -45,7 +44,6 @@ func defaultOptions() *options {
 type options struct {
 	maxLength        int
 	ignoreRoutes     map[string]struct{}
-	requestIDFrom    int // Deprecated: request_id is now automatically extracted from context
 	logFrom          string
 	logHeaders       bool                // 是否记录请求头
 	sensitiveHeaders map[string]struct{} // 敏感请求头列表(不记录)
@@ -80,22 +78,6 @@ func WithIgnoreRoutes(routes ...string) Option {
 		for _, route := range routes {
 			o.ignoreRoutes[route] = struct{}{}
 		}
-	}
-}
-
-// WithRequestIDFromContext name is field in context, default value is request_id
-// Deprecated: request_id is now automatically extracted from context, this option is no longer needed
-func WithRequestIDFromContext() Option {
-	return func(_ *options) {
-		// 保留空实现以维持向后兼容
-	}
-}
-
-// WithRequestIDFromHeader name is field in header, default value is X-Request-Id
-// Deprecated: request_id is now automatically extracted from context, this option is no longer needed
-func WithRequestIDFromHeader() Option {
-	return func(_ *options) {
-		// 保留空实现以维持向后兼容
 	}
 }
 

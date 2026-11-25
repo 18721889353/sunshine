@@ -33,7 +33,6 @@ func main() {
 		gorabbitmq.WithMaxCap(10),
 		gorabbitmq.WithMaxIdle(time.Minute*1),
 		gorabbitmq.WithHealthCheckPeriod(time.Second*30),
-		gorabbitmq.WithAntsPoolSize(10),
 		gorabbitmq.WithConnOptions(
 			gorabbitmq.WithReconnectTime(time.Second*3),
 			gorabbitmq.WithDialTimeout(time.Second*5),

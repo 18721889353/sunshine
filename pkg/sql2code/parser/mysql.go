@@ -50,9 +50,3 @@ func GetMysqlTableInfo(dsn, tableName string) (string, error) {
 
 	return info, nil
 }
-
-// GetTableInfo 从 MySQL 数据库中获取表的创建信息
-// 已废弃：请使用 GetMysqlTableInfo 替代
-func GetTableInfo(dsn, tableName string) (string, error) {
-	return GetMysqlTableInfo(dsn, tableName)
-}

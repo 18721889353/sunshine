@@ -12,13 +12,6 @@ import (
 	"github.com/18721889353/sunshine/pkg/krand"
 )
 
-// SetContextRequestIDKey 设置上下文 request_id 的键（已废弃）
-// Deprecated: 此函数仅为向后兼容而保留，请直接使用 logger.ContextKeyRequestID
-func SetContextRequestIDKey(_ string) {
-	// 此函数已废弃，不再执行任何操作
-	// 所有代码应直接使用 logger.ContextKeyRequestID
-}
-
 // CtxKeyString 用于 context.WithValue 的键类型
 type CtxKeyString string
 

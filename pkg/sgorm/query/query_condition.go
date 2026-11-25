@@ -4,6 +4,7 @@ package query
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 const (
@@ -97,9 +98,6 @@ type Params struct {
 	Sort  string `json:"sort,omitempty" form:"sort" binding:""`
 
 	Columns []Column `json:"columns,omitempty" form:"columns"` // not required
-
-	// Deprecated: use Limit instead in sunshine version v1.8.6, will remove in the future
-	Size int `json:"size" form:"size"`
 }
 
 // Column query info
@@ -203,9 +201,14 @@ func (p *Params) ConvertToPage() (order string, limit int, offset int) { //nolin
 
 // ConvertToGormConditions conversion to gorm-compliant parameters based on the Columns parameter
 // ignore the logical type of the last column, whether it is a one-column or multi-column query
-func (p *Params) ConvertToGormConditions() (string, []interface{}, error) {
+func (p *Params) ConvertToGormConditions() (cond string, args []interface{}, err error) {
+	// 指标埋点：条件构建耗时（result=ok/error）。
+	// 用命名返回值 + defer，覆盖本函数全部 return 路径（含 checkValid/convert 失败）。
+	start := time.Now()
+	defer func() { observeQueryBuild(err, time.Since(start)) }()
+
 	str := ""
-	args := []interface{}{}
+	args = []interface{}{}
 	l := len(p.Columns)
 	if l == 0 {
 		return "", nil, nil
@@ -280,10 +283,28 @@ func (c *Conditions) ConvertToGorm() (string, []interface{}, error) {
 }
 
 // CheckValid check valid
+// CheckValid 校验查询条件是否合法（只读，不修改入参）。
+// 校验列名/取值/表达式/逻辑符：Exp/Logic 判定与 convert 共用 expMap/logicMap，
+// 在构造 SQL 之前拦截非法入参（等 convert 才报错时部分 SQL 已拼接）。
 func (c *Conditions) CheckValid() error {
 	if len(c.Columns) == 0 {
 		return fmt.Errorf("field 'columns' cannot be empty")
 	}
-
+	for i := range c.Columns {
+		col := &c.Columns[i]
+		if err := col.checkValid(); err != nil {
+			return err
+		}
+		if col.Exp != "" {
+			if _, ok := expMap[strings.ToLower(col.Exp)]; !ok {
+				return fmt.Errorf("unsported exp type '%s'", col.Exp)
+			}
+		}
+		if col.Logic != "" {
+			if _, ok := logicMap[strings.ToLower(col.Logic)]; !ok {
+				return fmt.Errorf("unsported logic type '%s'", col.Logic)
+			}
+		}
+	}
 	return nil
 }

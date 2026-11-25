@@ -104,12 +104,6 @@ func (e *Error) RewriteMsg(msg string) *Error {
 	return &Error{code: e.code, msg: msg}
 }
 
-// WithOutMsg 输出错误消息
-// 已弃用：请使用 RewriteMsg 替代
-func (e *Error) WithOutMsg(msg string) *Error {
-	return &Error{code: e.code, msg: msg}
-}
-
 // WithOutMsgI18n 输出国际化错误消息
 // langMsg 示例：
 //

@@ -35,12 +35,6 @@ func (p *Page) Limit() int {
 	return p.limit
 }
 
-// Size number per page
-// Deprecated: use Limit instead
-func (p *Page) Size() int {
-	return p.limit
-}
-
 // Sort get sort field
 func (p *Page) Sort() string {
 	return p.sort
