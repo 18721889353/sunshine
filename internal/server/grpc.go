@@ -248,7 +248,7 @@ func (s *grpcServer) unaryServerOptions() grpc.ServerOption {
 	)
 
 	// metrics interceptor
-	if config.Get().App.EnableMetrics {
+	if config.Get().Metrics.Enabled {
 		unaryServerInterceptors = append(unaryServerInterceptors, interceptor.UnaryServerMetrics())
 		s.registerMetricsMuxAndMethodFunc = s.registerMetricsMuxAndMethod()
 	}
@@ -343,7 +343,7 @@ func (s *grpcServer) streamServerOptions() grpc.ServerOption {
 	}
 
 	// metrics interceptor
-	if config.Get().App.EnableMetrics {
+	if config.Get().Metrics.Enabled {
 		streamServerInterceptors = append(streamServerInterceptors, interceptor.StreamServerMetrics())
 	}
 

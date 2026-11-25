@@ -1044,7 +1044,9 @@ func changeOutPath(outPath string, serverName string) string {
 
 // getSubFiles 收集需要生成的所有文件路径列表。
 // 自动确保 internal/config 目录包含 nacos.go、nacos_encrypt.go、register_helper.go、
-// pprofAuth.go（pprof IP 白名单鉴权构造）、reload_sentinel/jwt/sign/app/database/cron/diff/infra.go（热更新回调）和 reload.go（热更新框架），支持通过 replaceFiles 替换选定文件。
+// pprofAuth.go（pprof IP 白名单鉴权构造）、reload_sentinel/jwt/sign/app/database/cron/diff/infra.go（热更新回调）、
+// reload.go（热更新框架）和 metrics_reporter.go（指标报告器 Start/Stop，initApp/close 依赖），
+// 支持通过 replaceFiles 替换选定文件。
 // 注意：主配置结构体文件(如 xxx.go)和配置中心文件(如 xxx_cc.go, 含 Center/NewCenter)无需在此列出,
 // 由 make proto 阶段调用的 sunshine config 根据 configs/*.yml 自动生成, 只复制手写逻辑文件即可。
 // 参数:
@@ -1070,6 +1072,8 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 	// - reload_cron.go（定时任务单任务配置热更新回调, 并定义 CronTask 类型, serverNameExample.go 的 cron.tasks 字段依赖）
 	// - reload_diff.go（配置变更统一审计日志 logConfigDiff, reload.go 依赖）
 	// - reload.go（配置热更新框架）
+	// - metrics_reporter.go（指标报告器 Start/Stop；模板 initial/initApp.go 调 StartMetricsReporter、
+	//   initial/close.go 调 StopMetricsReporter——漏复制会导致新生成项目编译失败）
 	// 注: serverNameExample_cc.go(定义 Center/NewCenter) 不在此列出——它是 make proto 时
 	//     sunshine config 依据 configs/xxx_cc.yml 用 configFileCcCode 模板生成的, 复制反而会与之重复。
 	configAutoFiles := []string{
@@ -1078,7 +1082,7 @@ func getSubFiles(selectFiles map[string][]string, replaceFiles map[string][]stri
 		"reload_sentinel.go", "reload_jwt.go", "reload_sign.go",
 		"reload_app.go", "reload_database.go", "reload_infra.go",
 		"reload_cron.go", "reload_diff.go",
-		"reload.go",
+		"reload.go", "metrics_reporter.go",
 	}
 	if _, ok := selectFiles["internal/config"]; ok {
 		existing := make(map[string]bool)

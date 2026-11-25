@@ -92,8 +92,11 @@ func ConfigmapCommand() *cobra.Command {
 type copyConfigGenerator struct {
 	serverName  string // 服务名称
 	projectName string // 项目名称
-	content     string // ConfigMap 配置内容
-	outPath     string // 输出目录
+	// content 旧版语义：嵌入到模板 configmapFileMark 标记处的业务配置。
+	// 当前模板（k8s部署调整后）只存 Nacos 连接配置、已移除该标记——
+	// content 非空时替换为 no-op（标记不存在则跳过），保留字段维持 --config-file 参数兼容。
+	content string
+	outPath string // 输出目录
 }
 
 func (g *copyConfigGenerator) generateCode() (string, error) {

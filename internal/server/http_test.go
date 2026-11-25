@@ -23,7 +23,7 @@ func TestHTTPServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Get().App.EnableMetrics = true
+	config.Get().Metrics.Enabled = true
 	config.Get().App.EnableTrace = true
 	config.Get().App.EnableHTTPProfile = true
 	config.Get().App.EnableLimit = true
@@ -53,7 +53,7 @@ func TestHTTPServerMock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.Get().App.EnableMetrics = true
+	config.Get().Metrics.Enabled = true
 	config.Get().App.EnableTrace = true
 	config.Get().App.EnableHTTPProfile = true
 	config.Get().App.EnableLimit = true

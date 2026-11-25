@@ -169,7 +169,7 @@ func NewRouter() *gin.Engine {
 	// 根据配置设置初始开关状态
 	middleware.SetXSSEnabled(cfg.App.OpenXSS)
 	// metrics middleware
-	if cfg.App.EnableMetrics {
+	if cfg.Metrics.Enabled {
 		r.Use(metrics.Metrics(r,
 			//metrics.WithMetricsPath("/metrics"),                // default is /metrics
 			metrics.WithIgnoreStatusCodes(http.StatusNotFound), // ignore 404 status codes

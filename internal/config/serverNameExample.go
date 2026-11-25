@@ -66,6 +66,7 @@ type Config struct {
 	HTTP          HTTP          `yaml:"http" json:"http"`
 	Jwt           Jwt           `yaml:"jwt" json:"jwt"`
 	Logger        Logger        `yaml:"logger" json:"logger"`
+	Metrics       Metrics       `yaml:"metrics" json:"metrics"`
 	NacosInfo     NacosInfo     `yaml:"nacosInfo" json:"nacosInfo"`
 	Otlp          Otlp          `yaml:"otlp" json:"otlp"`
 	Rabbitmq      Rabbitmq      `yaml:"rabbitmq" json:"rabbitmq"`
@@ -271,7 +272,6 @@ type App struct {
 	EnableCircuitBreaker  bool     `yaml:"enableCircuitBreaker" json:"enableCircuitBreaker"`
 	EnableHTTPProfile     bool     `yaml:"enableHTTPProfile" json:"enableHTTPProfile"`
 	EnableLimit           bool     `yaml:"enableLimit" json:"enableLimit"`
-	EnableMetrics         bool     `yaml:"enableMetrics" json:"enableMetrics"`
 	EnableTrace           bool     `yaml:"enableTrace" json:"enableTrace"`
 	Env                   string   `yaml:"env" json:"env"`
 	Host                  string   `yaml:"host" json:"host"`
@@ -450,6 +450,17 @@ type Limit struct {
 
 type Sso struct {
 	EnableSSO bool `yaml:"enableSSO" json:"enableSSO"`
+}
+
+type Metrics struct {
+	Enabled         bool    `yaml:"enabled" json:"enabled"`
+	ErrRateCritical float64 `yaml:"errRateCritical" json:"errRateCritical"`
+	ErrRateWarn     float64 `yaml:"errRateWarn" json:"errRateWarn"`
+	IntervalSec     int     `yaml:"intervalSec" json:"intervalSec"`
+	MinSamples      int     `yaml:"minSamples" json:"minSamples"`
+	P99Critical     float64 `yaml:"p99Critical" json:"p99Critical"`
+	P99Warn         float64 `yaml:"p99Warn" json:"p99Warn"`
+	WebhookURL      string  `yaml:"webhookURL" json:"webhookURL"`
 }
 
 type EtcdInfo struct {

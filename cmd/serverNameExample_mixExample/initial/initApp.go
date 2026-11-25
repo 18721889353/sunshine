@@ -132,6 +132,9 @@ func InitApp() {
 
 	logger.InfoWithCtx(initCtx, "[logger] was initialized")
 
+	// 启动指标报告器（周期采集→诊断→企微推送）。metrics.enabled=false 或 webhookURL 为空时不启动。
+	config.StartMetricsReporter()
+
 	// 注册配置热更新回调（必须在 logger.Init 之后）
 	config.RegisterBuiltinReloads()
 

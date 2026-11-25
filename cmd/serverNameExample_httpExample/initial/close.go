@@ -17,6 +17,12 @@ import (
 func Close(servers []app.IServer) []app.Close {
 	var closes []app.Close
 
+	// 停止指标报告器（等待在途推送结束，避免半截消息）
+	closes = append(closes, func() error {
+		config.StopMetricsReporter()
+		return nil
+	})
+
 	// close server
 	for _, s := range servers {
 		closes = append(closes, s.Stop)

@@ -101,12 +101,17 @@ func TestCopyConfigGenerator_generateCode(t *testing.T) {
 	if !strings.Contains(content, "my-project") {
 		t.Errorf("生成文件应包含项目名 %q", "my-project")
 	}
-	// 验证 ConfigMap 中嵌入的配置内容
-	if !strings.Contains(content, "host: 0.0.0.0") {
-		t.Error("生成文件应包含嵌入的配置内容 host: 0.0.0.0")
+	// 模板语义（k8s部署调整 a291dabe 后）：ConfigMap 只存 Nacos 连接配置，
+	// 业务配置来自 Nacos，不再嵌入 host/driver 等业务配置——
+	// 断言与模板当前语义对齐，验证连接配置与 dataID 占位符替换。
+	if !strings.Contains(content, "user-service_cc.yml") {
+		t.Error("生成文件应含 Nacos 连接配置 user-service_cc.yml")
 	}
-	if !strings.Contains(content, "driver: mysql") {
-		t.Error("生成文件应包含嵌入的配置内容 driver: mysql")
+	if !strings.Contains(content, `dataID: "user-service"`) {
+		t.Error("Nacos dataID 占位符应替换为服务名 user-service")
+	}
+	if !strings.Contains(content, "应用配置来自 nacos") {
+		t.Error("生成文件应保留 Nacos 配置来源说明")
 	}
 	// 验证源文件占位符已被替换（不应保留原始模板名）
 	if strings.Contains(content, "serverNameExample") {

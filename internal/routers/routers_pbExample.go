@@ -126,7 +126,7 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 		r.Use(middleware.XSSCrossMiddleware())
 	}
 	// metrics middleware
-	if cfg.App.EnableMetrics {
+	if cfg.Metrics.Enabled {
 		r.Use(metrics.Metrics(r,
 			//metrics.WithMetricsPath("/metrics"),                // default is /metrics
 			metrics.WithIgnoreStatusCodes(http.StatusNotFound), // ignore 404 status codes

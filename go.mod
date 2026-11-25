@@ -37,7 +37,6 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
-	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/hashicorp/consul/api v1.32.1
 	github.com/huandu/xstrings v1.5.0
 	github.com/jinzhu/copier v0.4.0
@@ -51,6 +50,7 @@ require (
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20260423200730-b628c220ad03
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.23.0
+	github.com/prometheus/client_model v0.6.2
 	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/redis/go-redis/extra/redisotel/v9 v9.17.2
 	github.com/redis/go-redis/v9 v9.17.2
@@ -236,7 +236,6 @@ require (
 	github.com/pingcap/log v1.1.0 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
-	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	// prometheus v0.40.0 由 aliyun-log-go-sdk 间接引入，但未被实际使用

@@ -121,7 +121,7 @@ func NewServerNameExampleRPCConn() {
 	if cfg.App.EnableCircuitBreaker {
 		cliOptions = append(cliOptions, grpccli.WithEnableCircuitBreaker())
 	}
-	if cfg.App.EnableMetrics {
+	if cfg.Metrics.Enabled {
 		cliOptions = append(cliOptions, grpccli.WithEnableMetrics())
 	}
 	if grpcClientCfg.Timeout > 0 {
