@@ -34,10 +34,10 @@ type Option func(*options)
 
 func defaultOptions() *options {
 	return &options{
-		maxLength:     defaultMaxLength,
-		ignoreRoutes:  defaultIgnoreRoutes,
-		logFrom:       defaultLogFrom,
-		logHeaders:    false,
+		maxLength:    defaultMaxLength,
+		ignoreRoutes: defaultIgnoreRoutes,
+		logFrom:      defaultLogFrom,
+		logHeaders:   false,
 	}
 }
 

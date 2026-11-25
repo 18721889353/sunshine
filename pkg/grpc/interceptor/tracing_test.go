@@ -15,4 +15,3 @@ func TestNewServerStatsHandler(t *testing.T) {
 	handler := NewServerStatsHandler()
 	assert.NotNil(t, handler)
 }
-
