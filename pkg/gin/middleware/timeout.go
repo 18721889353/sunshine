@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 // requestTimeout 全局请求超时时间（单位纳秒），支持热更新。
@@ -57,6 +59,7 @@ func Timeout(d time.Duration) gin.HandlerFunc {
 		// 超时判断：当 context 因超时而取消时，若状态码尚未写入（仍为 200）
 		// 则返回 504，否则直接终止请求链。
 		if ctx.Err() == context.DeadlineExceeded {
+			pkgmetrics.ObserveTimeout("gin-http")
 			if c.Writer.Status() == 200 {
 				c.AbortWithStatus(http.StatusGatewayTimeout)
 				return

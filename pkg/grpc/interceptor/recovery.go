@@ -7,6 +7,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 // ---------------------------------- client interceptor ----------------------------------
@@ -16,6 +18,7 @@ func UnaryClientRecovery() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
+				pkgmetrics.ObservePanic("grpc-unary-client")
 				err = status.Errorf(codes.Internal, "triggered panic: %v", r)
 			}
 		}()
@@ -31,6 +34,7 @@ func StreamClientRecovery() grpc.StreamClientInterceptor {
 		streamer grpc.Streamer, opts ...grpc.CallOption) (s grpc.ClientStream, err error) {
 		defer func() {
 			if r := recover(); r != nil {
+				pkgmetrics.ObservePanic("grpc-stream-client")
 				err = status.Errorf(codes.Internal, "triggered panic: %v", r)
 			}
 		}()
@@ -46,6 +50,7 @@ func StreamClientRecovery() grpc.StreamClientInterceptor {
 func UnaryServerRecovery() grpc.UnaryServerInterceptor {
 	// https://pkg.go.dev/github.com/grpc-ecosystem/go-grpc-middleware/recovery
 	customFunc := func(p interface{}) (err error) {
+		pkgmetrics.ObservePanic("grpc-unary-server")
 		return status.Errorf(codes.Internal, "triggered panic: %v", p)
 	}
 	opts := []grpc_recovery.Option{
@@ -59,6 +64,7 @@ func UnaryServerRecovery() grpc.UnaryServerInterceptor {
 func StreamServerRecovery() grpc.StreamServerInterceptor {
 	// https://pkg.go.dev/github.com/grpc-ecosystem/go-grpc-middleware/recovery
 	customFunc := func(p interface{}) (err error) {
+		pkgmetrics.ObservePanic("grpc-stream-server")
 		return status.Errorf(codes.Internal, "triggered panic: %v", p)
 	}
 	opts := []grpc_recovery.Option{

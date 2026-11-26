@@ -70,6 +70,7 @@ var (
 func NewRouter_pbExample() *gin.Engine { //nolint
 	r := gin.New()
 
+	r.Use(middleware.PanicRecoveryMetrics()) // panic 埋点：必须在 gin.Recovery() 之前
 	r.Use(gin.Recovery())
 	r.Use(middleware.Cors())
 	cfg := config.Get()

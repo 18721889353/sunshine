@@ -5,6 +5,10 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 // ---------------------------------- client interceptor ----------------------------------
@@ -20,7 +24,13 @@ func UnaryClientTimeout(d time.Duration) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, resp interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		ctx, cancel := context.WithTimeout(ctx, d)
 		defer cancel()
-		return invoker(ctx, method, req, resp, cc, opts...)
+		err := invoker(ctx, method, req, resp, cc, opts...)
+		// 超时是系统劣化的早期信号——必须可见（server 可能返回 DeadlineExceeded，
+		// 也可能 ctx 先到期，两种都覆盖）
+		if status.Code(err) == codes.DeadlineExceeded || ctx.Err() == context.DeadlineExceeded {
+			pkgmetrics.ObserveTimeout("grpc-unary-client")
+		}
+		return err
 	}
 }
 
@@ -33,6 +43,10 @@ func StreamClientTimeout(d time.Duration) grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		ctx, cancel := context.WithTimeout(ctx, d)
 		defer cancel()
-		return streamer(ctx, desc, cc, method, opts...)
+		stream, err := streamer(ctx, desc, cc, method, opts...)
+		if status.Code(err) == codes.DeadlineExceeded || ctx.Err() == context.DeadlineExceeded {
+			pkgmetrics.ObserveTimeout("grpc-stream-client")
+		}
+		return stream, err
 	}
 }

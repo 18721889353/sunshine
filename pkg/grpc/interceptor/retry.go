@@ -6,6 +6,8 @@ import (
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 // ---------------------------------- client interceptor ----------------------------------
@@ -82,6 +84,8 @@ func UnaryClientRetry(opts ...RetryOption) grpc.UnaryClientInterceptor {
 	return grpc_retry.UnaryClientInterceptor(
 		grpc_retry.WithMax(o.times), // set the number of retries
 		grpc_retry.WithBackoff(func(_ uint) time.Duration { // set retry interval
+			// 重试次数突增 = 下游劣化的早期信号（最终成功也会记，这正是价值）
+			pkgmetrics.ObserveRetry("grpc-unary-client")
 			return o.interval
 		}),
 		grpc_retry.WithCodes(o.errCodes...), // set retry error code
@@ -96,6 +100,7 @@ func StreamClientRetry(opts ...RetryOption) grpc.StreamClientInterceptor {
 	return grpc_retry.StreamClientInterceptor(
 		grpc_retry.WithMax(o.times), // set the number of retries
 		grpc_retry.WithBackoff(func(_ uint) time.Duration { // set retry interval
+			pkgmetrics.ObserveRetry("grpc-stream-client")
 			return o.interval
 		}),
 		grpc_retry.WithCodes(o.errCodes...), // set retry error code

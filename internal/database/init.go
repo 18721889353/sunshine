@@ -7,6 +7,7 @@ import (
 
 	"github.com/18721889353/sunshine/internal/config"
 
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 	"github.com/18721889353/sunshine/pkg/sgorm"
 )
 
@@ -31,6 +32,9 @@ func InitDB() {
 			panic("InitDB error, please modify the correct 'database' configuration at yaml file. " +
 				"Refer to https://github.com/18721889353/sunshine/blob/main/configs/serverNameExample.yml#L85")
 		}
+		// 连接池健康指标：InitDB 后立即登记，让 WaitCount/WaitDuration 等
+		// 早期劣化信号进入统一指标体系和诊断引擎（连接池耗尽事前无信号）
+		pkgmetrics.RegisterDBStats(dbDriver, gdb)
 	})
 }
 
