@@ -278,7 +278,7 @@ func (r *Reporter) run() {
 // pushReportOnce 周期报告：采集 → 差分 → 诊断 → 渲染 → 推送。
 // 推送成功才推进 prev/lastCode/lastPushAt；失败保留现场下轮重试。
 func (r *Reporter) pushReportOnce() {
-	cur, err := r.gather()
+	cur, err := r.gatherPeriodic()
 	if err != nil {
 		logGatherError("gather", err)
 		return
@@ -310,7 +310,7 @@ func (r *Reporter) pushReportOnce() {
 //
 // 关键：状态提交发生在【推送成功之后】——失败既不前移 prev 也不更新 lastCode。
 func (r *Reporter) fastCheck() {
-	cur, err := r.gather()
+	cur, err := r.gatherFast()
 	if err != nil {
 		logGatherError("fast check gather", err)
 		return
@@ -347,13 +347,28 @@ func (r *Reporter) fastCheck() {
 	r.lastFailAt = time.Time{}
 }
 
-// gather 采集快照；测试可注入 gatherFn 替换真实采集。
-// 走 Fast Registry（只含自定义指标，无 go_*），避免巡检触发 STW。
-func (r *Reporter) gather() (*MetricSnapshot, error) {
+// gatherFast 快速巡检（5s）：只读 Fast Registry（自定义指标，无 go_*），
+// 避免 Go collector 的 ReadMemStats 触发 runtime STW 停顿。
+// 测试可注入 gatherFn 替换真实采集。
+func (r *Reporter) gatherFast() (*MetricSnapshot, error) {
 	if r.gatherFn != nil {
 		return r.gatherFn()
 	}
 	fams, err := Default().GatherFast()
+	if err != nil {
+		return nil, err
+	}
+	return CollectFromFamilies(fams), nil
+}
+
+// gatherPeriodic 周期报告：读 Default Registry（含 go_goroutines/go_memstats
+// 运行时指标，Fast 不含）——60s 一次的 ReadMemStats STW 可接受，且运维报告
+// 依赖 goroutine/内存（能力对齐旧版自建报告器，否则报告丢运行时数据）。
+func (r *Reporter) gatherPeriodic() (*MetricSnapshot, error) {
+	if r.gatherFn != nil {
+		return r.gatherFn()
+	}
+	fams, err := Default().GatherDefault()
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 // resetReporterForTest 测试隔离：StopReporter 清理全局实例，避免测试间相互污染。
@@ -73,7 +75,7 @@ func TestReporter_WindowDelta(t *testing.T) {
 		return s, nil
 	}
 	// 首采
-	cur1, _ := r.gather()
+	cur1, _ := r.gatherFast()
 	// 窗口差分（prev=nil → 全量）
 	d1 := WindowDeltaMetric(nil, cur1)
 	if d1.Durations["redis_operation_duration_seconds"].Count != 100 {
@@ -81,7 +83,7 @@ func TestReporter_WindowDelta(t *testing.T) {
 	}
 	// 第二次采集，差分
 	r.prev = cur1
-	cur2, _ := r.gather()
+	cur2, _ := r.gatherFast()
 	d2 := WindowDeltaMetric(r.prev, cur2)
 	if d2.Durations["redis_operation_duration_seconds"].Count != 100 {
 		t.Errorf("窗口增量应 100, got %d", d2.Durations["redis_operation_duration_seconds"].Count)
@@ -253,4 +255,38 @@ func TestReporter_Diagnose_Hook(t *testing.T) {
 	if d := r4.diagnose(s); d.Level != DiagnosisOK {
 		t.Errorf("无 hook 应走通用诊断, got %+v", d)
 	}
+}
+
+// TestReporter_GatherPeriodic_HasRuntime 周期报告读 Default（含 go_* 运行时），
+// 快速巡检读 Fast（无 go_*，避免 STW）——两节奏采集源必须分离，
+// 否则周期报告丢 goroutine/内存（能力退化，对齐旧版报告器的守护）。
+func TestReporter_GatherPeriodic_HasRuntime(t *testing.T) {
+	// 注册 GoCollector 到 Default only（与框架 gRPC server 同款）
+	// GoCollector 无状态、重复注册幂等（AlreadyRegistered 被忽略），无需清理
+	MustRegisterDefaultOnly(collectors.NewGoCollector())
+
+	r := &Reporter{}
+	periodic, err := r.gatherPeriodic()
+	if err != nil {
+		t.Fatalf("gatherPeriodic: %v", err)
+	}
+	if _, ok := periodic.Gauges["go_goroutines"]; !ok {
+		t.Errorf("周期报告应含 go_goroutines（运维依赖）, got gauges keys: %v", keysOf(periodic.Gauges))
+	}
+
+	fast, err := r.gatherFast()
+	if err != nil {
+		t.Fatalf("gatherFast: %v", err)
+	}
+	if _, ok := fast.Gauges["go_goroutines"]; ok {
+		t.Errorf("快速巡检不应含 go_goroutines（避免 STW）")
+	}
+}
+
+func keysOf(m map[string]map[string]float64) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
