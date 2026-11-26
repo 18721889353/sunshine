@@ -80,6 +80,13 @@ func testConfig(opts ...func(*clientConfig)) *clientConfig {
 	if cfg.writeTimeout <= 0 {
 		cfg.writeTimeout = writeDeadline
 	}
+	// writeMsgType 必须默认文本帧：newClientWithConfig 不做兜底，
+	// 0 值会让 writeWithRetry 报 "bad write message type"（gorilla 只接受
+	// Text/Binary/Close/Ping/Pong），所有写路径静默失败——
+	// DrainBehavior 残留、Send 测试 i/o timeout 均源于此
+	if cfg.writeMsgType == 0 {
+		cfg.writeMsgType = websocket.TextMessage
+	}
 	return cfg
 }
 
@@ -863,6 +870,20 @@ func TestClientCtx_CancelPropagation(t *testing.T) {
 // Client 健康/统计
 // ---------------------------------------------------------------------------
 
+// waitFor 轮询直到 cond 满足或超时——替代固定 time.Sleep：
+// sleep 太短 flaky（慢机器上状态未达成即断言失败），太长拖慢测试。
+func waitFor(t testing.TB, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("等待超时（%v）: %s", timeout, msg)
+}
+
 func TestClientStats(t *testing.T) {
 	client, c := newTestClientPair(t)
 	defer client.Close()
@@ -1172,7 +1193,6 @@ func TestClientProxy_SendToSelf_Delivered(t *testing.T) {
 	_ = d.RegisterCtx(context.Background(), alice)
 	defer alice.Close()
 	_ = alice.SendToUIDCtx(context.Background(), "alice", Message{Type: "self"})
-	time.Sleep(50 * time.Millisecond)
 	aliceConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	_, data, err := aliceConn.ReadMessage()
 	if err != nil {
@@ -1197,7 +1217,6 @@ func TestClientProxy_SendToUID_Success(t *testing.T) {
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 	_ = alice.SendToUIDCtx(context.Background(), "bob", Message{Type: "proxy", Msg: "from alice"})
-	time.Sleep(50 * time.Millisecond)
 	bobConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	_, data, err := bobConn.ReadMessage()
 	if err != nil {
@@ -1223,7 +1242,6 @@ func TestClientProxy_SendToMultiUID_SelfIncluded(t *testing.T) {
 	_ = d.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 	_ = alice.SendToMultiUIDCtx(context.Background(), []string{"alice", "bob"}, Message{Type: "multi", Msg: "team msg"})
-	time.Sleep(50 * time.Millisecond)
 	for name, conn := range map[string]*websocket.Conn{"alice": aliceConn, "bob": bobConn} {
 		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		_, data, err := conn.ReadMessage()
@@ -1576,7 +1594,6 @@ func TestDistributed_SendToUID(t *testing.T) {
 	_ = B.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 	_ = A.SendToUIDCtx(ctx, "bob", Message{Type: "greeting", Msg: "hello bob"})
-	time.Sleep(100 * time.Millisecond)
 	_, data, err := bc.ReadMessage()
 	if err != nil {
 		t.Fatalf("bob should receive: %v", err)
@@ -1606,7 +1623,6 @@ func TestDistributed_SendToMultiUID(t *testing.T) {
 		defer c.Close()
 	}
 	_ = dd.SendToMultiUIDCtx(ctx, []string{"alice", "charlie"}, Message{Type: "team", Msg: "team msg"})
-	time.Sleep(100 * time.Millisecond)
 	for _, uid := range []string{"alice", "charlie"} {
 		_, data, err := conns[uid].ReadMessage()
 		if err != nil {
@@ -1640,7 +1656,6 @@ func TestDistributed_Broadcast(t *testing.T) {
 	_ = B.RegisterCtx(context.Background(), bob)
 	defer bob.Close()
 	_ = A.BroadcastCtx(ctx, Message{Type: "announce", Msg: "通知"})
-	time.Sleep(100 * time.Millisecond)
 	for name, conn := range map[string]*websocket.Conn{"alice": ac, "bob": bc} {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -1685,7 +1700,15 @@ func TestDistributed_ConnectedUIDs(t *testing.T) {
 		_ = B.RegisterCtx(context.Background(), c)
 		defer c.Close()
 	}
-	time.Sleep(200 * time.Millisecond)
+	// 轮询等注册传播到两实例（替代固定 200ms——慢机器上可能不够）
+	waitFor(t, 3*time.Second, func() bool {
+		for _, dd := range []*DistributedDispatcher{A, B} {
+			if len(dd.ConnectedUIDs()) != 4 {
+				return false
+			}
+		}
+		return true
+	}, "A/B 两实例应都看到 4 个 UID")
 	for name, dd := range map[string]*DistributedDispatcher{"A": A, "B": B} {
 		if uids := dd.ConnectedUIDs(); len(uids) != 4 {
 			t.Errorf("%s ConnectedUIDs=%d, want 4: %v", name, len(uids), uids)
@@ -2031,7 +2054,9 @@ func TestIntegration_DistributedMessaging(t *testing.T) {
 	dave, daveConn := newTestClientWithUID(t, "dave")
 	_ = instanceB.RegisterCtx(context.Background(), dave)
 	defer dave.Close()
-	time.Sleep(150 * time.Millisecond)
+	waitFor(t, 3*time.Second, func() bool {
+		return len(instanceA.ConnectedUIDs()) == 4 && len(instanceB.ConnectedUIDs()) == 4
+	}, "A/B 两实例注册传播后应各见 4 UID")
 	uidsA := instanceA.ConnectedUIDs()
 	uidsB := instanceB.ConnectedUIDs()
 	if len(uidsA) != 4 || len(uidsB) != 4 {
@@ -2357,10 +2382,10 @@ func TestUpgradeRegisterDispatcher_PropagatesRegisterError(t *testing.T) {
 	}
 
 	client.Close()
-	time.Sleep(50 * time.Millisecond)
-	if n := dd.Len(); n != 0 {
-		t.Errorf("Len=%d, want 0 after close", n)
-	}
+	// Close 的注销是异步传播——轮询等（替代固定 50ms，慢机器 flaky）
+	waitFor(t, 3*time.Second, func() bool {
+		return dd.Len() == 0
+	}, "Close 后 Dispatcher.Len 应为 0")
 }
 
 // ---------------------------------------------------------------------------
@@ -2482,7 +2507,7 @@ func TestDispatcher_SSO_KickReRegister(t *testing.T) {
 	}
 	defer alice2.Close()
 
-	time.Sleep(50 * time.Millisecond)
+	// 不 sleep：注册同步生效，下方"踢人"断言不依赖等待
 
 	// 注册第三个踢第二个
 	alice3, _ := newTestClientWithUID(t, "alice")
@@ -2795,4 +2820,54 @@ func TestBroadcastFilter_EmptyPayload(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected nil, got %v", err)
 	}
+}
+
+// TestNewClientWithConfig_ZeroWriteMsgType 内部构造的防御性兜底：
+// 即使调用方漏设 writeMsgType=0，构造出的 client 也应使用 TextMessage（1）。
+// 0 值会让 writeWithRetry 静默报 "bad write message type"——
+// 真实写入路径由 TestClose_DrainBehavior / SendToUID 等测试覆盖。
+func TestNewClientWithConfig_ZeroWriteMsgType(t *testing.T) {
+	serverCh := make(chan *Client, 1)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := (&websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { return true }}).Upgrade(w, r, nil)
+		if err != nil {
+			serverCh <- nil
+			return
+		}
+		// 故意不设 writeMsgType（=0），且传入的原始 cfg 不应被修改
+		cfg := &clientConfig{writeChSize: 1024, readChSize: 1024}
+		serverCh <- newClientWithConfig(context.Background(), raw, "zero-msg-type", cfg)
+		if cfg.writeMsgType != 0 {
+			t.Errorf("构造不应修改调用方传入的 cfg, got %d", cfg.writeMsgType)
+		}
+	}))
+	defer s.Close()
+
+	url := "ws" + strings.TrimPrefix(s.URL, "http")
+	peer, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer peer.Close()
+
+	client := <-serverCh
+	if client == nil {
+		t.Fatal("server failed to create client")
+	}
+	defer client.Close()
+	if client.writeMsgType != websocket.TextMessage {
+		t.Errorf("writeMsgType=%d, want TextMessage(%d)", client.writeMsgType, websocket.TextMessage)
+	}
+}
+
+// TestDispatcher_StopIdempotent Stop 必须幂等——重复调用不应
+// close of closed channel（receiveStopCh）panic。
+func TestDispatcher_StopIdempotent(t *testing.T) {
+	dd := NewDispatcher(nil)
+	dd.Start(context.Background())
+
+	// 连续调用 3 次，均不应 panic
+	dd.Stop()
+	dd.Stop()
+	dd.Stop()
 }

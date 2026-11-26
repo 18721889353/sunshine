@@ -73,7 +73,22 @@ func (h *requestIDHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redi
 		setRequestIDToRedisSpan(ctx)
 
 		// 执行底层 Pipeline 命令
+		start := time.Now()
 		err := next(ctx, cmds)
+		cost := time.Since(start)
+
+		// 指标埋点：Pipeline 中每条命令都计入 redis_operation_duration_seconds，
+		// 否则批量 GET/事务这类高频路径会系统性漏计（op 维度也丢失）。
+		// pipeline 批量发送无法精确拆单条耗时，用整体耗时近似（高估但口径一致）；
+		// err 取每条命令自己的 Err（redis.Nil 属正常 miss，observe 内部按 ok 处理），
+		// transport 失败时 cmd.Err() 可能为空，用整体 err 兜底。
+		for _, cmd := range cmds {
+			cmdErr := cmd.Err()
+			if cmdErr == nil && err != nil {
+				cmdErr = err
+			}
+			observeRedisOperation(cmd.Name(), cmdErr, cost)
+		}
 
 		// Pipeline 错误记录：先遍历每个命令，将失败命令记录为 Span Event（精确定位哪条命令失败），
 		// 再记录整体错误与错误状态。

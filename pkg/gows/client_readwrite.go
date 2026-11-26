@@ -123,6 +123,8 @@ func (c *Client) msgFromChToWs() {
 			// 收到关闭信号，drain writeCh 剩余消息确保不丢失
 			for len(c.writeCh) > 0 {
 				if err := c.writeWithRetry(<-c.writeCh); err != nil {
+					logger.WarnWithCtx(c.clientCtx, "DEBUG drain write failed",
+						logger.Int("remaining", len(c.writeCh)), logger.Err(err))
 					break
 				}
 			}

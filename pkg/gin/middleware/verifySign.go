@@ -33,7 +33,7 @@ type SignOption func(*signOptions)
 
 // signOptions 签名验证配置项
 type signOptions struct {
-	ignoreUrls      map[string]struct{} // 需要忽略签名的 URL 列表（精确匹配）
+	ignoreURLs      map[string]struct{} // 需要忽略签名的 URL 列表（精确匹配）
 	ignoreAll       bool                // 是否全局忽略所有请求的签名验证（优先级最高）
 	signKey         string              // 签名密钥
 	signExpiredTime time.Duration       // 签名有效时长，0 表示不检查过期
@@ -42,7 +42,7 @@ type signOptions struct {
 // defaultSignOptions 返回默认配置
 func defaultSignOptions() *signOptions {
 	return &signOptions{
-		ignoreUrls:      defaultIgnoreURL,
+		ignoreURLs:      defaultIgnoreURL,
 		signKey:         "",
 		signExpiredTime: time.Second * 5,
 	}
@@ -59,7 +59,7 @@ func (o *signOptions) apply(opts ...SignOption) {
 func WithIgnoreURL(urls ...string) SignOption {
 	return func(o *signOptions) {
 		for _, url := range urls {
-			o.ignoreUrls[url] = struct{}{}
+			o.ignoreURLs[url] = struct{}{}
 		}
 	}
 }
@@ -97,15 +97,15 @@ func SetSignEnabled(enabled bool) {
 
 // SetSignConfig 设置全局签名配置（支持热更新）
 // 调用后，后续所有请求将使用新的配置
-func SetSignConfig(ignoreUrls []string, ignoreAll bool, signKey string, signExpiredTime time.Duration) {
+func SetSignConfig(ignoreURLs []string, ignoreAll bool, signKey string, signExpiredTime time.Duration) {
 	o := &signOptions{
-		ignoreUrls:      make(map[string]struct{}),
+		ignoreURLs:      make(map[string]struct{}),
 		ignoreAll:       ignoreAll,
 		signKey:         signKey,
 		signExpiredTime: signExpiredTime,
 	}
-	for _, url := range ignoreUrls {
-		o.ignoreUrls[url] = struct{}{}
+	for _, url := range ignoreURLs {
+		o.ignoreURLs[url] = struct{}{}
 	}
 	globalSignConfig.Store(o)
 }
@@ -113,7 +113,7 @@ func SetSignConfig(ignoreUrls []string, ignoreAll bool, signKey string, signExpi
 // VerifySignatureMiddleware 创建 Gin 签名验证中间件。
 // 验证流程：
 //  1. 若开启 ignoreAll，直接放行
-//  2. 若当前 URL 在 ignoreUrls 中，直接放行
+//  2. 若当前 URL 在 ignoreURLs 中，直接放行
 //  3. 否则执行完整签名校验（参数完整性、时间戳、签名值）
 //
 // 支持热更新：每次请求时从全局配置读取最新配置
@@ -147,7 +147,7 @@ func VerifySignatureMiddleware(opts ...SignOption) gin.HandlerFunc {
 		}
 
 		// 其次判断是否在忽略 URL 列表中（精确匹配）
-		if _, ok := cfg.ignoreUrls[ctx.Request.URL.Path]; ok {
+		if _, ok := cfg.ignoreURLs[ctx.Request.URL.Path]; ok {
 			ctx.Next()
 			return
 		}

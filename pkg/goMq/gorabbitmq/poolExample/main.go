@@ -28,7 +28,7 @@ func main() {
 	// 创建连接池
 	pool, err := gorabbitmq.NewPool(
 		ctx,
-		"amqp://sunjianguo:jianguo123@43.143.78.234:5672/",
+		"amqp://sunjianguo:jianguo123@43.143.78.234:30672/",
 		gorabbitmq.WithInitialCap(3),
 		gorabbitmq.WithMaxCap(10),
 		gorabbitmq.WithMaxIdle(time.Minute*1),

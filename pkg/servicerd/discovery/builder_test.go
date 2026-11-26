@@ -315,7 +315,9 @@ func TestDiscoveryResolver_Watch_LoopContextCancel(t *testing.T) {
 
 func TestDiscoveryResolver_Watch_NextErrorNonCancel(t *testing.T) {
 	callCount := 0
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// watch() 出错后 sleep(1s) 再重试——ctx 必须比 sleep 长，
+	// 否则第 2 次重试永远赶不上（原 1s timeout 与 sleep 相同，竞态必失败）。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	r := &discoveryResolver{

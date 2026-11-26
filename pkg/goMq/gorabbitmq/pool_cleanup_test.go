@@ -2,6 +2,8 @@ package gorabbitmq
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -246,5 +248,24 @@ func TestCleanupClosesRemovedConnections(t *testing.T) {
 	}
 	if got := p.totalConns.Load(); got != 1 {
 		t.Errorf("totalConns = %d, want 1", got)
+	}
+}
+
+// TestGetConnWithRetry_NegativeMaxRetries 负数入参必须至少尝试一次——
+// 原实现 for 循环零次执行后 return nil, nil（空连接无错误），调用方解引用即 panic。
+func TestGetConnWithRetry_NegativeMaxRetries(t *testing.T) {
+	pool := &Pool{
+		isClosed: atomic.Bool{},
+		poolMu:   sync.Mutex{},
+		poolOpts: &poolOptions{}, // enableTrace=false，无需 tracer
+	}
+	pool.isClosed.Store(true) // 关闭状态：GetConn 会返回 ErrPoolClosed
+
+	conn, err := pool.GetConnWithRetry(context.Background(), -1)
+	if err == nil {
+		t.Error("负数 maxRetries 也应至少尝试一次，返回错误而非 (nil, nil)")
+	}
+	if conn != nil {
+		t.Error("失败时不应返回连接")
 	}
 }

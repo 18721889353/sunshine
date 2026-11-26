@@ -36,12 +36,12 @@ type XSSOptions func(*xssOptions)
 
 func defaultXSSOptions() *xssOptions {
 	return &xssOptions{
-		ignoreUrls: make(map[string]struct{}),
+		ignoreURLs: make(map[string]struct{}),
 	}
 }
 
 type xssOptions struct {
-	ignoreUrls map[string]struct{}
+	ignoreURLs map[string]struct{}
 }
 
 func (o *xssOptions) apply(opts ...XSSOptions) {
@@ -54,7 +54,7 @@ func (o *xssOptions) apply(opts ...XSSOptions) {
 func WithIgnoreXSSURL(urls ...string) XSSOptions {
 	return func(o *xssOptions) {
 		for _, url := range urls {
-			o.ignoreUrls[url] = struct{}{}
+			o.ignoreURLs[url] = struct{}{}
 		}
 	}
 }
@@ -79,7 +79,7 @@ func XSSCrossMiddleware(opts ...XSSOptions) gin.HandlerFunc {
 			return
 		}
 
-		if _, ok := o.ignoreUrls[ctx.Request.URL.Path]; ok {
+		if _, ok := o.ignoreURLs[ctx.Request.URL.Path]; ok {
 			ctx.Next()
 			return
 		}

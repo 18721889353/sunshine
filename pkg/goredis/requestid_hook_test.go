@@ -645,3 +645,39 @@ func assertAttr(t *testing.T, attrs []attribute.KeyValue, key, expected string) 
 	}
 	t.Errorf("未找到属性 %s", key)
 }
+
+// TestRequestIDHookProcessPipelineHookMetrics Pipeline 中每条命令都必须计入
+// redis_operation_duration_seconds——批量 GET/事务是高频路径，
+// 漏埋会让 Redis 指标系统性失真（op 维度也丢）。
+func TestRequestIDHookProcessPipelineHookMetrics(t *testing.T) {
+	hook := &requestIDHook{}
+	ctx := context.Background()
+	okBefore := readDurResult(t, "redis_operation_duration_seconds", "ok")
+	errBefore := readDurResult(t, "redis_operation_duration_seconds", "error")
+
+	cmds := []redis.Cmder{
+		redis.NewCmd(ctx, "GET", "key1"),      // 成功
+		redis.NewCmd(ctx, "SET", "key2", "v"), // 成功
+	}
+	// mock next 不给 cmd 设错误（模拟全部成功）
+	_ = hook.ProcessPipelineHook(func(context.Context, []redis.Cmder) error {
+		return nil
+	})(ctx, cmds)
+
+	if got := readDurResult(t, "redis_operation_duration_seconds", "ok") - okBefore; got != 2 {
+		t.Errorf("Pipeline 2 条成功命令应记 ok +2, got %d", got)
+	}
+	if got := readDurResult(t, "redis_operation_duration_seconds", "error") - errBefore; got != 0 {
+		t.Errorf("全成功 Pipeline 不应记 error, got %d", got)
+	}
+
+	// transport 失败兜底：cmd.Err() 为空但 next 返回错误 → 也应记 error
+	errBefore = readDurResult(t, "redis_operation_duration_seconds", "error")
+	errCmd := redis.NewCmd(ctx, "GET", "key3")
+	_ = hook.ProcessPipelineHook(func(context.Context, []redis.Cmder) error {
+		return errors.New("connection refused")
+	})(ctx, []redis.Cmder{errCmd})
+	if got := readDurResult(t, "redis_operation_duration_seconds", "error") - errBefore; got != 1 {
+		t.Errorf("transport 失败应兜底记 error +1, got %d", got)
+	}
+}

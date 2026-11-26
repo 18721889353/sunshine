@@ -4,6 +4,7 @@ package etcd
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -15,11 +16,16 @@ import (
 	"github.com/18721889353/sunshine/pkg/servicerd/registry"
 )
 
+// etcd 测试连接：环境变量可覆盖（端口从 2379 迁移到 32379，硬编码过期会连不上）。
+// var 而非 const——需要在初始化时读环境变量。
+var (
+	etcdEndpoint = envOrDefault("TEST_ETCD_ENDPOINTS", "43.143.78.234:32379")
+	etcdUsername = envOrDefault("TEST_ETCD_USERNAME", "root")
+	etcdPassword = envOrDefault("TEST_ETCD_PASSWORD", "sunshine")
+)
+
 const (
-	etcdEndpoint = "43.143.78.234:2379"
-	etcdUsername = "root"
-	etcdPassword = "sunshine"
-	testNS       = "/test_sunshine"
+	testNS = "/test_sunshine"
 )
 
 // connectEtcd 创建 etcd 客户端连接。
@@ -83,11 +89,20 @@ func TestIntegration_RegisterDeregister(t *testing.T) {
 	require.NoError(t, err)
 	t.Log("注册成功")
 
-	// 验证 key 已写入
-	time.Sleep(500 * time.Millisecond)
-	resp, err := cli.Get(context.Background(), key)
-	require.NoError(t, err)
-	require.Len(t, resp.Kvs, 1, "注册后 key 应存在")
+	// 轮询验证 key 已写入（替代固定 500ms sleep——同步/异步写入都确定性等待）
+	var resp *clientv3.GetResponse
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		resp, err = cli.Get(context.Background(), key)
+		require.NoError(t, err)
+		if len(resp.Kvs) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			require.Len(t, resp.Kvs, 1, "注册后 key 应存在")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	t.Logf("key 存在, value=%s", string(resp.Kvs[0].Value))
 
 	// 注销
@@ -95,11 +110,20 @@ func TestIntegration_RegisterDeregister(t *testing.T) {
 	require.NoError(t, err)
 	t.Log("注销成功")
 
-	// 验证 key 已删除
-	time.Sleep(200 * time.Millisecond)
-	resp, err = cli.Get(context.Background(), key)
-	require.NoError(t, err)
-	assert.Len(t, resp.Kvs, 0, "注销后 key 应不存在")
+	// 轮询验证 key 已删除（替代固定 200ms sleep）
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		resp, err = cli.Get(context.Background(), key)
+		require.NoError(t, err)
+		if len(resp.Kvs) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			assert.Len(t, resp.Kvs, 0, "注销后 key 应不存在")
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -274,4 +298,12 @@ func TestIntegration_RegisterDeregisterCycle(t *testing.T) {
 		time.Sleep(1 * time.Second)
 	}
 	t.Log("3 轮循环全部通过")
+}
+
+// envOrDefault 读环境变量，空则用默认值。
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

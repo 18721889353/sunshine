@@ -336,6 +336,12 @@ func (p *Pool) handleGetConnRetry(ctx context.Context, i, maxRetries int, span t
 //
 // GetConnWithRetry 从连接池获取一个连接，带重试机制
 func (p *Pool) GetConnWithRetry(ctx context.Context, maxRetries int) (*Connection, error) {
+	// maxRetries<0 会让下面的 for 循环零次执行，lastErr 保持 nil，
+	// 最终 return nil, nil —— 调用方拿到 nil 连接却无错误提示，随后解引用即 panic。
+	// 钳到 0（至少尝试一次）让非法入参退化为"不重试"，而不是静默返回空连接。
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
 	var span trace.Span
 	if p.poolOpts.enableTrace {
 		ctx, span = p.tracer.Start(ctx, "rabbitmq.pool.get_with_retry", trace.WithSpanKind(trace.SpanKindClient))

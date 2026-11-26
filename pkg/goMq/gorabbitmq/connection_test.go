@@ -12,11 +12,26 @@ import (
 // newTestConnection 创建测试用连接，连接失败则跳过测试
 func newTestConnection(t testing.TB, ctx context.Context, opts ...ConnectionOption) *Connection {
 	t.Helper()
-	conn, err := NewConnection(ctx, testRabbitMQURL, opts...)
+	conn, err := NewConnection(ctx, testRabbitMQURL(), opts...)
 	if err != nil {
 		t.Skipf("skip: cannot connect to RabbitMQ: %v", err)
 	}
 	return conn
+}
+
+// waitFor 轮询直到 cond 满足或超时——替代固定 time.Sleep：
+// sleep 太短会 flaky（慢 CI 上状态未达成即断言失败），太长拖慢测试。
+// 条件达成即返回，确定性且快速。
+func waitFor(t testing.TB, timeout time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("等待超时（%v）: %s", timeout, msg)
 }
 
 // ---------------------------------------------------------------------------
@@ -70,12 +85,10 @@ func TestConn_CheckConnected(t *testing.T) {
 
 	conn.Close()
 
-	// 关闭后需要短暂等待 monitor goroutine 处理退出信号
-	time.Sleep(time.Millisecond * 50)
-
-	if conn.CheckConnected(ctx) {
-		t.Fatal("expected CheckConnected=false after Close")
-	}
+	// 轮询等待 monitor goroutine 处理退出信号（替代固定 50ms sleep，慢 CI 不 flaky）
+	waitFor(t, 2*time.Second, func() bool {
+		return !conn.CheckConnected(ctx)
+	}, "Close 后连接应断开")
 }
 
 // ---------------------------------------------------------------------------
@@ -190,12 +203,9 @@ func TestConn_GetConnectionStatusAfterClose(t *testing.T) {
 	conn := newTestConnection(t, ctx)
 	conn.Close()
 
-	time.Sleep(time.Millisecond * 50)
-
-	status := conn.GetConnectionStatus(ctx)
-	if status["connected"] == true {
-		t.Error("expected connected=false after close")
-	}
+	waitFor(t, 2*time.Second, func() bool {
+		return conn.GetConnectionStatus(ctx)["connected"] != true
+	}, "Close 后 connected 应为 false")
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +265,7 @@ func TestConn_GetConnectionStatusURLMasked(t *testing.T) {
 		t.Fatal("status.url is not a string")
 	}
 	// URL 应是脱敏后的，不应等于原始 URL
-	if urlStr == testRabbitMQURL {
+	if urlStr == testRabbitMQURL() {
 		t.Errorf("url in status is not masked: %s", urlStr)
 	}
 	// 应包含 *** 脱敏标记
@@ -342,13 +352,11 @@ func TestConn_AsynchronousDisconnectAndReconnect(t *testing.T) {
 	// 通过反射或向正在监听的 channel 发送数据来关闭（amqp091-go 允许在测试中关闭底层连接触发通知）
 	_ = rawConn.Close()
 
-	// 等待 monitor 监听到断开并完成至少一次重连
-	// 指数退避时间很短（50ms），这里等待 1~2 秒让其重连成功
-	time.Sleep(time.Second * 1)
-
-	if !conn.CheckConnected(ctx) {
-		t.Error("expected connection to recover and be true after automatic reconnection")
-	}
+	// 轮询等待 monitor 监听到断开并完成重连（指数退避约 50ms 起步，
+	// 条件达成即返回——比固定 sleep 1 秒更快且慢 CI 不 flaky）
+	waitFor(t, 5*time.Second, func() bool {
+		return conn.CheckConnected(ctx)
+	}, "断开后应自动重连成功")
 
 	if conn.GetReconnectCount(ctx) <= initialCount {
 		t.Errorf("expected reconnectCount to increase, initial: %d, current: %d", initialCount, conn.GetReconnectCount(ctx))
@@ -385,8 +393,8 @@ func TestConn_AbortReconnectOnClose(t *testing.T) {
 	// 边缘情况：在退避等待期间，外部调用 Close()
 	conn.Close()
 
-	// 等待 monitor 退出
-	time.Sleep(time.Millisecond * 200)
+	// Close() 同步设置 isConnected=false（见 connection.go:298），
+	// 断言立即成立，无需等 monitor 退出——原 200ms sleep 纯浪费且拖慢测试
 
 	// 如果 Close 没有打破 time.After 的 5 秒等待，这里耗时一定会大于 1 秒
 	if time.Since(start) > time.Second*1 {
@@ -451,10 +459,8 @@ func TestConn_ServerBlockNotification(t *testing.T) {
 		// 如果通道满了则跳过（本身结构体初始化时容量为1）
 	}
 
-	// 稍微等待 monitor 消费该 channel
-	time.Sleep(time.Millisecond * 50)
-
-	// 阻塞通知不应该破坏连接本身
+	// 阻塞通知不应该破坏连接本身（连接本来就该是活的，断言立即成立，
+	// 无需等 monitor 消费 channel——原 50ms sleep 是多余的）
 	if !conn.CheckConnected(ctx) {
 		t.Error("connection should still be active and connected after resource block notification")
 	}

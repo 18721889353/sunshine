@@ -35,7 +35,7 @@ const (
 	serviceName    = "rabbitmq-trace-test"
 	env            = "test"
 	version        = "1.0.0"
-	rabbitMQURL    = "amqp://sunjianguo:jianguo123@43.143.78.234:5672/"
+	rabbitMQURL    = "amqp://sunjianguo:jianguo123@43.143.78.234:30672/"
 	samplingRate   = 1.0 // 全量采样
 	aliyunEndpoint = "http://tracing-analysis-dc-sh.aliyuncs.com/adapt_j1hwr1hssi@6205c493199393c_j1hwr1hssi@53df7ad2afe8301/api/traces"
 )

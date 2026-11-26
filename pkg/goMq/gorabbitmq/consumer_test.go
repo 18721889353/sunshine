@@ -367,10 +367,8 @@ func TestConsumer_Consume_ContextCancel(t *testing.T) {
 	// 立即取消，消费循环应退出
 	consumeCancel()
 
-	// 等待 goroutine 退出
-	time.Sleep(time.Millisecond * 100)
-
-	// 验证 Close 不 panic
+	// 不 sleep：Close 与退出中的 goroutine 真实并发——这正是要验证的
+	//（原 100ms 等待反而避开了并发场景，削弱测试）
 	consumer.Close()
 }
 
@@ -390,8 +388,7 @@ func TestConsumer_Consume_AfterClose(t *testing.T) {
 	consumer.Consume(consumeCtx, func(ctx context.Context, data []byte, messageId, tagID string) error {
 		return nil
 	})
-
-	time.Sleep(time.Millisecond * 50)
+	// 不 sleep：已取消的 ctx 下 Consume 应立即返回，无断言可等
 }
 
 // ===================================================================
@@ -436,8 +433,7 @@ func TestConsumer_Consume_NilHandler(t *testing.T) {
 
 	// 传 nil handler 不应 panic（handler 调用由 processMessages 延迟到 handleSingleMessage）
 	consumer.Consume(consumeCtx, nil)
-
-	time.Sleep(time.Millisecond * 50)
+	// 不 sleep：无断言可等，立即返回即通过
 }
 
 // ===================================================================

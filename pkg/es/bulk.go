@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -95,6 +96,32 @@ func (b *Bulk) BulkExecute(ctx context.Context, operations []BulkOperation) (err
 
 	if res.IsError() {
 		err = fmt.Errorf("bulk operation failed: %s", res.String())
+		endSpan(err)
+		return err
+	}
+
+	// partial failure：HTTP 200 但 errors=true（部分文档失败，如 mapping 冲突/
+	// 版本冲突/非法字段）。ES bulk 的失败是"部分成功"，只看 HTTP 状态会把
+	// 这类业务失败记成 ok——漏诊是监控的红线。
+	var bulkResp struct {
+		Errors bool                                `json:"errors"`
+		Items  []map[string]map[string]interface{} `json:"items"`
+	}
+	if decErr := json.NewDecoder(res.Body).Decode(&bulkResp); decErr == nil && bulkResp.Errors {
+		// 收集失败项（index/create/update/delete 各自带 status）
+		var failed []string
+		for _, item := range bulkResp.Items {
+			for action, detail := range item {
+				if st, ok := detail["status"].(float64); ok && st >= 400 {
+					failed = append(failed, fmt.Sprintf("%s:%.0f", action, st))
+				}
+			}
+		}
+		if len(failed) == 0 {
+			failed = append(failed, "errors=true(明细缺失)")
+		}
+		err = fmt.Errorf("bulk partial failure: %d/%d 项失败 (%s)",
+			len(failed), len(bulkResp.Items), strings.Join(failed, ","))
 		endSpan(err)
 		return err
 	}

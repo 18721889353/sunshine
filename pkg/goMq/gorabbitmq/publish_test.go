@@ -12,7 +12,7 @@ import (
 // newTestConn 创建测试用连接，连接失败则跳过测试
 func newTestConn(t testing.TB, ctx context.Context) *Connection {
 	t.Helper()
-	conn, err := NewConnection(ctx, testRabbitMQURL, defaultTestConnOpts...)
+	conn, err := NewConnection(ctx, testRabbitMQURL(), defaultTestConnOpts...)
 	if err != nil {
 		t.Skipf("skip: cannot connect to RabbitMQ: %v", err)
 	}

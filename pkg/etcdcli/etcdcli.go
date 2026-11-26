@@ -142,7 +142,7 @@ func startTokenRefresh(cli *clientv3.Client, username, password string, cfg Auth
 // 与 etcd_token_refresh_total（attempts）语义一致。
 func refreshToken(ctx context.Context, cli *clientv3.Client, username, password string) {
 	result := "ok"
-	defer func() { observeEtcdTokenRefreshResult(result) }()
+	defer func() { observeEtcdTokenRefresh(result) }()
 
 	resp, err := cli.Authenticate(ctx, username, password)
 	if err != nil {

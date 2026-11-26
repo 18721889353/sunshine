@@ -70,15 +70,23 @@ type Client struct {
 // 由 Upgrade 内部调用（通过 &o.clientConfig 直接传入嵌入的 clientConfig）
 // 以及由测试代码直接调用。
 func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, cfg *clientConfig) *Client {
+	// writeMsgType 防御性兜底：gorilla websocket 只接受 Text(1)/Binary(2)/Close/Ping/Pong，
+	// 0 值会让每次 writeWithRetry 都报 "bad write message type"（静默写失败），
+	// 生产路径靠 defaultUpgradeOptions 设默认，但内部构造（含测试）绕过它时必须安全。
+	// 在副本上兜底，不修改调用方传入的 cfg（避免意外副作用）。
+	cfgCopy := *cfg
+	if cfgCopy.writeMsgType == 0 {
+		cfgCopy.writeMsgType = websocket.TextMessage
+	}
 	// 创建独立可取消的上下文，Close 时手动取消
 	clientCtx, clientCancel := context.WithCancel(ctx)
 	c := &Client{
-		clientConfig: *cfg, // 嵌入赋值，自动获取 dispatcher/readTimeout/writeTimeout/readLimit/writeLimit
+		clientConfig: cfgCopy, // 嵌入赋值，自动获取 dispatcher/readTimeout/writeTimeout/readLimit/writeLimit
 
 		wsConn:  conn,
 		uid:     uid,
-		writeCh: make(chan []byte, cfg.writeChSize),
-		readCh:  make(chan []byte, cfg.readChSize),
+		writeCh: make(chan []byte, cfgCopy.writeChSize),
+		readCh:  make(chan []byte, cfgCopy.readChSize),
 
 		clientCtx:       clientCtx,
 		clientCtxCancel: clientCancel,
@@ -86,7 +94,7 @@ func newClientWithConfig(ctx context.Context, conn *websocket.Conn, uid string, 
 	}
 
 	// 设置读取大小限制（0=不限制，覆盖 gorilla/websocket 默认 4096 字节）
-	c.wsConn.SetReadLimit(cfg.readLimit)
+	c.wsConn.SetReadLimit(cfgCopy.readLimit)
 
 	c.readWg.Add(1)
 	go c.msgFromWsToCh()

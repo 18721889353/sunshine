@@ -47,6 +47,7 @@ type DistributedDispatcher struct {
 	receiveStopCh  chan struct{}  // 关闭时通知 receiveLoop 退出
 	receiveWg      sync.WaitGroup // 等待 receiveLoop goroutine 退出
 	receiveStarted atomic.Bool    // 是否已启动，确保 Start 幂等
+	stopOnce       sync.Once      // 确保 Stop 幂等（重复调用不重复 close 通道/worker pool）
 
 	// uidCancelChs 按 UID 的订阅取消信号通道
 	// uid → chan struct{}，用于通知 subscribeUID 启动的 goroutine 退出
@@ -159,6 +160,13 @@ func (dd *DistributedDispatcher) Start(ctx context.Context) {
 // Stop 停止后台接收协程，释放后端资源。
 // 关闭顺序: 关闭 UID 订阅 → 关闭 Backend → 释放 WorkerPool → 关闭 receiveLoop。
 func (dd *DistributedDispatcher) Stop() {
+	// 幂等：重复 Stop 不应 close of closed channel / double Release（Release 虽幂等但 close 不是）
+	dd.stopOnce.Do(func() {
+		dd.shutdown()
+	})
+}
+
+func (dd *DistributedDispatcher) shutdown() {
 	// 1. 关闭所有 UID 订阅
 	dd.uidCancelChs.Range(func(key, value any) bool {
 		if ch, ok := value.(chan struct{}); ok {

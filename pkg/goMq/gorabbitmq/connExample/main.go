@@ -16,7 +16,7 @@ func main() {
 	ctx := context.Background()
 	// 首先测试单个连接的创建
 	fmt.Println("1. 测试单个连接创建...")
-	singleConn, err := createConnectionWithRetry(ctx, "amqp://sunjianguo:jianguo123@43.143.78.234:5672/", 0)
+	singleConn, err := createConnectionWithRetry(ctx, "amqp://sunjianguo:jianguo123@43.143.78.234:30672/", 0)
 	if err != nil {
 		log.Printf("重试后仍无法创建单个连接: %v", err)
 	} else {

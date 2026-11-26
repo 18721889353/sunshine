@@ -2,13 +2,21 @@ package gorabbitmq
 
 import (
 	"context"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-const testRabbitMQURL = "amqp://sunjianguo:jianguo123@43.143.78.234:5672/"
+// testRabbitMQURL 测试 MQ 地址：环境变量可覆盖。
+// 端口从 5672 迁移到 30672（容器映射），硬编码过期地址会让所有 MQ 测试失效。
+func testRabbitMQURL() string {
+	if u := os.Getenv("TEST_RABBITMQ_URL"); u != "" {
+		return u
+	}
+	return "amqp://sunjianguo:jianguo123@43.143.78.234:30672/"
+}
 
 // defaultTestConnOpts 测试用连接选项
 var defaultTestConnOpts = []ConnectionOption{
@@ -20,7 +28,7 @@ var defaultTestConnOpts = []ConnectionOption{
 // newTestPool 创建测试用连接池，连接失败则跳过测试
 func newTestPool(t testing.TB, ctx context.Context, opts ...PoolOption) *Pool {
 	t.Helper()
-	pool, err := NewPool(ctx, testRabbitMQURL, opts...)
+	pool, err := NewPool(ctx, testRabbitMQURL(), opts...)
 	if err != nil {
 		t.Skipf("skip: cannot connect to RabbitMQ: %v", err)
 	}
@@ -280,8 +288,8 @@ func TestPool_CloseWhileWaiting(t *testing.T) {
 		waitErrCh <- err
 	}()
 
-	// 确保 goroutine 已进入等待
-	time.Sleep(time.Millisecond * 50)
+	// 不 sleep：connReadyCh 缓冲 1 + 下方 3s 超时兜底，无论 goroutine
+	// 是否已进入等待，结果都确定（原 50ms 只是减少等待，非正确性保证）
 
 	// 关闭连接池
 	pool.Close(ctx)
@@ -376,8 +384,7 @@ func TestPool_PutWakesUpWaiter(t *testing.T) {
 		gotConn <- c
 	}()
 
-	// 确保 goroutine 已进入等待
-	time.Sleep(time.Millisecond * 50)
+	// 不 sleep：connReadyCh 缓冲 1（Put 信号保留）+ 下方 3s 超时兜底
 
 	// 归还连接 → 应唤醒等待者
 	if err := pool.Put(ctx, conn1); err != nil {
@@ -717,10 +724,10 @@ func TestPool_SignalWakesOneWaiter(t *testing.T) {
 		}()
 	}
 
-	time.Sleep(time.Millisecond * 50)
+	// 不 sleep：connReadyCh 缓冲 1 保留信号；断言仅 Log（timing-sensitive），
+	// 真正验证是末尾 wg.Wait()（两等待者最终都拿到连接）
 
 	pool.Put(ctx, conns[0])
-	time.Sleep(time.Millisecond * 100)
 
 	if n := atomic.LoadInt32(&gotConns); n != 1 {
 		t.Logf("Signal woke %d waiters (expected 1, may be timing-sensitive)", n)
@@ -769,7 +776,8 @@ func TestPool_CloseWakesMultipleWaiters(t *testing.T) {
 		}()
 	}
 
-	time.Sleep(time.Millisecond * 50)
+	// 不 sleep：Close 会 close(connReadyCh) 唤醒所有等待者（无论是否已进入），
+	// wg.Wait 兜底
 
 	// Close 应唤醒所有等待者
 	pool.Close(ctx)
