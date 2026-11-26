@@ -2,7 +2,10 @@ package metrics
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"math"
 	"net/http"
@@ -25,7 +28,7 @@ func TestStartReporter_NoWebhook(t *testing.T) {
 	resetReporterForTest()
 	defer resetReporterForTest()
 
-	StartReporter("", 60)
+	StartReporter(60)
 	reportMu.Lock()
 	inst := reportInstance
 	reportMu.Unlock()
@@ -49,14 +52,14 @@ func TestStartReporter_Idempotent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	StartReporter(srv.URL, 60)
+	StartReporter(60, WithWebhookRoutes([]WebhookRoute{{Urls: []string{srv.URL}}}))
 	reportMu.Lock()
 	first := reportInstance
 	reportMu.Unlock()
 	if first == nil {
 		t.Fatal("应启动")
 	}
-	StartReporter(srv.URL+"/different", 60)
+	StartReporter(60, WithWebhookRoutes([]WebhookRoute{{Urls: []string{srv.URL + "/different"}}}))
 	reportMu.Lock()
 	second := reportInstance
 	reportMu.Unlock()
@@ -105,7 +108,7 @@ func TestReporter_PushFailureKeepsState(t *testing.T) {
 
 	r := &Reporter{
 		interval: time.Second,
-		webhook:  srv.URL,
+		routes:   []WebhookRoute{{Urls: []string{srv.URL}}},
 		done:     make(chan struct{}),
 	}
 	// 注入采集
@@ -332,7 +335,7 @@ func TestStartReporter_IntervalClamp(t *testing.T) {
 	defer resetReporterForTest()
 
 	// 超大值：fmt 中 int 上限（9223372036854775807）会导致 time.Duration*Second 溢出
-	StartReporter(srv.URL, int(^uint(0)>>1))
+	StartReporter(int(^uint(0)>>1), WithWebhookRoutes([]WebhookRoute{{Urls: []string{srv.URL}}}))
 	reportMu.Lock()
 	inst := reportInstance
 	reportMu.Unlock()
@@ -390,7 +393,7 @@ func TestStopReporter_CancelsInflightPush(t *testing.T) {
 	defer srv.Close()
 
 	resetReporterForTest()
-	StartReporter(srv.URL, 60)
+	StartReporter(60, WithWebhookRoutes([]WebhookRoute{{Urls: []string{srv.URL}}}))
 
 	// 等 push 到达 server（在途）
 	select {
@@ -414,4 +417,98 @@ func TestStopReporter_CancelsInflightPush(t *testing.T) {
 	// 否则 httptest.Close 会等 handler 的 10s 挂起窗口（客户端 cancel 后
 	// r.Context() 在 Windows 下可能未及时感知）
 	srv.CloseClientConnections()
+}
+
+// TestWebhookRoute_Matches 路由匹配：types/levels 空=不限，顺序先命中先生效。
+func TestWebhookRoute_Matches(t *testing.T) {
+	tests := []struct {
+		name    string
+		route   WebhookRoute
+		repType string
+		level   DiagnosisLevel
+		want    bool
+	}{
+		{"types 命中", WebhookRoute{Types: []string{"alert"}, Urls: []string{"u"}}, "alert", DiagnosisWarn, true},
+		{"types 不命中", WebhookRoute{Types: []string{"periodic"}, Urls: []string{"u"}}, "alert", DiagnosisWarn, false},
+		{"levels 命中", WebhookRoute{Levels: []string{"critical"}, Urls: []string{"u"}}, "alert", DiagnosisCritical, true},
+		{"levels 不命中", WebhookRoute{Levels: []string{"critical"}, Urls: []string{"u"}}, "alert", DiagnosisWarn, false},
+		{"空条件不限", WebhookRoute{Urls: []string{"u"}}, "periodic", DiagnosisOK, true},
+		{"无 urls 不命中", WebhookRoute{Types: []string{"alert"}}, "alert", DiagnosisWarn, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.route.matches(tt.repType, tt.level); got != tt.want {
+				t.Errorf("matches(%s, %s) = %v, want %v", tt.repType, tt.level, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestReporter_PushRoutes 分群推送：周期报告走体检群、告警走值班群+@人。
+func TestReporter_PushRoutes(t *testing.T) {
+	var periodicHits, alertHits int
+	var alertMentions []string
+	periodicSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		periodicHits++
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer periodicSrv.Close()
+	alertSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		alertHits++
+		var payload struct {
+			Text struct {
+				MentionedList []string `json:"mentioned_list"`
+			} `json:"text"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		alertMentions = payload.Text.MentionedList
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer alertSrv.Close()
+
+	r := &Reporter{
+		routes: []WebhookRoute{
+			{Types: []string{"periodic"}, Urls: []string{periodicSrv.URL}},
+			{Types: []string{"alert"}, Levels: []string{"warn", "critical"},
+				Urls: []string{alertSrv.URL}, Mentions: []string{"zhangsan", "@all"}},
+		},
+	}
+
+	if err := r.push("体检", "periodic", DiagnosisOK); err != nil {
+		t.Fatalf("周期推送失败: %v", err)
+	}
+	if err := r.push("告警", "alert", DiagnosisCritical); err != nil {
+		t.Fatalf("告警推送失败: %v", err)
+	}
+	if periodicHits != 1 || alertHits != 1 {
+		t.Errorf("路由错误: periodic=%d alert=%d, want 1/1", periodicHits, alertHits)
+	}
+	if len(alertMentions) != 2 || alertMentions[0] != "zhangsan" || alertMentions[1] != "@all" {
+		t.Errorf("告警 @ 人错误: %v", alertMentions)
+	}
+}
+
+// TestReporter_PushNoMatch 无匹配路由时跳过推送（返回 nil，不报错）。
+func TestReporter_PushNoMatch(t *testing.T) {
+	r := &Reporter{routes: []WebhookRoute{{Types: []string{"alert"}, Urls: []string{"http://x"}}}}
+	if err := r.push("体检", "periodic", DiagnosisOK); err != nil {
+		t.Errorf("无匹配路由应跳过（nil），got %v", err)
+	}
+}
+
+// TestPushToWebhookWithMentions_nil 无 @ 人时 payload 与旧版一致（无 mentioned_list 字段）。
+func TestPushToWebhookWithMentions_nil(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer srv.Close()
+
+	if err := PushToWebhookWithMentions(context.Background(), srv.URL, "hello", nil); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if strings.Contains(string(body), "mentioned_list") {
+		t.Errorf("无 @ 人时不应有 mentioned_list 字段: %s", body)
+	}
 }

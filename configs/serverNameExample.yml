@@ -7,7 +7,7 @@ app:
   registryDiscoveryType: ""       # 注册与发现类型: etcd / nacos, 如果为空, 不使用注册与发现
   host: ""                        # 服务注册IP, 为空则自动解析(POD_IP > HOST_IP > 本机网卡IP > 127.0.0.1)
   enableHTTPProfile: true         # 是否开启性能分析, true:开启, false:关闭 [热更新]
-  pprofIPWhiteList:               # pprof IP 白名单（空=仅 prod 环境用默认内网段） [热更新]
+  pprofIPWhiteList: # pprof IP 白名单（空=仅 prod 环境用默认内网段） [热更新]
     - 127.0.0.1
   enableLimit: false              # 是否开启限流(自适应), true:开启, false:关闭 [热更新: 与 sentinel.limitRules 联动, 关闭时自动清空限流规则]
   enableCircuitBreaker: false     # 是否开启熔断器(自适应), true:开启, false:关闭 [热更新: 与 sentinel.breakerRules 联动, 关闭时自动清空熔断规则]
@@ -22,8 +22,8 @@ cron:
   # 定时任务配置：按任务名精确控制单个任务的启停与执行时间 [热更新]
   # key 为任务名（internal/cron/tasks 中 RegisterTask 注册的 Name，按大小写不敏感匹配，驼峰原样书写即可）
   # 未配置的任务使用代码内默认：启用 + 注册时的 TimeSpec
-  tasks:  # @type:map[string]CronTask, key=任务名, CronTask 结构定义在 internal/config/cron.go（手写文件）
-    userExampleTask:       # 订单超时取消任务
+  tasks: # @type:map[string]CronTask, key=任务名, CronTask 结构定义在 internal/config/cron.go（手写文件）
+    userExampleTask: # 订单超时取消任务
       enable: true                # 是否启用该任务, true:启用, false:停用(从调度器移除), 不写则默认启用 [热更新]
       timeSpec: "@every 1m"       # 时间表达式, 留空则使用代码默认值(@every 1m); 格式: 秒 分 时 日 月 周, 如 "0 */5 * * * *" 每5分钟 [热更新]
 
@@ -127,7 +127,16 @@ metrics:
   enabled: false
   # 企业微信群机器人地址（含 key）。留空不启动报告器（不产生任何外发流量）
   # 非法 URL 会拒绝启动并留 ERROR 日志（配置错误不该静默运行）
-  webhookURL: ""
+  # 推送路由：按顺序先命中先生效 [启动生效]。
+  # types: periodic(周期体检) / alert(异常即时)；levels: ok / warn / critical（二者留空=不限）
+  # urls 可多个（同时推送到多个群）；mentions 为企微 userid 或 "@all"
+  webhookRoutes:
+    - types: [ "periodic" ]
+      urls: [ "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=health" ]
+    - types: [ "alert" ]
+      levels: [ "warn", "critical" ]
+      urls: [ "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=onduty" ]
+      mentions: [ ]
   # 周期报告间隔（秒）。<=0 取默认 60；<10 钳到 10（企微限频 20 条/分钟）
   intervalSec: 60
   # 以下为诊断阈值：0 = 使用框架默认基线（见 pkg/metrics.DefaultDiagnosisThresholds）
@@ -136,6 +145,10 @@ metrics:
   p99Warn: 1.0                 # P99耗时警告阈值(秒), 默认1.0s
   p99Critical: 5.0             # P99耗时严重阈值(秒), 默认5.0s
   minSamples: 10               # 最小样本数, 默认10(样本太少错误率不可信, 不诊断防刷告警)
+  # Gauge 阈值告警（key=指标名, value=above 阈值）：值超过阈值即告警。
+  # 不填=用 componentSpecs 内置默认值；空对象=全部关闭
+  gaugeAbove:
+    db_pool_in_use_connections: 100 # 数据库连接池使用连接数超过100即告警
 
 # 阿里云 SLS 日志服务配置
 sls:
@@ -221,7 +234,7 @@ response:
 otlp:
   endpoint: "tracing-analysis-dc-sh.aliyuncs.com:8090"  # gRPC端点，Go语言需删除 http:// 前缀
   insecure: true                  # 是否禁用TLS（阿里云公网/内网通常为true）
-  headers:  # @type:map[string]string, gRPC鉴权头部（gRPC方式必须配置）
+  headers: # @type:map[string]string, gRPC鉴权头部（gRPC方式必须配置）
     authentication: "j1hwr1hssi@6205c493199393c_j1r1hssi@5f7ad2afe8301"  # 阿里云链路追踪鉴权Token
   timeout: 10                     # 导出超时（秒），默认10
   maxQueueSize: 0                 # 最大队列容量，默认2048，0=使用默认值

@@ -59,7 +59,7 @@ var (
 	reporterPushTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "metrics_reporter_push_total",
 		Help: "Metric reporter webhook push attempts by result (ok/error).",
-	}, []string{"result"})
+	}, []string{labelResult})
 
 	// reporterLastPushTimestamp 上次【成功】推送的 Unix 时间戳（gauge）。
 	// 监控表达式：time() - metrics_reporter_last_push_timestamp_seconds > 180
@@ -86,10 +86,54 @@ func observeReporterPush(err error) {
 	}
 }
 
+// WebhookRoute 一条推送路由规则（对齐 upstreamRoutes 的"按顺序先命中先生效"语义）。
+// types / levels 为空表示不限制该维度；urls 可多个（同时推送到多个群）。
+type WebhookRoute struct {
+	Types    []string // 报告类型：periodic（周期体检）/ alert（异常即时告警），空=不限
+	Levels   []string // 诊断级别：ok / warn / critical，空=不限
+	Urls     []string // 目标 webhook 地址（多个则全部推送）
+	Mentions []string // @ 人列表（企微 userid 或 "@all"）
+}
+
+// matches 判断本规则是否命中当前推送场景。
+func (r WebhookRoute) matches(reportType string, level DiagnosisLevel) bool {
+	if len(r.Types) > 0 && !containsString(r.Types, reportType) {
+		return false
+	}
+	if len(r.Levels) > 0 && !containsString(r.Levels, levelKey(level)) {
+		return false
+	}
+	return len(r.Urls) > 0
+}
+
+// levelKey 把诊断级别转成稳定的配置键（ok/warn/critical）。
+// 不用 level.String()——那是中文展示文案（"正常"/"警告"/"严重"），
+// 配置枚举必须是稳定的英文，否则改文案就会破坏线上配置。
+func levelKey(level DiagnosisLevel) string {
+	switch level {
+	case DiagnosisOK:
+		return "ok"
+	case DiagnosisWarn:
+		return "warn"
+	case DiagnosisCritical:
+		return "critical"
+	}
+	return "unknown"
+}
+
+func containsString(list []string, v string) bool {
+	for _, s := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
 // Reporter 持有报告器生命周期状态。
 // prev/lastCode/lastPushAt 等只在 push 成功后推进（失败保留现场）。
 type Reporter struct {
-	webhook             string
+	routes              []WebhookRoute // 推送路由规则（按顺序先命中先生效）
 	interval            time.Duration
 	prev                *MetricSnapshot                 // 上一窗口累计快照，仅 run goroutine 访问
 	lastCode            string                          // 上次诊断 code，仅 run goroutine 访问
@@ -186,6 +230,14 @@ func WithDiagnosisHook(h DiagnosisHook) ReporterOption {
 	}
 }
 
+// WithWebhookRoutes 配置推送路由规则（按顺序先命中先生效）。
+// 由 yml 的 webhookRoutes 经 internal/config 转换传入。
+func WithWebhookRoutes(routes []WebhookRoute) ReporterOption {
+	return func(r *Reporter) {
+		r.routes = routes
+	}
+}
+
 // diagnose 先跑业务 hook，nil 或 panic 则回落框架通用诊断。
 func (r *Reporter) diagnose(s *MetricSnapshot) (d Diagnosis) {
 	if r.hook != nil {
@@ -207,7 +259,7 @@ func (r *Reporter) diagnose(s *MetricSnapshot) (d Diagnosis) {
 // 用本结构体传配置，避免业务复制"总开关 + webhook 校验 + 阈值回落"逻辑。
 type ReporterSettings struct {
 	Enabled     bool                // 指标体系总开关（false → 不启动，与采集端装配语义一致）
-	WebhookURL  string              // 企业微信群机器人地址（空 → no-op 留 WARN）
+	Routes      []WebhookRoute      // 推送路由规则（按顺序先命中先生效）
 	IntervalSec int                 // 周期报告间隔（<=0 默认 60s，<10s 钳到 10s）
 	Thresholds  DiagnosisThresholds // 诊断阈值（零值字段自动回落框架默认，见 normalize）
 }
@@ -220,30 +272,15 @@ func StartWithSettings(st ReporterSettings, opts ...ReporterOption) {
 		log.Println("[metrics-report] WARN: 指标体系总开关关闭（enabled=false），报告器不启动")
 		return
 	}
-	all := []ReporterOption{WithDiagnosisThresholds(st.Thresholds)}
+	all := []ReporterOption{WithWebhookRoutes(st.Routes), WithDiagnosisThresholds(st.Thresholds)}
 	all = append(all, opts...)
-	StartReporter(st.WebhookURL, st.IntervalSec, all...)
+	StartReporter(st.IntervalSec, all...)
 }
 
 // StartReporter 按配置启动指标报告器（幂等，重复调用只生效一次）。
-// webhook 留空即 no-op；interval<=0 取默认 60s，低于 10s 钳到 10s（企微限频）。
-func StartReporter(webhookURL string, intervalSec int, opts ...ReporterOption) {
-	webhookURL = strings.TrimSpace(webhookURL)
-	if webhookURL == "" {
-		// 必须留痕：yml 不入库，生产漏配时若静默返回，
-		// 运维会以为"报告器在跑"，实际一条都收不到。
-		log.Println("[metrics-report] WARN: webhook 未配置，指标报告未启动（群机器人不会收到任何消息）")
-		return
-	}
-	host, err := extractWebhookHost(webhookURL)
-	if err != nil {
-		// 配置错误必须拒绝启动并留痕：带病运行只会让运维误以为报告器在干活。
-		log.Printf("[metrics-report] ERROR: webhook URL 非法，指标报告未启动: %v", err)
-		return
-	}
-	if !IsWeComWebhookHost(host) {
-		log.Printf("[metrics-report] WARN: webhook 不是企业微信群机器人地址，指标可能被推到外部地址 host=%s", host)
-	}
+// 推送目标由 WithWebhookRoutes 注入（路由规则数组）；无有效路由则 no-op 并留 WARN。
+// interval<=0 取默认 60s，低于 10s 钳到 10s（企微限频）。
+func StartReporter(intervalSec int, opts ...ReporterOption) {
 	// 先钳制秒数再乘 time.Second：超大 intervalSec 直接相乘会 int64 溢出，
 	// 溢出成负数会被 <=0 分支兜底成 60s（语义错误），溢出成正数则 ticker 异常。
 	maxSec := int(maxReportInterval / time.Second)
@@ -267,7 +304,6 @@ func StartReporter(webhookURL string, intervalSec int, opts ...ReporterOption) {
 	}
 	pushCtx, pushCancel := context.WithCancel(context.Background())
 	r := &Reporter{
-		webhook:  webhookURL,
 		interval: interval,
 		instance: instanceHostname(),
 		done:     make(chan struct{}),
@@ -276,6 +312,69 @@ func StartReporter(webhookURL string, intervalSec int, opts ...ReporterOption) {
 	}
 	for _, opt := range opts {
 		opt(r)
+	}
+	// 路由校验：非法 URL 的路由直接丢弃（配置错误不该静默运行，更不能推到外部地址）。
+	// 校验在 opt 应用之后——routes 由 WithWebhookRoutes 注入，此时才有值。
+	routes := r.routes[:0]
+	for _, route := range r.routes {
+		validUrls := route.Urls[:0]
+		for _, u := range route.Urls {
+			u = strings.TrimSpace(u)
+			host, err := extractWebhookHost(u)
+			if err != nil {
+				log.Printf("[metrics-report] ERROR: 路由 webhook URL 非法，跳过: %v", err)
+				continue
+			}
+			if !IsWeComWebhookHost(host) {
+				// 非企微域名仍可用（私有化部署/测试 server），但与主 webhook 同标准留 WARN
+				log.Printf("[metrics-report] WARN: 路由 webhook 非企微地址 host=%s（私有化/测试环境可忽略）", host)
+			}
+			validUrls = append(validUrls, u)
+		}
+		if len(validUrls) > 0 {
+			route.Urls = validUrls
+			routes = append(routes, route)
+		}
+	}
+	r.routes = routes
+	if len(r.routes) == 0 {
+		log.Println("[metrics-report] WARN: 无有效 webhook 路由，指标报告未启动（群机器人不会收到任何消息）")
+		return
+	}
+	// Gauge 规则 kind 校验：配置错误必须在启动时暴露（未知 kind 的规则会永久失效）。
+	for name, spec := range componentSpecs {
+		if spec.gaugeRule == nil {
+			continue
+		}
+		switch spec.gaugeRule.kind {
+		case gaugeRuleEqZero, gaugeRuleAbove:
+		default:
+			log.Printf("[metrics-report] ERROR: 指标 %s 的 gaugeRule.kind=%q 未知（仅支持 eqZero/above），该规则永久失效",
+				name, spec.gaugeRule.kind)
+		}
+	}
+	// 路由类型覆盖检查：fastCheck 只在"进入异常"时即时推送，若无 alert 类型路由，
+	// 异常告警会被静默跳过且 lastCode 仍会更新（下次不再提醒）——运维完全无感知。
+	// 启动时显式 WARN，把配置缺失暴露出来。
+	var hasPeriodic, hasAlert bool
+	for _, route := range r.routes {
+		if len(route.Types) == 0 {
+			// 空 types = 不限类型，视为同时覆盖
+			hasPeriodic, hasAlert = true, true
+			break
+		}
+		if containsString(route.Types, "periodic") {
+			hasPeriodic = true
+		}
+		if containsString(route.Types, "alert") {
+			hasAlert = true
+		}
+	}
+	if !hasPeriodic {
+		log.Println("[metrics-report] WARN: webhook 路由未覆盖 periodic 类型，周期体检报告不会推送")
+	}
+	if !hasAlert {
+		log.Println("[metrics-report] WARN: webhook 路由未覆盖 alert 类型，异常即时告警不会推送（静默）")
 	}
 	// 配置校验（大厂标准：启动时快速发现错误配置，不能静默运行）。
 	// 校验 normalize 后的【最终生效值】——只覆盖 warn 而没覆盖 critical 时，
@@ -340,8 +439,8 @@ func (r *Reporter) pushReportOnce() {
 	diag := r.diagnose(delta)
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
 
-	if err := r.push(text); err != nil {
-		log.Printf("[metrics-report] WARN: push failed, window kept for retry: %s", RedactWebhookError(err, r.webhook))
+	if err := r.push(text, "periodic", diag.Level); err != nil {
+		log.Printf("[metrics-report] WARN: push failed, window kept for retry: %s", err)
 		r.lastFailAt = time.Now()
 		return
 	}
@@ -386,8 +485,8 @@ func (r *Reporter) fastCheck() {
 
 	window := r.windowSinceLastPush()
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
-	if err := r.push(text); err != nil {
-		log.Printf("[metrics-report] WARN: immediate push failed, will retry: %s", RedactWebhookError(err, r.webhook))
+	if err := r.push(text, "alert", diag.Level); err != nil {
+		log.Printf("[metrics-report] WARN: immediate push failed, will retry: %s", err)
 		r.lastFailAt = time.Now()
 		return // 现场保留：prev/lastCode 不动，下个巡检点按同一窗口重试
 	}
@@ -429,15 +528,44 @@ func (r *Reporter) gatherPeriodic() (*MetricSnapshot, error) {
 
 // push 推送报告文本到 webhook，并统一打自监控埋点。
 // 埋点集中在此，避免两处调用点漏打（自监控必须与真实推送严格同步）。
-func (r *Reporter) push(text string) error {
+// push 按路由规则推送报告：按顺序先命中先生效，命中规则的 urls 全部推送。
+// reportType 为 "periodic"/"alert"，level 为本次诊断级别。
+// 推送失败返回聚合错误（error 已经 webhook 脱敏，见 PushToWebhookWithMentions）。
+func (r *Reporter) push(text, reportType string, level DiagnosisLevel) error {
 	// ctx 可能为 nil（测试直接构造 &Reporter{}），降级 Background 防 WithTimeout panic
 	pushCtx := r.ctx
 	if pushCtx == nil {
 		pushCtx = context.Background()
 	}
-	err := PushToWebhook(pushCtx, r.webhook, text)
-	observeReporterPush(err)
-	return err
+	route, ok := r.matchRoute(reportType, level)
+	if !ok {
+		log.Printf("[metrics-report] WARN: 无匹配路由 type=%s level=%s，跳过推送", reportType, level)
+		return nil
+	}
+	var errs []string
+	for _, webhookURL := range route.Urls {
+		err := PushToWebhookWithMentions(pushCtx, webhookURL, text, route.Mentions)
+		// 自监控：必须与真实推送严格同步（报告器是"监控的监控"，自身故障必须可见）
+		observeReporterPush(err)
+		if err != nil {
+			// 错误统一脱敏（URL 含 key 不能进日志）
+			errs = append(errs, RedactWebhookError(err, webhookURL))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("推送失败 %d/%d: %s", len(errs), len(route.Urls), strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// matchRoute 按顺序返回第一条命中的路由。
+func (r *Reporter) matchRoute(reportType string, level DiagnosisLevel) (WebhookRoute, bool) {
+	for _, route := range r.routes {
+		if route.matches(reportType, level) {
+			return route, true
+		}
+	}
+	return WebhookRoute{}, false
 }
 
 // windowSinceLastPush 距上次推送的实际窗口时长；首推用名义间隔。

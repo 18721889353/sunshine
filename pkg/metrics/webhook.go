@@ -51,15 +51,33 @@ var webhookKeyPattern = regexp.MustCompile(`(?i)([?&]key=)[^&\s"']+`)
 
 // PushToWebhook 把报告文本 POST 到企业微信机器人。
 // 返回 error 供调用方决定是否提交窗口状态。
+// 保持原有签名（无 @ 人）——需要 @ 时用 PushToWebhookWithMentions。
 func PushToWebhook(ctx context.Context, webhookURL, content string) error {
-	payload, err := json.Marshal(struct {
-		MsgType string `json:"msgtype"`
-		Text    struct {
-			Content string `json:"content"`
-		} `json:"text"`
-	}{MsgType: "text", Text: struct {
-		Content string `json:"content"`
-	}{Content: truncateUTF8(content, maxContentLen)}})
+	return PushToWebhookWithMentions(ctx, webhookURL, content, nil)
+}
+
+// webhookPayload 企微 text 消息体。
+// mentioned_list 用 omitempty：无 @ 人时不输出该字段，与旧版 payload 完全一致（向后兼容）。
+type webhookPayload struct {
+	MsgType string `json:"msgtype"`
+	Text    struct {
+		Content       string   `json:"content"`
+		MentionedList []string `json:"mentioned_list,omitempty"`
+	} `json:"text"`
+}
+
+// PushToWebhookWithMentions 推送文本并 @ 指定成员（企微 userid 列表，如 ["zhangsan", "@all"]）。
+// mentions 为空时行为与 PushToWebhook 完全一致。
+func PushToWebhookWithMentions(ctx context.Context, webhookURL, content string, mentions []string) error {
+	var text struct {
+		Content       string   `json:"content"`
+		MentionedList []string `json:"mentioned_list,omitempty"`
+	}
+	text.Content = truncateUTF8(content, maxContentLen)
+	if len(mentions) > 0 {
+		text.MentionedList = mentions
+	}
+	payload, err := json.Marshal(webhookPayload{MsgType: "text", Text: text})
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)
 	}

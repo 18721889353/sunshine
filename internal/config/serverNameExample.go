@@ -363,6 +363,10 @@ type LimitRules struct {
 	TokenCalculateStrategy string  `yaml:"tokenCalculateStrategy" json:"tokenCalculateStrategy"`
 }
 
+type GaugeAbove struct {
+	DBPoolInUseConnections int `yaml:"db_pool_in_use_connections" json:"db_pool_in_use_connections"`
+}
+
 type Redis struct {
 	DialTimeout  int    `yaml:"dialTimeout" json:"dialTimeout"`
 	Dsn          string `yaml:"dsn" json:"dsn"`
@@ -453,14 +457,15 @@ type Sso struct {
 }
 
 type Metrics struct {
-	Enabled         bool    `yaml:"enabled" json:"enabled"`
-	ErrRateCritical float64 `yaml:"errRateCritical" json:"errRateCritical"`
-	ErrRateWarn     float64 `yaml:"errRateWarn" json:"errRateWarn"`
-	IntervalSec     int     `yaml:"intervalSec" json:"intervalSec"`
-	MinSamples      int     `yaml:"minSamples" json:"minSamples"`
-	P99Critical     float64 `yaml:"p99Critical" json:"p99Critical"`
-	P99Warn         float64 `yaml:"p99Warn" json:"p99Warn"`
-	WebhookURL      string  `yaml:"webhookURL" json:"webhookURL"`
+	Enabled         bool            `yaml:"enabled" json:"enabled"`
+	ErrRateCritical float64         `yaml:"errRateCritical" json:"errRateCritical"`
+	ErrRateWarn     float64         `yaml:"errRateWarn" json:"errRateWarn"`
+	GaugeAbove      GaugeAbove      `yaml:"gaugeAbove" json:"gaugeAbove"`
+	IntervalSec     int             `yaml:"intervalSec" json:"intervalSec"`
+	MinSamples      int             `yaml:"minSamples" json:"minSamples"`
+	P99Critical     float64         `yaml:"p99Critical" json:"p99Critical"`
+	P99Warn         float64         `yaml:"p99Warn" json:"p99Warn"`
+	WebhookRoutes   []WebhookRoutes `yaml:"webhookRoutes" json:"webhookRoutes"`
 }
 
 type EtcdInfo struct {
@@ -531,6 +536,13 @@ type Sign struct {
 	IgnoreUrls      IgnoreMethods `yaml:"ignoreUrls" json:"ignoreUrls"`
 	SignExpiredTime int           `yaml:"signExpiredTime" json:"signExpiredTime"`
 	SignKey         string        `yaml:"signKey" json:"signKey"`
+}
+
+type WebhookRoutes struct {
+	Levels   []string      `yaml:"levels" json:"levels"`
+	Mentions []interface{} `yaml:"mentions" json:"mentions"`
+	Types    []string      `yaml:"types" json:"types"`
+	Urls     []string      `yaml:"urls" json:"urls"`
 }
 
 type BreakerRules struct {

@@ -14,12 +14,22 @@ import (
 // 任何注册到统一中心的组件指标无需改渲染代码即可出现。
 // ============================================================================
 
+// gaugeRule Gauge 指标的异常判定规则（声明式，避免诊断引擎硬编码指标名）。
+// 不同 gauge 语义不同：连接数"掉到 0"是故障、等待数"超过阈值"是故障，
+// 统一阈值无法表达，故由 componentSpec 声明。
+type gaugeRule struct {
+	kind      string         // "eqZero"（值为 0 异常）/ "above"（超过阈值异常）
+	threshold float64        // above 规则的阈值；eqZero 忽略
+	warnLevel DiagnosisLevel // 命中的级别（Warn / Critical）
+}
+
 // componentSpec 组件展示规格：指标名 -> 中文名 + 分组。
 type componentSpec struct {
-	label string // 中文名（如 "Redis"）
-	group string // 分组（如 "数据层"）
-	kind  string // "duration"(耗时) / "counter"(计数) / "cache"(带命中率)
-	unit  string // 计量单位（""=次）；如 uptime 的"分钟"
+	label     string     // 中文名（如 "Redis"）
+	group     string     // 分组（如 "数据层"）
+	kind      string     // "duration"(耗时) / "counter"(计数) / "cache"(带命中率) / "gauge"
+	unit      string     // 计量单位（""=次）；如 uptime 的"分钟"
+	gaugeRule *gaugeRule // Gauge 异常规则（仅 kind=gauge 有效，nil=不诊断）
 }
 
 // componentSpecs 指标名 -> 展示规格。key 为指标 base 名（去 _duration_seconds/_total 后缀）。
@@ -49,6 +59,19 @@ var componentSpecs = map[string]componentSpec{
 	"nacos_config_fetch":    {label: "Nacos配置拉取", group: groupInfra, kind: kindDuration},
 	"etcd_token_refresh":    {label: "etcd token刷新", group: groupInfra, kind: kindCounter},
 	"nacos_config_callback": {label: "Nacos配置回调", group: groupInfra, kind: kindCounter},
+	// 韧性指标（P0/P1 补齐的系统故障信号）
+	"panic_recovered":          {label: "panic恢复", group: groupInfra, kind: kindCounter},
+	"request_timeout":          {label: "请求超时", group: groupInfra, kind: kindCounter},
+	"request_retry":            {label: "请求重试", group: groupInfra, kind: kindCounter},
+	"kafka_publish":            {label: "Kafka发布", group: groupMsgTask, kind: kindDuration},
+	"kafka_consume":            {label: "Kafka消费", group: groupMsgTask, kind: kindDuration},
+	"db_pool_open_connections": {label: "DB连接池总数", group: groupData, kind: kindGauge},
+	"db_pool_in_use_connections": {label: "DB连接池在用", group: groupData, kind: kindGauge,
+		gaugeRule: &gaugeRule{kind: gaugeRuleAbove, threshold: 100, warnLevel: DiagnosisWarn}},
+	"db_pool_wait_count":            {label: "DB连接等待次数", group: groupData, kind: kindCounter},
+	"db_pool_wait_duration_seconds": {label: "DB连接等待时长", group: groupData, kind: kindCounter},
+	"gows_local_connections":        {label: "WebSocket连接", group: groupHTTP, kind: kindGauge},
+	"gows_remote_uids":              {label: "远端UID", group: groupHTTP, kind: kindGauge},
 	// 运行时（gauge，不差分）
 	"go_goroutines":                {label: "goroutine", group: groupRuntime, kind: kindGauge},
 	"go_memstats_alloc_bytes":      {label: "内存分配", group: groupRuntime, kind: kindGauge},

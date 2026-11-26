@@ -2,19 +2,19 @@ package config
 
 import "testing"
 
-// TestBuildReporterOptions_AllZero 全零阈值 → 不覆盖（走框架默认基线）。
+// TestBuildReporterOptions_AllZero 全零阈值 → 只传 routes option（阈值回落框架默认基线）。
 func TestBuildReporterOptions_AllZero(t *testing.T) {
 	opts := buildReporterOptions(Metrics{})
-	if opts != nil {
-		t.Errorf("全零配置不应传 options（应回落框架默认），got %d 个", len(opts))
+	if len(opts) != 1 {
+		t.Errorf("全零配置应只传 routes option，got %d 个", len(opts))
 	}
 }
 
-// TestBuildReporterOptions_Partial 至少覆盖一个字段 → 传 options 且阈值正确。
+// TestBuildReporterOptions_Partial 至少覆盖一个字段 → routes + 阈值两个 option。
 func TestBuildReporterOptions_Partial(t *testing.T) {
 	opts := buildReporterOptions(Metrics{P99Warn: 0.5})
-	if len(opts) != 1 {
-		t.Fatalf("覆盖一个字段应传 1 个 option, got %d", len(opts))
+	if len(opts) != 2 {
+		t.Fatalf("覆盖一个字段应传 2 个 option（routes+阈值）, got %d", len(opts))
 	}
 	// options 是闭包无法直接读字段，断言其来源 buildThresholds 的结构
 	got, overridden := buildThresholds(Metrics{P99Warn: 0.5})
@@ -44,6 +44,30 @@ func TestBuildThresholds_MinSamples(t *testing.T) {
 	}
 
 	// 零值 → 未覆盖
+	if _, overridden := buildThresholds(Metrics{}); overridden {
+		t.Error("全零不应标记覆盖")
+	}
+}
+
+// TestBuildGaugeAbove 配置阈值转换：零值跳过、yaml tag 作 key、空配置返回 nil。
+func TestBuildGaugeAbove(t *testing.T) {
+	got := buildGaugeAbove(GaugeAbove{DBPoolInUseConnections: 100})
+	if len(got) != 1 || got["db_pool_in_use_connections"] != 100 {
+		t.Errorf("GaugeAbove 转换错误: %v", got)
+	}
+	// 全零 → nil（未配置）
+	if m := buildGaugeAbove(GaugeAbove{}); m != nil {
+		t.Errorf("全零应返回 nil, got %v", m)
+	}
+}
+
+// TestBuildThresholds_GaugeAbove 配置了 GaugeAbove 也算"覆盖"（触发 WithDiagnosisThresholds）。
+func TestBuildThresholds_GaugeAbove(t *testing.T) {
+	// 只配 GaugeAbove，其他阈值全零 → 仍应 overridden=true
+	if _, overridden := buildThresholds(Metrics{GaugeAbove: GaugeAbove{DBPoolInUseConnections: 50}}); !overridden {
+		t.Error("仅配 GaugeAbove 也应标记覆盖")
+	}
+	// 全零 → 未覆盖
 	if _, overridden := buildThresholds(Metrics{}); overridden {
 		t.Error("全零不应标记覆盖")
 	}

@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+// gaugeRule kind 常量（避免 goconst 多处重复告警）。
+const (
+	gaugeRuleAbove  = "above"
+	gaugeRuleEqZero = "eqZero"
+)
+
 // ============================================================================
 // 诊断引擎：分析窗口增量，产出诊断结论（code/level/描述）。
 //
@@ -83,6 +89,11 @@ type DiagnosisThresholds struct {
 	P99Critical float64
 	// MinSamples 最小样本数：样本太少错误率不可信，不诊断（防偶发单次失败刷告警）。
 	MinSamples uint64
+	// GaugeAbove Gauge 阈值告警规则：key=指标名（base），value=above 阈值。
+	// 配置的阈值【覆盖】componentSpecs 内置默认值；未配置的指标用内置值。
+	// map 使 DiagnosisThresholds 不可比较（不能用 != 判断零值），
+	// 配置层需用显式字段判断，见 internal/config.buildThresholds。
+	GaugeAbove map[string]float64
 }
 
 // DefaultDiagnosisThresholds 返回大厂常用基线阈值。
@@ -113,6 +124,11 @@ func (t DiagnosisThresholds) normalize() DiagnosisThresholds {
 	}
 	if t.MinSamples > 0 {
 		d.MinSamples = t.MinSamples
+	}
+	// GaugeAbove 是 map：normalize 从默认值 d 构造，必须显式复制，
+	// 否则配置的 Gauge 阈值在 normalize 时被静默丢弃（配置了等于没配）。
+	if t.GaugeAbove != nil {
+		d.GaugeAbove = t.GaugeAbove
 	}
 	return d
 }
@@ -216,21 +232,107 @@ func DiagnoseWithThresholds(s *MetricSnapshot, th DiagnosisThresholds) Diagnosis
 			continue
 		}
 		base := metricBase(name)
-		failRate := 0.0
-		if total > 0 {
-			failRate = errs / total * 100
+		var desc string
+		if total <= errs {
+			// 只有 error 样本（如 panic_recovered_total / request_timeout_total，
+			// 埋点只记 error 不记 ok）→ 没有失败率分母，显示 100% 会误导。
+			// 改显示累计异常次数，语义准确。
+			desc = fmt.Sprintf("%s 累计异常 %.0f 次", componentLabel(base), errs)
+		} else {
+			failRate := errs / total * 100
+			desc = fmt.Sprintf("%s 失败 %.0f/%.0f 次（%.1f%%）", componentLabel(base), errs, total, failRate)
 		}
 		d := Diagnosis{
 			Level: DiagnosisWarn,
 			Code:  fmt.Sprintf("%s:counter-error", base),
-			Desc:  fmt.Sprintf("%s 失败 %.0f/%.0f 次（%.1f%%）", componentLabel(base), errs, total, failRate),
+			Desc:  desc,
 		}
 		worst = worse(worst, d)
 		details = append(details, d.Desc)
 	}
 
+	worst, details = diagnoseGauges(s, th, worst, details)
+
 	worst.Details = details
 	return worst
+}
+
+// diagnoseGauges Gauge 类阈值诊断（从主诊断函数拆出，控制复杂度）。
+// 按 componentSpecs 声明的 gaugeRule 或 yml 配置（th.GaugeAbove）判定。
+func diagnoseGauges(s *MetricSnapshot, th DiagnosisThresholds, worst Diagnosis, details []string) (Diagnosis, []string) {
+	gaugeNames := make([]string, 0, len(s.Gauges))
+	for name := range s.Gauges {
+		gaugeNames = append(gaugeNames, name)
+	}
+	sort.Strings(gaugeNames)
+	for _, name := range gaugeNames {
+		base := metricBase(name)
+		spec, specOK := componentSpecs[base]
+		// 规则优先级：yml 配置（th.GaugeAbove）覆盖 componentSpecs 内置默认值；
+		// 配置了但内置无规则也生效（配置即声明）；两者都没有则不诊断。
+		var rule *gaugeRule
+		if th.GaugeAbove != nil {
+			if thVal, ok := th.GaugeAbove[base]; ok {
+				rule = &gaugeRule{kind: gaugeRuleAbove, threshold: thVal, warnLevel: DiagnosisWarn}
+			}
+		}
+		if rule == nil && specOK {
+			rule = spec.gaugeRule
+		}
+		if rule == nil {
+			continue
+		}
+		for key, value := range s.Gauges[name] {
+			hit := false
+			switch rule.kind {
+			case gaugeRuleEqZero:
+				hit = value == 0
+			case gaugeRuleAbove:
+				hit = value > rule.threshold
+			default:
+				// 未知 kind：启动时（StartReporter）已校验并打 ERROR，
+				// 这里静默跳过——fastCheck 每 5s 跑一次，重复 WARN 会日志风暴
+				continue
+			}
+			if !hit {
+				continue
+			}
+			label := base
+			if specOK {
+				label = spec.label
+			}
+			d := Diagnosis{
+				Level: rule.warnLevel,
+				// Code 不含当前值——只表示"哪类异常"，保证 fastCheck 变化检测稳定
+				Code: fmt.Sprintf("%s:gauge-%s", base, rule.kind),
+				// Desc 用中文描述 + 阈值：运维看到告警要知道"超了什么、阈值多少"
+				Desc: fmt.Sprintf("%s %s（当前 %.1f，阈值 %s，%s）", label,
+					gaugeRuleDesc(rule), value, formatGaugeThreshold(rule), key),
+			}
+			worst = worse(worst, d)
+			details = append(details, d.Desc)
+		}
+	}
+	return worst, details
+}
+
+// gaugeRuleDesc 把规则类型转成中文告警描述。
+func gaugeRuleDesc(rule *gaugeRule) string {
+	switch rule.kind {
+	case gaugeRuleEqZero:
+		return "值异常（归零）"
+	case gaugeRuleAbove:
+		return "超过阈值"
+	}
+	return rule.kind
+}
+
+// formatGaugeThreshold 输出阈值文案（eqZero 无阈值）。
+func formatGaugeThreshold(rule *gaugeRule) string {
+	if rule.kind == gaugeRuleAbove {
+		return fmt.Sprintf("%.1f", rule.threshold)
+	}
+	return "0"
 }
 
 // worse 返回更严重的诊断（level 更高优先；同级保留先出现的稳定 code）。

@@ -92,13 +92,25 @@ _ "github.com/18721889353/sunshine/pkg/mycomponent"
 metrics:
   enabled: true                # 指标体系总开关（原 app.enableMetrics 已合并到此）
                                # false = 入口埋点/路由不装配 + 报告器不启动（零外发）
-  webhookURL: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"  # 留空不启动
+  # 推送路由：按顺序先命中先生效；types=periodic/alert，levels=ok/warn/critical
+  # urls 可多个（同时推）；mentions 为企微 userid 或 "@all"（仅命中路由生效）
+  webhookRoutes:
+    - types: ["periodic"]
+      urls: ["https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=体检群"]
+    - types: ["alert"]
+      levels: ["warn", "critical"]
+      urls: ["https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=值班群"]
+      mentions: ["zhangsan", "@all"]
   intervalSec: 60
   errRateWarn: 0.05      # 0 = 用默认
   errRateCritical: 0.20
   p99Warn: 1.0
   p99Critical: 5.0
   minSamples: 10
+  # Gauge 阈值告警（key=指标名，value=above 阈值）：值超过阈值即告警。
+  # 不填=用 componentSpecs 内置默认值；改完跑 make update-config 重新生成 struct
+  gaugeAbove:
+    db_pool_in_use_connections: 100
 ```
 
 - **开关语义**：`enabled` 是唯一总开关，启动时装配、**无热更新**——false 时 gin 中间件/gRPC 拦截器/`/metrics` 路由都不装配，报告器也不启动
@@ -134,7 +146,7 @@ pkgmetrics.StartReporter(webhookURL, 60,
 )
 ```
 
-- **webhook 留空** → 不启动，打印 WARN 留痕（yml 不入库，静默返回会让运维误以为在跑）
+- **webhookRoutes 无有效路由** → 不启动，打印 WARN 留痕（yml 不入库，静默返回会让运维误以为在跑）
 - **interval ≤ 0** → 默认 60s；**< 10s** → 钳到 10s（企微限频 20 条/分钟）
 - **幂等**：重复调用只生效一次
 - 停止：`pkgmetrics.StopReporter()`（等待在途推送结束）
@@ -242,6 +254,9 @@ if err != nil {
 |------|------|--------|
 | `rabbitmq_publish_duration_seconds` | Histogram | exchange, result |
 | `rabbitmq_consume_duration_seconds` | Histogram | queue, result |
+| `kafka_publish_duration_seconds` | Histogram | topic, result |
+| `kafka_consume_duration_seconds` | Histogram | topic, result |
+| `gows_local_connections` / `gows_remote_uids` | Gauge | WebSocket 连接数与远端 UID 数 |
 | `cron_task_duration_seconds` | Histogram | task, result |
 
 ### 基础设施
@@ -259,6 +274,11 @@ if err != nil {
 |------|------|------|
 | `logger_dropped_entries_total` | Counter | 异步缓冲区满丢弃条数（自定义 Collector） |
 | `logger_router_active_loggers` | Gauge | 活跃 logger 数 |
+| `panic_recovered_total` | Counter | component, result：gRPC/gin panic 恢复（P0 盲区补齐） |
+| `request_timeout_total` | Counter | component, result：gRPC/gin 超时（P1 早期劣化信号） |
+| `request_retry_total` | Counter | component：gRPC 重试次数（P1） |
+| `db_pool_open_connections` / `db_pool_in_use_connections` | Gauge | db：连接池当前状态（P1，InitDB 后自动登记） |
+| `db_pool_wait_count_total` / `db_pool_wait_duration_seconds_total` | Counter | db：等待连接累计次数/时长（连接池耗尽预警） |
 | `go_*` | — | GoCollector，仅进 Default（见 §7） |
 | `metrics_reporter_push_total` | Counter | 报告器自监控（见 §8） |
 | `metrics_reporter_last_push_timestamp_seconds` | Gauge | 报告器自监控 |
@@ -285,6 +305,20 @@ diag := pkgmetrics.DiagnoseWithThresholds(snapshot, th)  // 自定义阈值
 | `MinSamples` | 10 | 样本 < 10 不诊断（防偶发单次失败刷告警） |
 
 零值字段自动回落默认值（`normalize`），只覆盖需要的字段即可。
+
+### Gauge 类阈值
+
+Gauge 不差分（是当前值），错误率/P99 口径不适用——按 `above` 规则判定（值超过阈值即告警）。
+阈值两层来源，**yml 配置优先**：
+
+| 来源 | 说明 |
+|------|------|
+| `metrics.gaugeAbove`（yml） | key=指标名（base），value=阈值；覆盖内置默认值；改完跑 `make update-config` |
+| `componentSpecs.gaugeRule` | 框架内置默认值（如 `db_pool_in_use_connections` 默认 100） |
+
+- `eqZero` 规则框架支持但默认未启用——启动初期连接数=0 是正常状态，直接启用会误报
+- 未知 `gaugeRule.kind` 在启动时打 ERROR（配置错误不静默运行）
+- 业务也可用 `DiagnosisHook` 完全接管 Gauge 判定
 
 ### Counter 类错误
 
