@@ -424,16 +424,6 @@ func nonResultValue(labelKey, skipKey string) string {
 	return last
 }
 
-// labelValueOf 从 labelKey（"k=v,k=v" 键排序）提取指定维度的值；无该维度返回空。
-func labelValueOf(labelKey, name string) string {
-	for _, pair := range strings.Split(labelKey, ",") {
-		if k, v, ok := strings.Cut(pair, "="); ok && k == name {
-			return v
-		}
-	}
-	return ""
-}
-
 // cacheHitRate 从 cache_hit_total/cache_miss_total 计算命中率。
 // 返回 (命中率, 是否有数据)。
 func cacheHitRate(s *MetricSnapshot) (float64, bool) {
