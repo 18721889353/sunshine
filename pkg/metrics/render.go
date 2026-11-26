@@ -247,19 +247,102 @@ func renderCounterLine(label string, cm map[string]float64, _ float64) string {
 	if errs > 0 {
 		line += fmt.Sprintf(" · 错误 %.0f", errs)
 	}
+	// 非 result 维度的分布（如 status=502 / reason=xxx）：按值降序展示 top3，
+	// 否则多 label counter 被聚合成单值，运维丢关键信号（如 5xx 分布）。
+	if dist := labelDistribution(cm, "result", 3); dist != "" {
+		line += " · " + dist
+	}
 	return line
+}
+
+// labelDistribution 提取 labelKey 中指定维度的分布，按值降序取前 limit 个，
+// 渲染为 "502=17 · 200=100"。skipKey 跳过的维度（如 result 已并入错误率）。
+// 只有一个 key 或全为同值时不输出（避免噪音）。
+func labelDistribution(cm map[string]float64, skipKey string, limit int) string {
+	type kv struct {
+		k string
+		v float64
+	}
+	var items []kv
+	seen := map[string]bool{}
+	for lk, v := range cm {
+		// 提取除 skipKey（result，已并入错误率）之外的维度值
+		val := nonResultValue(lk, skipKey)
+		if val == "" {
+			continue // 只有 result 维度或无维度
+		}
+		if seen[val] {
+			// 同值多 key（如多副本同状态）：累加
+			for i := range items {
+				if items[i].k == val {
+					items[i].v += v
+					break
+				}
+			}
+			continue
+		}
+		seen[val] = true
+		items = append(items, kv{val, v})
+	}
+	if len(items) <= 1 {
+		return "" // 单值分布无信息量（total 已表达）
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].v > items[j].v })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		parts = append(parts, fmt.Sprintf("%s=%.0f", it.k, it.v))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // renderGaugeLine 渲染 gauge 行（运行时当前值）。
 func renderGaugeLine(label string, gm map[string]float64) string {
-	// 取第一个值（gauge 单值指标）
-	for _, v := range gm {
-		if label == "内存分配" {
-			return fmt.Sprintf("  %s: %s", label, FormatBytes(v))
-		}
-		return fmt.Sprintf("  %s: %.0f", label, v)
+	if len(gm) == 0 {
+		return fmt.Sprintf("  %s: -", label)
 	}
-	return fmt.Sprintf("  %s: -", label)
+	// 单值（key 为空或唯一）：直接渲染
+	if len(gm) == 1 {
+		for _, v := range gm {
+			if label == "内存分配" {
+				return fmt.Sprintf("  %s: %s", label, FormatBytes(v))
+			}
+			return fmt.Sprintf("  %s: %.0f", label, v)
+		}
+	}
+	// 多 label（如副本健康态 replica=a:1, replica=b:0）：逐 key 渲染，
+	// 绝不能只取第一个（会丢维度——4 副本只显示 1 个是信息丢失）。
+	keys := make([]string, 0, len(gm))
+	for k := range gm {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	const maxShow = 4
+	parts := make([]string, 0, len(keys))
+	for i, k := range keys {
+		if i >= maxShow {
+			parts = append(parts, fmt.Sprintf("…共%d个", len(keys)))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s=%.0f", compactLabelKey(k), gm[k]))
+	}
+	return fmt.Sprintf("  %s: %s", label, strings.Join(parts, ", "))
+}
+
+// compactLabelKey 压缩 labelKey 为可读短键：取第一个维度的值
+// （labelsKey 按维度名排序，多 key 场景第一个维度通常是区分主键，
+// 如副本健康态的 replica=a:80；重复的公共维度如 route=order 省略）。
+func compactLabelKey(lk string) string {
+	first, _, ok := strings.Cut(lk, ",")
+	if !ok {
+		first = lk // 单维度
+	}
+	if _, v, ok := strings.Cut(first, "="); ok {
+		return v
+	}
+	return first
 }
 
 // renderUnrecognized 渲染未在 componentSpecs 中的指标（兜底，防新增组件静默丢失）。
@@ -323,6 +406,32 @@ func renderSummaryLine(name string, agg *DurationAgg, sec float64) string {
 		return fmt.Sprintf("  %s: 均值 %s/次 · QPS %.1f", name, FormatBytes(mean), float64(agg.Count)/sec)
 	}
 	return fmt.Sprintf("  %s: 均值 %.2f/次 · QPS %.1f", name, mean, float64(agg.Count)/sec)
+}
+
+// nonResultValue 提取 labelKey 中最后一个非 skipKey 维度的值。
+// labelsKey 按维度名排序，业务惯例把告警关键维度（status/reason）放最后——
+// 取末位得到 "200"/"502" 这类干净的分布键；只有 skipKey（result，已并入
+// 错误率）时返回空。
+func nonResultValue(labelKey, skipKey string) string {
+	last := ""
+	for _, pair := range strings.Split(labelKey, ",") {
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok || k == skipKey {
+			continue
+		}
+		last = v
+	}
+	return last
+}
+
+// labelValueOf 从 labelKey（"k=v,k=v" 键排序）提取指定维度的值；无该维度返回空。
+func labelValueOf(labelKey, name string) string {
+	for _, pair := range strings.Split(labelKey, ",") {
+		if k, v, ok := strings.Cut(pair, "="); ok && k == name {
+			return v
+		}
+	}
+	return ""
 }
 
 // cacheHitRate 从 cache_hit_total/cache_miss_total 计算命中率。

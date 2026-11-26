@@ -166,3 +166,47 @@ func TestRenderSummaryLine(t *testing.T) {
 		t.Errorf("无样本应显示'无样本', got %q", got)
 	}
 }
+
+// TestRenderCounterLine_MultiLabel 多 label counter 必须显示维度分布
+// （status=502 等关键信号不能被聚合成单值——对齐旧版报告"状态码: 502=17"）。
+func TestRenderCounterLine_MultiLabel(t *testing.T) {
+	cm := map[string]float64{
+		"entry=api,status=200":    100,
+		"entry=api,status=502":    17,
+		"entry=notify,status=502": 3,
+	}
+	line := renderCounterLine("responses", cm, 60)
+	if !strings.Contains(line, "120 次") {
+		t.Errorf("总量应 120, got %q", line)
+	}
+	// status 维度分布（末位维度，值降序 top3）：502 累计 20、200=100
+	if !strings.Contains(line, "502=20") || !strings.Contains(line, "200=100") {
+		t.Errorf("应含 status 分布 502=20/200=100, got %q", line)
+	}
+	// 纯 result 维度不重复输出（已并入错误率）
+	line = renderCounterLine("x", map[string]float64{"result=ok": 5, "result=error": 2}, 60)
+	if strings.Contains(line, "ok=5") {
+		t.Errorf("result 维度不应进分布（已并入错误率）, got %q", line)
+	}
+}
+
+// TestRenderGaugeLine_MultiLabel 多 label gauge 必须逐 key 渲染
+// （副本健康态 4 个值不能只显示第一个——信息丢失）。
+func TestRenderGaugeLine_MultiLabel(t *testing.T) {
+	gm := map[string]float64{
+		"replica=a:80,route=order": 1,
+		"replica=b:80,route=order": 1,
+		"replica=c:80,route=order": 0,
+		"replica=d:80,route=order": 1,
+	}
+	line := renderGaugeLine("upstream_healthy", gm)
+	for _, want := range []string{"a:80=1", "b:80=1", "c:80=0", "d:80=1"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("应含 %q（4 副本全显示）, got %q", want, line)
+		}
+	}
+	// 单值 gauge 行为不变
+	if got := renderGaugeLine("goroutine", map[string]float64{"": 61}); !strings.Contains(got, "61") {
+		t.Errorf("单值 gauge 应显示 61, got %q", got)
+	}
+}
