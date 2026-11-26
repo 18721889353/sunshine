@@ -36,6 +36,7 @@ const (
 func (c *Client) msgFromWsToCh() {
 	defer func() {
 		if r := recover(); r != nil {
+			observeGowsPanic("gows-client-readwrite")
 			c.recordReadErr(fmt.Errorf("panic: %v", r))
 			logger.WarnWithCtx(c.clientCtx, "ws msgFromWsToCh panic recovered",
 				logger.String("uid", c.uid),
@@ -91,6 +92,7 @@ func (c *Client) msgFromWsToCh() {
 func (c *Client) msgFromChToWs() {
 	defer func() {
 		if r := recover(); r != nil {
+			observeGowsPanic("gows-client-readwrite")
 			c.recordWriteErr(fmt.Errorf("panic: %v", r))
 			logger.WarnWithCtx(c.clientCtx, "ws msgFromChToWs panic recovered",
 				logger.String("uid", c.uid),

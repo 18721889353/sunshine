@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"time"
 
 	"github.com/IBM/sarama"
 
@@ -113,12 +114,13 @@ func (h *defaultConsumerHandler) Cleanup(sess sarama.ConsumerGroupSession) error
 
 // ConsumeClaim consumes messages
 func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	// panic 恢复：不递归调用自身（原实现递归，若 panic 来自业务 handler 会
+	// 再次 panic → 无限递归栈溢出）。改为记指标 + 日志后直接返回，
+	// 由 sarama 的消费组会话机制决定是否重建会话重试。
 	defer func() {
 		if e := recover(); e != nil {
-			logger.ErrorWithCtx(h.ctx, "panic occurred while consuming messages", logger.Any("error", e))
-			if err := h.ConsumeClaim(sess, claim); err != nil {
-				logger.WarnWithCtx(h.ctx, "重新消费失败", logger.Err(err))
-			}
+			observeKafkaPanic("kafka-consume")
+			logger.ErrorWithCtx(h.ctx, "panic occurred while consuming messages, claim aborted", logger.Any("error", e))
 		}
 	}()
 
@@ -130,7 +132,10 @@ func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, 
 			if !ok {
 				return nil
 			}
-			h.handleOne(sess, msg)
+			if err := h.handleOne(sess, msg); err != nil {
+				// 错误已在 handleOne 内部记录日志 + 指标，这里只保证 errcheck 合规
+				continue
+			}
 		}
 	}
 }
@@ -138,20 +143,23 @@ func (h *defaultConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, 
 // handleOne 处理单条消息：从消息头恢复上游链路起消费 span，按 handler 结果统一收尾状态。
 // 说明：HandleMessageFn 签名不接收 context（既有 API，不改动），故消费 span 只能覆盖
 // “调用 handler”这一层并在消息维度串联生产-消费链路，无法把 span 注入 handler 内部子调用。
-func (h *defaultConsumerHandler) handleOne(sess sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) {
+func (h *defaultConsumerHandler) handleOne(sess sarama.ConsumerGroupSession, msg *sarama.ConsumerMessage) (err error) {
 	_, span := startConsumerSpan(h.ctx, msg)
+	start := time.Now()
+	defer func() { observeKafkaConsume(msg.Topic, err, time.Since(start)) }()
 	defer span.End()
 
-	err := h.handleMessageFn(msg)
+	err = h.handleMessageFn(msg)
 	markConsumeResult(span, err)
 	if err != nil {
 		logger.ErrorWithCtx(h.ctx, "failed to handle message", logger.Err(err))
-		return
+		return err
 	}
 	sess.MarkMessage(msg, "")
 	if !h.autoCommitEnable {
 		sess.Commit()
 	}
+	return err
 }
 
 // ---------------------------------- consume partition------------------------------------

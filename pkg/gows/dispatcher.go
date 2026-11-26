@@ -104,6 +104,8 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 		d.instanceID = "standalone"
 	}
 	d.maxClientNum.Store(o.maxClientNum)
+	// 连接数指标：登记计数器的只读视图（atomic.Pointer 保护并发，首次登记生效）
+	RegisterStats(&d.localClientTotal, &d.remoteUIDTotal)
 	// workerNum > 1 时创建 ants 协程池作为 WorkerPool
 	if o.workerNum > 1 {
 		pool, err := ants.NewPool(int(o.workerNum))

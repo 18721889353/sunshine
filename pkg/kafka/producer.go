@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/IBM/sarama"
 	"go.opentelemetry.io/otel/attribute"
@@ -54,11 +55,13 @@ func InitSyncProducer(addrs []string, opts ...SyncProducerOption) (*SyncProducer
 }
 
 // SendMessage sends a message to a topic.
-func (p *SyncProducer) SendMessage(msg *sarama.ProducerMessage) (int32, int64, error) {
+func (p *SyncProducer) SendMessage(msg *sarama.ProducerMessage) (partition int32, offset int64, err error) {
 	ctx, span := startProducerSpan(msg)
+	start := time.Now()
+	defer func() { observeKafkaPublish(msg.Topic, err, time.Since(start)) }()
 	defer span.End()
 	injectProducerTrace(ctx, msg)
-	partition, offset, err := p.Producer.SendMessage(msg)
+	partition, offset, err = p.Producer.SendMessage(msg)
 	if err != nil {
 		tracer.MarkErr(span, err)
 		return partition, offset, err
@@ -171,8 +174,10 @@ func (p *AsyncProducer) SendMessage(messages ...*sarama.ProducerMessage) error {
 // enqueue 将单条消息投入异步生产者输入通道，并为“入队”动作起一个生产 span。
 // 限制：异步发送的真实结果经 Successes()/Errors() 通道异步回收，无法同步归属到本条
 // span，故此 span 仅覆盖入队动作（成功=已提交到本地缓冲），不代表 broker 已确认落盘。
-func (p *AsyncProducer) enqueue(msg *sarama.ProducerMessage) error {
+func (p *AsyncProducer) enqueue(msg *sarama.ProducerMessage) (err error) {
 	ctx, span := startProducerSpan(msg)
+	start := time.Now()
+	defer func() { observeKafkaPublish(msg.Topic, err, time.Since(start)) }()
 	defer span.End()
 	injectProducerTrace(ctx, msg)
 	select {
@@ -180,7 +185,7 @@ func (p *AsyncProducer) enqueue(msg *sarama.ProducerMessage) error {
 		tracer.MarkOK(span)
 		return nil
 	case <-p.exit:
-		err := fmt.Errorf("async produce message had exited")
+		err = fmt.Errorf("async produce message had exited")
 		tracer.MarkErr(span, err)
 		return err
 	}

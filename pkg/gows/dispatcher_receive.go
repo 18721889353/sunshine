@@ -29,6 +29,7 @@ func (dd *DistributedDispatcher) dispatchLoop(ctx context.Context, msgCh <-chan 
 			func() {
 				defer func() {
 					if r := recover(); r != nil {
+						observeGowsPanic("gows-dispatcher-receive")
 						logger.WarnWithCtx(ctx, "ws dispatcher receiveLoop panic recovered",
 							logger.Any("panic", r),
 						)
@@ -182,6 +183,7 @@ func (dd *DistributedDispatcher) submitDeliverTask(client *Client, payload json.
 	return dd.deliverPool.Submit(func() {
 		defer func() {
 			if r := recover(); r != nil {
+				observeGowsPanic("gows-dispatcher-receive")
 				logger.WarnWithCtx(client.clientCtx, "ws deliver "+op+" goroutine panic",
 					logger.String("uid", client.uid),
 					logger.Any("panic", r),

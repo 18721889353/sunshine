@@ -86,6 +86,7 @@ func closeOnPingFailure(ctx context.Context, client *Client, err error, span tra
 func StartHeartbeat(client *Client, opts ...HeartbeatOption) {
 	defer func() {
 		if r := recover(); r != nil {
+			observeGowsPanic("gows-heartbeat")
 			logger.WarnWithCtx(client.clientCtx, "ws heartbeat panic recovered",
 				logger.String("uid", client.uid),
 				logger.String("remote_addr", client.remoteAddr),

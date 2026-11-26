@@ -110,6 +110,7 @@ func (dd *DistributedDispatcher) consumeAndDeliverUID(ctx context.Context, uid s
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
+				observeGowsPanic("gows-dispatcher-lifecycle")
 				logger.WarnWithCtx(ctx, "ws dispatcher uidSub goroutine panic recovered",
 					logger.String("uid", uid),
 					logger.Any("panic", r),
