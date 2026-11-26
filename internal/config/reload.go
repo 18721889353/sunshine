@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"sync"
 
 	"go.uber.org/zap"
@@ -25,7 +26,13 @@ var reloadManager = &reloadManagerImpl{}
 
 // Register 注册配置热更新回调。
 // 回调将在 reload 时按注册顺序执行。可多次注册，不会自动去重。
+// nil 回调会被忽略——否则 Reload 时 nil 调用虽被 recover 兜住，
+// 但错误被静默吞掉（回调永久失效且运维无感），不如在注册时直接拒绝。
 func (r *reloadManagerImpl) Register(fn ReloadFunc) {
+	if fn == nil {
+		logger.WarnWithCtx(context.Background(), "忽略 nil 热更新回调注册")
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.callbacks = append(r.callbacks, fn)

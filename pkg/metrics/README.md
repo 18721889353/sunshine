@@ -110,7 +110,18 @@ metrics:
 
 ### 直接调用（非框架应用）
 
+业务模块**无法 import 框架 `internal/config`**（Go internal 限制），用
+`StartWithSettings` 传配置，避免复制"总开关 + webhook 校验 + 阈值回落"逻辑：
+
 ```go
+pkgmetrics.StartWithSettings(pkgmetrics.ReporterSettings{
+    Enabled:     cfg.Metrics.Enabled,
+    WebhookURL:  cfg.Metrics.WebhookURL,
+    IntervalSec: cfg.Metrics.IntervalSec,
+    Thresholds:  pkgmetrics.DiagnosisThresholds{ /* 零值字段回落默认 */ },
+}, pkgmetrics.WithDiagnosisHook(myDiagnosisHook))
+
+// 更底层：直接调 StartReporter（框架模板/已自行校验配置的场景）
 pkgmetrics.StartReporter(cfg.MetricsWebhookURL, cfg.MetricsIntervalSec)
 
 // 需要按业务调阈值时（如支付接口 P99 1s 即严重）：
@@ -136,6 +147,18 @@ pkgmetrics.StartReporter(webhookURL, 60,
 | 快速巡检 | 5s | 诊断结论**变化**且进入异常时即时补推（防抖 30s），异常秒级发现 |
 
 关键不变量：`prev`/`lastCode`/`lastPushAt` **只在推送成功后推进**——失败保留现场，下个巡检点按同一窗口重试，否则一次推送失败会吞掉异常告警。
+
+**采集源分离**：周期报告读 **Default**（含 `go_goroutines`/`go_memstats` 运行时，60s 一次 STW 可接受）；5s 快巡读 **Fast**（只含自定义指标，避免 `ReadMemStats` 触发 STW）。
+
+### 报告渲染能力
+
+| 能力 | 说明 |
+|------|------|
+| 组件分组 | `componentSpecs` 按 HTTP/数据层/消息/基础设施/运行时分组，未识别指标进【其他】兜底（不静默丢失） |
+| 多 label counter | 除 `result` 外的末位维度分布（如 `status`）按值降序 top3：`117 次 · 200=100 · 502=17` |
+| 多 label gauge | 逐 key 渲染（首维度压缩）：`a:80=1, b:80=0`，不再只取第一个值 |
+| 分链下钻 | `DurationsByLabel` 按首个业务维度合并次要维度（result/status）后算 P99，2~6 链按 P99 降序 top3：`P99 7.30s · 分链 notify=9.10s, api=977.5ms`——聚合口径会稀释慢链 |
+| 单位 | `componentSpec.unit`：如 `uptime` 显示"8 分钟"而非"8 次"；耗时分级 μs/ms/s |
 
 ---
 
@@ -370,10 +393,10 @@ A：旧字段已**物理合并**到 `metrics.enabled`，迁移清单（三处都
 |------|------|
 | `registry.go` | 统一注册中心（双 Registry、便捷 API、HasMetric） |
 | `handler.go` | promhttp 单一暴露入口 |
-| `collect.go` | Gather → 结构化快照（含 grpc_code 归一化） |
+| `collect.go` | Gather → 结构化快照（含 grpc_code 归一化、DurationsByLabel 按 label 双写） |
 | `delta.go` | 窗口差分（累计→增量，重置兜底） |
 | `diagnose.go` | 诊断引擎（阈值可配、Counter 错误） |
-| `render.go` | 报告渲染（组件分组、兜底展示） |
+| `render.go` | 报告渲染（组件分组、多 label 分布/分链下钻、兜底展示） |
 | `report.go` | 报告器（双节奏、状态推进、自监控） |
 | `webhook.go` | 企微推送（errcode 判定、脱敏、截断） |
 | `format.go` | 格式化（时长/窗口/字节） |

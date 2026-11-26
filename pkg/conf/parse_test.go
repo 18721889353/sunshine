@@ -89,6 +89,20 @@ func TestParseConfigData(t *testing.T) {
 
 // TestShow_WebhookURLRedacted 守护：webhookURL 含企微机器人 key，
 // /config 端点暴露配置时必须脱敏（新增默认敏感字段，防 key 泄露被劫持）。
+// TestShow_WebhookURLWithAtRedacted webhook URL 含 @ 时也必须整值脱敏——
+// 不能误走 DSN 替换分支（key 泄露是红线）。
+func TestShow_WebhookURLWithAtRedacted(t *testing.T) {
+	cfg := struct {
+		WebhookURL string `json:"webhookURL"`
+	}{
+		WebhookURL: "https://user:pass@qyapi.weixin.qq.com/cgi-bin/webhook/send?key=SECRET_KEY_AT",
+	}
+	out := Show(cfg)
+	if strings.Contains(out, "SECRET_KEY_AT") || strings.Contains(out, "user:pass@") {
+		t.Errorf("webhookURL 含 @ 时必须整值脱敏, got %q", out)
+	}
+}
+
 func TestShow_WebhookURLRedacted(t *testing.T) {
 	cfg := struct {
 		WebhookURL string `json:"webhookURL"`

@@ -12,9 +12,9 @@ import (
 
 func TestObserve_KeepForOneMinute(t *testing.T) {
 	cli, err := etcdcli.NewClient(
-		[]string{"43.143.78.234:2379"},
+		[]string{etcdEndpoint}, // 复用 integration_test 的连接配置（环境变量可覆盖）
 		etcdcli.WithDialTimeout(5*time.Second),
-		etcdcli.WithAuth("root", "sunshine"),
+		etcdcli.WithAuth(etcdUsername, etcdPassword),
 	)
 	if err != nil {
 		t.Fatalf("连接 etcd 失败: %v", err)

@@ -5,6 +5,7 @@ package metrics
 import (
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,11 +38,20 @@ var (
 	respSizeBytes = pkgmetrics.Summary(MetricNameResponseSize, "HTTP response sizes in bytes.", labels...)
 )
 
-// init registers the prometheus metrics
-func initPrometheus() {
-	// 指标已在 var 定义时通过 pkgmetrics.Counter/HistogramDefault/Summary
-	// 自动完成双注册（Default + Fast）；这里只启动 uptime 分钟更新协程。
-	go recordUptime()
+// startUptimeCollector 启动 uptime 分钟更新协程（幂等）。
+//
+// 指标已在 var 定义时通过 pkgmetrics.Counter/HistogramDefault/Summary
+// 自动完成双注册（Default + Fast）；这里只启动 uptime 协程。
+//
+// 必须用 sync.Once：Metrics() 是中间件工厂，多引擎/测试重复调用会启动
+// 多个协程——uptime 是"累计分钟数"，多协程会把计数翻倍（如 2 个协程跑
+// 60 分钟后 uptime=120），且协程泄漏。
+var uptimeOnce sync.Once
+
+func startUptimeCollector() {
+	uptimeOnce.Do(func() {
+		go recordUptime()
+	})
 }
 
 // recordUptime increases service uptime per 1 minute.
@@ -92,7 +102,7 @@ func Metrics(r *gin.Engine, opts ...Option) gin.HandlerFunc {
 	o.apply(opts...)
 
 	// init prometheus
-	initPrometheus()
+	startUptimeCollector()
 
 	r.GET(o.metricsPath, metricsHandler())
 

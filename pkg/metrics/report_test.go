@@ -1,9 +1,13 @@
 package metrics
 
 import (
+	"bytes"
 	"errors"
+	"log"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,4 +293,125 @@ func keysOf(m map[string]map[string]float64) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestValidateThresholds_Reversed 部分覆盖导致 warn >= critical 时必须留 WARN。
+// 场景：只设 P99Warn=10s，critical 回落默认 5s → 级别静默反转。
+func TestValidateThresholds_Reversed(t *testing.T) {
+	th := DiagnosisThresholds{P99Warn: 10}.normalize()
+	if th.P99Warn <= th.P99Critical {
+		t.Fatalf("前置条件：部分覆盖应造成反转, warn=%v critical=%v", th.P99Warn, th.P99Critical)
+	}
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+	validateThresholds(th)
+	if !strings.Contains(buf.String(), "P99 阈值 warn") || !strings.Contains(buf.String(), "WARN") {
+		t.Errorf("反转阈值应留 WARN, got %q", buf.String())
+	}
+	// 正常阈值不应告警
+	buf.Reset()
+	validateThresholds(DefaultDiagnosisThresholds())
+	if buf.Len() != 0 {
+		t.Errorf("正常阈值不应告警, got %q", buf.String())
+	}
+}
+
+// TestStartReporter_IntervalClamp intervalSec 超大（误填毫秒等）必须钳到上限，
+// 不能让 time.Duration 溢出导致 ticker 静默或兜底成 60s。
+func TestStartReporter_IntervalClamp(t *testing.T) {
+	// 先注册 srv.Close 再注册 resetReporter：LIFO 下先停 reporter 再关 server，
+	// 避免 run() 的首推打到已关闭的 server 产生 WARN 噪声。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer srv.Close()
+	resetReporterForTest()
+	defer resetReporterForTest()
+
+	// 超大值：fmt 中 int 上限（9223372036854775807）会导致 time.Duration*Second 溢出
+	StartReporter(srv.URL, int(^uint(0)>>1))
+	reportMu.Lock()
+	inst := reportInstance
+	reportMu.Unlock()
+	if inst == nil {
+		t.Fatal("应启动")
+	}
+	if inst.interval != maxReportInterval {
+		t.Errorf("超大 intervalSec 应钳到 %v, got %v", maxReportInterval, inst.interval)
+	}
+}
+
+// TestValidateThresholds_Range 绝对值越界必须留 WARN：
+// 错误率 >1 或 P99 非有限数会让告警永不触发（静默失效）。
+func TestValidateThresholds_Range(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	validateThresholds(DiagnosisThresholds{ErrRateWarn: 2}.normalize())
+	if !strings.Contains(buf.String(), "错误率阈值应 0~1") {
+		t.Errorf("错误率 >1 应告警, got %q", buf.String())
+	}
+	buf.Reset()
+
+	validateThresholds(DiagnosisThresholds{P99Warn: math.Inf(1)}.normalize())
+	if !strings.Contains(buf.String(), "P99 阈值非有限数") {
+		t.Errorf("P99=Inf 应告警, got %q", buf.String())
+	}
+	buf.Reset()
+
+	validateThresholds(DiagnosisThresholds{P99Warn: 1}.normalize())
+	if buf.Len() != 0 {
+		t.Errorf("正常阈值不应告警, got %q", buf.String())
+	}
+}
+
+// TestStopReporter_CancelsInflightPush Stop 应 cancel 在途 webhook 请求，
+// 不必等满 5s webhookTimeout——用慢 server（sleep 10s）验证 Stop 快速返回。
+func TestStopReporter_CancelsInflightPush(t *testing.T) {
+	started := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		// 模拟 webhook 挂起，但客户端断开（Stop cancel）时立即退出——
+		// 否则 httptest 的 Close 会等 handler 挂起窗口（2s，窗口留够 Stop<3s 断言的区分度）
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	resetReporterForTest()
+	StartReporter(srv.URL, 60)
+
+	// 等 push 到达 server（在途）
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("push 未到达 webhook server")
+	}
+
+	// Stop 应因 ctx cancel 快速返回，而非等满 10s sleep / 5s timeout
+	done := make(chan struct{})
+	go func() {
+		StopReporter()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("StopReporter 应取消在途 push 快速返回（>3s 说明未感知 ctx cancel）")
+	}
+	// 强制断开服务端连接，让 handler 立即退出——
+	// 否则 httptest.Close 会等 handler 的 10s 挂起窗口（客户端 cancel 后
+	// r.Context() 在 Windows 下可能未及时感知）
+	srv.CloseClientConnections()
 }

@@ -35,7 +35,21 @@ func TestMetrics(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(time.Millisecond * 200)
+	// 轮询等服务器就绪（替代固定 200ms sleep）：慢 CI 上服务器未启动
+	// 会让下面的 http.Get connection refused（flaky）
+	ready := false
+	for i := 0; i < 100 && !ready; i++ {
+		if resp, err := http.Get(requestAddr + "/ping"); err == nil {
+			_ = resp.Body.Close()
+			ready = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("gin 服务器未在 2s 内就绪")
+	}
+
 	resp, err := http.Get(requestAddr + "/ping")
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)

@@ -19,6 +19,7 @@ type componentSpec struct {
 	label string // 中文名（如 "Redis"）
 	group string // 分组（如 "数据层"）
 	kind  string // "duration"(耗时) / "counter"(计数) / "cache"(带命中率)
+	unit  string // 计量单位（""=次）；如 uptime 的"分钟"
 }
 
 // componentSpecs 指标名 -> 展示规格。key 为指标 base 名（去 _duration_seconds/_total 后缀）。
@@ -52,7 +53,7 @@ var componentSpecs = map[string]componentSpec{
 	"go_goroutines":                {label: "goroutine", group: groupRuntime, kind: kindGauge},
 	"go_memstats_alloc_bytes":      {label: "内存分配", group: groupRuntime, kind: kindGauge},
 	"logger_router_active_loggers": {label: "活跃logger", group: groupRuntime, kind: kindGauge},
-	"uptime_total":                 {label: "运行时长", group: groupRuntime, kind: kindCounter},
+	"uptime":                       {label: "运行时长", group: groupRuntime, kind: kindCounter, unit: "分钟"},
 }
 
 // 分组名常量（goconst：避免重复字符串字面量）。
@@ -187,7 +188,7 @@ func renderItem(s *MetricSnapshot, base string, spec componentSpec, sec float64)
 		if metricBase(name) != base {
 			continue
 		}
-		line := renderDurationLine(spec.label, agg, sec)
+		line := renderDurationLine(spec.label, agg, sec, s.DurationsByLabel[name])
 		// cache 类追加命中率（从 cache_hit_total/cache_miss_total 取）
 		if spec.kind == "cache" {
 			if hitRate, ok := cacheHitRate(s); ok {
@@ -201,7 +202,7 @@ func renderItem(s *MetricSnapshot, base string, spec componentSpec, sec float64)
 		if metricBase(name) != base {
 			continue
 		}
-		return renderCounterLine(spec.label, cm, sec)
+		return renderCounterLine(spec.label, cm, sec, spec.unit)
 	}
 	// Gauge 类（运行时）
 	for name, gm := range s.Gauges {
@@ -215,7 +216,7 @@ func renderItem(s *MetricSnapshot, base string, spec componentSpec, sec float64)
 
 // renderDurationLine 渲染耗时组件行：QPS · 错误率 · P99。
 // cache 类额外显示命中率（从 cache_hit_total/cache_miss_total 取）。
-func renderDurationLine(label string, agg *DurationAgg, sec float64) string {
+func renderDurationLine(label string, agg *DurationAgg, sec float64, breakdown map[string]*DurationAgg) string {
 	if agg == nil || agg.Count == 0 {
 		return fmt.Sprintf("  %s: 无样本", label)
 	}
@@ -227,11 +228,82 @@ func renderDurationLine(label string, agg *DurationAgg, sec float64) string {
 	} else if mean := agg.MeanSec(); mean > 0 {
 		line += fmt.Sprintf(" · 均值 %s", FormatMs(mean))
 	}
-	return line
+	return line + renderBreakdown(breakdown)
+}
+
+// renderBreakdown 分链下钻：label 维度的耗时分解（如网关 api/notify 两条链、
+// 副本维度的转发耗时）——聚合 P99 会把多条链混在一起，慢链被快链稀释后看不见。
+//
+// 显示条件：2~6 个 label 组合（1 个无信息量；>6 太细，聚合已够且刷屏），
+// 按 P99 降序取 top3（最慢的链是运维最关心的）。
+func renderBreakdown(byLabel map[string]*DurationAgg) string {
+	// 按第一个业务维度分组：labelsKey 含 result/status 等次要维度，
+	// 直接用完整 key 会把同一条链（如 entry=api 的 ok/error）拆成多条。
+	// 同维度合并桶后再算 P99，才是"每条链的真实耗时分布"。
+	merged := make(map[string]*DurationAgg, len(byLabel))
+	for lk, agg := range byLabel {
+		if agg == nil || agg.Count == 0 {
+			continue
+		}
+		k := compactLabelKey(lk)
+		dst := merged[k]
+		if dst == nil {
+			dst = &DurationAgg{Result: make(map[string]uint64)}
+			merged[k] = dst
+		}
+		mergeDurationAgg(dst, agg)
+	}
+	n := len(merged)
+	if n < 2 || n > 6 {
+		return ""
+	}
+	type kv struct {
+		k   string
+		p99 float64
+	}
+	items := make([]kv, 0, n)
+	for k, agg := range merged {
+		if p99, ok := agg.P99Sec(); ok {
+			items = append(items, kv{k, p99})
+		}
+	}
+	if len(items) < 2 {
+		return ""
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].p99 > items[j].p99 })
+	if len(items) > 3 {
+		items = items[:3]
+	}
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		parts = append(parts, fmt.Sprintf("%s=%s", it.k, FormatMs(it.p99)))
+	}
+	return " · 分链 " + strings.Join(parts, ", ")
+}
+
+// mergeDurationAgg 累加窗口增量聚合（同指标同桶定义，Bounds 取首次）。
+func mergeDurationAgg(dst, src *DurationAgg) {
+	dst.Count += src.Count
+	dst.SumSec += src.SumSec
+	for r, n := range src.Result {
+		dst.Result[r] += n
+	}
+	if len(dst.Bounds) == 0 && len(src.Bounds) > 0 {
+		dst.Bounds = append([]float64(nil), src.Bounds...)
+		dst.Counts = make([]uint64, len(src.Counts))
+	}
+	// 桶按索引对齐（同指标固定），长度不同时取较小值防越界
+	for i := 0; i < len(src.Counts) && i < len(dst.Counts); i++ {
+		dst.Counts[i] += src.Counts[i]
+	}
 }
 
 // renderCounterLine 渲染计数组件行（如 etcd token 刷新、nacos 回调）。
-func renderCounterLine(label string, cm map[string]float64, _ float64) string {
+func renderCounterLine(label string, cm map[string]float64, _ float64, unit ...string) string {
+	u := "次"
+	if len(unit) > 0 && unit[0] != "" {
+		u = unit[0]
+	}
 	var total, errs float64
 	for k, v := range cm {
 		total += v
@@ -241,9 +313,9 @@ func renderCounterLine(label string, cm map[string]float64, _ float64) string {
 		}
 	}
 	if total == 0 {
-		return fmt.Sprintf("  %s: 0 次", label)
+		return fmt.Sprintf("  %s: 0 %s", label, u)
 	}
-	line := fmt.Sprintf("  %s: %.0f 次", label, total)
+	line := fmt.Sprintf("  %s: %.0f %s", label, total, u)
 	if errs > 0 {
 		line += fmt.Sprintf(" · 错误 %.0f", errs)
 	}
@@ -379,7 +451,7 @@ func renderUnrecognized(s *MetricSnapshot, sec float64) []string {
 	sort.Strings(names)
 	for _, name := range names {
 		if agg, ok := s.Durations[name]; ok {
-			lines = append(lines, renderDurationLine(name, agg, sec))
+			lines = append(lines, renderDurationLine(name, agg, sec, s.DurationsByLabel[name]))
 		} else if agg, ok := s.Summaries[name]; ok {
 			lines = append(lines, renderSummaryLine(name, agg, sec))
 		} else if cm, ok := s.Counters[name]; ok {

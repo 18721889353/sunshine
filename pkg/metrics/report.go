@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"os"
 	"strings"
@@ -35,6 +36,10 @@ const (
 	fastCheckInterval = 5 * time.Second
 	// fastPushDebounce 即时推送防抖（周期推送不刷新该计时）。
 	fastPushDebounce = 30 * time.Second
+	// maxReportInterval 最大报告间隔：超过 1 天的周期报告没有运维意义，
+	// 且 intervalSec*time.Second 在超大值时 int64 溢出会静默产生异常 ticker
+	// （监控自己停摆却无感知）。钳到上限并留 WARN。
+	maxReportInterval = 24 * time.Hour
 )
 
 // ============================================================================
@@ -96,7 +101,11 @@ type Reporter struct {
 	hook                DiagnosisHook                   // 业务定制诊断钩子（nil → 走框架通用诊断）
 	gatherFn            func() (*MetricSnapshot, error) // 测试注入；nil 走 GatherFast
 	done                chan struct{}
-	wg                  sync.WaitGroup
+	// ctx/cancel：push 的生命周期上下文——Stop 时 cancel 可立即中断在途 webhook 请求，
+	// 不必等满 webhookTimeout(5s)；context.Background() 不感知 done，无法取消
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 var (
@@ -133,6 +142,29 @@ func logGatherError(stage string, err error) {
 
 // logRateLimit 同类 gather 错误日志的最小间隔。
 const logRateLimit = time.Minute
+
+// validateThresholds 校验最终生效阈值的 warn < critical 关系。
+func validateThresholds(th DiagnosisThresholds) {
+	check := func(name string, warn, critical float64) {
+		if warn >= critical {
+			log.Printf("[metrics-report] WARN: %s 阈值 warn(%.3f) >= critical(%.3f)，告警级别可能失效，请检查 yml", name, warn, critical)
+		}
+	}
+	check("错误率", th.ErrRateWarn, th.ErrRateCritical)
+	check("P99", th.P99Warn, th.P99Critical)
+
+	// 绝对值范围：错误率语义 0~1，配置 >1 等于永不告警（静默失效）；
+	// P99 必须是有限正数（NaN/Inf 会让比较恒 false，告警永不触发）。
+	if th.ErrRateWarn > 1 || th.ErrRateCritical > 1 {
+		log.Printf("[metrics-report] WARN: 错误率阈值应 0~1，当前 warn=%.3f critical=%.3f（>1 将永不告警）",
+			th.ErrRateWarn, th.ErrRateCritical)
+	}
+	if math.IsNaN(th.P99Warn) || math.IsInf(th.P99Warn, 0) ||
+		math.IsNaN(th.P99Critical) || math.IsInf(th.P99Critical, 0) {
+		log.Printf("[metrics-report] WARN: P99 阈值非有限数（warn=%v critical=%v），告警将永不触发",
+			th.P99Warn, th.P99Critical)
+	}
+}
 
 // ReporterOption 报告器可选项（大厂标准：默认 + 可覆盖）。
 type ReporterOption func(*Reporter)
@@ -212,6 +244,14 @@ func StartReporter(webhookURL string, intervalSec int, opts ...ReporterOption) {
 	if !IsWeComWebhookHost(host) {
 		log.Printf("[metrics-report] WARN: webhook 不是企业微信群机器人地址，指标可能被推到外部地址 host=%s", host)
 	}
+	// 先钳制秒数再乘 time.Second：超大 intervalSec 直接相乘会 int64 溢出，
+	// 溢出成负数会被 <=0 分支兜底成 60s（语义错误），溢出成正数则 ticker 异常。
+	maxSec := int(maxReportInterval / time.Second)
+	if intervalSec > maxSec {
+		log.Printf("[metrics-report] WARN: intervalSec=%d 超过上限（%d 秒），钳制为 %d 秒——请检查配置单位（是否误填毫秒）",
+			intervalSec, maxSec, maxSec)
+		intervalSec = maxSec
+	}
 	interval := time.Duration(intervalSec) * time.Second
 	if interval <= 0 {
 		interval = defaultReportInterval
@@ -225,15 +265,24 @@ func StartReporter(webhookURL string, intervalSec int, opts ...ReporterOption) {
 	if reportInstance != nil {
 		return
 	}
+	pushCtx, pushCancel := context.WithCancel(context.Background())
 	r := &Reporter{
 		webhook:  webhookURL,
 		interval: interval,
 		instance: instanceHostname(),
 		done:     make(chan struct{}),
+		ctx:      pushCtx,
+		cancel:   pushCancel,
 	}
 	for _, opt := range opts {
 		opt(r)
 	}
+	// 配置校验（大厂标准：启动时快速发现错误配置，不能静默运行）。
+	// 校验 normalize 后的【最终生效值】——只覆盖 warn 而没覆盖 critical 时，
+	// critical 回落默认值可能与 warn 反转（如 P99Warn=10s、critical 默认 5s），
+	// 告警级别将永远失效。只留 WARN 不阻塞启动：报告器是旁路监控，
+	// 不该因阈值配错拖垮主服务。
+	validateThresholds(r.thresholds.normalize())
 	r.wg.Add(1)
 	go r.run()
 	reportInstance = r
@@ -248,6 +297,9 @@ func StopReporter() {
 	if r == nil {
 		return
 	}
+	// 先 cancel：中断在途 webhook 请求（不必等满 5s webhookTimeout），
+	// 再 close(done) 让 run 主循环退出
+	r.cancel()
 	close(r.done)
 	r.wg.Wait()
 }
@@ -378,7 +430,12 @@ func (r *Reporter) gatherPeriodic() (*MetricSnapshot, error) {
 // push 推送报告文本到 webhook，并统一打自监控埋点。
 // 埋点集中在此，避免两处调用点漏打（自监控必须与真实推送严格同步）。
 func (r *Reporter) push(text string) error {
-	err := PushToWebhook(context.Background(), r.webhook, text)
+	// ctx 可能为 nil（测试直接构造 &Reporter{}），降级 Background 防 WithTimeout panic
+	pushCtx := r.ctx
+	if pushCtx == nil {
+		pushCtx = context.Background()
+	}
+	err := PushToWebhook(pushCtx, r.webhook, text)
 	observeReporterPush(err)
 	return err
 }

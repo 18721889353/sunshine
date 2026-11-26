@@ -220,6 +220,22 @@ func SpanDemo(serviceName string, spanName string, ctx context.Context) {
     ))
 ```
 
+#### 指标名迁移说明（破坏性变更）
+
+指标已迁移到统一注册中心（pkg/metrics），去掉 `gin_` 前缀并新增 `result` label（与全仓 ok/error 口径一致）。
+**已配置的 Grafana dashboard / 告警规则需同步更新**：
+
+| 旧指标名 | 新指标名 |
+|---------|---------|
+| `gin_uptime` | `uptime_total` |
+| `gin_http_request_count_total` | `http_request_count_total` |
+| `gin_http_request_duration_seconds` | `http_request_duration_seconds` |
+| `gin_http_request_size_bytes` | `http_request_size_bytes` |
+| `gin_http_response_size_bytes` | `http_response_size_bytes` |
+
+新增统一 label：`result`（`ok`/`error`，由 HTTP 状态码派生，`>=400` = error）。
+指标名常量见 `metrics.MetricName*`，外部引用请用常量避免双写漂移。
+
 <br>
 
 ### Request id

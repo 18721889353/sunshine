@@ -283,7 +283,9 @@ func labelValueFromKey(key, label string) string {
 // isErrorLabels 判断 labelsKey 拼接串是否表示失败（统一口径精确匹配）。
 // 优先原生 result=error；兼容 grpc_code != OK（gRPC provider 不用 result label）。
 func isErrorLabels(key string) bool {
-	if labelValueFromKey(key, "result") == "error" {
+	// 与 DurationAgg.ErrorCount 同口径：非 ok 的 result 全算失败
+	//（含 timeout/partial 等未知值，避免"非 error 值"被静默当正常）
+	if r := labelValueFromKey(key, "result"); r != "" && r != "ok" {
 		return true
 	}
 	if code := labelValueFromKey(key, "grpc_code"); code != "" && code != "OK" {

@@ -210,3 +210,148 @@ func TestRenderGaugeLine_MultiLabel(t *testing.T) {
 		t.Errorf("单值 gauge 应显示 61, got %q", got)
 	}
 }
+
+// TestRenderCounterLine_UptimeUnit uptime 是"分钟"不是"次"——unit 字段生效，
+// 且 spec key 必须是 metricBase 裁剪后的 "uptime"（不是 uptime_total，否则永不命中）。
+func TestRenderCounterLine_UptimeUnit(t *testing.T) {
+	line := renderCounterLine("运行时长", map[string]float64{"": 8}, 509, "分钟")
+	if !strings.Contains(line, "8 分钟") {
+		t.Errorf("unit 应生效: %q", line)
+	}
+	// spec key 裁剪检查
+	if _, ok := componentSpecs[metricBase("uptime_total")]; !ok {
+		t.Errorf("uptime_total 的 base=%q 应命中 componentSpecs", metricBase("uptime_total"))
+	}
+	// 零值也应带 unit（uptime 为 0 时显示"0 分钟"而非"0 次"）
+	if got := renderCounterLine("运行时长", map[string]float64{"": 0}, 509, "分钟"); !strings.Contains(got, "0 分钟") {
+		t.Errorf("零值应带 unit: %q", got)
+	}
+	// 默认仍是"次"
+	if got := renderCounterLine("调用", map[string]float64{"": 5}, 60); !strings.Contains(got, "5 次") {
+		t.Errorf("默认单位应为次: %q", got)
+	}
+}
+
+// TestRenderBreakdown 分链下钻：聚合 P99 会稀释慢链，label 维度分解必须可见。
+func TestRenderBreakdown(t *testing.T) {
+	byLabel := map[string]*DurationAgg{
+		"entry=api":    {Count: 100, SumSec: 5, Bounds: []float64{0.1, 1}, Counts: []uint64{95, 100}},
+		"entry=notify": {Count: 50, SumSec: 40, Bounds: []float64{0.1, 1}, Counts: []uint64{10, 50}},
+	}
+	got := renderBreakdown(byLabel)
+	if !strings.Contains(got, "分链") || !strings.Contains(got, "notify=") || !strings.Contains(got, "api=") {
+		t.Errorf("应含分链两链, got %q", got)
+	}
+	// notify 更慢应排前
+	if strings.Index(got, "notify=") > strings.Index(got, "api=") {
+		t.Errorf("P99 高的链应排前, got %q", got)
+	}
+
+	// 单链无信息量：不显示
+	if got := renderBreakdown(map[string]*DurationAgg{"entry=api": {Count: 1, Bounds: []float64{1}, Counts: []uint64{1}}}); got != "" {
+		t.Errorf("单链不应显示分链, got %q", got)
+	}
+	// 超过 6 链太细：不显示
+	many := map[string]*DurationAgg{}
+	for _, k := range []string{"a", "b", "c", "d", "e", "f", "g"} {
+		many["entry="+k] = &DurationAgg{Count: 1, Bounds: []float64{1}, Counts: []uint64{1}}
+	}
+	if got := renderBreakdown(many); got != "" {
+		t.Errorf(">6 链不应显示, got %q", got)
+	}
+
+	// 空/无样本
+	if got := renderBreakdown(nil); got != "" {
+		t.Errorf("nil 应返回空, got %q", got)
+	}
+}
+
+// TestRenderDurationLine_Breakdown 集成：duration 行尾追加分链。
+func TestRenderDurationLine_Breakdown(t *testing.T) {
+	agg := &DurationAgg{Count: 150, SumSec: 45, Bounds: []float64{1}, Counts: []uint64{150},
+		Result: map[string]uint64{"ok": 140, "error": 10}}
+	breakdown := map[string]*DurationAgg{
+		"entry=api":    {Count: 100, SumSec: 5, Bounds: []float64{1}, Counts: []uint64{100}},
+		"entry=notify": {Count: 50, SumSec: 40, Bounds: []float64{1}, Counts: []uint64{50}},
+	}
+	line := renderDurationLine("网关端到端", agg, 60, breakdown)
+	if !strings.Contains(line, "分链") {
+		t.Errorf("duration 行应含分链, got %q", line)
+	}
+	// 不传 breakdown 行为不变
+	line2 := renderDurationLine("网关端到端", agg, 60, nil)
+	if strings.Contains(line2, "分链") {
+		t.Errorf("无 breakdown 不应有分链, got %q", line2)
+	}
+}
+
+// TestFormatMs_分级 秒级耗时应显示 s 而非数千 ms（7.3s 比 7300.0ms 直观）。
+func TestFormatMs_分级(t *testing.T) {
+	cases := []struct {
+		sec  float64
+		want string
+	}{
+		{0.0005, "500μs"},  // 亚毫秒
+		{0.08, "80.0ms"},   // 毫秒级
+		{7.3, "7.30s"},     // 秒级
+		{0.999, "999.0ms"}, // 1s 以下仍是 ms
+		{1.0, "1.00s"},     // 恰 1s
+	}
+	for _, c := range cases {
+		if got := FormatMs(c.sec); got != c.want {
+			t.Errorf("FormatMs(%v) = %q, want %q", c.sec, got, c.want)
+		}
+	}
+}
+
+// TestRenderBreakdown_MergesResultDim 同业务链的 result=ok/error 必须合并成一条，
+// 否则每条链被拆成多条（且 >6 链时整块不显示，分链能力失效）。
+func TestRenderBreakdown_MergesResultDim(t *testing.T) {
+	byLabel := map[string]*DurationAgg{
+		"entry=api,result=ok":       {Count: 90, SumSec: 4, Bounds: []float64{0.1, 1}, Counts: []uint64{85, 90}},
+		"entry=api,result=error":    {Count: 10, SumSec: 1, Bounds: []float64{0.1, 1}, Counts: []uint64{5, 10}},
+		"entry=notify,result=ok":    {Count: 40, SumSec: 30, Bounds: []float64{0.1, 1}, Counts: []uint64{5, 40}},
+		"entry=notify,result=error": {Count: 10, SumSec: 10, Bounds: []float64{0.1, 1}, Counts: []uint64{0, 10}},
+	}
+	got := renderBreakdown(byLabel)
+	if !strings.Contains(got, "分链") {
+		t.Fatalf("应显示分链, got %q", got)
+	}
+	// 合并后 2 条链：api/notify，不应出现重复键
+	if strings.Count(got, "api=") != 1 || strings.Count(got, "notify=") != 1 {
+		t.Errorf("同链应合并为一条, got %q", got)
+	}
+	// notify 慢链排前
+	if strings.Index(got, "notify=") > strings.Index(got, "api=") {
+		t.Errorf("慢链应排前, got %q", got)
+	}
+}
+
+// TestFormatDuration_UnifiedWithMs 诊断文案与报告行必须用同一刻度
+// （原 FormatDuration 亚毫秒显示 "0.0ms"，与 FormatMs 的 μs 分叉）。
+func TestFormatDuration_UnifiedWithMs(t *testing.T) {
+	for _, sec := range []float64{0.0005, 0.08, 1.0, 7.3} {
+		if got, want := FormatDuration(sec), FormatMs(sec); got != want {
+			t.Errorf("FormatDuration(%v)=%q 应与 FormatMs=%q 一致", sec, got, want)
+		}
+	}
+	if got := FormatDuration(0.0005); strings.Contains(got, "0.0ms") {
+		t.Errorf("亚毫秒不应丢精度为 0.0ms, got %q", got)
+	}
+}
+
+// TestFormatBytes_Extremes 超大值不能越界 panic、负值防御为 0B。
+func TestFormatBytes_Extremes(t *testing.T) {
+	if got := FormatBytes(-5); got != "0B" {
+		t.Errorf("负值应防御为 0B, got %q", got)
+	}
+	// 1<<100 远超后缀表长度（EB 之上），必须安全返回而非 panic
+	got := FormatBytes(1 << 100)
+	if got == "" || !strings.HasSuffix(got, "B") {
+		t.Errorf("超大值应安全渲染, got %q", got)
+	}
+	// 常规值不受影响
+	if got := FormatBytes(1024 * 1024); got != "1.0MB" {
+		t.Errorf("1.0MB, got %q", got)
+	}
+}

@@ -34,10 +34,44 @@ func TestRedisOperationMetricRegistered(t *testing.T) {
 
 // TestObserveRedisOperation_Result 口径：redis.Nil 缓存 miss 计 ok，真错误计 error
 func TestObserveRedisOperation_Result(t *testing.T) {
-	// 正常成功
+	okBefore := readDurResult(t, "redis_operation_duration_seconds", "ok")
+	errBefore := readDurResult(t, "redis_operation_duration_seconds", "error")
+
+	// 正常成功 → ok
 	observeRedisOperation("get", nil, time.Millisecond)
-	// 缓存 miss（redis.Nil）应算 ok
+	// 缓存 miss（redis.Nil）应算 ok（生产 miss 率高，计 error 会打满错误率）
 	observeRedisOperation("get", redis.Nil, time.Millisecond)
 	// 真错误算 error
 	observeRedisOperation("set", errors.New("connection refused"), time.Millisecond)
+
+	if got := readDurResult(t, "redis_operation_duration_seconds", "ok") - okBefore; got != 2 {
+		t.Errorf("成功+miss 应记 ok (+2), got %d", got)
+	}
+	if got := readDurResult(t, "redis_operation_duration_seconds", "error") - errBefore; got != 1 {
+		t.Errorf("真错误应记 error (+1), got %d", got)
+	}
+}
+
+// readDurResult 从 Fast Registry 读 histogram 指定 Result 的样本数。
+func readDurResult(t *testing.T, metric, result string) uint64 {
+	t.Helper()
+	fams, err := pkgmetrics.Default().GatherFast()
+	if err != nil {
+		t.Fatalf("gather fast: %v", err)
+	}
+	for _, f := range fams {
+		if f.GetName() != metric || f.Type == nil || f.GetType().String() != "HISTOGRAM" {
+			continue
+		}
+		var total uint64
+		for _, m := range f.Metric {
+			for _, l := range m.Label {
+				if l.GetName() == "result" && l.GetValue() == result && m.Histogram != nil {
+					total += m.Histogram.GetSampleCount()
+				}
+			}
+		}
+		return total
+	}
+	return 0
 }

@@ -197,7 +197,16 @@ func (d *DurationAgg) ErrorCount() uint64 {
 	if d == nil {
 		return 0
 	}
-	return d.Result["error"]
+	// 口径：非 ok 的 result 全算失败（含 error/timeout/partial 等）。
+	// 全仓约定 result∈{ok,error}，但第三方 provider 或业务误用其他值时，
+	// 只认 "error" 会漏报——"非 ok 即失败"让未知值不会静默变正常。
+	var err uint64
+	for r, n := range d.Result {
+		if r != "ok" {
+			err += n
+		}
+	}
+	return err
 }
 
 // ErrorRate 取窗口错误率（0~1）；无样本返回 0。

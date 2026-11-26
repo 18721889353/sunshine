@@ -119,6 +119,13 @@ func Show(obj interface{}, fields ...string) string {
 
 // hideSensitiveFields 隐藏敏感字段
 func hideSensitiveFields(line string, fields ...string) string {
+	// webhookURL 必须走专用脱敏：其值含 "://" 和 "?key="，若 URL 里含 @
+	// （basic auth / 特殊编码）会被下面的 DSN 分支误判为 user:pass@host，
+	// replaceDSN 按 DSN 格式切分导致 key 泄露——凭证泄露是红线。
+	if idx := strings.Index(line, `"webhookURL"`); idx >= 0 {
+		const field = `"webhookURL"`
+		return fmt.Sprintf("%s: \"******\",\n", line[:idx+len(field)])
+	}
 	for _, field := range fields {
 		if strings.Contains(line, field) {
 			index := strings.Index(line, field)

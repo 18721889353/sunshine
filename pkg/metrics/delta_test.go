@@ -207,3 +207,22 @@ func TestWindowDelta_DurationsByLabel(t *testing.T) {
 		t.Error("delta 桶应深拷贝，不能与 cur 共享底层数组")
 	}
 }
+
+// TestDurationAgg_ErrorCount_NonOK 口径：非 ok 的 result 全算失败
+// （含 timeout/partial 等未知值，避免"非 error 值"被静默当正常导致错误率恒 0）。
+func TestDurationAgg_ErrorCount_NonOK(t *testing.T) {
+	d := &DurationAgg{Count: 100, Result: map[string]uint64{
+		"ok": 90, "error": 5, "timeout": 3, "partial": 2,
+	}}
+	if got := d.ErrorCount(); got != 10 {
+		t.Errorf("非 ok 全算失败, want 10, got %d", got)
+	}
+	if r := d.ErrorRate(); r != 0.1 {
+		t.Errorf("错误率应 10%%, got %v", r)
+	}
+	// 只有 ok：0 失败
+	d2 := &DurationAgg{Count: 10, Result: map[string]uint64{"ok": 10}}
+	if got := d2.ErrorCount(); got != 0 {
+		t.Errorf("全 ok 应 0 失败, got %d", got)
+	}
+}

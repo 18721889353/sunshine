@@ -138,7 +138,8 @@ func DiagnoseWithThresholds(s *MetricSnapshot, th DiagnosisThresholds) Diagnosis
 		name string
 		agg  *DurationAgg
 	}
-	var cands []cand
+	// 预分配：map 长度已知，消除 append 扩容（诊断在 fastCheck 里周期性执行）
+	cands := make([]cand, 0, len(s.Durations))
 	for name, agg := range s.Durations {
 		cands = append(cands, cand{name, agg})
 	}
@@ -196,7 +197,7 @@ func DiagnoseWithThresholds(s *MetricSnapshot, th DiagnosisThresholds) Diagnosis
 	// 静默故障指标是 Counter（非 Histogram），上面的 Durations 循环看不到。
 	// 这些是 Phase 1 特意加的"失败静默"指标——只展示不告警违背初衷。
 	// 口径：窗口内出现 result=error 样本即 warn（此类操作低频，偶发错误就值得关注）。
-	var counterNames []string
+	counterNames := make([]string, 0, len(s.Counters))
 	for name := range s.Counters {
 		counterNames = append(counterNames, name)
 	}

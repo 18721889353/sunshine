@@ -31,8 +31,10 @@ func TestIsErrorLabels(t *testing.T) {
 	if isErrorLabels("reason=error_timeout,result=ok") {
 		t.Error("reason 含 error 但 result=ok 不应误判")
 	}
-	if isErrorLabels("result=error_timeout") {
-		t.Error("result=error_timeout 不应误判为 error")
+	// 口径演进：result 为未知值（error_timeout/timeout/partial）按失败算——
+	// 漏报比误报危险（业务误用 result 值时错误率恒 0、运维完全无感）。
+	if !isErrorLabels("result=error_timeout") {
+		t.Error("result=error_timeout 应按失败计（非 ok 即失败）")
 	}
 	if isErrorLabels("result=ok") {
 		t.Error("result=ok 不应为 error")
