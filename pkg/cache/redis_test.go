@@ -402,3 +402,32 @@ func TestWatchDogLockNilTask(t *testing.T) {
 		t.Error("WatchDogLock with nil task should return error")
 	}
 }
+
+// TestMultiSet_PreallocBehavior MultiSet 预分配后的行为守护：
+// 批量写入全部成功、每个 key 都能读回、空 map 无错误。
+func TestMultiSet_PreallocBehavior(t *testing.T) {
+	c, mr := newTestCache(t)
+	defer mr.Close()
+
+	ctx := context.Background()
+	s1, s2, s3 := "v1", "v2", "v3"
+	values := map[string]interface{}{
+		"k1": &s1, "k2": &s2, "k3": &s3, // encoding.Marshal 要求指针
+	}
+	if err := c.MultiSet(ctx, values, time.Minute); err != nil {
+		t.Fatalf("MultiSet 失败: %v", err)
+	}
+	for k := range values {
+		var got string
+		if err := c.Get(ctx, k, &got); err != nil {
+			t.Errorf("Get(%s) 失败: %v", k, err)
+			continue
+		}
+		if got != "v"+k[1:] {
+			t.Errorf("Get(%s) = %q, want v%s", k, got, k[1:])
+		}
+	}
+	if err := c.MultiSet(ctx, nil, time.Minute); err != nil {
+		t.Errorf("空 map 应无错误, got %v", err)
+	}
+}

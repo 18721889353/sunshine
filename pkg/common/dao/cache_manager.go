@@ -767,7 +767,8 @@ func (m *cacheManager[T]) tryGetAllFromCache(ctx context.Context, lockErr error)
 
 // findMissedIDs 找出 itemMap 中没有的 ID
 func (m *cacheManager[T]) findMissedIDs(ids []uint64, itemMap map[uint64]*T) []uint64 {
-	var missed []uint64
+	// 预分配：missed 最多 len(ids) 个，缓存批量查询热路径消除扩容
+	missed := make([]uint64, 0, len(ids))
 	for _, id := range ids {
 		if _, ok := itemMap[id]; !ok {
 			missed = append(missed, id)

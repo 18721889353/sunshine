@@ -25,9 +25,9 @@ import (
 func Init(dsn string, opts ...Option) (*gorm.DB, error) {
 	o := defaultOptions()
 	o.apply(opts...)
-	db, err := getDb(dsn, o)
+	db, err := getDB(dsn, o)
 	if err != nil {
-		return nil, fmt.Errorf("getDb, err: %v", err)
+		return nil, fmt.Errorf("getDB, err: %v", err)
 	}
 	// register read-write separation plugin
 	if len(o.slavesDsn) > 0 {
@@ -71,7 +71,7 @@ func gormConfig(o *options) *gorm.Config {
 	return config
 }
 
-func getDb(dsn string, o *options) (*gorm.DB, error) {
+func getDB(dsn string, o *options) (*gorm.DB, error) {
 	sqlDB, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func rwSeparationPlugin(o *options) (gorm.Plugin, []*sql.DB, error) {
 	slaves := []gorm.Dialector{}
 	pools := []*sql.DB{}
 	for _, dsn := range o.slavesDsn {
-		db, err := getDb(dsn, o)
+		db, err := getDB(dsn, o)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize slave database with DSN %s: %w", dsn, err)
 		}
@@ -130,7 +130,7 @@ func rwSeparationPlugin(o *options) (gorm.Plugin, []*sql.DB, error) {
 
 	masters := []gorm.Dialector{}
 	for _, dsn := range o.mastersDsn {
-		db, err := getDb(dsn, o)
+		db, err := getDB(dsn, o)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize master database with DSN %s: %w", dsn, err)
 		}

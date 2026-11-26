@@ -635,7 +635,8 @@ func (r *replacerInfo) convertPathDelimiter(filePath string) string {
 //	[]string - 转换后的文件路径列表
 func (r *replacerInfo) convertPathsDelimiter(filePaths ...string) []string {
 	if r.isActual && gofile.IsWindows() {
-		var filePathsTmp []string
+		// 预分配：输入输出一一对应，数量已知
+		filePathsTmp := make([]string, 0, len(filePaths))
 		for _, dir := range filePaths {
 			filePathsTmp = append(filePathsTmp, strings.ReplaceAll(dir, "/", "\\"))
 		}

@@ -173,19 +173,19 @@ func (c *redisCache) Set(ctx context.Context, key string, val interface{}, expir
 
 	buf, err := encoding.Marshal(c.encoding, val)
 	if err != nil {
-		return fmt.Errorf("encoding.Marshal error: %v, key=%s, val=%+v ", err, key, val)
+		return fmt.Errorf("encoding.Marshal error: %w, key=%s, val=%+v ", err, key, val)
 	}
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
+		return fmt.Errorf("BuildCacheKey error: %w, key=%s", err, key)
 	}
 	if expireTime == 0 {
 		expireTime = c.DefaultExpireTime
 	}
 	err = c.client.Set(ctx, cacheKey, buf, expireTime).Err()
 	if err != nil {
-		return fmt.Errorf("c.client.Set error: %v, cacheKey=%s", err, cacheKey)
+		return fmt.Errorf("c.client.Set error: %w, cacheKey=%s", err, cacheKey)
 	}
 	return nil
 }
@@ -205,7 +205,7 @@ func (c *redisCache) Get(ctx context.Context, key string, val interface{}) (err 
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
+		return fmt.Errorf("BuildCacheKey error: %w, key=%s", err, key)
 	}
 
 	bytes, err := c.client.Get(ctx, cacheKey).Bytes()
@@ -244,7 +244,8 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 	}
 
 	pipeline := c.client.Pipeline()
-	var errs []error
+	// 预分配：errs 最多 len(valueMap) 个，批量写热路径消除扩容
+	errs := make([]error, 0, len(valueMap))
 	validKeys := 0
 
 	for key, value := range valueMap {
@@ -264,7 +265,7 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 
 	if validKeys == 0 {
 		if len(errs) > 0 {
-			return fmt.Errorf("all keys failed: %v", errs)
+			return fmt.Errorf("all keys failed: %w", errors.Join(errs...))
 		}
 		return nil
 	}
@@ -276,7 +277,7 @@ func (c *redisCache) MultiSet(ctx context.Context, valueMap map[string]interface
 
 	if len(errs) > 0 {
 		logger.WarnWithCtx(ctx, "MultiSet partial failures", logger.Any("errors", errs))
-		return fmt.Errorf("partial failures: %v", errs)
+		return fmt.Errorf("partial failures: %w", errors.Join(errs...))
 	}
 	return nil
 }
@@ -298,7 +299,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 	for index, key := range keys {
 		cacheKey, getErr := BuildCacheKey(c.KeyPrefix, key)
 		if getErr != nil {
-			return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
+			return fmt.Errorf("BuildCacheKey error: %w, key=%s", err, key)
 		}
 		cacheKeys[index] = cacheKey
 	}
@@ -307,7 +308,7 @@ func (c *redisCache) MultiGet(ctx context.Context, keys []string, value interfac
 		if errors.Is(err, CacheNotFound) {
 			return err
 		}
-		return fmt.Errorf("c.client.MGet error: %v, keys=%+v", err, cacheKeys)
+		return fmt.Errorf("c.client.MGet error: %w, keys=%+v", err, cacheKeys)
 	}
 
 	// 情况1：value 是 map[string]interface{}（常用）
@@ -376,7 +377,7 @@ func (c *redisCache) Del(ctx context.Context, keys ...string) (err error) {
 	}
 	err = c.client.Del(ctx, cacheKeys...).Err()
 	if err != nil {
-		return fmt.Errorf("c.client.Del error: %v, keys=%+v", err, cacheKeys)
+		return fmt.Errorf("c.client.Del error: %w, keys=%+v", err, cacheKeys)
 	}
 	return nil
 }
@@ -439,11 +440,11 @@ func (c *redisCache) Incr(ctx context.Context, key string) (val int64, err error
 
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		return 0, fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
+		return 0, fmt.Errorf("BuildCacheKey error: %w, key=%s", err, key)
 	}
 	val, err = c.client.Incr(ctx, cacheKey).Result()
 	if err != nil {
-		return 0, fmt.Errorf("c.client.Incr error: %v, cacheKey=%s", err, cacheKey)
+		return 0, fmt.Errorf("c.client.Incr error: %w, cacheKey=%s", err, cacheKey)
 	}
 	return val, nil
 }
@@ -457,7 +458,7 @@ func (c *redisCache) SetCacheWithNotFound(ctx context.Context, key string) (err 
 	}()
 	cacheKey, err := BuildCacheKey(c.KeyPrefix, key)
 	if err != nil {
-		return fmt.Errorf("BuildCacheKey error: %v, key=%s", err, key)
+		return fmt.Errorf("BuildCacheKey error: %w, key=%s", err, key)
 	}
 	return c.client.Set(ctx, cacheKey, NotFoundPlaceholder, DefaultNotFoundExpireTime).Err()
 }

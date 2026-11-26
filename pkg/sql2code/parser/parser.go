@@ -829,7 +829,7 @@ func getProtoFileCode(data tmplData, jsonNamedType int, isWebProto bool, isExten
 	code = strings.ReplaceAll(code, "// protoMessageDetailCode", protoMessageDetailCode)
 	code = strings.ReplaceAll(code, "*time.Time", "int64")
 	code = strings.ReplaceAll(code, "time.Time", "int64")
-	code = adaptedDbType(data, isWebProto, code)
+	code = adaptedDBType(data, isWebProto, code)
 
 	return code, nil
 }
@@ -865,7 +865,7 @@ var webDefaultProtoMessageFieldCodes = map[string]string{
 	listTableByLastIDRequestFieldCodeMark: `uint64 lastID = 1 [(tagger.tags) = "form:\"lastID\""]; // last id`,
 }
 
-func adaptedDbType(data tmplData, isWebProto bool, code string) string {
+func adaptedDBType(data tmplData, isWebProto bool, code string) string {
 	if data.DBDriver == "" {
 		if isWebProto {
 			code = replaceProtoMessageFieldCode(code, webDefaultProtoMessageFieldCodes)

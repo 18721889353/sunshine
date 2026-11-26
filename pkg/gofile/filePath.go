@@ -277,17 +277,17 @@ func ListDirsAndFiles(dirPath string) (map[string][]string, error) {
 //
 //	[]string - 匹配到的文件路径列表
 func FuzzyMatchFiles(f string) []string {
-	var files []string
 	dir, filenameReg := filepath.Split(f)
 	if !strings.Contains(filenameReg, "*") {
-		files = append(files, f)
-		return files
+		return []string{f}
 	}
 
 	lFiles, err := ListFiles(dir)
 	if err != nil {
-		return files
+		return nil
 	}
+	// 预分配：匹配数最多 len(lFiles)，目录遍历文件数可能很大
+	files := make([]string, 0, len(lFiles))
 	for _, file := range lFiles {
 		_, filename := filepath.Split(file)
 		isMatch, err := path.Match(filenameReg, filename)
@@ -318,7 +318,8 @@ func ListDirs(specifiedDir string) ([]string, error) {
 		return nil, err
 	}
 
-	var dirs []string
+	// 预分配：目录项数量已知，递归遍历规模可能很大
+	dirs := make([]string, 0, len(dir))
 	for _, fi := range dir {
 		if fi.IsDir() {
 			dirs = append(dirs, filepath.Join(specifiedDir, fi.Name()))

@@ -317,13 +317,18 @@ func TestIntegration_Expiration(t *testing.T) {
 		t.Fatalf("Get should succeed before expiration: %v", err)
 	}
 
-	// 等待过期
-	time.Sleep(3 * time.Second)
-
-	// 再次读取应该不存在
-	err = c.Get(ctx, "expire-test", &got)
-	if !errors.Is(err, CacheNotFound) {
-		t.Errorf("expected CacheNotFound after expiration, got %v", err)
+	// 轮询等待过期（替代固定 sleep 3s）：TTL 2s，过期即返回——
+	// 比固定等待更快，也不依赖"留多少余量"的猜测
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err = c.Get(ctx, "expire-test", &got)
+		if errors.Is(err, CacheNotFound) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("TTL 过期后应 CacheNotFound, got %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

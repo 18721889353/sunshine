@@ -279,7 +279,7 @@ func getCommonProtoFileCode(data tmplData, jsonNamedType int, isWebProto bool, i
 	code = strings.ReplaceAll(code, "left_curly_bracket", "{")
 	code = strings.ReplaceAll(code, "right_curly_bracket", "}")
 
-	code = adaptedDbType2(data, isWebProto, code)
+	code = adaptedDBType2(data, isWebProto, code)
 
 	return code, nil
 }
@@ -338,7 +338,7 @@ func simpleGoTypeToProtoType(goType string) string {
 	return protoType
 }
 
-func adaptedDbType2(data tmplData, isWebProto bool, code string) string {
+func adaptedDBType2(data tmplData, isWebProto bool, code string) string {
 	if isWebProto {
 		code = replaceProtoMessageFieldCode(code, webDefaultProtoMessageFieldCodes)
 	} else {

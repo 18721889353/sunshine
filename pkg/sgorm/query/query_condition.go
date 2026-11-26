@@ -173,7 +173,7 @@ func (c *Column) convert() (string, error) {
 			symbol = ""
 		}
 	} else {
-		return symbol, fmt.Errorf("unsported exp type '%s'", c.Exp)
+		return symbol, fmt.Errorf("unsupported exp type '%s'", c.Exp)
 	}
 
 	if c.Logic == "" {
@@ -183,7 +183,7 @@ func (c *Column) convert() (string, error) {
 		if _, ok := logicMap[logic]; ok { //nolint
 			c.Logic = logic
 		} else {
-			return symbol, fmt.Errorf("unsported logic type '%s'", c.Logic)
+			return symbol, fmt.Errorf("unsupported logic type '%s'", c.Logic)
 		}
 	}
 
@@ -207,7 +207,10 @@ func (p *Params) ConvertToGormConditions() (cond string, args []interface{}, err
 	start := time.Now()
 	defer func() { observeQueryBuild(err, time.Since(start)) }()
 
-	str := ""
+	// strings.Builder：SQL 条件拼接是查询热路径，
+	// 用 str += 会在每次循环整体复制（O(n²)），Builder 累积为 O(n)
+	var strB strings.Builder
+	strB.Grow(len(p.Columns) * 24) // 每列约 24 字节（列名+表达式+符号+逻辑符），预估避免多次扩容
 	args = []interface{}{}
 	l := len(p.Columns)
 	if l == 0 {
@@ -233,18 +236,18 @@ func (p *Params) ConvertToGormConditions() (cond string, args []interface{}, err
 		if i == l-1 { // ignore the logical type of the last column
 			switch column.Logic {
 			case "or:)", "and:)":
-				str += column.Name + column.Exp + symbol + " ) "
+				strB.WriteString(column.Name + column.Exp + symbol + " ) ")
 			default:
-				str += column.Name + column.Exp + symbol
+				strB.WriteString(column.Name + column.Exp + symbol)
 			}
 		} else {
 			switch column.Logic {
 			case "or:(", "and:(":
-				str += " ( " + column.Name + column.Exp + symbol + logicMap[column.Logic]
+				strB.WriteString(" ( " + column.Name + column.Exp + symbol + logicMap[column.Logic])
 			case "or:)", "and:)":
-				str += column.Name + column.Exp + symbol + " ) " + logicMap[column.Logic]
+				strB.WriteString(column.Name + column.Exp + symbol + " ) " + logicMap[column.Logic])
 			default:
-				str += column.Name + column.Exp + symbol + logicMap[column.Logic]
+				strB.WriteString(column.Name + column.Exp + symbol + logicMap[column.Logic])
 			}
 		}
 		if column.Value != nil {
@@ -263,11 +266,11 @@ func (p *Params) ConvertToGormConditions() (cond string, args []interface{}, err
 	}
 
 	if isUseIN {
-		str = field + " IN (?)"
-		args = []interface{}{args}
+		// 覆盖路径：直接构造返回，不经过 Builder
+		return field + " IN (?)", []interface{}{args}, nil
 	}
 
-	return str, args, nil
+	return strB.String(), args, nil
 }
 
 // Conditions query conditions
@@ -297,12 +300,12 @@ func (c *Conditions) CheckValid() error {
 		}
 		if col.Exp != "" {
 			if _, ok := expMap[strings.ToLower(col.Exp)]; !ok {
-				return fmt.Errorf("unsported exp type '%s'", col.Exp)
+				return fmt.Errorf("unsupported exp type '%s'", col.Exp)
 			}
 		}
 		if col.Logic != "" {
 			if _, ok := logicMap[strings.ToLower(col.Logic)]; !ok {
-				return fmt.Errorf("unsported logic type '%s'", col.Logic)
+				return fmt.Errorf("unsupported logic type '%s'", col.Logic)
 			}
 		}
 	}
