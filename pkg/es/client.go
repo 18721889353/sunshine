@@ -83,12 +83,15 @@ func NewClient(opts ...Options) (*Client, error) {
 		}).DialContext,
 	}
 
+	// transport 层统一埋点：一处覆盖所有 ES 请求的 OTel span（业务侧零改动）
+	instrumentedTransport := &tracingRoundTripper{next: transport}
+
 	cfg := elasticsearch.Config{
 		Addresses: config.Addresses,
 		Username:  config.Username,
 		Password:  config.Password,
 		APIKey:    config.APIKey,
-		Transport: transport,
+		Transport: instrumentedTransport,
 		// 重试配置 - 从config中读取
 		RetryOnStatus: config.RetryOnStatus,
 		RetryBackoff: func(i int) time.Duration {

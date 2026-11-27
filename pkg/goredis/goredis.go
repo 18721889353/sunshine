@@ -67,6 +67,9 @@ func setupClient(ctx context.Context, client redis.UniversalClient, o *options, 
 	// 注意：必须在 InstrumentTracing 之后添加，这样 redisotel hook 先执行（创建 Span），我们的 Hook 后执行（设置属性）
 	client.AddHook(&requestIDHook{})
 
+	// 连接池水位指标：登记后由 Prometheus Collector 读取 PoolStats（报告器/告警可见）
+	RegisterPoolStats("default", client)
+
 	// 测试连接（由调用方注入 ping 策略：单机直接 Ping，集群 ForEachShard 遍历分片）
 	// 超时可用 WithInitTimeout 覆盖（默认 initTimeout 常量）
 	pingCtx, cancel := context.WithTimeout(ctx, o.initTimeout)

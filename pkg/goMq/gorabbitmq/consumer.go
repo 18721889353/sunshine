@@ -272,6 +272,50 @@ func (c *Consumer) subscribe(ctx context.Context) (<-chan amqp.Delivery, error) 
 	)
 }
 
+// reportQueueDepth 定期查询队列积压深度并记录 Gauge。
+// 用独立 channel 查询（不占用消费 channel，避免相互干扰）；
+// 队列不存在或连接断开时静默跳过（连接状态已有 rabbitmq_connected 指标覆盖）。
+func (c *Consumer) reportQueueDepth(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.conn.Done():
+			return
+		case <-ticker.C:
+			c.queryQueueDepth(ctx)
+		}
+	}
+}
+
+// queryQueueDepth 单次查询队列深度（passive 声明：只查状态不创建队列）。
+func (c *Consumer) queryQueueDepth(ctx context.Context) {
+	mqConn := c.conn.mqConn.Load()
+	if mqConn == nil || mqConn.IsClosed() {
+		return // 连接断开时跳过，连接状态由 rabbitmq_connected 指标覆盖
+	}
+	ch, err := mqConn.Channel()
+	if err != nil {
+		return // channel 创建失败（瞬时故障），下个周期重试
+	}
+	defer func() {
+		// 查询通道用完即关：Close 失败仅影响该临时 channel 回收，无业务影响
+		_ = ch.Close() //nolint:errcheck // errcheck 配了 check-blank，此处显式忽略是设计意图
+	}()
+
+	// passive=true：仅查询队列状态，不创建；参数除 name 外服务端忽略
+	q, err := ch.QueueDeclarePassive(c.QueueName, true, false, false, false, nil)
+	if err != nil {
+		logger.WarnWithCtx(ctx, "[rabbitmq] queue depth query failed",
+			logger.String("queue", c.QueueName),
+			logger.Err(err))
+		return
+	}
+	ObserveQueueDepth(c.QueueName, q.Messages)
+}
+
 // Consume 在后台 goroutine 中循环消费 RabbitMQ 消息，支持自动重连和重试。
 //
 // 参数:
@@ -287,6 +331,10 @@ func (c *Consumer) subscribe(ctx context.Context) (<-chan amqp.Delivery, error) 
 //     避免协程退出后无人重建队列（AutoDelete 队列会随最后一条消费者消失）；
 //     handler 的 panic 已在 handleSingleMessage→safeHandle 逐条隔离，不会上升到本层
 func (c *Consumer) Consume(ctx context.Context, handler Handler) {
+	// 队列积压深度采集：每 30s 查询一次（QueueDeclarePassive 轻量 RPC）。
+	// 积压是"下游跟不上"最直接的信号，比错误率更早暴露问题。
+	go c.reportQueueDepth(ctx)
+
 	go func() {
 		for {
 			// panic 保护：单次会话 panic 不应终止消费；捕获后由外层循环重启会话，

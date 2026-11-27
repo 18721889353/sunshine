@@ -47,11 +47,21 @@ func newSMTPClient(cfg *Config) (*SMTPClient, error) {
 }
 
 // SendEmail 发送邮件
-func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResult, error) {
+func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (retResult *SendResult, retErr error) {
 	// 链路追踪
 	tracer := otel.Tracer("goemail")
 	ctx, span := tracer.Start(ctx, "smtp.send.email", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
+
+	startTime := time.Now()
+	// 指标埋点：外呼耗时与结果（覆盖所有 return 路径，判定口径与返回语义一致）
+	defer func() {
+		sendErr := retErr
+		if sendErr == nil && retResult != nil && retResult.Status == StatusFailed {
+			sendErr = retResult.Error
+		}
+		observeEmailSend("smtp", sendErr, time.Since(startTime))
+	}()
 
 	// nil 入参前置校验：后续所有字段访问（req.From 等）都假设 req 非空，
 	// 而 SendBatchEmail 会把切片元素直接交给本方法，nil 元素会在 worker goroutine 里 panic
@@ -75,8 +85,6 @@ func (c *SMTPClient) SendEmail(ctx context.Context, req *SendRequest) (*SendResu
 		attribute.Bool("email.has_attachments", len(req.Attachments) > 0),
 		requestIDAttr(ctx),
 	)
-
-	startTime := time.Now()
 
 	// 验证参数
 	if err := c.validateRequest(ctx, req); err != nil {

@@ -64,6 +64,10 @@ func NewConnection(ctx context.Context, url string, opts ...ConnectionOption) (*
 	c.mqCloseChan = c.mqConn.Load().NotifyClose(make(chan *amqp.Error, 1))
 	c.isConnected.Store(true)
 
+	// 连接状态指标：登记后由 Prometheus Collector 读取 isConnected/reconnectCount
+	// （断开/重连是网络故障关键信号，报告器与告警可见）
+	RegisterConnectionStats("default", c)
+
 	go c.monitor(context.WithoutCancel(ctx))
 
 	return c, nil

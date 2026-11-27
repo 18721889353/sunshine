@@ -10,9 +10,13 @@ import (
 
 // gows 指标：连接数 + panic 恢复。
 //
-// 为什么必须有：WebSocket 是长连接，"连接数掉到 0"或"心跳 panic 反复发生"
-// 都是严重故障，但进程不挂、日志淹没，没有指标发现不了。
+// 为什么必须有：WebSocket 是长连接，"心跳 panic 反复发生"是严重故障，
+// 但进程不挂、日志淹没，没有指标发现不了。
 // 之前 gows 完全没有指标，与 rabbitmq/kafka 覆盖不一致。
+//
+// 连接数告警注意：eqZero 规则（掉到 0 即告警）默认【未启用】——
+// 服务启动初期无连接是正常状态，启用会误报。需要时通过 yml gaugeAbove
+// 配 above 阈值，或用 DiagnosisHook 自定义判定。
 var (
 	descLocalClients = prom.NewDesc("gows_local_connections", "Number of local WebSocket connections.", nil, nil)
 	descRemoteUIDs   = prom.NewDesc("gows_remote_uids", "Number of remote UIDs in distributed registry.", nil, nil)

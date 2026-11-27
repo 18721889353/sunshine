@@ -21,6 +21,7 @@ import (
 	"github.com/18721889353/sunshine/pkg/errcode"
 	"github.com/18721889353/sunshine/pkg/gin/response"
 	"github.com/18721889353/sunshine/pkg/logger"
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 var (
@@ -270,6 +271,8 @@ func SentinelMiddleware(opts ...SentinelOptions) gin.HandlerFunc {
 			} else {
 				response.Out(c, errcode.TooManyRequests.WithDetails("请求被限流"))
 			}
+			// 指标埋点：保护机制拦截计数（type=flow/circuit_breaking，result=error 进诊断）
+			pkgmetrics.ObserveSentinelBlock(blockType)
 			// 结构化日志：让 oncall 能从日志分辨「被限流 / 被熔断」及来源 IP，满足可观测底线
 			// reason 用中文人话解释「为什么被拦」（阈值/窗口/当前值/熔断恢复），而非笼统的 block 提示
 			fields := []logger.Field{
@@ -404,6 +407,7 @@ func CircuitBreaker(opts ...CircuitBreakerOption) gin.HandlerFunc {
 		resource := c.FullPath()
 		entry, blockErr := sentinel.Entry(resource)
 		if blockErr != nil {
+			pkgmetrics.ObserveSentinelBlock("circuit_breaking")
 			if o.degradeHandler != nil {
 				o.degradeHandler(c)
 			} else {

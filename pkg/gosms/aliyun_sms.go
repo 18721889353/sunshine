@@ -83,11 +83,23 @@ func newAliyunSMSClient(cfg *Config) (*AliyunSMSClient, error) {
 }
 
 // SendSMS 发送短信（阿里云单次仅支持一个号码，多号码请使用 SendBatchSMS）。
-func (c *AliyunSMSClient) SendSMS(ctx context.Context, req *SendRequest) (*SendResult, error) {
+func (c *AliyunSMSClient) SendSMS(ctx context.Context, req *SendRequest) (retResult *SendResult, retErr error) {
 	// 链路追踪
 	tracer := otel.Tracer("gosms")
 	ctx, span := tracer.Start(ctx, "sms.aliyun.send", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
+
+	startTime := time.Now()
+
+	// 指标埋点：外呼耗时与结果（覆盖所有 return 路径）。
+	// 判定口径与返回语义一致：err != nil 或业务失败（Status==failed）都算失败。
+	defer func() {
+		sendErr := retErr
+		if sendErr == nil && retResult != nil && retResult.Status == StatusFailed {
+			sendErr = retResult.Error
+		}
+		observeSMSSend(sendErr, time.Since(startTime))
+	}()
 
 	// 入口校验：非法入参在发起任何网络调用前拦截（fail loud）
 	if req == nil {
@@ -117,8 +129,6 @@ func (c *AliyunSMSClient) SendSMS(ctx context.Context, req *SendRequest) (*SendR
 		attribute.Int("sms.phone_count", len(effective.PhoneNumbers)),
 		requestIDAttr(ctx),
 	)
-
-	startTime := time.Now()
 
 	// 创建请求（入口校验已保证列表非空且至多一个号码）
 	sendReq := &dysmsapi.SendSmsRequest{

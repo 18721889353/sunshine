@@ -15,6 +15,7 @@ import (
 	grpccredentials "google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/18721889353/sunshine/pkg/grpc/interceptor"
 	"github.com/18721889353/sunshine/pkg/logger"
 )
 
@@ -44,7 +45,10 @@ func NewClient(endpoints []string, opts ...Option) (*clientv3.Client, error) {
 
 	// 如果配置不为空，直接使用配置创建客户端
 	if o.config != nil {
-		cli, err := clientv3.New(*o.config)
+		cfg := *o.config // 值复制：不修改调用方传入的 config
+		// gRPC 链路追踪：与全仓 otelgrpc 体系一致（一处覆盖所有 etcd 调用）
+		cfg.DialOptions = append(cfg.DialOptions, grpc.WithStatsHandler(interceptor.NewClientStatsHandler()))
+		cli, err := clientv3.New(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("clientv3.New(*o.config) connecting to the etcd service error: %v", err)
 		}
@@ -52,6 +56,8 @@ func NewClient(endpoints []string, opts ...Option) (*clientv3.Client, error) {
 		if o.authConfig != nil && o.config.Username != "" {
 			startTokenRefresh(cli, o.config.Username, o.config.Password, *o.authConfig)
 		}
+		// 连接状态监控：本地读 grpc state（无 RPC 开销），30s 一次
+		StartConnMonitor(cli, 30*time.Second)
 		return cli, nil
 	}
 
@@ -70,6 +76,10 @@ func NewClient(endpoints []string, opts ...Option) (*clientv3.Client, error) {
 		Username:             o.username,
 		Password:             o.password,
 	}
+
+	// gRPC 链路追踪：与全仓 otelgrpc 体系一致（一处覆盖所有 etcd 调用）
+	conf.DialOptions = append(conf.DialOptions,
+		grpc.WithStatsHandler(interceptor.NewClientStatsHandler()))
 
 	// 根据是否启用安全模式设置 gRPC 的传输凭证
 	if !o.isSecure {
@@ -101,6 +111,9 @@ func NewClient(endpoints []string, opts ...Option) (*clientv3.Client, error) {
 		startTokenRefresh(cli, o.username, o.password, *o.authConfig)
 	}
 
+	// 连接状态监控：本地读 grpc state（无 RPC 开销），30s 一次
+	StartConnMonitor(cli, 30*time.Second)
+
 	return cli, nil
 }
 
@@ -111,7 +124,10 @@ func startTokenRefresh(cli *clientv3.Client, username, password string, cfg Auth
 	refreshInterval := resolveRefreshInterval(cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	refreshCancels.Store(cli, cancel)
+	// 幂等：同一 cli 重复启动不覆盖已有 cancel（复用 conn_metrics.go 的 helper）。
+	if !storeCancelIfAbsent(&refreshCancels, cli, cancel) {
+		return
+	}
 
 	go func() {
 		ticker := time.NewTicker(refreshInterval)

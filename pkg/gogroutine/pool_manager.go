@@ -103,6 +103,8 @@ func ReleasePool(name string) {
 	if v, ok := globalManager.pools.LoadAndDelete(name); ok {
 		if pool, ok := v.(Pool); ok {
 			pool.Release()
+			// 同步注销指标登记：否则已释放池的条目残留，Collector 继续 emit 0 值序列
+			UnregisterPoolStats(name)
 			logger.InfoWithCtx(context.Background(), "gogroutine: pool released",
 				logger.String("name", name),
 			)
@@ -118,6 +120,8 @@ func ReleaseAllPools() {
 		if ok1 && ok2 {
 			pool.Release()
 			globalManager.pools.Delete(name)
+			// 同步注销指标登记（与 ReleasePool 一致，避免 0 值序列残留）
+			UnregisterPoolStats(name)
 			logger.InfoWithCtx(context.Background(), "gogroutine: pool released",
 				logger.String("name", name),
 			)

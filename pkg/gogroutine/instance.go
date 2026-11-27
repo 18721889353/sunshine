@@ -315,5 +315,9 @@ func newInstance(name string, capacity int, opts ...Option) (*poolInstance, erro
 		},
 	}
 
+	// 池水位指标：登记后由 Prometheus Collector 读取 Running/Cap/Waiting
+	// （池饱和是吞吐天花板的早期信号，与 DB/Redis 连接池同理）
+	RegisterPoolStats(name, p)
+
 	return p, nil
 }

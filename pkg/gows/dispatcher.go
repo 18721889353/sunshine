@@ -8,7 +8,7 @@ import (
 
 	"github.com/18721889353/sunshine/pkg/logger"
 
-	"github.com/panjf2000/ants/v2"
+	"github.com/18721889353/sunshine/pkg/gogroutine"
 )
 
 // DispatcherOption / dispatcherOptions / WithMaxConnections / WithWorkerPool / ErrMaxConnections 定义在 dispatcher_options.go
@@ -67,11 +67,12 @@ type DistributedDispatcher struct {
 	enableSSO  atomic.Bool // 是否启用单点登录
 	ssoClients sync.Map    // uid → *Client 本地 SSO 映射
 
-	// workerPool 消息处理协程池（背压保护），用于 dispatchLoop 异步投递
-	workerPool *ants.Pool
+	// workerPool 消息处理协程池（背压保护），用于 dispatchLoop 异步投递。
+	// 走 gogroutine 统一池：池水位指标可见、panic 隔离统一（原 ants 直建绕过计数）。
+	workerPool gogroutine.Pool
 
 	// deliverPool 本地并发投递协程池，限制 deliverBroadcast / WriteRawToLocalUIDs 的 goroutine 数
-	deliverPool *ants.Pool
+	deliverPool gogroutine.Pool
 }
 
 // NewDispatcher 创建并初始化一个新的消息分发中心。
@@ -106,9 +107,10 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 	d.maxClientNum.Store(o.maxClientNum)
 	// 连接数指标：登记计数器的只读视图（atomic.Pointer 保护并发，首次登记生效）
 	RegisterStats(&d.localClientTotal, &d.remoteUIDTotal)
-	// workerNum > 1 时创建 ants 协程池作为 WorkerPool
+	// workerNum > 1 时创建协程池作为 WorkerPool（走 gogroutine 统一池）
 	if o.workerNum > 1 {
-		pool, err := ants.NewPool(int(o.workerNum))
+		pool, err := gogroutine.NewWithContext(context.Background(),
+			fmt.Sprintf("gows-worker-%d", nextDispatcherSeq()), o.workerNum)
 		if err != nil {
 			logger.WarnWithCtx(context.Background(), "create worker pool failed", logger.Err(err))
 		} else {
@@ -119,13 +121,20 @@ func NewDispatcher(backend Backend, opts ...DispatcherOption) *DistributedDispat
 		}
 	}
 	// 本地并发投递协程池，4096 个 worker，覆盖 1000 并发 WebSocket 写入
-	pool, err := ants.NewPool(4096)
+	pool, err := gogroutine.NewWithContext(context.Background(),
+		fmt.Sprintf("gows-deliver-%d", nextDispatcherSeq()), 4096)
 	if err != nil {
 		logger.WarnWithCtx(context.Background(), "create deliver pool failed", logger.Err(err))
 	}
 	d.deliverPool = pool
 	return d
 }
+
+// dispatcherSeq 池名自增序号：Dispatcher 可多实例（单例 + 生成模板各创建一次），
+// 池名带序号避免 gogroutine 同名池冲突（New 同名会返回 error）。
+var dispatcherSeq atomic.Int64
+
+func nextDispatcherSeq() int64 { return dispatcherSeq.Add(1) }
 
 // DefaultDispatcher 默认全局 Dispatcher 单例（单机模式）。
 var DefaultDispatcher = NewDispatcher(nil)
@@ -188,8 +197,9 @@ func (dd *DistributedDispatcher) shutdown() {
 	}
 
 	// 3. 释放 WorkerPool（unblock dispatchLoop 若阻塞在 Submit）
+	// ReleasePool 而非 Pool.Release：前者连管理器条目一起删，避免池名残留
 	if dd.workerPool != nil {
-		dd.workerPool.Release()
+		gogroutine.ReleasePool(dd.workerPool.Name())
 	}
 
 	// 4. 关闭 receiveLoop
@@ -198,7 +208,7 @@ func (dd *DistributedDispatcher) shutdown() {
 
 	// 5. 释放本地投递协程池
 	if dd.deliverPool != nil {
-		dd.deliverPool.Release()
+		gogroutine.ReleasePool(dd.deliverPool.Name())
 	}
 }
 
