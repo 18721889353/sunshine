@@ -73,10 +73,12 @@ var componentSpecs = map[string]componentSpec{
 	"gows_local_connections":        {label: "WebSocket连接", group: groupHTTP, kind: kindGauge},
 	"gows_remote_uids":              {label: "远端UID", group: groupHTTP, kind: kindGauge},
 	// 运行时（gauge，不差分）
-	"go_goroutines":                {label: "goroutine", group: groupRuntime, kind: kindGauge},
-	"go_memstats_alloc_bytes":      {label: "内存分配", group: groupRuntime, kind: kindGauge},
-	"logger_router_active_loggers": {label: "活跃logger", group: groupRuntime, kind: kindGauge},
-	"uptime":                       {label: "运行时长", group: groupRuntime, kind: kindCounter, unit: "分钟"},
+	"go_goroutines":                        {label: "goroutine", group: groupRuntime, kind: kindGauge},
+	"go_memstats_alloc_bytes":              {label: "内存分配", group: groupRuntime, kind: kindGauge},
+	"logger_router_active_loggers":         {label: "活跃logger", group: groupRuntime, kind: kindGauge},
+	"uptime":                               {label: "运行时长", group: groupRuntime, kind: kindCounter, unit: "分钟"},
+	"metrics_reporter_last_push_timestamp": {label: "上次推送时间", group: groupRuntime, kind: kindGauge},
+	"logger_dropped_entries":               {label: "日志丢弃", group: groupInfra, kind: kindCounter},
 }
 
 // 分组名常量（goconst：避免重复字符串字面量）。

@@ -133,3 +133,28 @@ func TestDiagnose_CounterOnlyError(t *testing.T) {
 		t.Errorf("应显示累计异常次数, got %q", d.Details[0])
 	}
 }
+
+// TestConsistency_MetricsInComponentSpecs 所有自定义指标的 base 都必须在
+// componentSpecs 登记——报告渲染有中文名/分组、诊断 componentLabel 有中文。
+// 跨文件一致性的自动校验：指标注册名与展示规格表在多轮修改中容易失配。
+func TestConsistency_MetricsInComponentSpecs(t *testing.T) {
+	fams, err := Default().GatherDefault()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	for _, f := range fams {
+		base := metricBase(f.GetName())
+		if len(base) >= 3 && base[:3] == "go_" {
+			continue // 运行时指标走 runtime 分组，不需登记
+		}
+		if len(base) >= 8 && base[:8] == "process_" || base == "promhttp" {
+			continue // 进程级/HTTP 库指标，与 go_* 同类
+		}
+		if strings.Contains(base, "test") {
+			continue // 其他测试注册的指标（测试污染 GatherDefault，非生产指标）
+		}
+		if _, ok := componentSpecs[base]; !ok {
+			t.Errorf("指标 %s 的 base=%s 未在 componentSpecs 登记", f.GetName(), base)
+		}
+	}
+}

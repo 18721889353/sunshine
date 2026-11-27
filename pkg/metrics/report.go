@@ -86,6 +86,19 @@ func observeReporterPush(err error) {
 	}
 }
 
+// 报告类型枚举（yml webhookRoutes 的 types 值，配置与代码匹配的单一来源）。
+const (
+	ReportTypePeriodic = "periodic" // 周期体检报告
+	ReportTypeAlert    = "alert"    // 异常即时告警
+)
+
+// 诊断级别键枚举（yml webhookRoutes 的 levels 值）。
+const (
+	LevelKeyOK       = "ok"
+	LevelKeyWarn     = "warn"
+	LevelKeyCritical = "critical"
+)
+
 // WebhookRoute 一条推送路由规则（对齐 upstreamRoutes 的"按顺序先命中先生效"语义）。
 // types / levels 为空表示不限制该维度；urls 可多个（同时推送到多个群）。
 type WebhookRoute struct {
@@ -112,11 +125,11 @@ func (r WebhookRoute) matches(reportType string, level DiagnosisLevel) bool {
 func levelKey(level DiagnosisLevel) string {
 	switch level {
 	case DiagnosisOK:
-		return "ok"
+		return LevelKeyOK
 	case DiagnosisWarn:
-		return "warn"
+		return LevelKeyWarn
 	case DiagnosisCritical:
-		return "critical"
+		return LevelKeyCritical
 	}
 	return "unknown"
 }
@@ -363,10 +376,10 @@ func StartReporter(intervalSec int, opts ...ReporterOption) {
 			hasPeriodic, hasAlert = true, true
 			break
 		}
-		if containsString(route.Types, "periodic") {
+		if containsString(route.Types, ReportTypePeriodic) {
 			hasPeriodic = true
 		}
-		if containsString(route.Types, "alert") {
+		if containsString(route.Types, ReportTypeAlert) {
 			hasAlert = true
 		}
 	}
@@ -439,7 +452,7 @@ func (r *Reporter) pushReportOnce() {
 	diag := r.diagnose(delta)
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
 
-	if err := r.push(text, "periodic", diag.Level); err != nil {
+	if err := r.push(text, ReportTypePeriodic, diag.Level); err != nil {
 		log.Printf("[metrics-report] WARN: push failed, window kept for retry: %s", err)
 		r.lastFailAt = time.Now()
 		return
@@ -485,7 +498,7 @@ func (r *Reporter) fastCheck() {
 
 	window := r.windowSinceLastPush()
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
-	if err := r.push(text, "alert", diag.Level); err != nil {
+	if err := r.push(text, ReportTypeAlert, diag.Level); err != nil {
 		log.Printf("[metrics-report] WARN: immediate push failed, will retry: %s", err)
 		r.lastFailAt = time.Now()
 		return // 现场保留：prev/lastCode 不动，下个巡检点按同一窗口重试
@@ -529,7 +542,7 @@ func (r *Reporter) gatherPeriodic() (*MetricSnapshot, error) {
 // push 推送报告文本到 webhook，并统一打自监控埋点。
 // 埋点集中在此，避免两处调用点漏打（自监控必须与真实推送严格同步）。
 // push 按路由规则推送报告：按顺序先命中先生效，命中规则的 urls 全部推送。
-// reportType 为 "periodic"/"alert"，level 为本次诊断级别。
+// reportType 为 ReportTypePeriodic/ReportTypeAlert，level 为本次诊断级别。
 // 推送失败返回聚合错误（error 已经 webhook 脱敏，见 PushToWebhookWithMentions）。
 func (r *Reporter) push(text, reportType string, level DiagnosisLevel) error {
 	// ctx 可能为 nil（测试直接构造 &Reporter{}），降级 Background 防 WithTimeout panic
