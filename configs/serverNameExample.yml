@@ -319,9 +319,8 @@ sign:
   signKey: "WQAIys9Lyb1DyArc7bwLvKfc5km0gHx2"  # 签名密钥 [热更新]
   ignoreUrls: # 忽略签名验证的URL [热更新]
     http:
-      - "/api/fd_v1/test"
+      - "/metrics" # 监控端点（Prometheus 抓取）：不带业务签名。代码已默认免检，此处显式列出便于运维可见
     grpc:
-      - "/api.feedovService.v1.feedovService/test"
       - "/grpc.health.v1.Health/Check"
 
 # JWT设置 [热更新: expire/signingKey/signingMethod/issuer/ignoreMethods 均支持]
