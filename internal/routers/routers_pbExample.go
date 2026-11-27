@@ -114,10 +114,17 @@ func NewRouter_pbExample() *gin.Engine { //nolint
 
 	// 将签名添加为全局中间件
 	if cfg.App.OpenSign {
+		// /metrics 监控端点免检（Prometheus 抓取不带业务签名），
+		// 否则 GET /metrics 被签名中间件 400 拦截，指标抓不到。
+		ignoreURLs := make([]string, 0, len(cfg.Sign.IgnoreUrls.HTTP)+1)
+		ignoreURLs = append(ignoreURLs, cfg.Sign.IgnoreUrls.HTTP...)
+		if cfg.Metrics.Enabled {
+			ignoreURLs = append(ignoreURLs, "/metrics")
+		}
 		r.Use(
 			middleware.VerifySignatureMiddleware(
 				middleware.WithSignKey(cfg.Sign.SignKey),
-				middleware.WithIgnoreURL(cfg.Sign.IgnoreUrls.HTTP...),
+				middleware.WithIgnoreURL(ignoreURLs...),
 				middleware.WithSignExpiredTime(time.Duration(cfg.Sign.SignExpiredTime)*time.Second),
 			),
 		)

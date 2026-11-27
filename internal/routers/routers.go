@@ -156,10 +156,19 @@ func NewRouter() *gin.Engine {
 	//r.Use(middleware.APILogMiddleware(middleware.WithAPILogFunc(customLogFunc)))
 
 	// 签名中间件常驻挂载（支持热更新）：开关由 SetSignEnabled 运行时控制
+	// /metrics 是监控基础设施端点（Prometheus 抓取），不携带业务签名——
+	// 必须免检，否则指标抓取被签名中间件拦截（GET 请求无 body 直接 400）。
+	// /health 在下方 Use 之前注册天然免检，/metrics 由 metrics.Metrics() 在 Use 之后
+	// 注册，故需显式加入白名单。
+	ignoreURLs := make([]string, 0, len(cfg.Sign.IgnoreUrls.HTTP)+1)
+	ignoreURLs = append(ignoreURLs, cfg.Sign.IgnoreUrls.HTTP...)
+	if cfg.Metrics.Enabled {
+		ignoreURLs = append(ignoreURLs, "/metrics")
+	}
 	r.Use(
 		middleware.VerifySignatureMiddleware(
 			middleware.WithSignKey(cfg.Sign.SignKey),
-			middleware.WithIgnoreURL(cfg.Sign.IgnoreUrls.HTTP...),
+			middleware.WithIgnoreURL(ignoreURLs...),
 			middleware.WithSignExpiredTime(time.Duration(cfg.Sign.SignExpiredTime)*time.Second),
 		),
 	)
