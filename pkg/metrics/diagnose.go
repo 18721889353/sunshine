@@ -133,6 +133,33 @@ func (t DiagnosisThresholds) normalize() DiagnosisThresholds {
 	return d
 }
 
+// ToSLO 把配置 DTO（errRate/P99 口径）转成 SLO（可用性/延迟口径）。
+//
+// 用途：业务方拿到框架配置后，可直接用本转换结果调用 EvaluateSLO，
+// 无需自己重复 1-errRate 的映射；配置层未来也可直接用它产出 SLO 对象。
+// 映射关系：ErrRateWarn 5% → Availability 0.95；P99Warn 1s → LatencyP99 1s。
+//
+// 注意：SLO 是单目标模型，而诊断告警仍需 warn/critical 双档，故诊断引擎
+// 内部用 SLI 作统一数据层 + 配置 DTO 的双档阈值；BurnRate 评估由业务方
+// 按需调用 EvaluateSLO（单窗口下 BurnRate 与错误率线性相关，无独立告警价值）。
+func (t DiagnosisThresholds) ToSLO() SLO {
+	n := t.normalize()
+	avail := 1 - n.ErrRateWarn
+	// BurnRateCritical = Critical 档错误率 / 允许错误率（= ErrRateCritical / ErrRateWarn）。
+	// 语义：错误率达到 Critical 档（20%）时的燃烧速率——默认 0.20/0.05 = 4.0（4 倍速耗预算）。
+	// 防御除零：ErrRateWarn=1（100% 容忍）时允许错误率为 0，回落默认 14.4。
+	burn := float64(0)
+	if n.ErrRateWarn < 1 {
+		burn = n.ErrRateCritical / (1 - avail)
+	}
+	return SLO{
+		Availability:     avail,
+		LatencyP99:       n.P99Warn,
+		MinSamples:       n.MinSamples,
+		BurnRateCritical: burn,
+	}
+}
+
 // Diagnose 分析窗口增量，产出诊断结论（用默认阈值）。
 func Diagnose(s *MetricSnapshot) Diagnosis {
 	return DiagnoseWithThresholds(s, DefaultDiagnosisThresholds())
@@ -162,49 +189,46 @@ func DiagnoseWithThresholds(s *MetricSnapshot, th DiagnosisThresholds) Diagnosis
 	sort.Slice(cands, func(i, j int) bool { return cands[i].name < cands[j].name })
 
 	for _, c := range cands {
-		if c.agg == nil || c.agg.Count < th.MinSamples {
-			continue // 样本太少不诊断
+		if c.agg == nil {
+			continue
 		}
 		base := metricBase(c.name)
 
-		// 错误率诊断
-		errRate := c.agg.ErrorRate()
-		if errRate >= th.ErrRateCritical {
-			d := Diagnosis{
-				Level: DiagnosisCritical,
-				Code:  fmt.Sprintf("%s:err-rate>%.0f%%", base, th.ErrRateCritical*100),
-				Desc:  fmt.Sprintf("%s 错误率 %.1f%%（阈值 %.0f%%）", componentLabel(base), errRate*100, th.ErrRateCritical*100),
-			}
-			worst = worse(worst, d)
-			details = append(details, d.Desc)
-		} else if errRate >= th.ErrRateWarn {
-			d := Diagnosis{
-				Level: DiagnosisWarn,
-				Code:  fmt.Sprintf("%s:err-rate>%.0f%%", base, th.ErrRateWarn*100),
-				Desc:  fmt.Sprintf("%s 错误率 %.1f%%（阈值 %.0f%%）", componentLabel(base), errRate*100, th.ErrRateWarn*100),
-			}
-			worst = worse(worst, d)
-			details = append(details, d.Desc)
-		}
+		// 唯一语义：复用 sliFromAgg（与 ComputeSLI 同口径），再按 SLO 评估。
+		// 直接构造单指标 SLI 而非调用 ComputeSLI——避免每指标分配 4 个 map。
+		sli := sliFromAgg(c.agg)
 
-		// P99 诊断
-		if p99, ok := c.agg.P99Sec(); ok && c.agg.Count >= th.MinSamples {
-			if p99 >= th.P99Critical {
-				d := Diagnosis{
-					Level: DiagnosisCritical,
-					Code:  fmt.Sprintf("%s:p99>%.0fs", base, th.P99Critical),
-					Desc:  fmt.Sprintf("%s P99 %s（阈值 %.0fs）", componentLabel(base), FormatDuration(p99), th.P99Critical),
-				}
+		// Code/Desc 文案保持旧口径（运维熟悉 + fastCheck 变化检测稳定）
+		if sli.TotalEvents >= th.MinSamples {
+			errRate := float64(sli.BadEvents) / float64(sli.TotalEvents)
+			if errRate >= th.ErrRateCritical {
+				d := Diagnosis{Level: DiagnosisCritical,
+					Code: fmt.Sprintf("%s:err-rate>%.0f%%", base, th.ErrRateCritical*100),
+					Desc: fmt.Sprintf("%s 错误率 %.1f%%（阈值 %.0f%%）", componentLabel(base), errRate*100, th.ErrRateCritical*100)}
 				worst = worse(worst, d)
 				details = append(details, d.Desc)
-			} else if p99 >= th.P99Warn {
-				d := Diagnosis{
-					Level: DiagnosisWarn,
-					Code:  fmt.Sprintf("%s:p99>%.0fs", base, th.P99Warn),
-					Desc:  fmt.Sprintf("%s P99 %s（阈值 %.0fs）", componentLabel(base), FormatDuration(p99), th.P99Warn),
-				}
+			} else if errRate >= th.ErrRateWarn {
+				d := Diagnosis{Level: DiagnosisWarn,
+					Code: fmt.Sprintf("%s:err-rate>%.0f%%", base, th.ErrRateWarn*100),
+					Desc: fmt.Sprintf("%s 错误率 %.1f%%（阈值 %.0f%%）", componentLabel(base), errRate*100, th.ErrRateWarn*100)}
 				worst = worse(worst, d)
 				details = append(details, d.Desc)
+			}
+
+			if sli.LatencyP99 > 0 {
+				if sli.LatencyP99 >= th.P99Critical {
+					d := Diagnosis{Level: DiagnosisCritical,
+						Code: fmt.Sprintf("%s:p99>%.0fs", base, th.P99Critical),
+						Desc: fmt.Sprintf("%s P99 %s（阈值 %.0fs）", componentLabel(base), FormatDuration(sli.LatencyP99), th.P99Critical)}
+					worst = worse(worst, d)
+					details = append(details, d.Desc)
+				} else if sli.LatencyP99 >= th.P99Warn {
+					d := Diagnosis{Level: DiagnosisWarn,
+						Code: fmt.Sprintf("%s:p99>%.0fs", base, th.P99Warn),
+						Desc: fmt.Sprintf("%s P99 %s（阈值 %.0fs）", componentLabel(base), FormatDuration(sli.LatencyP99), th.P99Warn)}
+					worst = worse(worst, d)
+					details = append(details, d.Desc)
+				}
 			}
 		}
 	}

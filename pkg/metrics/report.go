@@ -3,7 +3,6 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"log"
 	"math"
 	"net/url"
 	"os"
@@ -190,36 +189,58 @@ func logGatherError(stage string, err error) {
 	gatherLogSkipped = 0
 	gatherLogLastAt = now
 	if skipped > 0 {
-		log.Printf("[metrics-report] WARN: %s failed: %v ( suppressed %d similar errors in last %s )",
-			stage, err, skipped, logRateLimit)
+		logWarnf("%s failed: %v ( suppressed %d similar errors in last %s )", stage, err, skipped, logRateLimit)
 		return
 	}
-	log.Printf("[metrics-report] WARN: %s failed: %v", stage, err)
+	logWarnf("%s failed: %v", stage, err)
 }
 
 // logRateLimit 同类 gather 错误日志的最小间隔。
 const logRateLimit = time.Minute
 
+// validateRawThresholds 校验【原始配置】里的脏值（负值/NaN/Inf）。
+//
+// 为什么单独校验：normalize() 对 "值 <= 0" 一律回落默认，会把负阈值和 NaN
+// 静默吞掉——运维配置错误无人知晓。零值合法（表示"用默认"），只查显式非0字段。
+func validateRawThresholds(th DiagnosisThresholds) {
+	check := func(name string, v float64) {
+		if v == 0 {
+			return // 零值 = 未配置，合法
+		}
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			logWarnf("%s 阈值非有限数或负数（%v）：该值将被回落为默认值，请检查 yml", name, v)
+		}
+	}
+	check("错误率warn", th.ErrRateWarn)
+	check("错误率critical", th.ErrRateCritical)
+	check("P99warn", th.P99Warn)
+	check("P99critical", th.P99Critical)
+}
+
 // validateThresholds 校验最终生效阈值的 warn < critical 关系。
 func validateThresholds(th DiagnosisThresholds) {
 	check := func(name string, warn, critical float64) {
 		if warn >= critical {
-			log.Printf("[metrics-report] WARN: %s 阈值 warn(%.3f) >= critical(%.3f)，告警级别可能失效，请检查 yml", name, warn, critical)
+			logWarnf("%s 阈值 warn(%.3f) >= critical(%.3f)，告警级别可能失效，请检查 yml", name, warn, critical)
 		}
 	}
 	check("错误率", th.ErrRateWarn, th.ErrRateCritical)
 	check("P99", th.P99Warn, th.P99Critical)
 
-	// 绝对值范围：错误率语义 0~1，配置 >1 等于永不告警（静默失效）；
-	// P99 必须是有限正数（NaN/Inf 会让比较恒 false，告警永不触发）。
-	if th.ErrRateWarn > 1 || th.ErrRateCritical > 1 {
-		log.Printf("[metrics-report] WARN: 错误率阈值应 0~1，当前 warn=%.3f critical=%.3f（>1 将永不告警）",
-			th.ErrRateWarn, th.ErrRateCritical)
+	// 有限数校验：NaN 比较恒 false（静默失效）；Inf/负值会让告警永远命中（刷屏）。
+	finite := func(name string, vals ...float64) {
+		for _, v := range vals {
+			if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+				logWarnf("%s 阈值非有限数或负数（%v）：NaN 会静默失效，Inf/负值会导致告警刷屏", name, v)
+			}
+		}
 	}
-	if math.IsNaN(th.P99Warn) || math.IsInf(th.P99Warn, 0) ||
-		math.IsNaN(th.P99Critical) || math.IsInf(th.P99Critical, 0) {
-		log.Printf("[metrics-report] WARN: P99 阈值非有限数（warn=%v critical=%v），告警将永不触发",
-			th.P99Warn, th.P99Critical)
+	finite("错误率", th.ErrRateWarn, th.ErrRateCritical)
+	finite("P99", th.P99Warn, th.P99Critical)
+
+	// 绝对值范围：错误率语义 0~1，配置 >1 等于永不告警（静默失效）。
+	if th.ErrRateWarn > 1 || th.ErrRateCritical > 1 {
+		logWarnf("错误率阈值应 0~1，当前 warn=%.3f critical=%.3f（>1 将永不告警）", th.ErrRateWarn, th.ErrRateCritical)
 	}
 }
 
@@ -256,7 +277,7 @@ func (r *Reporter) diagnose(s *MetricSnapshot) (d Diagnosis) {
 	if r.hook != nil {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("[metrics-report] WARN: diagnosis hook panic, fallback to default: %v", rec)
+				logWarnf("diagnosis hook panic, fallback to default: %v", rec)
 				d = DiagnoseWithThresholds(s, r.thresholds)
 			}
 		}()
@@ -282,7 +303,7 @@ type ReporterSettings struct {
 // 本函数供无法 import internal 的业务模块用；业务 opts 追加在后（可覆盖设置）。
 func StartWithSettings(st ReporterSettings, opts ...ReporterOption) {
 	if !st.Enabled {
-		log.Println("[metrics-report] WARN: 指标体系总开关关闭（enabled=false），报告器不启动")
+		logWarnln("指标体系总开关关闭（enabled=false），报告器不启动")
 		return
 	}
 	all := []ReporterOption{WithWebhookRoutes(st.Routes), WithDiagnosisThresholds(st.Thresholds)}
@@ -298,8 +319,7 @@ func StartReporter(intervalSec int, opts ...ReporterOption) {
 	// 溢出成负数会被 <=0 分支兜底成 60s（语义错误），溢出成正数则 ticker 异常。
 	maxSec := int(maxReportInterval / time.Second)
 	if intervalSec > maxSec {
-		log.Printf("[metrics-report] WARN: intervalSec=%d 超过上限（%d 秒），钳制为 %d 秒——请检查配置单位（是否误填毫秒）",
-			intervalSec, maxSec, maxSec)
+		logWarnf("intervalSec=%d 超过上限（%d 秒），钳制为 %d 秒——请检查配置单位（是否误填毫秒）", intervalSec, maxSec, maxSec)
 		intervalSec = maxSec
 	}
 	interval := time.Duration(intervalSec) * time.Second
@@ -335,12 +355,17 @@ func StartReporter(intervalSec int, opts ...ReporterOption) {
 			u = strings.TrimSpace(u)
 			host, err := extractWebhookHost(u)
 			if err != nil {
-				log.Printf("[metrics-report] ERROR: 路由 webhook URL 非法，跳过: %v", err)
+				logErrorf("路由 webhook URL 非法，跳过: %v", err)
 				continue
 			}
 			if !IsWeComWebhookHost(host) {
 				// 非企微域名仍可用（私有化部署/测试 server），但与主 webhook 同标准留 WARN
-				log.Printf("[metrics-report] WARN: 路由 webhook 非企微地址 host=%s（私有化/测试环境可忽略）", host)
+				logWarnf("路由 webhook 非企微地址 host=%s（私有化/测试环境可忽略）", host)
+			}
+			// 生产就绪守卫：模板占位 key 静默通过校验会导致推送失败但启动无感知。
+			if isPlaceholderWebhookKey(u) {
+				// 绝不打印完整 URL——webhook key 是敏感凭据，泄露进日志=可被盗用推送。
+				logWarnf("路由 webhook key 疑似占位值（host=%s），生产部署前必须替换真实 key", host)
 			}
 			validUrls = append(validUrls, u)
 		}
@@ -351,7 +376,7 @@ func StartReporter(intervalSec int, opts ...ReporterOption) {
 	}
 	r.routes = routes
 	if len(r.routes) == 0 {
-		log.Println("[metrics-report] WARN: 无有效 webhook 路由，指标报告未启动（群机器人不会收到任何消息）")
+		logWarnln("无有效 webhook 路由，指标报告未启动（群机器人不会收到任何消息）")
 		return
 	}
 	// Gauge 规则 kind 校验：配置错误必须在启动时暴露（未知 kind 的规则会永久失效）。
@@ -362,8 +387,7 @@ func StartReporter(intervalSec int, opts ...ReporterOption) {
 		switch spec.gaugeRule.kind {
 		case gaugeRuleEqZero, gaugeRuleAbove:
 		default:
-			log.Printf("[metrics-report] ERROR: 指标 %s 的 gaugeRule.kind=%q 未知（仅支持 eqZero/above），该规则永久失效",
-				name, spec.gaugeRule.kind)
+			logErrorf("指标 %s 的 gaugeRule.kind=%q 未知（仅支持 eqZero/above），该规则永久失效", name, spec.gaugeRule.kind)
 		}
 	}
 	// 路由类型覆盖检查：fastCheck 只在"进入异常"时即时推送，若无 alert 类型路由，
@@ -384,16 +408,17 @@ func StartReporter(intervalSec int, opts ...ReporterOption) {
 		}
 	}
 	if !hasPeriodic {
-		log.Println("[metrics-report] WARN: webhook 路由未覆盖 periodic 类型，周期体检报告不会推送")
+		logWarnln("webhook 路由未覆盖 periodic 类型，周期体检报告不会推送")
 	}
 	if !hasAlert {
-		log.Println("[metrics-report] WARN: webhook 路由未覆盖 alert 类型，异常即时告警不会推送（静默）")
+		logWarnln("webhook 路由未覆盖 alert 类型，异常即时告警不会推送（静默）")
 	}
 	// 配置校验（大厂标准：启动时快速发现错误配置，不能静默运行）。
 	// 校验 normalize 后的【最终生效值】——只覆盖 warn 而没覆盖 critical 时，
 	// critical 回落默认值可能与 warn 反转（如 P99Warn=10s、critical 默认 5s），
 	// 告警级别将永远失效。只留 WARN 不阻塞启动：报告器是旁路监控，
 	// 不该因阈值配错拖垮主服务。
+	validateRawThresholds(r.thresholds) // 先查原始配置（脏值会被 normalize 静默吞掉）
 	validateThresholds(r.thresholds.normalize())
 	r.wg.Add(1)
 	go r.run()
@@ -453,7 +478,7 @@ func (r *Reporter) pushReportOnce() {
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
 
 	if err := r.push(text, ReportTypePeriodic, diag.Level); err != nil {
-		log.Printf("[metrics-report] WARN: push failed, window kept for retry: %s", err)
+		logWarnf("push failed, window kept for retry: %s", err)
 		r.lastFailAt = time.Now()
 		return
 	}
@@ -499,7 +524,7 @@ func (r *Reporter) fastCheck() {
 	window := r.windowSinceLastPush()
 	text := mergeDiagnosisIntoReport(RenderReport(delta, window, r.instance), diag)
 	if err := r.push(text, ReportTypeAlert, diag.Level); err != nil {
-		log.Printf("[metrics-report] WARN: immediate push failed, will retry: %s", err)
+		logWarnf("immediate push failed, will retry: %s", err)
 		r.lastFailAt = time.Now()
 		return // 现场保留：prev/lastCode 不动，下个巡检点按同一窗口重试
 	}
@@ -552,7 +577,7 @@ func (r *Reporter) push(text, reportType string, level DiagnosisLevel) error {
 	}
 	route, ok := r.matchRoute(reportType, level)
 	if !ok {
-		log.Printf("[metrics-report] WARN: 无匹配路由 type=%s level=%s，跳过推送", reportType, level)
+		logWarnf("无匹配路由 type=%s level=%s，跳过推送", reportType, level)
 		return nil
 	}
 	var errs []string
@@ -589,13 +614,36 @@ func (r *Reporter) windowSinceLastPush() time.Duration {
 	return time.Since(r.lastPushAt)
 }
 
+// isPlaceholderWebhookKey 检测配置模板里的占位 key（防止直接带模板上生产）。
+// 只匹配显式占位标记 + 缺 key，避免误判真实 key（企微 key 是随机串）。
+func isPlaceholderWebhookKey(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	key := strings.ToUpper(u.Query().Get("key"))
+	if key == "" {
+		return true // 缺 key 必无法推送
+	}
+	for _, marker := range []string{"REPLACE", "YOUR_", "EXAMPLE", "PLACEHOLDER", "CHANGE_ME"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // extractWebhookHost 从 URL 提取 host（判是否企微域名）。
 // 用标准库 url.Parse 而非字符串切割：正确处理 userinfo/端口/编码/大小写。
 // 非法 URL 返回 error，调用方据此拒绝启动（配置错误不该静默运行）。
 func extractWebhookHost(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("parse webhook URL: %w", err)
+		// 不走 %w：调用方（buildReporterOptions）直接 %v 打印本 error，
+		// 而 url.Error 的 Error() 带原始 URL（含 key=敏感凭据）→ 日志泄露。
+		// 这里只留错误类型（排障够用：知道是 parse 失败即可）；
+		// 推送路径的 error 则在出口统一经 RedactWebhookError 脱敏。
+		return "", fmt.Errorf("parse webhook URL failed: %T", err)
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return "", fmt.Errorf("webhook URL scheme 必须是 http/https, got %q", u.Scheme)

@@ -102,10 +102,11 @@ metrics:
       urls: ["https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=值班群"]
       mentions: ["zhangsan", "@all"]
   intervalSec: 60
-  errRateWarn: 0.05      # 0 = 用默认
-  errRateCritical: 0.20
-  p99Warn: 1.0
-  p99Critical: 5.0
+  # SLO 目标（服务等级目标，与 SLI 可用性口径一致）
+  availabilityWarn: 0.95       # 低于此可用性告警；0.95 = 原错误率 5%
+  availabilityCritical: 0.80   # 低于此可用性严重；0.80 = 原错误率 20%
+  latencyP99Warn: 1.0          # P99 延迟警告（秒）
+  latencyP99Critical: 5.0      # P99 延迟严重（秒）
   minSamples: 10
   # Gauge 阈值告警（key=指标名，value=above 阈值）：值超过阈值即告警。
   # 不填=用 componentSpecs 内置默认值；改完跑 make update-config 重新生成 struct
@@ -128,16 +129,19 @@ metrics:
 ```go
 pkgmetrics.StartWithSettings(pkgmetrics.ReporterSettings{
     Enabled:     cfg.Metrics.Enabled,
-    WebhookURL:  cfg.Metrics.WebhookURL,
+    Routes:      []pkgmetrics.WebhookRoute{{Types: []string{"periodic", "alert"}, Urls: []string{webhookURL}}},
     IntervalSec: cfg.Metrics.IntervalSec,
     Thresholds:  pkgmetrics.DiagnosisThresholds{ /* 零值字段回落默认 */ },
 }, pkgmetrics.WithDiagnosisHook(myDiagnosisHook))
 
 // 更底层：直接调 StartReporter（框架模板/已自行校验配置的场景）
-pkgmetrics.StartReporter(cfg.MetricsWebhookURL, cfg.MetricsIntervalSec)
+// 推送目标由 WithWebhookRoutes 注入；无有效路由则不启动并留 WARN
+pkgmetrics.StartReporter(cfg.Metrics.IntervalSec,
+    pkgmetrics.WithWebhookRoutes([]pkgmetrics.WebhookRoute{{Urls: []string{webhookURL}}}))
 
 // 需要按业务调阈值时（如支付接口 P99 1s 即严重）：
-pkgmetrics.StartReporter(webhookURL, 60,
+pkgmetrics.StartReporter(60,
+    pkgmetrics.WithWebhookRoutes([]pkgmetrics.WebhookRoute{{Urls: []string{webhookURL}}}),
     pkgmetrics.WithDiagnosisThresholds(pkgmetrics.DiagnosisThresholds{
         P99Warn:     0.5,
         P99Critical: 1.0,
@@ -246,17 +250,21 @@ if err != nil {
 | `cache_hit_total` / `cache_miss_total` | Counter | op（命中率独立计数，不进 result） |
 | `db_query_duration_seconds` | Histogram | op, result |
 | `es_operation_duration_seconds` | Histogram | op, result |
+| `es_connected` | Gauge | cluster：连通性（1=可达，0=不可达，每30s Ping探活，掉0告警） |
 | `query_build_duration_seconds` | Histogram | result |
 
 ### 消息 / 任务
 
 | 指标 | 类型 | labels |
 |------|------|--------|
+| `rabbitmq_connected` | Gauge | url：连接状态（1=已连接，0=断开，掉0告警） |
+| `rabbitmq_reconnect_count_total` | Counter | url, result：重连次数（网络故障信号） |
+| `rabbitmq_queue_messages` | Gauge | queue：队列积压深度（每 30s 采集，下游跟不上信号） |
 | `rabbitmq_publish_duration_seconds` | Histogram | exchange, result |
 | `rabbitmq_consume_duration_seconds` | Histogram | queue, result |
 | `kafka_publish_duration_seconds` | Histogram | topic, result |
 | `kafka_consume_duration_seconds` | Histogram | topic, result |
-| `gows_local_connections` / `gows_remote_uids` | Gauge | WebSocket 连接数与远端 UID 数 |
+| `gows_local_connections` / `gows_remote_uids` | Gauge | —：WebSocket 连接数与远端 UID 数 |
 | `cron_task_duration_seconds` | Histogram | task, result |
 
 ### 基础设施
@@ -265,6 +273,7 @@ if err != nil {
 |------|------|--------|
 | `lock_acquire_duration_seconds` | Histogram | backend, result |
 | `etcd_token_refresh_total` | Counter | result |
+| `etcd_connected` | Gauge | endpoint：grpc 连接状态（1=Ready，30s 本地探活，掉0告警） |
 | `nacos_config_fetch_duration_seconds` | Histogram | result |
 | `nacos_config_callback_total` | Counter | result |
 
@@ -274,34 +283,60 @@ if err != nil {
 |------|------|------|
 | `logger_dropped_entries_total` | Counter | 异步缓冲区满丢弃条数（自定义 Collector） |
 | `logger_router_active_loggers` | Gauge | 活跃 logger 数 |
+| `sms_send_duration_seconds` | Histogram | provider, result：短信外呼耗时（验证码/通知通道故障信号） |
+| `email_send_duration_seconds` | Histogram | provider, result：邮件外呼耗时 |
+| `sentinel_block_total` | Counter | type, result：限流(flow)/熔断(circuit_breaking)拦截次数（P0 容量信号） |
 | `panic_recovered_total` | Counter | component, result：gRPC/gin panic 恢复（P0 盲区补齐） |
 | `request_timeout_total` | Counter | component, result：gRPC/gin 超时（P1 早期劣化信号） |
-| `request_retry_total` | Counter | component：gRPC 重试次数（P1） |
+| `request_retry_total` | Counter | component, result：gRPC 重试次数（P1，result=error 进诊断） |
 | `db_pool_open_connections` / `db_pool_in_use_connections` | Gauge | db：连接池当前状态（P1，InitDB 后自动登记） |
-| `db_pool_wait_count_total` / `db_pool_wait_duration_seconds_total` | Counter | db：等待连接累计次数/时长（连接池耗尽预警） |
+| `db_pool_wait_count_total` / `db_pool_wait_duration_seconds_total` | Counter | db, result：等待连接累计（result=error 进诊断，连接池耗尽预警） |
+| `redis_pool_total_conns` / `redis_pool_idle_conns` | Gauge | pool：Redis 连接池水位 |
+| `redis_pool_wait_count_total` / `redis_pool_wait_duration_seconds_total` / `redis_pool_timeouts_total` | Counter | pool, result：Redis 等待/超时（连接池耗尽预警） |
+| `gogroutine_pool_running` / `gogroutine_pool_capacity` / `gogroutine_pool_waiting` | Gauge | name：协程池水位（waiting>0 = 池饱和信号） |
 | `go_*` | — | GoCollector，仅进 Default（见 §7） |
 | `metrics_reporter_push_total` | Counter | 报告器自监控（见 §8） |
 | `metrics_reporter_last_push_timestamp_seconds` | Gauge | 报告器自监控 |
 
 ---
 
-## 5. 诊断引擎
+## 5. 诊断引擎（SLI/RED 统一数据层 + SLO 独立能力）
 
 窗口增量自动诊断，**无需指标名白名单**——遍历所有组件指标：
 
 ```go
 diag := pkgmetrics.Diagnose(snapshot)                    // 默认阈值
-diag := pkgmetrics.DiagnoseWithThresholds(snapshot, th)  // 自定义阈值
+diag := pkgmetrics.DiagnoseWithThresholds(snapshot, th)  // 配置 DTO（warn/critical 双档）
 ```
 
-### 默认阈值（`DefaultDiagnosisThresholds()`）
+### 核心抽象（大厂 SRE 标准）
 
-| 字段 | 默认 | 含义 |
+| 类型 | 文件 | 职责 |
 |------|------|------|
-| `ErrRateWarn` | 0.05 | 错误率警告 5% |
-| `ErrRateCritical` | 0.20 | 错误率严重 20% |
-| `P99Warn` | 1.0s | P99 警告 |
-| `P99Critical` | 5.0s | P99 严重 |
+| `SLI` | `sli_compute.go` | 服务等级指标：`ComputeSLI(s, scope, windowSec)` 从直方图算可用性/P99/QPS |
+| `RED` | `red_metrics.go` | RED 三元组：`ComputeRED(s, scope, windowSec)`，报告渲染与诊断共用口径 |
+| `SLO` | `slo_evaluate.go` | 服务等级目标：`EvaluateSLO(sli, slo)` 评估达标、错误预算、**BurnRate** |
+| `SLOResult` | `slo_evaluate.go` | 评估结果：达标状态、剩余预算、燃烧速率、告警原因 |
+
+**设计要点（诚实边界）**：
+- 诊断引擎以 **SLI 为统一数据层**（`sliFromAgg` 与 `ComputeSLI` 共用口径），
+  告警判定仍用 `DiagnosisThresholds` 的 **warn/critical 双档**——因为 SLO 是单目标模型，
+  而 webhook 路由需要分级。
+- `DiagnosisThresholds.ToSLO()` 提供 DTO→SLO 转换（errRate 5% → Availability 0.95），
+  供业务方调用 `EvaluateSLO` 时复用，无需自己写映射。
+- **BurnRate 不参与框架告警**：单窗口快照下 BurnRate = 错误率/允许错误率，
+  只是错误率的线性变换，无独立信息量。真正的价值在**多窗口（1h/5m）燃烧率**，
+  需快照历史支撑——框架引入后再接入诊断引擎。业务方可用 `SLOResult.BurnRate`
+  按自身 SLO 目标自行判定。
+
+### 默认 SLO 基线（`DiagnosisThresholds.ToSLO()` 的等价表达）
+
+| 配置字段（yml SLO 语义） | 默认 | 等价旧口径 |
+|------|------|------|
+| `AvailabilityWarn` | 0.95 | `ErrRateWarn` 0.05 |
+| `AvailabilityCritical` | 0.80 | `ErrRateCritical` 0.20 |
+| `LatencyP99Warn` | 1.0s | `P99Warn` 1.0s |
+| `LatencyP99Critical` | 5.0s | `P99Critical` 5.0s |
 | `MinSamples` | 10 | 样本 < 10 不诊断（防偶发单次失败刷告警） |
 
 零值字段自动回落默认值（`normalize`），只覆盖需要的字段即可。

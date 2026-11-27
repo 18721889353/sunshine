@@ -512,3 +512,62 @@ func TestPushToWebhookWithMentions_nil(t *testing.T) {
 		t.Errorf("无 @ 人时不应有 mentioned_list 字段: %s", body)
 	}
 }
+
+// TestValidateThresholds_NegativeAndNaN 负值/NaN 必须留 WARN（防刷屏与静默失效）。
+func TestValidateThresholds_NegativeAndNaN(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	validateRawThresholds(DiagnosisThresholds{ErrRateWarn: -0.1})
+	if !strings.Contains(buf.String(), "非有限数或负数") {
+		t.Errorf("负错误率阈值应告警, got %q", buf.String())
+	}
+	buf.Reset()
+
+	validateRawThresholds(DiagnosisThresholds{P99Warn: math.NaN()})
+	if !strings.Contains(buf.String(), "非有限数或负数") {
+		t.Errorf("NaN P99 阈值应告警, got %q", buf.String())
+	}
+	buf.Reset()
+
+	// 零值（未配置）合法，不应告警
+	validateRawThresholds(DiagnosisThresholds{})
+	if buf.Len() != 0 {
+		t.Errorf("零值配置不应告警, got %q", buf.String())
+	}
+}
+
+// TestIsPlaceholderWebhookKey 生产就绪守卫：占位 key / 缺 key 必须被识别，真实 key 不误判。
+func TestIsPlaceholderWebhookKey(t *testing.T) {
+	cases := []struct {
+		url  string
+		want bool
+	}{
+		{"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=REPLACE_WITH_YOUR_WEBHOOK_KEY", true},
+		{"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY", true},
+		{"https://qyapi.weixin.qq.com/cgi-bin/webhook/send", true}, // 缺 key
+		{"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=693a91f6-7abc-4bd4-b7d1-1234567890ab", false},
+		{"http://127.0.0.1:8080/hook?key=local-test-key", false},
+	}
+	for _, c := range cases {
+		if got := isPlaceholderWebhookKey(c.url); got != c.want {
+			t.Errorf("%q: got %v, want %v", c.url, got, c.want)
+		}
+	}
+}
+
+// TestExtractWebhookHost_NoKeyLeak URL 解析错误不能把原始 URL（含 key）带进日志。
+func TestExtractWebhookHost_NoKeyLeak(t *testing.T) {
+	const secret = "SUPER_SECRET_WEBHOOK_KEY_12345"
+	badURL := "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=" + secret + "\x00invalid"
+
+	_, err := extractWebhookHost(badURL)
+	if err == nil {
+		t.Fatal("非法 URL 应返回错误")
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "key=") {
+		t.Errorf("错误信息不能含 webhook key（会泄露进日志）, got %q", err.Error())
+	}
+}

@@ -93,6 +93,8 @@ func PushToWebhookWithMentions(ctx context.Context, webhookURL, content string, 
 
 	resp, err := webhookClient.Do(req)
 	if err != nil {
+		// 保留 %w 的错误细节（timeout/连接拒绝等排障必需）；
+		// 出口统一经 RedactWebhookError 脱敏，key 不会进日志。
 		return fmt.Errorf("post webhook: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // 关闭响应体的错误不影响结果

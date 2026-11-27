@@ -107,6 +107,7 @@ type Sls struct {
 	Logstore              string `yaml:"logstore" json:"logstore"`
 	MaxBatchCount         int    `yaml:"maxBatchCount" json:"maxBatchCount"`
 	MaxBatchSize          int    `yaml:"maxBatchSize" json:"maxBatchSize"`
+	MinLevel              string `yaml:"minLevel" json:"minLevel"`
 	Project               string `yaml:"project" json:"project"`
 	Retries               int    `yaml:"retries" json:"retries"`
 	SendTimeout           int    `yaml:"sendTimeout" json:"sendTimeout"`
@@ -213,6 +214,18 @@ type ExchangeDeclareOptions struct {
 	Durable    bool `yaml:"durable" json:"durable"`
 	Internal   bool `yaml:"internal" json:"internal"`
 	NoWait     bool `yaml:"noWait" json:"noWait"`
+}
+
+type Metrics struct {
+	AvailabilityCritical float64         `yaml:"availabilityCritical" json:"availabilityCritical"`
+	AvailabilityWarn     float64         `yaml:"availabilityWarn" json:"availabilityWarn"`
+	Enabled              bool            `yaml:"enabled" json:"enabled"`
+	GaugeAbove           GaugeAbove      `yaml:"gaugeAbove" json:"gaugeAbove"`
+	IntervalSec          int             `yaml:"intervalSec" json:"intervalSec"`
+	LatencyP99Critical   float64         `yaml:"latencyP99Critical" json:"latencyP99Critical"`
+	LatencyP99Warn       float64         `yaml:"latencyP99Warn" json:"latencyP99Warn"`
+	MinSamples           int             `yaml:"minSamples" json:"minSamples"`
+	WebhookRoutes        []WebhookRoutes `yaml:"webhookRoutes" json:"webhookRoutes"`
 }
 
 type EtcdRegistry struct {
@@ -364,7 +377,12 @@ type LimitRules struct {
 }
 
 type GaugeAbove struct {
-	DBPoolInUseConnections int `yaml:"db_pool_in_use_connections" json:"db_pool_in_use_connections"`
+	DBPoolInUseConnections   int `yaml:"db_pool_in_use_connections" json:"db_pool_in_use_connections"`
+	GoGoroutines             int `yaml:"go_goroutines" json:"go_goroutines"`
+	GoMemstatsHeapAllocBytes int `yaml:"go_memstats_heap_alloc_bytes" json:"go_memstats_heap_alloc_bytes"`
+	GogroutinePoolWaiting    int `yaml:"gogroutine_pool_waiting" json:"gogroutine_pool_waiting"`
+	RabbitmqQueueMessages    int `yaml:"rabbitmq_queue_messages" json:"rabbitmq_queue_messages"`
+	RedisPoolTotalConns      int `yaml:"redis_pool_total_conns" json:"redis_pool_total_conns"`
 }
 
 type Redis struct {
@@ -454,18 +472,6 @@ type Limit struct {
 
 type Sso struct {
 	EnableSSO bool `yaml:"enableSSO" json:"enableSSO"`
-}
-
-type Metrics struct {
-	Enabled         bool            `yaml:"enabled" json:"enabled"`
-	ErrRateCritical float64         `yaml:"errRateCritical" json:"errRateCritical"`
-	ErrRateWarn     float64         `yaml:"errRateWarn" json:"errRateWarn"`
-	GaugeAbove      GaugeAbove      `yaml:"gaugeAbove" json:"gaugeAbove"`
-	IntervalSec     int             `yaml:"intervalSec" json:"intervalSec"`
-	MinSamples      int             `yaml:"minSamples" json:"minSamples"`
-	P99Critical     float64         `yaml:"p99Critical" json:"p99Critical"`
-	P99Warn         float64         `yaml:"p99Warn" json:"p99Warn"`
-	WebhookRoutes   []WebhookRoutes `yaml:"webhookRoutes" json:"webhookRoutes"`
 }
 
 type EtcdInfo struct {

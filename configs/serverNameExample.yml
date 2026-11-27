@@ -30,7 +30,7 @@ cron:
 
 # goroutine 协程池设置
 goroutine:
-  poolSize: 1000                 # 协程池大小（默认 1000）
+  poolSize: 10000                 # 协程池大小（默认 1000）
   preAlloc: true                 # 是否预分配内存（生产环境推荐开启，减少 GC 压力）
   disablePurge: true             # 是否禁用自动清理（生产环境推荐开启，避免冷启动延迟）
   gracefulShutdown: true         # 是否启用优雅关闭（生产环境推荐开启）
@@ -124,35 +124,44 @@ logger:
 metrics:
   # 指标体系总开关：false 时入口埋点/路由不装配，且报告器一并不启动（零外发流量）
   # 启动时装配，无热更新（旧 app.enableMetrics 已合并到此）
+  # ⚠️ 生产部署必须改为 true（false = 指标/告警全关，Prometheus 也抓不到 /metrics）
   enabled: false
-  # 企业微信群机器人地址（含 key）。留空不启动报告器（不产生任何外发流量）
-  # 非法 URL 会拒绝启动并留 ERROR 日志（配置错误不该静默运行）
   # 推送路由：按顺序先命中先生效 [启动生效]。
+  # urls 含 key；无有效路由（全空或全部非法）不启动报告器并留 WARN（不产生外发流量）
+  # 单条非法 URL 跳过该条并留 ERROR，不影响其他路由（配置错误不该静默运行）
   # types: periodic(周期体检) / alert(异常即时)；levels: ok / warn / critical（二者留空=不限）
   # urls 可多个（同时推送到多个群）；mentions 为企微 userid 或 "@all"
   webhookRoutes:
     - types: [ "periodic" ]
-      urls: [ "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=health" ]
+      urls: [ "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=REPLACE_WITH_YOUR_WEBHOOK_KEY" ]
     - types: [ "alert" ]
       levels: [ "warn", "critical" ]
-      urls: [ "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=onduty" ]
+      urls: [ "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=REPLACE_WITH_YOUR_ONDUTY_KEY" ]
       mentions: [ ]
   # 周期报告间隔（秒）。<=0 取默认 60；<10 钳到 10（企微限频 20 条/分钟）
   intervalSec: 60
-  # 以下为诊断阈值：0 = 使用框架默认基线（见 pkg/metrics.DefaultDiagnosisThresholds）
-  errRateWarn: 0.05            # 错误率警告阈值(0~1), 默认0.05=5%
-  errRateCritical: 0.20        # 错误率严重阈值(0~1), 默认0.20=20%
-  p99Warn: 1.0                 # P99耗时警告阈值(秒), 默认1.0s
-  p99Critical: 5.0             # P99耗时严重阈值(秒), 默认5.0s
-  minSamples: 10               # 最小样本数, 默认10(样本太少错误率不可信, 不诊断防刷告警)
+  # ⚠️ 生产部署前必须替换上面两个 webhook key（占位值会被启动时 WARN）
+  # 以下为 SLO 目标（服务等级目标，与 SLI 可用性口径一致）；0 = 回落框架默认基线
+  availabilityWarn: 0.95       # 可用性警告目标(0~1), 低于此值告警；默认0.95 = 原错误率5%
+  availabilityCritical: 0.80   # 可用性严重目标(0~1), 低于此值严重；默认0.80 = 原错误率20%
+  latencyP99Warn: 1.0          # P99延迟警告目标(秒), 默认1.0s
+  latencyP99Critical: 5.0      # P99延迟严重目标(秒), 默认5.0s
+  minSamples: 10               # 最小样本数, 默认10(样本太少不诊断防刷告警)
   # Gauge 阈值告警（key=指标名, value=above 阈值）：值超过阈值即告警。
-  # 不填=用 componentSpecs 内置默认值；空对象=全部关闭
+  # 不填或空对象=用 componentSpecs 内置默认值（不等于关闭告警）
   gaugeAbove:
-    db_pool_in_use_connections: 100 # 数据库连接池使用连接数超过100即告警
+    db_pool_in_use_connections: 100     # 数据库连接池使用连接数超过100即告警
+    redis_pool_total_conns: 50          # Redis 连接池总连接数超过50即告警（池膨胀=泄漏/配置过大）
+    gogroutine_pool_waiting: 10         # 协程池排队超过10即告警（池饱和=吞吐天花板）
+    go_goroutines: 5000                 # goroutine 总数超过5000即告警（协程泄漏信号）
+    go_memstats_heap_alloc_bytes: 1073741824  # 堆内存超过1GB即告警（内存压力）
+    rabbitmq_queue_messages: 1000       # 队列积压超过1000即告警（下游跟不上）
+    # rabbitmq_connected / es_connected / etcd_connected 走内置 eqZero 规则（掉0即告警），无需在此配置
 
 # 阿里云 SLS 日志服务配置
 sls:
   enable: false                   # 是否启用 SLS 日志上报（生产环境建议启用）
+  minLevel: "warn"                # SLS 上报最低级别: warn及以上(warn/error)进SLS, info/debug只留本地
   endpoint: "cn-shanghai.log.aliyuncs.com"  # SLS Endpoint (根据地域修改，建议与服务器同地域)
   accessKeyId: ""                 # AccessKey ID (建议使用环境变量 SLS_ACCESS_KEY_ID)
   accessKeySecret: ""             # AccessKey Secret (建议使用环境变量 SLS_ACCESS_KEY_SECRET)

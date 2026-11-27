@@ -49,29 +49,46 @@ var componentSpecs = map[string]componentSpec{
 	"cache_operation": {label: "Cache", group: groupData, kind: kindCache},
 	"db_query":        {label: "DB查询", group: groupData, kind: kindDuration},
 	"es_operation":    {label: "ES", group: groupData, kind: kindDuration},
+	"es_connected":    {label: "ES连接", group: groupData, kind: kindGauge, gaugeRule: &gaugeRule{kind: gaugeRuleEqZero, warnLevel: DiagnosisCritical}},
 	"query_build":     {label: "查询条件构建", group: groupData, kind: kindDuration},
 	// 消息/任务
-	"rabbitmq_publish": {label: "RabbitMQ发布", group: groupMsgTask, kind: kindDuration},
-	"rabbitmq_consume": {label: "RabbitMQ消费", group: groupMsgTask, kind: kindDuration},
-	"cron_task":        {label: "定时任务", group: groupMsgTask, kind: kindDuration},
+	"rabbitmq_publish":         {label: "RabbitMQ发布", group: groupMsgTask, kind: kindDuration},
+	"rabbitmq_consume":         {label: "RabbitMQ消费", group: groupMsgTask, kind: kindDuration},
+	"rabbitmq_connected":       {label: "RabbitMQ连接", group: groupMsgTask, kind: kindGauge, gaugeRule: &gaugeRule{kind: gaugeRuleEqZero, warnLevel: DiagnosisCritical}},
+	"rabbitmq_reconnect_count": {label: "RabbitMQ重连次数", group: groupMsgTask, kind: kindCounter},
+	"rabbitmq_queue_messages":  {label: "RabbitMQ队列积压", group: groupMsgTask, kind: kindGauge},
+	"cron_task":                {label: "定时任务", group: groupMsgTask, kind: kindDuration},
 	// 基础设施
 	"lock_acquire":          {label: "分布式锁", group: groupInfra, kind: kindDuration},
 	"nacos_config_fetch":    {label: "Nacos配置拉取", group: groupInfra, kind: kindDuration},
+	"etcd_connected":        {label: "etcd连接", group: groupInfra, kind: kindGauge, gaugeRule: &gaugeRule{kind: gaugeRuleEqZero, warnLevel: DiagnosisCritical}},
 	"etcd_token_refresh":    {label: "etcd token刷新", group: groupInfra, kind: kindCounter},
 	"nacos_config_callback": {label: "Nacos配置回调", group: groupInfra, kind: kindCounter},
+	// 外呼通道（sms/email——业务关键链路，失败业务无感）
+	"sms_send":   {label: "短信外呼", group: groupInfra, kind: kindDuration},
+	"email_send": {label: "邮件外呼", group: groupInfra, kind: kindDuration},
+	// 保护机制（限流/熔断——容量与下游故障的第一信号）
+	"sentinel_block": {label: "限流熔断拦截", group: groupInfra, kind: kindCounter},
 	// 韧性指标（P0/P1 补齐的系统故障信号）
-	"panic_recovered":          {label: "panic恢复", group: groupInfra, kind: kindCounter},
-	"request_timeout":          {label: "请求超时", group: groupInfra, kind: kindCounter},
-	"request_retry":            {label: "请求重试", group: groupInfra, kind: kindCounter},
-	"kafka_publish":            {label: "Kafka发布", group: groupMsgTask, kind: kindDuration},
-	"kafka_consume":            {label: "Kafka消费", group: groupMsgTask, kind: kindDuration},
-	"db_pool_open_connections": {label: "DB连接池总数", group: groupData, kind: kindGauge},
-	"db_pool_in_use_connections": {label: "DB连接池在用", group: groupData, kind: kindGauge,
-		gaugeRule: &gaugeRule{kind: gaugeRuleAbove, threshold: 100, warnLevel: DiagnosisWarn}},
-	"db_pool_wait_count":            {label: "DB连接等待次数", group: groupData, kind: kindCounter},
-	"db_pool_wait_duration_seconds": {label: "DB连接等待时长", group: groupData, kind: kindCounter},
-	"gows_local_connections":        {label: "WebSocket连接", group: groupHTTP, kind: kindGauge},
-	"gows_remote_uids":              {label: "远端UID", group: groupHTTP, kind: kindGauge},
+	"gogroutine_pool_running":          {label: "协程池运行中", group: groupRuntime, kind: kindGauge},
+	"gogroutine_pool_capacity":         {label: "协程池容量", group: groupRuntime, kind: kindGauge},
+	"gogroutine_pool_waiting":          {label: "协程池排队", group: groupRuntime, kind: kindGauge},
+	"panic_recovered":                  {label: "panic恢复", group: groupInfra, kind: kindCounter},
+	"request_timeout":                  {label: "请求超时", group: groupInfra, kind: kindCounter},
+	"request_retry":                    {label: "请求重试", group: groupInfra, kind: kindCounter},
+	"kafka_publish":                    {label: "Kafka发布", group: groupMsgTask, kind: kindDuration},
+	"kafka_consume":                    {label: "Kafka消费", group: groupMsgTask, kind: kindDuration},
+	"db_pool_open_connections":         {label: "DB连接池总数", group: groupData, kind: kindGauge},
+	"db_pool_in_use_connections":       {label: "DB连接池在用", group: groupData, kind: kindGauge, gaugeRule: &gaugeRule{kind: gaugeRuleAbove, threshold: 100, warnLevel: DiagnosisWarn}},
+	"db_pool_wait_count":               {label: "DB连接等待次数", group: groupData, kind: kindCounter},
+	"db_pool_wait_duration_seconds":    {label: "DB连接等待时长", group: groupData, kind: kindCounter},
+	"redis_pool_total_conns":           {label: "Redis连接池总数", group: groupData, kind: kindGauge},
+	"redis_pool_idle_conns":            {label: "Redis连接池空闲", group: groupData, kind: kindGauge},
+	"redis_pool_wait_count":            {label: "Redis连接等待次数", group: groupData, kind: kindCounter},
+	"redis_pool_wait_duration_seconds": {label: "Redis连接等待时长", group: groupData, kind: kindCounter},
+	"redis_pool_timeouts":              {label: "Redis连接等待超时", group: groupData, kind: kindCounter},
+	"gows_local_connections":           {label: "WebSocket连接", group: groupHTTP, kind: kindGauge},
+	"gows_remote_uids":                 {label: "远端UID", group: groupHTTP, kind: kindGauge},
 	// 运行时（gauge，不差分）
 	"go_goroutines":                        {label: "goroutine", group: groupRuntime, kind: kindGauge},
 	"go_memstats_alloc_bytes":              {label: "内存分配", group: groupRuntime, kind: kindGauge},
@@ -245,11 +262,15 @@ func renderDurationLine(label string, agg *DurationAgg, sec float64, breakdown m
 	if agg == nil || agg.Count == 0 {
 		return fmt.Sprintf("  %s: 无样本", label)
 	}
-	qps := float64(agg.Count) / sec
-	errRate := agg.ErrorRate() * 100
-	line := fmt.Sprintf("  %s: QPS %.1f · 错误 %.2f%%", label, qps, errRate)
-	if p99, ok := agg.P99Sec(); ok {
-		line += fmt.Sprintf(" · P99 %s", FormatMs(p99))
+	// 统一走 RED 对象计算（与诊断 ComputeSLI/EvaluateSLO 同源口径）。
+	// 构造单指标快照：ComputeRED 的 scope 是前缀匹配，这里用一个只用一次的临时快照。
+	one := NewMetricSnapshot()
+	one.Durations[label] = agg
+	red := ComputeRED(one, label, sec)
+
+	line := fmt.Sprintf("  %s: QPS %.1f · 错误 %.2f%%", label, red.Rate, red.ErrorRate*100)
+	if red.Duration.P99 > 0 {
+		line += fmt.Sprintf(" · P99 %s", FormatMs(red.Duration.P99))
 	} else if mean := agg.MeanSec(); mean > 0 {
 		line += fmt.Sprintf(" · 均值 %s", FormatMs(mean))
 	}

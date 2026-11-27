@@ -1,9 +1,12 @@
 package config
 
 import (
-	"log"
+	"context"
+	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/18721889353/sunshine/pkg/logger"
 
 	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
@@ -44,7 +47,7 @@ func StartMetricsReporter(opts ...pkgmetrics.ReporterOption) {
 
 // logReportDisabled 记录报告器未启动原因（logger 可能未就绪，直接用标准 log 留痕）。
 func logReportDisabled(reason string) {
-	log.Printf("[metrics-report] WARN: 指标报告未启动: %s", reason)
+	logger.WarnWithCtx(context.Background(), "[metrics-report] 指标报告未启动", logger.String("reason", reason))
 }
 
 // StopMetricsReporter 停止指标报告器并等待在途推送结束（幂等）。
@@ -85,20 +88,44 @@ func buildWebhookRoutes(cfgRoutes []WebhookRoutes) []pkgmetrics.WebhookRoute {
 // MinSamples 由 yml 生成器产出为 int（生成器统一用有符号类型），
 // 这里转 uint64：负数按 0 处理（0 = 用框架默认，见 DiagnosisThresholds.normalize）。
 func buildThresholds(cfg Metrics) (pkgmetrics.DiagnosisThresholds, bool) {
-	th := pkgmetrics.DiagnosisThresholds{
-		ErrRateWarn:     cfg.ErrRateWarn,
-		ErrRateCritical: cfg.ErrRateCritical,
-		P99Warn:         cfg.P99Warn,
-		P99Critical:     cfg.P99Critical,
+	// yml 用 SLO 语言（availability/latency），转成配置 DTO 的 errRate/P99 口径——
+	// 关系：errRate = 1 - availability（0.95 可用性 = 5% 错误率）。
+	// 关键：未配置（0 值）时必须保持 0，不能 1-0=1（那会变成 100% 错误率容忍！）。
+	th := pkgmetrics.DiagnosisThresholds{}
+	// 1.0（100% 可用性目标）→ errRate=0，但 DTO 的 0 值会被 normalize 回落默认——
+	// 用户"零错误容忍"配置会被静默忽略。转成极小值 1e-9 保住语义。
+	const eps = 1e-9
+	// 超范围（>1）配置静默回落会让运维误以为生效——启动时留 WARN。
+	if cfg.AvailabilityWarn > 1 || cfg.AvailabilityCritical > 1 {
+		logger.WarnWithCtx(context.Background(),
+			"[metrics-report] availability 目标应 0~1，超范围值会被忽略",
+			logger.Any("availabilityWarn", cfg.AvailabilityWarn),
+			logger.Any("availabilityCritical", cfg.AvailabilityCritical))
 	}
+	if cfg.AvailabilityWarn > 0 && cfg.AvailabilityWarn <= 1 {
+		err := 1 - cfg.AvailabilityWarn
+		if err == 0 {
+			err = eps
+		}
+		th.ErrRateWarn = err
+	}
+	if cfg.AvailabilityCritical > 0 && cfg.AvailabilityCritical <= 1 {
+		err := 1 - cfg.AvailabilityCritical
+		if err == 0 {
+			err = eps
+		}
+		th.ErrRateCritical = err
+	}
+	th.P99Warn = cfg.LatencyP99Warn
+	th.P99Critical = cfg.LatencyP99Critical
 	if cfg.MinSamples > 0 {
 		th.MinSamples = uint64(cfg.MinSamples)
 	}
 	// GaugeAbove 是 map（DiagnosisThresholds 因此不可比较，不能用 != 判断零值），
 	// 改为显式判断"是否有任何字段被覆盖"——语义与原 != 等价。
 	th.GaugeAbove = buildGaugeAbove(cfg.GaugeAbove)
-	overridden := cfg.ErrRateWarn != 0 || cfg.ErrRateCritical != 0 ||
-		cfg.P99Warn != 0 || cfg.P99Critical != 0 || cfg.MinSamples > 0 ||
+	overridden := cfg.AvailabilityWarn != 0 || cfg.AvailabilityCritical != 0 ||
+		cfg.LatencyP99Warn != 0 || cfg.LatencyP99Critical != 0 || cfg.MinSamples > 0 ||
 		len(th.GaugeAbove) > 0
 	return th, overridden
 }
@@ -114,7 +141,8 @@ func toStringSlice(v []interface{}) []string {
 			out = append(out, s)
 		} else {
 			// 非字符串元素（如误填数字）静默丢弃会让 @人 失效且无感知
-			log.Printf("[metrics-report] WARN: mentions 含非字符串元素 %v（%T），已忽略", item, item)
+			logger.WarnWithCtx(context.Background(), "[metrics-report] mentions 含非字符串元素，已忽略",
+				logger.Any("item", item), logger.Any("type", fmt.Sprintf("%T", item)))
 		}
 	}
 	return out
@@ -139,7 +167,8 @@ func buildGaugeAbove(cfg GaugeAbove) map[string]float64 {
 		val := f.Convert(floatType).Float()
 		if val < 0 {
 			// 负阈值无意义（above 规则会永远命中）——视为未配置，留 WARN
-			log.Printf("[metrics-report] WARN: gaugeAbove 阈值 %s=%v 为负数，已忽略", t.Field(i).Name, val)
+			logger.WarnWithCtx(context.Background(), "[metrics-report] gaugeAbove 阈值为负数，已忽略",
+				logger.String("field", t.Field(i).Name), logger.Any("value", val))
 			continue
 		}
 		// yaml tag 可能带选项（如 ",omitempty"），取逗号前的名字做 key
