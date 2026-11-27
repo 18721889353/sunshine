@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/18721889353/sunshine/pkg/errcode"
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
 )
 
 var (
@@ -246,6 +247,7 @@ func UnaryServerRateLimit(opts ...SentinelOption) grpc.UnaryServerInterceptor {
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, e := sentinel.Entry(resource)
 		if e != nil {
+			pkgmetrics.ObserveSentinelBlock("flow")
 			return nil, errcode.StatusLimitExceed.ToRPCErr("rate limit exceeded")
 		}
 		defer entry.Exit()
@@ -280,6 +282,7 @@ func StreamServerRateLimit(opts ...SentinelOption) grpc.StreamServerInterceptor 
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, err := sentinel.Entry(resource)
 		if err != nil {
+			pkgmetrics.ObserveSentinelBlock("flow")
 			return errcode.StatusLimitExceed.ToRPCErr("rate limit exceeded")
 		}
 		defer entry.Exit()
@@ -317,6 +320,7 @@ func UnaryServerCircuitBreaker(opts ...SentinelOption) grpc.UnaryServerIntercept
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, e := sentinel.Entry(resource)
 		if e != nil {
+			pkgmetrics.ObserveSentinelBlock("circuit_breaking")
 			return nil, errcode.StatusServiceUnavailable.ToRPCErr("circuit breaker triggered")
 		}
 
@@ -360,6 +364,7 @@ func StreamServerCircuitBreaker(opts ...SentinelOption) grpc.StreamServerInterce
 		resource := o.resourceExtractor(info.FullMethod)
 		entry, err := sentinel.Entry(resource)
 		if err != nil {
+			pkgmetrics.ObserveSentinelBlock("circuit_breaking")
 			return errcode.StatusServiceUnavailable.ToRPCErr("circuit breaker triggered")
 		}
 		defer entry.Exit()
@@ -388,6 +393,7 @@ func UnaryClientCircuitBreaker(opts ...SentinelOption) grpc.UnaryClientIntercept
 		resource := o.resourceExtractor(method)
 		entry, err := sentinel.Entry(resource)
 		if err != nil {
+			pkgmetrics.ObserveSentinelBlock("circuit_breaking")
 			return errcode.StatusServiceUnavailable.ToRPCErr("circuit breaker triggered")
 		}
 
@@ -424,6 +430,7 @@ func StreamClientCircuitBreaker(opts ...SentinelOption) grpc.StreamClientInterce
 		resource := o.resourceExtractor(method)
 		entry, err := sentinel.Entry(resource)
 		if err != nil {
+			pkgmetrics.ObserveSentinelBlock("circuit_breaking")
 			return nil, errcode.StatusServiceUnavailable.ToRPCErr("circuit breaker triggered")
 		}
 		defer entry.Exit()

@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.uber.org/zap/zapcore"
-
 	"github.com/18721889353/sunshine/configs"
 	"github.com/18721889353/sunshine/internal/config"
 	"github.com/18721889353/sunshine/internal/database"
@@ -56,6 +54,7 @@ func InitApp() {
 			MaxBatchSize:          cfg.Sls.MaxBatchSize,            // 单个 Batch 最大大小(字节)
 			LingerMs:              cfg.Sls.LingerMs,                // Batch 刷新间隔(毫秒)
 			DisableRuntimeMetrics: cfg.Sls.DisableRuntimeMetrics,   // 禁用运行时指标日志
+			MinLevel:              cfg.Sls.MinLevel,                // SLS 上报最低级别(warn+进SLS, info/debug只留本地)
 			EnableHealthCheck:     cfg.Sls.EnableHealthCheck,       // 从配置文件读取是否启用健康检查
 			HealthCheckInterval:   cfg.Sls.HealthCheckInterval,     // 健康检查间隔(秒)
 			SendTimeout:           cfg.Sls.SendTimeout,             // 发送超时时间(秒)
@@ -95,17 +94,9 @@ func InitApp() {
 			if slsHookInstance == nil {
 				return nil
 			}
-			// 【SLS 上传策略】只上传 Warn 及以上，Info 只落本地文件。
-			// 若某条 Info 确实需要远端留痕，把它改成 Warn 即可。
-			//return logger.WithCustomHooksWithCtx(slsHookInstance.Hook)
-			return logger.WithCustomHooksWithCtx(func(ctx context.Context, entry zapcore.Entry, fields []logger.Field) error {
-				// WarnLevel=1, ErrorLevel=2, DPanicLevel=3, PanicLevel=4, FatalLevel=5
-				// 只放行 Warn 及以上级别到 SLS，Info/Debug 只落本地文件
-				if entry.Level < zapcore.WarnLevel {
-					return nil
-				}
-				return slsHookInstance.Hook(ctx, entry, fields)
-			})
+			// 【SLS 上传策略】级别过滤收敛在 SLSHook 内部（SLSConfig.MinLevel，默认 warn）——
+			// yml sls.minLevel 驱动，业务侧不再硬编码，避免配置与代码双份口径漂移。
+			return logger.WithCustomHooksWithCtx(slsHookInstance.Hook)
 		}(),
 		// 日志路由配置 - 支持按模块/级别动态路由到不同文件
 		logger.WithRoutes(func() []*logger.RouteConfig {

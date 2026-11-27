@@ -42,6 +42,11 @@ type SLSConfig struct {
 	HealthCheckInterval int  // 健康检查间隔(秒)，默认 30 秒
 	SendTimeout         int  // 预留字段：发送超时（秒）；SDK ProducerConfig 未暴露对应项，当前仅做取值校验、不影响发送
 	SkipVerify          bool // 是否跳过启动时的 Producer 就绪校验，默认 false；校验已不再向 LogStore 写入测试日志，故无需为“避免污染”而显式置 true
+
+	// MinLevel SLS 上报最低级别（默认 "warn"）。
+	// 口径：warn 及以上（warn/error/panic/fatal）上报 SLS；info/debug 只留本地文件。
+	// 本地输出不受此字段影响（仍按 logger 的 Level 配置），仅控制 SLS 上报门槛。
+	MinLevel string
 }
 
 // SLS Hook 预定义静态 key，避免每次调用分配字符串
@@ -92,6 +97,14 @@ type SLSHook struct {
 //	}
 //	logger.Init(logger.WithCustomHooksWithCtx(hook.Hook))
 func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
+	if config == nil {
+		return nil, fmt.Errorf("SLS 配置不能为 nil")
+	}
+	if config.MinLevel != "" {
+		if _, err := zapcore.ParseLevel(config.MinLevel); err != nil {
+			return nil, fmt.Errorf("SLS minLevel 配置无效 %q: %w（可选 debug/info/warn/error）", config.MinLevel, err)
+		}
+	}
 	if config.Endpoint == "" || config.AccessKeyID == "" || config.AccessKeySecret == "" {
 		return nil, fmt.Errorf("SLS 配置不完整: endpoint、accessKeyId 和 accessKeySecret 为必填项")
 	}
@@ -213,12 +226,33 @@ func NewSLSHook(config *SLSConfig) (*SLSHook, error) {
 	return hook, nil
 }
 
-// Hook 实现 CustomHookWithCtx 接口，将日志发送到阿里云 SLS
+// shouldSend 判断该级别是否上报 SLS。
+// MinLevel 为空默认 "warn"（warn/error/panic/fatal 上报，info/debug 只留本地）。
+// 未知 MinLevel 配置按 warn 处理（宁可少报不误报全量）。
+func (h *SLSHook) shouldSend(level zapcore.Level) bool {
+	minLevel := "warn"
+	if h.config != nil && h.config.MinLevel != "" {
+		minLevel = h.config.MinLevel
+	}
+	minLvl, err := zapcore.ParseLevel(minLevel)
+	if err != nil {
+		minLvl = zapcore.WarnLevel
+	}
+	return level >= minLvl
+}
+
+// Hook 实现 CustomHookWithCtx 接口，将日志发送到阿里云 SLS（MinLevel 以下级别跳过）。
 func (h *SLSHook) Hook(_ context.Context, entry zapcore.Entry, fields []Field) error {
 	// 关闭过程中（StateStopping/StateStopped）拒绝再入发送：Close() 里 printCloseStats
 	// 会经由本 hook 记录统计日志，若继续向已关闭的 producer 发送将反复失败并无意义地
 	// 抢占 errorMu（甚至与持有者构成自锁），故此处直接放行不发送。
 	if state := h.getCurrentState(); state == StateStopping || state == StateStopped {
+		return nil
+	}
+
+	// 级别过滤：MinLevel 以下（默认 info/debug）只留本地，不上报 SLS——
+	// 普通日志本地排查够用，warn+ 才是需要云端检索/告警的信号，节省 SLS 流量成本。
+	if !h.shouldSend(entry.Level) {
 		return nil
 	}
 

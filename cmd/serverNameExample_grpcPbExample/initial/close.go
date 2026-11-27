@@ -42,10 +42,11 @@ func Close(servers []app.IServer) []app.Close {
 		})
 	}
 
-	// close etcd client (stop token refresh goroutine)
+	// close etcd client (stop token refresh + connection monitor goroutines)
 	if etcdClient != nil {
 		closes = append(closes, func() error {
 			etcdcli.StopTokenRefresh(etcdClient)
+			etcdcli.StopConnMonitor(etcdClient)
 			return etcdClient.Close()
 		})
 	}
@@ -57,6 +58,11 @@ func Close(servers []app.IServer) []app.Close {
 			return nil
 		})
 	}
+
+	// 停止 ES 健康监控 goroutine（优雅停机，不让它继续 Ping/写日志）
+	closes = append(closes, func() error {
+		return database.CloseElasticsearch()
+	})
 
 	// close tracing
 	if config.Get().App.EnableTrace {

@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	pkgmetrics "github.com/18721889353/sunshine/pkg/metrics"
+
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 
 	"github.com/natefinch/lumberjack"
@@ -164,6 +166,12 @@ func Init(opts ...Option) (*zap.Logger, error) {
 			fmt.Printf("sync logger error: %v\n", syncErr)
 		}
 	}
+
+	// 注入报告器日志出口：让 pkg/metrics 的报告日志走结构化 logger（进 SLS/requestID）。
+	// 依赖倒置：pkg/metrics 不 import logger（避免循环依赖），由 logger 侧注入。
+	pkgmetrics.SetLogWarnFn(func(msg string) {
+		WarnWithCtx(context.Background(), msg)
+	})
 
 	return zapLog, nil
 }

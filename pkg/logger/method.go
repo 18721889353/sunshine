@@ -2,6 +2,7 @@ package logger
 
 import (
 	"context"
+	stdlog "log"
 	"runtime"
 	"strings"
 	"sync"
@@ -144,13 +145,28 @@ func logWithCtx(ctx context.Context, level zapcore.Level, msg string, fields ...
 	return allFields
 }
 
-// executeHooksIgnoreError 执行自定义 Hook，忽略错误
-// 日志系统的内部错误不应影响主日志写入流程
+// executeHooksIgnoreError 执行自定义 Hook，忽略错误与 panic。
+//
+// 大厂标准：日志系统绝不能崩业务。Hook 是业务/第三方注入的代码
+// （如 SLS 上报），一旦 panic（如 slsFieldValue 遇到特殊类型），
+// 必须在此兜住——否则会穿透日志调用栈崩掉业务 goroutine。
 func executeHooksIgnoreError(ctx context.Context, level zapcore.Level, msg string, fields []Field) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			// 不用 logger 自己记日志（会递归触发 hook）；走标准库，且限频避免风暴。
+			logHookPanicOnce.Do(func() {
+				stdlog.Printf("[logger] custom hook panic recovered: %v", rec)
+			})
+		}
+	}()
 	if err := ExecuteCustomHooksWithCtx(ctx, level, msg, fields...); err != nil {
 		return // Hook 错误不阻塞业务，静默丢弃
 	}
 }
+
+// logHookPanicOnce Hook panic 日志只打一次——业务高频日志场景下 panic 会反复触发，
+// 每条都打标准库日志反而拖慢业务（防日志风暴）。
+var logHookPanicOnce sync.Once
 
 // ==================== 强制使用 Context 的日志方法 ====================
 

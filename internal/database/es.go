@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/18721889353/sunshine/internal/config"
@@ -16,8 +17,11 @@ var (
 	esClient *es.Client
 	// esOnce 确保ES客户端只初始化一次
 	esOnce sync.Once
-	// initCtx 初始化阶段使用的 context
+	// initCtx 初始化阶段使用的 context（仅用于日志，不可取消）
 	initCtx = context.Background()
+	// esMonitorCancel 停止 ES 健康监控 goroutine（优雅停机用）。
+	// 用 atomic.Pointer 避免 Init/Close 并发读写 data race。
+	esMonitorCancel atomic.Pointer[context.CancelFunc]
 )
 
 // InitElasticsearch 初始化Elasticsearch客户端
@@ -91,6 +95,12 @@ func InitElasticsearch() *es.Client {
 		}
 	}
 
+	// 连接健康监控：定期 Ping 记录连通性（30s 一次）。
+	// 用独立可取消 ctx（不能用 initCtx=Background，否则优雅停机时 monitor 无法停止）。
+	monitorCtx, cancel := context.WithCancel(context.Background())
+	esMonitorCancel.Store(&cancel)
+	es.StartHealthMonitor(monitorCtx, client, 30*time.Second)
+
 	logger.InfoWithCtx(initCtx, "elasticsearch client initialized successfully")
 	return client
 }
@@ -105,8 +115,14 @@ func GetElasticsearch() *es.Client {
 	return esClient
 }
 
-// CloseElasticsearch 关闭ES客户端（空实现，仅为了保持接口一致性）
+// CloseElasticsearch 停止 ES 健康监控。
+// ES 客户端本身是轻量封装（无独立连接资源需释放），但监控 goroutine
+// 必须在优雅停机时停止——否则进程退出前仍会 Ping 并写日志。
 func CloseElasticsearch() error {
+	if p := esMonitorCancel.Load(); p != nil {
+		(*p)()
+		esMonitorCancel.Store(nil)
+	}
 	logger.InfoWithCtx(initCtx, "elasticsearch client closed")
 	return nil
 }

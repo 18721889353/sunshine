@@ -96,23 +96,21 @@ if err != nil {
 }
 defer hook.Close()
 
-// 注册 Hook（只上报 Warn 及以上）
+// 注册 Hook：级别过滤由 SLSConfig.MinLevel 驱动（默认 "warn"，Info/Debug 只留本地）
+// 业务侧无需再包一层过滤——单一口径由 Hook 内部收敛，yml sls.minLevel 可调。
 logger.Init(
-    logger.WithCustomHooksWithCtx(func(ctx context.Context, entry zapcore.Entry, fields []logger.Field) error {
-        if entry.Level < zapcore.WarnLevel {
-            return nil // Info/Debug 不上报 SLS
-        }
-        return hook.Hook(ctx, entry, fields)
-    }),
+    logger.WithCustomHooksWithCtx(hook.Hook),
 )
 ```
+
+`SLSConfig.MinLevel` 取值：`debug` / `info` / `warn`（默认）/ `error`，低于该级别的日志不上报 SLS（本地输出不受影响）。
 
 > **就绪校验不写测试日志**：`NewSLSHook` 启动时的 `verifyProducerState` 只校验 producer 句柄/状态，
 > 不会向 LogStore 写入 `health-check` 测试日志（历史上会污染生产数据，且因 `SendLog` 异步属假验证，已移除）。
 >
 > **级别门控说明**：带 ctx 的钩子（`customHooksWithCtx`）现与 zap core 上的 `customHooks` 行为一致，
 > 仅当该日志级别被 `Core().Enabled(level)` 启用时才会执行——即 `WithLevel("info")` 下 `DebugWithCtx` 不会触发 SLS 上报，
-> 也不会产生字段提取分配。上述 `entry.Level < zapcore.WarnLevel` 的包裹仍是「只上报 Warn 及以上」所需的最小过滤。
+> 也不会产生字段提取分配。级别过滤已收敛到 `SLSHook.shouldSend`（按 `SLSConfig.MinLevel`，默认 warn），业务侧无需包裹。
 
 ### 优雅关闭
 

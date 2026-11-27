@@ -66,3 +66,12 @@ var loggerCollectorInstance = NewLoggerCollector()
 func init() {
 	pkgmetrics.MustRegister(loggerCollectorInstance)
 }
+
+// RegisterPrometheus 兼容旧调用的空操作（指标已由 init 自动注册）。
+//
+// 保留而非删除：这是导出 API，外部项目可能仍显式调用。直接删除会让
+// 下游编译失败——兼容 shim 成本极低，收益是零破坏升级。
+// MustRegister 幂等（重复注册同实例静默忽略），即便为真实现也无副作用。
+//
+// Deprecated: 无需调用，init 已自动注册到统一中心（Default + Fast）。
+func RegisterPrometheus() {}
